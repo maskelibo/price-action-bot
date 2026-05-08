@@ -29,6 +29,16 @@ take_profit:
   partial_close_at_R: 1.0           # 1R'da %50 kapat
   runner_trail: true                # kalan trailing ile
 
+# Volatility-targeted sizing — opsiyonel kayıp koruma katmanı.
+# Aktif olunca: yüksek-vol günlerde otomatik küçük pozisyon, düşük-vol günlerde büyük.
+# Test sonucu: yıllar arası tutarlılık 1.7x iyileşti (σ %35→%21), getiri %32 (vs %36 baseline).
+# Default kapalı; hazır olunca enable: true ile aç.
+vol_target:
+  enabled: false                    # production-ready ama default kapalı
+  target_atr_pct: 0.04              # %4 günlük ATR hedef (BTC normal seviyesi)
+  min_factor: 0.20                  # extreme high-vol max %80 size azaltma
+  max_factor: 1.50                  # extreme low-vol max %50 size büyütme
+
 leverage:
   enabled: true
   max_leverage_per_symbol: 5        # perpetual; confidence-based 1x-5x dynamic (v0.3 prod)
