@@ -514,6 +514,498 @@ del logs\execution\paper_state_faz6.json
 - [ ] Mikro sermaye (örn. $200) — risk per trade %1 = $2
 - [ ] İnsan principal her gün ilk 2 hafta brief'i okur
 
+---
+
+## Faz 7 — Mikro Canlı Operations Playbook
+
+> Bu bölüm Faz 6 paper trading 4 hafta başarıyla tamamlandıktan sonra okunur.
+> Hiçbir adımı atlatma. Her check kutusu insan onayı gerektirir.
+
+### A. Pre-flight Kontrol (Faz 6 → 7 Geçiş Kriterleri)
+
+Aşağıdaki her madde PASS olmadan sistemi CANLI AÇMA.
+
+```bash
+# Otomatik kontrol (tüm kriterleri tek komutla çalıştır)
+PYTHONPATH=src python scripts/faz7_preflight.py
+```
+
+Manuel kontrol listesi:
+
+- [ ] **4 hafta tamamlandı** — `paper_status_report.py` çıktısında `"four_weeks_done": true`
+- [ ] **P&L sapması < %20** — Gerçek aylık getiri, backtest beklentisi (%5.6/ay) ile <%20 farklı
+- [ ] **Slippage gerçekçilik kontrolü** — Paper ortalama slippage bps, backtest 5 bps varsayımından <%100 sapıyor mu? (2x üstü → sorun; `paper_status_report.py --json` ile kontrol et)
+- [ ] **Kill-switch testi yapıldı** — `pa ops halt` → sistem durdu → `pa ops resume` → sistem devam etti — her ikisi de kayıt altında
+- [ ] **Telegram CRIT alarm calıştı** — En az 1 kez gerçek breaker tetiklenip Telegram mesajı geldi
+- [ ] **Manifest hash** — Her paper trade kaydında `manifest_hash` alanı dolu (DuckDB journal sorgula)
+- [ ] **Postgres journal aktif** — `docker compose ps` postgres UP, audit trail sorgusu çalışıyor
+- [ ] **İnsan principal taahhüdü** — İlk 2 hafta her sabah CEO brief'i insan tarafından okunacak (kalender'a yaz)
+
+Preflight başarısız çıktıysa Faz 7'ye geçme. Nedenini düzelt, tekrar çalıştır.
+
+---
+
+### B. Binance LIVE API Setup
+
+> UYARI: Testnet anahtarları ile mainnet anahtarlarını ASLA karıştırma.
+> Testnet key mainnet'te 0 bakiye döndürür, mainnet key testnet'te çalışmaz.
+
+#### B.1 API Key Oluşturma
+
+1. https://www.binance.com → Profil → API Management → "Create API"
+2. Label: `price-action-faz7` (tanımlayıcı bir isim)
+3. **API Key Type: System Generated**
+4. E-posta / 2FA doğrulama tamamla
+5. "IP Access Restriction" → **"Restrict access to trusted IPs only"** → sunucu IP'ni ekle (VPS veya sabit ev IP'n)
+6. İzinler: sadece **"Enable Spot & Margin Trading"** işaretle
+   - "Enable Withdrawals" → **KAPALI BIRAK** (güvenlik: bot para çekemez)
+   - "Enable Futures" → Faz 7 başlangıcı için KAPALI (önce spot test)
+   - Read-only ayrı key mi lazım? Monitoring için ikinci bir key oluşturabilirsin
+
+#### B.2 Spot vs USD-M Perp Seçimi
+
+| Özellik | Spot | USD-M Perp |
+|---|---|---|
+| Leverage | 1x (kaldıraçsız) | 1x-5x dinamik |
+| Funding Rate | Yok | Her 8 saat |
+| Likidasyon Riski | Yok | Var (%50 margin safety zorunlu) |
+| Faz 7 başlangıç önerisi | **EVET — daha güvenli** | Lev >1x istiyorsan |
+
+> **Faz 7 Tavsiyesi:** İlk ay Spot ile başla (leverage=1x). Sistem gerçek ortamda
+> davranışını kanıtlasın. 2. aydan itibaren Futures açabilirsin.
+
+#### B.3 Futures (USD-M Perp) Açmak İstiyorsan
+
+```
+Binance → Futures → Aç → Uyarıları kabul et
+API Management → Key'e "Enable Futures" ekle
+.env → PA_LIVE_USE_FUTURES=true
+```
+
+Ancak: leverage >1x için margin_safety_ratio=%50 (`configs/risk.yaml`) zorunlu.
+Likidasyon fiyatı her zaman entry'den en az %50 uzakta olmalı.
+
+#### B.4 Güvenlik Checklist
+
+- [ ] IP restriction aktif (sadece runner IP)
+- [ ] 2FA hesap düzeyinde aktif (Google Authenticator / Yubikey)
+- [ ] Withdrawal disable (API üzerinden para çekilemiyor)
+- [ ] API secret sadece `.env` dosyasında — Git history'e girmiyor
+- [ ] `.env` dosyası `.gitignore` içinde → `git status` ile kontrol et
+
+---
+
+### C. Sermaye Protokolü
+
+> Bu bölüm para transferi ve kayıp toleransı konusundadır. Her madde bilinçli kararla yapılmalı.
+
+#### C.1 Başlangıç Transferi
+
+- Mikro başlangıç: **$200 USDT** (banka hesabından ayrı bir Binance hesabına — veya ayrı bir sub-account)
+- Bu $200 piyasada kaybedilebilir. Hayat standardını etkilemeyecek bir miktar olmalı.
+- Binance sub-account önerisi: Ana hesap ile Faz 7 hesabı ayrı olsun (risk izolasyonu).
+
+#### C.2 Risk Per Trade — Faz 7 Defansif Başlangıç
+
+| Faz | Risk/Trade | Neden |
+|---|---|---|
+| Faz 6 Paper | %2 | Backtest production config |
+| **Faz 7 Başlangıç** | **%1** | **Canlı ortam bilinmezleri — DAHA SIKI başla** |
+| Faz 7 → 3 ay sonra | %1.5 | DD < %20 ise kademe |
+| Faz 7 → 6 ay sonra | %2 | Paper'daki seviye — sadece track record varsa |
+
+$200 × %1 = **$2 maksimum kayıp per trade** (SL'e kadar)
+
+> Neden paper'dan daha sıkı? Gerçek piyasada slippage, funding rate, network
+> latency ve psikoloji backtesti ezer. İlk aylarda sisteme güven kazandır.
+
+#### C.3 Leverage Limiti — Faz 7
+
+```yaml
+# Faz 7 başlangıcı için configs/risk.yaml override
+leverage:
+  max_leverage_per_symbol: 3   # Faz 7 ilk 3 ay (paper'daki 5x yerine 3x)
+  # 3 ay sonra 5x'e çık — sadece DD < %20 ise
+```
+
+Notional maksimum (5x ile): $200 × %1 risk × leverage/sl_distance formülü.
+Ancak tek pozisyon notional'i $1,000'i geçmemeli (equity'nin 5x'i hard limit).
+
+#### C.4 Withdrawal Protokolü
+
+- **$250 eşiği:** Hesap $250'a ulaştığında ilk %20'yi geri çek ($50)
+- Çekilen para geri konmaz — kâr realize edildi, sisteme devam et kalan ile
+- **$300 eşiği:** Tekrar %20 çek ($60) → banka hesabına
+- Bu protokol psikolojik öneme sahip: gerçek para görmek motivasyon verir
+
+#### C.5 ASLA Yapma
+
+- Kayıp sonrası ek sermaye koyma ("averaging down" trapı)
+- Paper'daki $10K beklentisini $200'e ölçekleme (lineer değil — psikoloji farklı)
+- Breaker tetiklendiğinde override etme — sistem duyduysa sebebi var
+
+---
+
+### D. .env LIVE Konfigürasyonu
+
+Mevcut `.env` dosyasını aşağıdakilerle güncelle. Testnet key'leri SİLME — yorum satırına al:
+
+```bash
+# === FAZ 7: CANLI MOD ===
+
+# Çalışma modu — live olarak değiştir
+PA_RUN_MODE=live
+
+# Explicit onay — bu satır olmadan sistem live emir atmaz
+PA_LIVE_CONFIRM=YES_I_KNOW
+
+# Binance MAINNET anahtarları (testnet değil!)
+BINANCE_API_KEY=<mainnet_api_key_buraya>
+BINANCE_API_SECRET=<mainnet_api_secret_buraya>
+BINANCE_TESTNET=false
+
+# Live sermaye
+PA_LIVE_INITIAL_CAPITAL=200
+
+# Faz 7 defansif risk — paper'daki %2'den DAHA SIKI başla
+PA_LIVE_RISK_PER_TRADE=0.01
+
+# Faz 7: leverage max 3x (3 ay sonra 5x'e çık)
+PA_LIVE_MAX_LEVERAGE=3
+
+# Testnet key'leri devre dışı bırak (silme — Faz 6'ya dönüş gerekirse lazım)
+# BINANCE_TESTNET_API_KEY=...
+# BINANCE_TESTNET_API_SECRET=...
+```
+
+> KRITIK: `.env` dosyası Git'e girmesin. Kontrol et:
+> ```bash
+> git status  # .env görünmemeli
+> git check-ignore -v .env  # ".gitignore:X:.env" çıktısı beklenir
+> ```
+
+---
+
+### E. İlk Hafta Protokolü
+
+İlk 7 gün sistem "yürüyüş testi" modunda. Fazla işlem bekleme — temiz veri topla.
+
+#### E.1 Her Sabah Rutini (Zorunlu — İlk 2 Hafta)
+
+```bash
+# 1. CEO brief oku (2-3 dk)
+PYTHONPATH=src python scripts/llm_orchestrator.py --mode daily-brief
+# Raporlar: reports/ceo/YYYY-MM-DD-brief.md
+
+# 2. Açık pozisyon durumuna bak
+PYTHONPATH=src python scripts/paper_status_report.py   # live için yakında live_status_report
+
+# 3. Breaker durumu kontrol et
+PYTHONPATH=src python scripts/breaker_monitor.py --status
+```
+
+#### E.2 Trade Limiti
+
+| Hafta | Max Trade/Hafta | Neden |
+|---|---|---|
+| Hafta 1 | 5 | Sample küçük tut — her trade'i elle incele |
+| Hafta 2 | 7 | Sistem güven kazandıysa |
+| Hafta 3+ | Sınırsız (strateji sinyaline bırak) | Track record var |
+
+İlk 5 işlem içinde 3 kayıp görürsen → DUR. Sbab araştır, devam etme.
+
+#### E.3 Her Trade İçin After-Action Review
+
+Her kapanan trade sonrası:
+
+```bash
+PYTHONPATH=src python scripts/llm_orchestrator.py --mode post-mortem --trade-id live-faz7-<id>
+```
+
+- Analyst ajanı: entry timing, slippage, R-multiple gerçek vs beklenti
+- Sapma > %50 → Lab'a ilet, sistemi durdur, incele
+
+#### E.4 DD Alarm Eşikleri
+
+| Eşik | Tepki |
+|---|---|
+| DD %3 | Telegram INFO uyarısı — izle |
+| DD %5 | Breaker tetiklenir → Sistem otomatik durur → İnsan manuel incele |
+| DD %7 | Sistemi açma — önce yazılı post-mortem |
+| DD %10 | Hafta kapatıldı — o hafta yeni pozisyon yok |
+
+```bash
+# Breaker sonrası MANUEL inceleme olmadan AÇMA
+PYTHONPATH=src python scripts/breaker_monitor.py --reset
+# "YES" yazarak onayla — bu onay "incelediğimi teyit ediyorum" anlamına gelir
+```
+
+#### E.5 Telegram Alarm Kontrol Listesi
+
+Her aşağıdaki olay Telegram'a mesaj atmalı:
+
+- [ ] Yeni pozisyon açıldı (LONG/SHORT, sembol, fiyat, leverage)
+- [ ] Pozisyon kapandı (TP/SL, P&L, R-multiple)
+- [ ] Breaker tetiklendi (CRIT seviye)
+- [ ] Günlük brief tamamlandı
+- [ ] Sistem başladı / durdu
+
+Telegram mesajı gelmiyorsa sistemi AÇIK BIRAKMA — kör uçuyorsun.
+
+---
+
+### F. Aylık Review + Ölçek Protokolü
+
+Her ay sonunda Analyst ajanı ile gözden geçir:
+
+```bash
+PYTHONPATH=src python scripts/llm_orchestrator.py --mode weekly-summary
+# (haftalık summary — aylık için 4 haftalık özet al)
+```
+
+#### F.1 Performans Değerlendirme Matrisi
+
+| Aylık Sapma | Karar |
+|---|---|
+| > %30 (beklentiden kötü) | 1 ay daha bekle, sermaye artırma, nedeni araştır |
+| %20–%30 sapma | Devam et ama leverage artırma; 1 ay daha gözlem |
+| < %20 sapma (iyi aralık) | Sermaye %50 artır: $200 → $300 |
+| < %10 sapma (harika) | Sermaye %100 artır: $200 → $400 |
+
+Sapma = `abs(gerçek_getiri - beklenen_getiri) / beklenen_getiri`
+
+#### F.2 Risk Per Trade Kademe Planı
+
+```
+Başlangıç (Faz 7, Ay 1-3):  %1  — defansif
+3. aydan sonra (DD < %20):   %1.5 — orta
+6. aydan sonra (DD < %20):   %2  — production config
+```
+
+> Önemli: Risk arttırma kararı sayısal — "hissediyorum iyi gidiyor" değil.
+> DuckDB journal'dan gerçek DD değerini çek, karar ver.
+
+#### F.3 Sermaye Büyüme Planı
+
+```
+Ay  1-3:  $200 (değiştirme)
+Ay  4:    $300 (sapma < %20 ise +%50)
+Ay  7:    $500 (sapma < %20 ise +%67)
+Ay 10:    $800 (sapma < %20 ise +%60)
+Ay 13:    $1,200 (Faz 8 eşiği)
+```
+
+Her adımda ilave sermaye banka hesabından gelir — sisteme yeniden yatırım değil.
+
+---
+
+### G. Acil Durum Protokolü
+
+> Panik yaparken doğru karar alınmaz. Bu adımlar soğukkanlılıkla takip edilir.
+
+#### G.1 Kill-Switch Tetikleme
+
+```bash
+# Sistemi DERHAL durdur
+pa ops halt
+
+# Veya doğrudan:
+PYTHONPATH=src python scripts/breaker_monitor.py --force-halt
+
+# Kill-switch dosyası güncellenir:
+# logs/kill_switch.json → {"active": true, "reason": "manual_halt", ...}
+```
+
+#### G.2 Manuel Pozisyon Kapatma
+
+Sistem dursa da açık pozisyonlar exchange'de kalır. Manuel kapat:
+
+```
+Binance → Futures/Spot → Pozisyonlar → Her birini manuel kapat (Market order)
+```
+
+Alternatif (script varsa):
+```bash
+PYTHONPATH=src python -c "
+from price_action.execution.order_manager import OrderManager
+# MVP: Bu placeholder — live broker implement edildiğinde flattenAll() çağrısı
+print('Manual close required via Binance web/app')
+"
+```
+
+> NOT: `order_manager.py`'deki `_maybe_place_protective_orders` şu an placeholder.
+> Live broker implementasyonu tamamlanana kadar pozisyon kapatma Binance UI'dan yapılır.
+
+#### G.3 Audit Trail Export
+
+```bash
+# DuckDB journal'ı CSV'ye aktar
+duckdb data/paper_journal.duckdb -c "COPY (SELECT * FROM paper_trades) TO 'exports/faz7_audit_$(date +%Y%m%d).csv' (HEADER, DELIMITER ',')"
+
+# Postgres journal backup
+docker compose exec postgres pg_dump price_action > exports/faz7_postgres_$(date +%Y%m%d).sql
+```
+
+#### G.4 Post-Mortem Protokolü
+
+Acil durdurma sonrası 24 saat içinde:
+
+```bash
+PYTHONPATH=src python scripts/llm_orchestrator.py --mode crit-alarm --reason "Emergency halt — post-mortem başlıyor"
+```
+
+Post-mortem soruları:
+1. Hangi trade / sinyal tetikledi?
+2. Slippage beklentinin kaç katıydı?
+3. Breaker eşiği doğru muydu?
+4. Kod mu yoksa piyasa koşulu mu?
+
+**Sebep netleşmeden sistemi tekrar açma.** "Bir daha olmaz" geçerli sebep değil.
+
+---
+
+### H. Beklentiler vs Gerçeklik
+
+> Backtest rakamları laboratuvar koşullarında. Gerçek piyasa farklıdır.
+
+#### H.1 Neden Backtest > Gerçek?
+
+| Sorun | Backtest Varsayımı | Gerçek Etki |
+|---|---|---|
+| Slippage | 5 bps sabit | 5–50 bps arası (volatile piyasada daha fazla) |
+| Funding rate | 0 | Her 8 saatte %0.01–0.1 (uzun vadede %15-30/yıl maliyet) |
+| Downtime | %0 | Sunucu çökmesi, network, API limit |
+| Lookahead bias | Yok (kontrollü) | Olası gerçek sinyal gecikmesi |
+| Borrow/short kısıtı | Yok | Spot shortlama yok, perp gerekir |
+| Psikoloji | Yok | Manuel müdahale → kuralları kırma riski |
+
+#### H.2 Realist ROI Tablosu
+
+Backtest: yıllık **%68** compound (3y, $10K base)
+Gerçek beklenti (slippage, funding, downtime): **%35-50** arası
+
+| Dönem | Backtest (teorik) | Realist (%35/yıl) | Realist (%50/yıl) |
+|---|---|---|---|
+| 6 ay | $272 (+%36) | $233 (+%17) | $249 (+%24) |
+| 1 yıl | $336 (+%68) | $270 (+%35) | $300 (+%50) |
+| 2 yıl | $560 (+%180) | $365 (+%82) | $450 (+%125) |
+| 3 yıl | $946 (+%373) | $493 (+%147) | $675 (+%238) |
+
+> Tablo: $200 başlangıç, %1 risk/trade, sermaye artışı olmadan compound.
+> Sermaye ölçeklendirme yapılırsa (F.3 planı) rakamlar daha yüksek olur.
+
+#### H.3 Psikolojik Hazırlık
+
+- **MaxDD %65 gerçek olabilir.** $200'ün %65'i = $130 kayıp. Bu noktada $70 kalır.
+  Sistem matematiksel olarak doğru çalışıyor olabilir — drawdown stratejinin parçası.
+- **Ay 1'de para kazanmayabilirsin.** Normal. 1d timeframe'de ayda 4-8 trade.
+- **Compound yavaşdır.** $200 → $300 bir yılı alabilir. Bu bir emeklilik fonu değil — kanıt sistemi.
+- **Gerçek kazanç sermaye artışından gelir.** $200 ile $946'ya ulaşmak 3 yıl.
+  $5,000 ile başlasaydın: $23,650. Faz 8'in amacı sermaye büyütmek.
+
+---
+
+### I. Faz 8 Hazırlığı (3+ Ay Sonra, Sapma < %20 ise)
+
+Faz 8 bu playbook'un kapsamı dışındadır — sadece genel plan:
+
+#### I.1 Geçiş Kriterleri (Faz 7 → 8)
+
+- [ ] Faz 7'de en az 3 ay gerçek piyasa track record
+- [ ] Aylık sapma < %20 (3 ay ortalaması)
+- [ ] Hiç elle müdahale yok (tam otomatik)
+- [ ] Postgres journal eksiksiz (her trade audit trail'de)
+- [ ] Sermaye $1,000+ (organik büyüme veya ek sermaye)
+
+#### I.2 Faz 8 Hedefleri
+
+```
+Multi-account:
+  - Sub-account 1: engulfing_continuation (mevcut strateji)
+  - Sub-account 2: Donchian breakout (yeni strateji araştırılacak)
+  - Sub-account 3: Funding rate arbitrage (araştırma aşamasında)
+
+Sermaye kademesi:
+  $1K → $5K → $25K (her adım 6 ay + sapma < %20 kriteriyle)
+
+Altyapı:
+  - Cloud-hosted runner (VPS — kesintisiz)
+  - Prometheus/Grafana 7/24 izleme
+  - Otomatik pozisyon kapatma (order_manager live implementasyon)
+  - Portföy-düzey korelasyon izleme (çoklu strateji)
+```
+
+---
+
+### Sıkça Karşılaşılan Sorunlar (Faz 7)
+
+**"Live trade yapamıyorum / emir gitmiyor"**
+
+En yaygın sebep `PA_LIVE_CONFIRM` eksikliği:
+```bash
+# .env kontrol:
+grep PA_LIVE_CONFIRM .env
+# Beklenen: PA_LIVE_CONFIRM=YES_I_KNOW
+# Eksikse → OrderManager "live_guard_failed" ile reject eder
+```
+
+**"Funding rate beklenenden yüksek"**
+
+Perp pozisyon tutarken her 8 saatte funding rate ödenir/alınır.
+Yüksek funding pozisyonu pahalıya getirir:
+```bash
+# Anlık funding rate kontrol (ccxt ile):
+PYTHONPATH=src python -c "
+import ccxt
+b = ccxt.binance({'enableRateLimit': True})
+fr = b.fetch_funding_rate('BTC/USDT:USDT')
+print(fr['fundingRate'], fr['nextFundingTime'])
+"
+# Funding > %0.1 ise (8 saatlik) → yüksek long cost → strateji avantajı azalır
+```
+
+**"Slippage backtest'ten çok farklı çıkıyor"**
+
+Paper/backtest 5 bps varsaydı, gerçekte 20+ bps çıkıyor:
+```bash
+# DuckDB'den ortalama slippage sorgula:
+duckdb data/paper_journal.duckdb -c "
+SELECT AVG(slippage_bps), MAX(slippage_bps), COUNT(*)
+FROM paper_trades
+WHERE status='closed' AND dry_run=false
+"
+# > 15 bps ortalama → strateji parametrelerini slippage ile yeniden backtest et
+```
+
+Çözüm: `configs/risk.yaml` → `execution.max_slippage_bps` değerini 25'ten 15'e düşür.
+Sistem yüksek slippage'da emir reddetsin.
+
+**"Açık pozisyon görünmüyor ama exchange'de var" (Sync sorunu)**
+
+Paper state ile exchange state senkron değil:
+```bash
+# Exchange'deki gerçek pozisyonları kontrol et:
+PYTHONPATH=src python -c "
+import ccxt, os
+b = ccxt.binance({
+  'apiKey': os.environ['BINANCE_API_KEY'],
+  'secret': os.environ['BINANCE_API_SECRET'],
+  'enableRateLimit': True,
+})
+pos = b.fetch_positions()
+for p in pos:
+    if float(p.get('contracts', 0)) > 0:
+        print(p['symbol'], p['side'], p['contracts'], p['unrealizedPnl'])
+"
+# Görülen ama local state'de olmayan pozisyonu Manuel kapat (Binance UI)
+# Sonra local state'i sıfırla: del logs\execution\paper_state_faz6.json
+```
+
+Bu sorun `order_manager.py` live broker implemente edildiğinde ortadan kalkar.
+Şu an için manuel senkronizasyon gerekir.
+
+---
+
 ## Yardım
 
 - Sistem mimarisi: `ARCHITECTURE.md`
