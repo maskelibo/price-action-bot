@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      PYTHONUNBUFFERED: "1"
+      LOG_LEVEL: WARNING
+      LOG_FORMAT: plain
+      # Network-bağımlı testleri default'ta kapalı tut
+      PA_RUN_INTEGRATION: ""
+      PA_RUN_LIVE: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # CI-light deps — heavy compiled paketler (ta-lib-binary, vectorbt) atlanır.
+          pip install \
+            "numpy>=1.26" "pandas>=2.2" "pyarrow>=15" "duckdb>=1.0" \
+            "pydantic>=2.7" "pydantic-settings>=2.3" "pyyaml>=6.0" \
+            "python-dotenv>=1.0" "rich>=13.7" "loguru>=0.7" "typer>=0.12" \
+            "scipy>=1.13" "statsmodels>=0.14" \
+            "scikit-learn>=1.5" "xgboost>=2.1" "joblib>=1.4" \
+            "fastapi>=0.111" "uvicorn[standard]>=0.30" "jinja2>=3.1" \
+            "sqlalchemy>=2.0" "prometheus-client>=0.20" \
+            "httpx>=0.27" \
+            "pytest>=8.3" "pytest-cov>=5.0" "ruff>=0.5" "mypy>=1.11"
+
+      - name: Ruff lint
+        run: ruff check src tests
+
+      - name: Mypy (analytics + ml + api)
+        run: |
+          mypy --install-types --non-interactive src/price_action/analytics src/price_action/ml src/price_action/api src/price_action/cli.py || true
+
+      - name: Pytest
+        run: |
+          pytest tests/test_kpi.py tests/test_journal.py tests/test_drift.py \
+                 tests/test_postmortem.py tests/test_api.py tests/test_cli.py \
+                 -v --maxfail=5
