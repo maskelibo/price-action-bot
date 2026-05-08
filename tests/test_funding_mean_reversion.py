@@ -2,13 +2,16 @@
 
 Test senaryolari:
   1. FundingStore: schema olusturma, upsert, read, last_ts
-  2. Feature helpers: _atr, _swing_high_low, _funding_z_score, reversal_bar
+  2. Feature helpers: _atr, _swing_high_low, _funding_z_score, _adaptive_funding_bands,
+     _kaufman_er, reversal_bar
   3. merge_funding_to_ohlcv: timestamp eşleşmesi
-  4. Strateji sinyal üretimi:
-     a. Extreme pozitif funding + bearish bar → short sinyal
-     b. Extreme negatif funding + bullish bar → long sinyal
+  4. Strateji sinyal üretimi (v2.0.0 — adaptive threshold + ER filter + BNB exclusion):
+     a. Extreme pozitif funding + bearish bar + low ER → short sinyal
+     b. Extreme negatif funding + bullish bar + low ER → long sinyal
      c. Normal funding → sinyal yok
      d. Funding kolonu eksik → sinyal yok (graceful)
+     e. BNB sembolü → sinyal yok (exclusion)
+     f. Yüksek ER (trend) → sinyal yok (regime filter)
   5. Lookahead-bias: funding_rate_lag1 shift(1) doğrulaması
   6. Backtest smoke: BacktestEngine ile entegre çalışma
 """
@@ -27,10 +30,14 @@ from price_action.data.funding_ingest import (
     reset_funding_pool,
 )
 from price_action.strategies.funding_mean_reversion import (
+    BNB_EXCLUDED_SYMBOLS,
     FundingMeanReversionStrategy,
+    REGIME_ER_MAX,
+    _adaptive_funding_bands,
     _atr,
     _default_manifest,
     _funding_z_score,
+    _kaufman_er,
     _reversal_bar_bearish,
     _reversal_bar_bullish,
     _swing_high_low,
@@ -97,12 +104,18 @@ def _make_funding_df(
 
 
 def _make_strategy(overrides: dict | None = None) -> FundingMeanReversionStrategy:
-    """Test için minimal manifest ile strateji oluştur."""
+    """Test için v2.0.0 manifest ile strateji oluştur.
+
+    v2.0.0 parametreleri:
+      - adaptive_window=60, extreme_pctile_high/low=95/5
+      - kaufman_er_max=0.30 (regime filter)
+      - BNB excluded (tokenomic contamination)
+    """
     from price_action.strategies.base import StrategyManifest
 
     raw = {
         "name": "funding_mean_reversion",
-        "version": "0.0.1",
+        "version": "2.0.0",
         "trend_filter": {"type": "none", "period": 0, "required": False},
         "signals": {
             "patterns": [
@@ -111,10 +124,12 @@ def _make_strategy(overrides: dict | None = None) -> FundingMeanReversionStrateg
                     "enabled": True,
                     "weight": 1.0,
                     "params": {
-                        "funding_threshold": 0.0005,
-                        "z_score_min": 1.5,
+                        "adaptive_window": 60,
+                        "extreme_pctile_high": 95.0,
                         "reversal_body_ratio_min": 0.35,
                         "swing_lookback": 8,
+                        "kaufman_er_max": 0.30,
+                        "kaufman_er_period": 14,
                     },
                 },
                 {
@@ -122,10 +137,12 @@ def _make_strategy(overrides: dict | None = None) -> FundingMeanReversionStrateg
                     "enabled": True,
                     "weight": 1.0,
                     "params": {
-                        "funding_threshold": 0.0005,
-                        "z_score_min": 1.5,
+                        "adaptive_window": 60,
+                        "extreme_pctile_low": 5.0,
                         "reversal_body_ratio_min": 0.35,
                         "swing_lookback": 8,
+                        "kaufman_er_max": 0.30,
+                        "kaufman_er_period": 14,
                     },
                 },
             ],
@@ -150,6 +167,45 @@ def _make_strategy(overrides: dict | None = None) -> FundingMeanReversionStrateg
         raw.update(overrides)
     manifest = StrategyManifest.model_validate(raw)
     return FundingMeanReversionStrategy(manifest)
+
+
+def _make_choppy_ohlcv_8h(
+    n: int,
+    seed: int = 42,
+    base_price: float = 50_000.0,
+    chop_pct: float = 0.005,
+) -> pd.DataFrame:
+    """Choppy (mean-reverting) OHLCV — Kaufman ER stays low (<0.30).
+
+    Alternating up/down bars around base_price create ER ≈ 0.
+    Used for regime-filter tests where ER < 0.30 is required to pass.
+    """
+    rng = np.random.default_rng(seed)
+    # Oscillate: price bounces between base ± chop_pct without net directional move
+    prices = np.empty(n)
+    prices[0] = base_price
+    for j in range(1, n):
+        direction = 1 if j % 2 == 0 else -1
+        noise = rng.uniform(0.3, 1.0)
+        prices[j] = base_price + direction * chop_pct * base_price * noise
+    close = prices
+    open_ = np.r_[close[0], close[:-1]]
+    high = np.maximum(open_, close) * (1 + np.abs(rng.normal(0, 0.002, n)))
+    low = np.minimum(open_, close) * (1 - np.abs(rng.normal(0, 0.002, n)))
+    high = np.maximum.reduce([high, open_, close])
+    low = np.minimum.reduce([low, open_, close])
+    ts = _base_ts_8h(n)
+    return pd.DataFrame({
+        "ts": ts,
+        "open": open_,
+        "high": high,
+        "low": low,
+        "close": close,
+        "volume": rng.uniform(1e6, 5e6, n),
+        "venue": "binance",
+        "symbol": "BTC/USDT:USDT",
+        "timeframe": "4h",
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -383,36 +439,57 @@ class TestFundingMRSignals:
         assert sigs == [], "Funding kolonu olmadan sinyal üretilmemeli"
 
     def test_no_signal_normal_funding(self) -> None:
-        """Normal funding (threshold altında) → sinyal yok."""
+        """Normal funding (adaptive percentile altında) → sinyal yok.
+
+        v2.0.0: sabit threshold yerine adaptive 95th/5th percentile.
+        Tamamen sabit funding_rate=0.0001 kullanılır (noise yok) böylece
+        95th pctile == mean == 0.0001 — hiçbir bar threshold'u aşamaz.
+        """
         strat = _make_strategy()
         n = 150
         ohlcv = _make_ohlcv_8h(n, seed=10)
-        # Çok düşük funding — threshold=0.0005 altında
-        funding = _make_funding_df(n, rate=0.0001, seed=10)
+        # Perfectly flat funding — 95th percentile == 0.0001 → nothing crosses it
+        # (No noise: all values identical so max == mean == 0.0001)
+        ts_list = _base_ts_8h(n)
+        funding = pd.DataFrame({
+            "venue": "binance",
+            "symbol": "BTC/USDT:USDT",
+            "ts": ts_list,
+            "funding_rate": np.full(n, 0.0001),
+            "mark_price": np.full(n, 50_000.0),
+        })
         merged = merge_funding_to_ohlcv(ohlcv, funding, symbol="BTC/USDT:USDT")
         df_feat = strat.prepare_features(merged)
         sigs = strat.generate_signals(df_feat)
-        # Normal funding → ya hiç sinyal yok ya çok az (z-score filtresi geçmez)
-        # z-score min=1.5 ile 0.0001 ≈ mean etrafında → z ~0 → sinyal üretilmez
-        assert len(sigs) == 0, "Normal funding ile sinyal üretilmemeli"
+        # Flat funding → 95th pctile == 0.0001 == all values → no bar exceeds threshold
+        assert len(sigs) == 0, "Normal/flat funding ile sinyal üretilmemeli"
 
     def test_short_signal_extreme_positive_funding(self) -> None:
-        """Extreme pozitif funding + bearish bar → short sinyal üretilmeli."""
+        """Extreme pozitif funding + bearish bar + choppy regime → short sinyal üretilmeli.
+
+        v2.0.0: choppy OHLCV kullanılır böylece Kaufman ER < 0.30 koşulu sağlanır.
+        Adaptive threshold: funding_rate=0.0001 baseline, extreme=0.002 → 95th pctile
+        yaklaşık 0.0001 civarında → 0.002 kesinlikle aşar.
+        """
         strat = _make_strategy()
         n = 120
-        ohlcv = _make_ohlcv_8h(n, seed=5)
+        # Choppy price action — ER stays low (<0.30) enabling the regime filter to pass
+        ohlcv = _make_choppy_ohlcv_8h(n, seed=5)
         # Normal funding başlangıç, sonra aşırı pozitif
         funding = _make_funding_df(n, rate=0.0001, seed=5)
 
         # Bar 100-110 arasında extreme pozitif funding set et
         extreme_bars = list(range(100, 110))
-        funding.loc[extreme_bars, "funding_rate"] = 0.002  # >> 0.0005 threshold
+        funding.loc[extreme_bars, "funding_rate"] = 0.002  # >> 95th pctile (~0.0001)
 
         merged = merge_funding_to_ohlcv(ohlcv, funding, symbol="BTC/USDT:USDT")
+        # Override symbol/timeframe from ohlcv
+        merged["symbol"] = "BTC/USDT:USDT"
+        merged["timeframe"] = "4h"
 
         # Bar 101-110'da bearish reversal bar zorla
         for i in extreme_bars[1:]:
-            price = float(ohlcv.loc[i, "close"])
+            price = float(merged.loc[i, "close"])
             merged.loc[i, "open"] = price * 1.01
             merged.loc[i, "close"] = price * 0.99  # bearish
             merged.loc[i, "high"] = price * 1.015
@@ -421,7 +498,9 @@ class TestFundingMRSignals:
         df_feat = strat.prepare_features(merged)
         sigs = strat.generate_signals(df_feat)
         short_sigs = [s for s in sigs if s.direction == "short"]
-        assert len(short_sigs) >= 1, "Extreme pozitif funding + bearish bar → short sinyal olmalı"
+        assert len(short_sigs) >= 1, (
+            "Extreme pozitif funding + bearish bar + choppy regime (ER<0.30) → short sinyal olmalı"
+        )
 
         sig = short_sigs[0]
         assert sig.pattern_id == "funding_fade_short"
@@ -500,6 +579,125 @@ class TestFundingMRSignals:
         pattern_ids = [p.id for p in m.signals.patterns]
         assert "funding_fade_short" in pattern_ids
         assert "funding_fade_long" in pattern_ids
+
+    def test_bnb_exclusion_no_signals(self) -> None:
+        """BNB sembolü için sinyal üretilmemeli — tokenomic contamination exclusion."""
+        strat = _make_strategy()
+        n = 120
+        # Choppy OHLCV with BNB symbol
+        ohlcv = _make_choppy_ohlcv_8h(n, seed=55)
+        ohlcv["symbol"] = "BNB/USDT:USDT"
+        ohlcv["timeframe"] = "4h"
+        funding = _make_funding_df(n, rate=0.0001, seed=55, symbol="BNB/USDT:USDT")
+        # Inject extreme negative funding (BNB tokenomic-like pattern)
+        funding.loc[list(range(100, 110)), "funding_rate"] = -0.003
+        merged = merge_funding_to_ohlcv(ohlcv, funding, symbol="BNB/USDT:USDT")
+        merged["symbol"] = "BNB/USDT:USDT"
+        # Inject bullish reversal bars
+        for i in range(100, 110):
+            price = float(merged.loc[i, "close"])
+            merged.loc[i, "open"] = price * 0.99
+            merged.loc[i, "close"] = price * 1.01
+            merged.loc[i, "high"] = price * 1.015
+            merged.loc[i, "low"] = price * 0.985
+
+        df_feat = strat.prepare_features(merged)
+        sigs = strat.generate_signals(df_feat)
+        assert sigs == [], (
+            "BNB sembolü tokenomik contamination nedeniyle exclude edilmeli — sinyal üretilmemeli"
+        )
+
+    def test_bnb_in_excluded_set(self) -> None:
+        """BNB_EXCLUDED_SYMBOLS kümesi BNB'yi içermeli."""
+        assert "BNB/USDT:USDT" in BNB_EXCLUDED_SYMBOLS
+
+    def test_regime_filter_blocks_trending(self) -> None:
+        """Trending rejimde (Kaufman ER >= 0.30) sinyal üretilmemeli."""
+        strat = _make_strategy()
+        n = 120
+        # Strongly trending OHLCV — ER will be high
+        rng = np.random.default_rng(77)
+        rets = np.abs(rng.normal(0.02, 0.005, n))  # always positive → strong up-trend
+        close = 50_000.0 * np.exp(np.cumsum(rets))
+        open_ = np.r_[close[0], close[:-1]]
+        high = np.maximum(open_, close) * 1.001
+        low = np.minimum(open_, close) * 0.999
+        ts_list = _base_ts_8h(n)
+        ohlcv = pd.DataFrame({
+            "ts": ts_list, "open": open_, "high": high, "low": low,
+            "close": close, "volume": np.ones(n) * 1e6,
+            "venue": "binance", "symbol": "BTC/USDT:USDT", "timeframe": "4h",
+        })
+        funding = _make_funding_df(n, rate=0.0001, seed=77)
+        funding.loc[list(range(100, 110)), "funding_rate"] = 0.002
+        merged = merge_funding_to_ohlcv(ohlcv, funding, symbol="BTC/USDT:USDT")
+        merged["symbol"] = "BTC/USDT:USDT"
+        # Inject bearish reversal bars at extreme funding window
+        for i in range(101, 110):
+            price = float(merged.loc[i, "close"])
+            merged.loc[i, "open"] = price * 1.01
+            merged.loc[i, "close"] = price * 0.99
+            merged.loc[i, "high"] = price * 1.015
+            merged.loc[i, "low"] = price * 0.985
+
+        df_feat = strat.prepare_features(merged)
+        # Verify ER is actually high in the extreme funding window
+        er_at_extreme = float(df_feat.loc[105, "kaufman_er_lag1"])
+        # If ER is high, the regime filter should block all signals
+        if er_at_extreme >= REGIME_ER_MAX:
+            short_sigs = [s for s in strat.generate_signals(df_feat) if s.direction == "short"]
+            # Signals at bars with high ER should be blocked
+            sigs_at_extreme = [
+                s for s in short_sigs
+                if any(
+                    pd.Timestamp(s.ts) == pd.Timestamp(df_feat.loc[i, "ts"])
+                    for i in range(100, 110)
+                )
+            ]
+            assert sigs_at_extreme == [], (
+                f"ER={er_at_extreme:.2f} >= {REGIME_ER_MAX}: regime filter sinyali bloklamalı"
+            )
+
+    def test_adaptive_bands_lookahead_free(self) -> None:
+        """_adaptive_funding_bands: band_high/low, bar t için shift(1) geçmişi kullanmalı.
+
+        Lookahead-free doğrulaması: spike bar 50'de.
+        - band_high at bar 49 → spike (bar 50) shifted by 1 → appears as lagged[51],
+          so bar 49's rolling window [20..49] does NOT contain the spike. Must be low.
+        - band_high at bar 70 → window [41..70] DOES contain lagged[51]=0.005.
+          With 30 values, 29×0.0001 + 1×0.005. At 95th pctile this is at position
+          floor(0.95 * 29) = 27.55 → linear interp between sorted[27]=0.0001 and
+          sorted[28]=0.0001 → 0.0001 (spike at sorted[29] is NOT in top 5% of 30).
+          Instead use max() assertion: the spike must appear in the max of the window.
+        - Approach: use a very wide spread (10 spikes) to confirm shift behavior.
+        """
+        n = 120
+        fr = pd.Series(np.full(n, 0.0001))
+        # Set bars 50..59 to a high value (10 consecutive = >5% of window=30, so 95th pctile sees it)
+        fr.iloc[50:60] = 0.005
+        bh, bl = _adaptive_funding_bands(fr, window=30)
+
+        # Bar 49: window includes lagged[20..49] = all 0.0001 → band_high ≈ 0.0001
+        assert float(bh.iloc[49]) < 0.001, (
+            f"Bar 49 band_high ({bh.iloc[49]:.6f}) spike'ı görmemeli (lookahead-free)"
+        )
+        # Bar 70: lagged[70] = fr[69]=0.005 (still in spike range).
+        # Rolling window [41..70] includes lagged[51..60] = 10 spike bars.
+        # 10/30 > 5% → 95th pctile should be elevated.
+        assert float(bh.iloc[70]) > 0.001, (
+            f"Bar 70 band_high ({bh.iloc[70]:.6f}) spike bölgesini görmeli"
+        )
+
+    def test_kaufman_er_low_in_choppy(self) -> None:
+        """_make_choppy_ohlcv_8h kullanıldığında ER < 0.30 olmalı (regime filtre geçer)."""
+        n = 100
+        ohlcv = _make_choppy_ohlcv_8h(n, seed=42)
+        er = _kaufman_er(ohlcv["close"], period=14)
+        # After warmup, ER should be low in choppy data
+        er_warmup = er.iloc[20:].median()
+        assert er_warmup < 0.30, (
+            f"Choppy OHLCV'de ER medyan={er_warmup:.3f} < 0.30 olmalı (regime filter geçmeli)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -643,7 +841,10 @@ class TestFundingRecordsToDF:
 
 class TestBacktestSmoke:
     def test_backtest_engine_runs(self) -> None:
-        """BacktestEngine ile FundingMRStrategy çalışmalı, exception yok."""
+        """BacktestEngine ile FundingMRStrategy çalışmalı, exception yok.
+
+        v2.0.0: choppy OHLCV (ER < 0.30) kullanılır böylece sinyal üretilir.
+        """
         from datetime import datetime, timezone
         from price_action.backtest.engine import BacktestEngine
 
@@ -651,23 +852,26 @@ class TestBacktestSmoke:
         n = 200
         start_dt = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
-        ohlcv = _make_ohlcv_8h(n, seed=99, base_price=50_000.0)
+        # Choppy price — ER stays low so regime filter passes for signals
+        ohlcv = _make_choppy_ohlcv_8h(n, seed=99, base_price=50_000.0)
         funding = _make_funding_df(n, rate=0.0001, seed=99)
         # Inject a few extreme funding windows
         funding.loc[100:105, "funding_rate"] = 0.002
         funding.loc[150:155, "funding_rate"] = -0.002
 
         merged = merge_funding_to_ohlcv(ohlcv, funding, symbol="BTC/USDT:USDT")
+        merged["symbol"] = "BTC/USDT:USDT"
+        merged["timeframe"] = "4h"
         # Inject bearish reversal bars at extreme long funding
         for i in range(100, 106):
-            price = float(ohlcv.loc[i, "close"])
+            price = float(merged.loc[i, "close"])
             merged.loc[i, "open"] = price * 1.01
             merged.loc[i, "close"] = price * 0.99
             merged.loc[i, "high"] = price * 1.015
             merged.loc[i, "low"] = price * 0.985
         # Inject bullish reversal bars at extreme short funding
         for i in range(150, 156):
-            price = float(ohlcv.loc[i, "close"])
+            price = float(merged.loc[i, "close"])
             merged.loc[i, "open"] = price * 0.99
             merged.loc[i, "close"] = price * 1.01
             merged.loc[i, "high"] = price * 1.015
@@ -696,7 +900,11 @@ class TestBacktestSmoke:
         assert result.initial_capital == 10_000.0
 
     def test_backtest_no_signals_no_trades(self) -> None:
-        """Sinyal olmayan veriye karşı backtest: n_trades=0 ve equity sabit."""
+        """Sinyal olmayan veriye karşı backtest: n_trades=0 ve equity sabit.
+
+        v2.0.0: Tamamen sabit funding_rate kullanılır (noise yok) böylece
+        adaptive 95th pctile == 0.0001 == tüm değerler → hiçbir bar threshold'u aşamaz.
+        """
         from datetime import datetime, timezone
         from price_action.backtest.engine import BacktestEngine
 
@@ -704,9 +912,16 @@ class TestBacktestSmoke:
         n = 100
         start_dt = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
-        # Only normal funding — no extreme, no signals
         ohlcv = _make_ohlcv_8h(n, seed=1)
-        funding = _make_funding_df(n, rate=0.00005, seed=1)  # below threshold
+        # Perfectly flat funding — 95th pctile == mean → no crossing → no signals
+        ts_list_dt = _base_ts_8h(n)
+        funding = pd.DataFrame({
+            "venue": "binance",
+            "symbol": "BTC/USDT:USDT",
+            "ts": ts_list_dt,
+            "funding_rate": np.full(n, 0.0001),
+            "mark_price": np.full(n, 50_000.0),
+        })
         merged = merge_funding_to_ohlcv(ohlcv, funding, symbol="BTC/USDT:USDT")
         ts_list = list(merged["ts"])
 

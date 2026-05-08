@@ -215,14 +215,43 @@ class DonchianBreakoutStrategy(Strategy):
 
     name = "donchian_breakout"
 
+    def _get_donchian_periods(self) -> tuple[int, int]:
+        """Manifest'ten donchian_entry_period ve donchian_exit_period oku.
+
+        Pattern params'tan okur; yoksa manifest trend_filter.period'a bakar;
+        yoksa default 55/20 kullanir.
+        """
+        entry_period = 55
+        exit_period = 20
+        patterns = self.manifest.signals.patterns
+        if patterns:
+            p = patterns[0].params
+            if "donchian_entry_period" in p:
+                entry_period = int(p["donchian_entry_period"])
+            if "donchian_exit_period" in p:
+                exit_period = int(p["donchian_exit_period"])
+        # trend_filter.period fallback
+        tf_period = getattr(self.manifest.trend_filter, "period", None)
+        if tf_period and entry_period == 55:
+            entry_period = int(tf_period)
+        return entry_period, exit_period
+
+    def _get_squeeze_required(self) -> bool:
+        """Manifest'ten squeeze_required flag'ini oku. Default True."""
+        filters_cfg = self.manifest.signals.filters
+        val = getattr(filters_cfg, "squeeze_required", None)
+        if val is None:
+            return True
+        return bool(val)
+
     def prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """OHLCV df'e Donchian + Bollinger Squeeze + yardimci ozellikleri ekle.
 
-        Uretilen kolonlar:
-            donchian55_high  : 55-bar rolling high (shift(1) ile lookahead-free)
-            donchian55_low   : 55-bar rolling low
-            donchian20_high  : 20-bar rolling high (short exit SL)
-            donchian20_low   : 20-bar rolling low (long exit SL / Turtle exit)
+        Uretilen kolonlar (donchian period manifest'ten okunur):
+            donchian{E}_high : E-bar rolling high (shift(1) ile lookahead-free)
+            donchian{E}_low  : E-bar rolling low
+            donchian{X}_high : X-bar rolling high (short exit SL)
+            donchian{X}_low  : X-bar rolling low (long exit SL / Turtle exit)
             bb_mid           : Bollinger Band orta (EMA20)
             bb_upper         : BB ust banti
             bb_lower         : BB alt banti
@@ -247,6 +276,9 @@ class DonchianBreakoutStrategy(Strategy):
 
         df = df.sort_values("ts").reset_index(drop=True).copy()
 
+        # Donchian period'larini manifest'ten al
+        entry_period, exit_period = self._get_donchian_periods()
+
         # Filtre parametrelerini manifest'ten al
         filters_cfg = self.manifest.signals.filters
         bb_period = int(getattr(filters_cfg, "bb_period", 20) or 20)
@@ -256,9 +288,9 @@ class DonchianBreakoutStrategy(Strategy):
         squeeze_lookback = int(getattr(filters_cfg, "squeeze_lookback_bars", 5) or 5)
         er_period = int(getattr(filters_cfg, "kaufman_er_period", 14) or 14)
 
-        # --- Donchian kanalları ---
-        df = _donchian_channel(df, period=55)  # entry
-        df = _donchian_channel(df, period=20)  # exit / SL
+        # --- Donchian kanalları (manifest'ten gelen period'larla) ---
+        df = _donchian_channel(df, period=entry_period)  # entry
+        df = _donchian_channel(df, period=exit_period)   # exit / SL (ayni period ise ustune yazar)
 
         # --- Bollinger Squeeze ---
         df = _bollinger_squeeze(
@@ -293,20 +325,18 @@ class DonchianBreakoutStrategy(Strategy):
     def generate_signals(self, df: pd.DataFrame) -> list[Signal]:
         """Donchian Breakout + Squeeze sinyalleri uret.
 
+        Donchian entry/exit period'lari manifest'ten okunur (parametre sweep icin).
+
         Sinyal kosullari (long):
-            1. close > donchian55_high (dun barinin 55-bar high'ini ast)
-            2. squeeze_recent == True (son 5 barda dusuk vol rejimi vardi)
-            3. kaufman_er >= 0.30 (guclu trend)
+            1. close > donchian{E}_high (E-bar high kirilimu)
+            2. squeeze_recent == True  (son N barda dusuk vol rejimi — yoksa atlanir)
+            3. kaufman_er >= er_min    (guclu trend)
             4. atr_pct >= atr_min_pct (minimum volatilite)
 
-        Short: simetrik (close < donchian55_low, donchian55_high -> donchian55_low)
+        Short: simetrik
 
-        SL hesabi:
-            Long  : donchian20_low (20-bar trailing Donchian — Turtle exit)
-            Short : donchian20_high
-
-        TP hesabi:
-            primary_R = 3.0 (manifest'ten) => tp = entry + 3 * risk
+        SL: donchian{X}_low (long) / donchian{X}_high (short)
+        TP: primary_R * risk
 
         Args:
             df: prepare_features() cikmisi (ozellikler ekli OHLCV).
@@ -317,8 +347,16 @@ class DonchianBreakoutStrategy(Strategy):
         if df.empty:
             return []
 
+        entry_period, exit_period = self._get_donchian_periods()
+        squeeze_required = self._get_squeeze_required()
+
+        entry_high_col = f"donchian{entry_period}_high"
+        entry_low_col = f"donchian{entry_period}_low"
+        exit_low_col = f"donchian{exit_period}_low"
+        exit_high_col = f"donchian{exit_period}_high"
+
         # Ozellikler eksikse hazirla
-        if "donchian55_high" not in df.columns:
+        if entry_high_col not in df.columns:
             df = self.prepare_features(df)
 
         filters_cfg = self.manifest.signals.filters
@@ -338,23 +376,24 @@ class DonchianBreakoutStrategy(Strategy):
 
         # --- Vektörel koşullar ---
         close = df["close"]
-        don55_high = df["donchian55_high"]
-        don55_low = df["donchian55_low"]
-        don20_low = df["donchian20_low"]   # long SL (Turtle exit)
-        don20_high = df["donchian20_high"]  # short SL
+        don_entry_high = df[entry_high_col]
+        don_entry_low = df[entry_low_col]
+        don_exit_low = df[exit_low_col]
+        don_exit_high = df[exit_high_col]
 
         squeeze_recent = df["squeeze_recent"].fillna(False)
         kaufman_er = df["kaufman_er"].fillna(0.0)
         atr_pct = df["atr_pct"].fillna(0.0)
         atr14 = df["atr14"].fillna(0.0)
 
-        # Kırılım koşulları (tüm filtreler vektörize)
-        long_breakout = (
-            close > don55_high.fillna(np.inf)           # 55-bar high kırılımı
-        ) & squeeze_recent                               # son 5 barda squeeze
-        short_breakout = (
-            close < don55_low.fillna(-np.inf)           # 55-bar low kırılımı
-        ) & squeeze_recent
+        # Kırılım koşulları
+        long_breakout = close > don_entry_high.fillna(np.inf)
+        short_breakout = close < don_entry_low.fillna(-np.inf)
+
+        # Squeeze filtresi (squeeze_required=False ise bypass)
+        if squeeze_required:
+            long_breakout = long_breakout & squeeze_recent
+            short_breakout = short_breakout & squeeze_recent
 
         # Kaufman ER filtresi
         er_ok = kaufman_er >= er_min
@@ -367,8 +406,8 @@ class DonchianBreakoutStrategy(Strategy):
         short_breakout = short_breakout & atr_ok
 
         # NaN kontrolleri (warmup barlarında donchian NaN olabilir)
-        long_breakout = long_breakout & don55_high.notna() & don20_low.notna()
-        short_breakout = short_breakout & don55_low.notna() & don20_high.notna()
+        long_breakout = long_breakout & don_entry_high.notna() & don_exit_low.notna()
+        short_breakout = short_breakout & don_entry_low.notna() & don_exit_high.notna()
 
         out: list[Signal] = []
 
@@ -388,17 +427,16 @@ class DonchianBreakoutStrategy(Strategy):
                     continue
 
                 if direction == "long":
-                    sl_raw = float(row.get("donchian20_low") or (entry_close - 2.0 * atr))
+                    sl_raw = float(row.get(exit_low_col) or (entry_close - 2.0 * atr))
                     if np.isnan(sl_raw) or sl_raw <= 0:
                         sl_raw = entry_close - 2.0 * atr
-                    # SL muhakkak close'un altında olmalı
                     sl_price = min(sl_raw, entry_close - 0.5 * atr)
                     risk = entry_close - sl_price
                     if risk <= 0:
                         continue
                     tp_price = entry_close + primary_R * risk
                 else:
-                    sl_raw = float(row.get("donchian20_high") or (entry_close + 2.0 * atr))
+                    sl_raw = float(row.get(exit_high_col) or (entry_close + 2.0 * atr))
                     if np.isnan(sl_raw) or sl_raw <= 0:
                         sl_raw = entry_close + 2.0 * atr
                     sl_price = max(sl_raw, entry_close + 0.5 * atr)
@@ -420,19 +458,24 @@ class DonchianBreakoutStrategy(Strategy):
                     tp_price=float(tp_price),
                     suggested_size_atr=1.0,
                     metadata={
-                        "donchian55_high": float(row.get("donchian55_high") or 0.0),
-                        "donchian55_low": float(row.get("donchian55_low") or 0.0),
-                        "donchian20_low": float(row.get("donchian20_low") or 0.0),
-                        "donchian20_high": float(row.get("donchian20_high") or 0.0),
+                        "donchian_entry_high": float(row.get(entry_high_col) or 0.0),
+                        "donchian_entry_low": float(row.get(entry_low_col) or 0.0),
+                        "donchian_exit_low": float(row.get(exit_low_col) or 0.0),
+                        "donchian_exit_high": float(row.get(exit_high_col) or 0.0),
                         "squeeze_recent": bool(row.get("squeeze_recent", False)),
                         "squeeze_active": bool(row.get("squeeze_active", False)),
                         "kaufman_er": float(row.get("kaufman_er") or 0.0),
                         "atr14": atr,
                         "bb_upper": float(row.get("bb_upper") or 0.0),
                         "bb_lower": float(row.get("bb_lower") or 0.0),
+                        "entry_period": entry_period,
+                        "exit_period": exit_period,
+                        "squeeze_required": squeeze_required,
                     },
                 )
                 out.append(sig)
 
-        self._log.bind(n=len(out), bars=len(df)).info("donchian_breakout.signals.generated")
+        self._log.bind(n=len(out), bars=len(df),
+                       entry_period=entry_period, exit_period=exit_period,
+                       squeeze_required=squeeze_required).info("donchian_breakout.signals.generated")
         return out
