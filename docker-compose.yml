@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-price_action}
+      POSTGRES_USER: ${POSTGRES_USER:-pa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_in_real_env}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pa_pg_data:/var/lib/postgresql/data
+      - ./scripts/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: pa-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./scripts/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - pa_prom_data:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: pa-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - pa_grafana_data:/var/lib/grafana
+      - ./scripts/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./scripts/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pa-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./knowledge:/app/knowledge
+      - ./memory:/app/memory
+      - ./reports:/app/reports
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["uv", "run", "python", "-m", "price_action.api.server"]
+    ports:
+      - "8000:8000"
+
+volumes:
+  pa_pg_data:
+  pa_prom_data:
+  pa_grafana_data:

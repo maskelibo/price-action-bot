@@ -1,0 +1,296 @@
+# RAG Corpus Seed List
+# Lab haftalık olarak yeni kaynak ekler. Her ekleme insan onayı ile.
+# Telif: kitap full text dahil edilmez; sadece kullanıcı tarafından legal olarak edinilen
+# ya da açık yayın notlar/özetler ingest edilir.
+
+categories:
+  - id: classic_pa
+    description: Klasik price action — Brooks, Volman, Grimes
+  - id: structure_smc
+    description: Smart Money Concepts, ICT, Wyckoff
+  - id: market_microstructure
+    description: Borsa, order flow, market making
+  - id: risk_management
+    description: Pozisyon sizing, kelly, anti-fragility
+  - id: quant_finance
+    description: arXiv / SSRN akademik
+  - id: ml_for_trading
+    description: ML/RL for trading
+  - id: trading_psychology
+    description: Davranışsal finans
+  - id: trading_firm_blogs
+    description: Two Sigma, Jane Street, JP Morgan tech blog
+  - id: regimes
+    description: Piyasa rejimleri ve geçişleri
+
+# === Kitaplar (özet/not yapısı; full text yasak) ===
+books:
+  - id: brooks_pa_trading
+    title: Reading Price Charts Bar by Bar
+    author: Al Brooks
+    category: classic_pa
+    type: reference_only          # full text yok
+    notes_path: books/brooks_summary.md
+    quality: 5
+
+  - id: volman_pa
+    title: Forex Price Action Scalping
+    author: Bob Volman
+    category: classic_pa
+    type: reference_only
+    notes_path: books/volman_summary.md
+    quality: 5
+
+  - id: grimes_art_and_science
+    title: The Art and Science of Technical Analysis
+    author: Adam Grimes
+    category: classic_pa
+    type: reference_only
+    notes_path: books/grimes_summary.md
+    quality: 5
+
+  - id: kaufman_trading_systems
+    title: Trading Systems and Methods
+    author: Perry Kaufman
+    category: quant_finance
+    type: reference_only
+    notes_path: books/kaufman_summary.md
+    quality: 5
+
+  - id: wyckoff_method
+    title: The Wyckoff Methodology
+    author: Various
+    category: structure_smc
+    type: reference_only
+    notes_path: books/wyckoff_summary.md
+    quality: 4
+
+  - id: chan_quant_trading
+    title: Algorithmic Trading
+    author: Ernest Chan
+    category: quant_finance
+    type: reference_only
+    notes_path: books/chan_summary.md
+    quality: 5
+
+  - id: lopez_marcos
+    title: Advances in Financial Machine Learning
+    author: Marcos López de Prado
+    category: ml_for_trading
+    type: reference_only
+    notes_path: books/lopez_summary.md
+    quality: 5
+
+# === Akademik feed (otomatik ingest edilir) ===
+academic_feeds:
+  - id: arxiv_qfin
+    name: arXiv Quantitative Finance
+    type: rss
+    url: http://export.arxiv.org/rss/q-fin
+    categories: [quant_finance, ml_for_trading]
+    refresh: daily
+
+  - id: arxiv_qfin_tr
+    name: arXiv q-fin.TR (Trading)
+    type: rss
+    url: http://export.arxiv.org/rss/q-fin.TR
+    categories: [quant_finance, ml_for_trading]
+    refresh: daily
+
+  - id: ssrn_finance
+    name: SSRN Finance Research Network
+    type: rss
+    url: https://www.ssrn.com/index.cfm/en/lib-fen/
+    categories: [quant_finance]
+    refresh: weekly
+
+# === Trading firma blog'ları ===
+firm_blogs:
+  - id: two_sigma_blog
+    name: Two Sigma Insights
+    type: rss
+    url: https://www.twosigma.com/insights/feed/
+    categories: [quant_finance, ml_for_trading]
+    quality: 5
+
+  - id: jane_street_tech
+    name: Jane Street Tech Blog
+    type: rss
+    url: https://blog.janestreet.com/feed.xml
+    categories: [quant_finance, market_microstructure]
+    quality: 5
+
+  - id: jp_morgan_quants
+    name: JP Morgan Quantitative Research
+    type: web
+    url: https://www.jpmorgan.com/insights/global-research
+    categories: [quant_finance]
+    quality: 4
+
+  - id: hudson_river
+    name: Hudson River Trading Blog
+    type: web
+    url: https://www.hudsonrivertrading.com/insights/
+    categories: [market_microstructure]
+    quality: 5
+
+# === Bağımsız price action yazarları (blog/site) ===
+practitioner_blogs:
+  - id: adam_grimes_blog
+    name: Adam Grimes
+    type: web
+    url: https://adamhgrimes.com/
+    categories: [classic_pa, trading_psychology]
+    quality: 5
+
+  - id: priceactionltd
+    name: Price Action Trading
+    type: web
+    url: https://priceactionltd.com/blog/
+    categories: [classic_pa]
+    quality: 4
+
+# === YouTube kanalları ve playlist'ler ===
+# Sadece eğitim odaklı, "sinyal hizmeti" değil. Her transkript Lab'in
+# kalite filtresinden geçer (min 500 kelime, açıkça reklam değil, yazar otoritesi).
+youtube:
+  - id: brooks_yt
+    name: Al Brooks Trading
+    type: channel
+    url: https://www.youtube.com/@BrooksPriceAction
+    categories: [classic_pa]
+    quality: 5
+  - id: grimes_yt
+    name: Adam Grimes
+    type: channel
+    url: https://www.youtube.com/@AdamHGrimes
+    categories: [classic_pa, trading_psychology]
+    quality: 5
+  - id: jp_quant_research
+    name: Jim Simons / RenTec talks (akademik)
+    type: search
+    query: "Jim Simons Renaissance Technologies lecture"
+    categories: [quant_finance]
+    quality: 5
+  - id: trading_microstructure_lectures
+    name: Market Microstructure (akademik)
+    type: search
+    query: "market microstructure lecture algorithmic trading"
+    categories: [market_microstructure]
+    quality: 4
+
+# === Kripto-spesifik araştırma ===
+crypto_research:
+  - id: messari_research
+    name: Messari Research
+    type: rss
+    url: https://messari.io/rss
+    categories: [quant_finance, regimes]
+    quality: 4
+  - id: glassnode_insights
+    name: Glassnode Insights
+    type: rss
+    url: https://insights.glassnode.com/rss/
+    categories: [market_microstructure, regimes]
+    quality: 5
+  - id: kaiko_research
+    name: Kaiko Research
+    type: rss
+    url: https://blog.kaiko.com/rss.xml
+    categories: [market_microstructure]
+    quality: 5
+  - id: coin_metrics
+    name: Coin Metrics State of the Network
+    type: rss
+    url: https://coinmetrics.io/feed/
+    categories: [market_microstructure, regimes, quant_finance]
+    quality: 5
+  - id: arkham_intel
+    name: Arkham Intelligence Research
+    type: web
+    url: https://www.arkhamintelligence.com/research
+    categories: [market_microstructure]
+    quality: 4
+  - id: amberdata_research
+    name: Amberdata Crypto Research
+    type: rss
+    url: https://blog.amberdata.io/rss
+    categories: [market_microstructure, quant_finance]
+    quality: 4
+
+# === Genişletilmiş akademik / quant feed'ler ===
+extended_academic:
+  - id: arxiv_qfin_st
+    name: arXiv q-fin.ST (Statistical Finance)
+    type: rss
+    url: http://export.arxiv.org/rss/q-fin.ST
+    categories: [quant_finance]
+    refresh: daily
+  - id: arxiv_qfin_pm
+    name: arXiv q-fin.PM (Portfolio Management)
+    type: rss
+    url: http://export.arxiv.org/rss/q-fin.PM
+    categories: [quant_finance, risk_management]
+    refresh: daily
+  - id: arxiv_qfin_rm
+    name: arXiv q-fin.RM (Risk Management)
+    type: rss
+    url: http://export.arxiv.org/rss/q-fin.RM
+    categories: [quant_finance, risk_management]
+    refresh: daily
+  - id: arxiv_cs_lg
+    name: arXiv cs.LG — Machine Learning (filtered for finance)
+    type: rss
+    url: http://export.arxiv.org/rss/cs.LG
+    categories: [ml_for_trading]
+    refresh: daily
+    quality: 3
+  - id: papers_with_code
+    name: Papers With Code — finance ML
+    type: web
+    url: https://paperswithcode.com/area/finance
+    categories: [ml_for_trading, quant_finance]
+    quality: 4
+
+# === Bağımsız trading araştırmacı blog'ları (genişletilmiş) ===
+extended_practitioner:
+  - id: niki_kovac
+    name: Niki Kovac — Trading Substack
+    type: web
+    url: https://nikikovac.substack.com/feed
+    categories: [classic_pa, quant_finance]
+    quality: 4
+  - id: euan_sinclair
+    name: Euan Sinclair — Volatility Trading
+    type: web
+    url: https://euansinclair.com/
+    categories: [quant_finance, risk_management]
+    quality: 5
+  - id: build_alpha
+    name: Build Alpha Research
+    type: web
+    url: https://www.buildalpha.com/blog/
+    categories: [quant_finance, ml_for_trading]
+    quality: 4
+  - id: quantstart
+    name: QuantStart Articles
+    type: rss
+    url: https://www.quantstart.com/articles/feed/
+    categories: [quant_finance, ml_for_trading]
+    quality: 3
+
+# === Manuel ekleme — Researcher / Lab keşfettikçe ===
+manual:
+  - id: harris_market_microstructure
+    title: "Trading and Exchanges: Market Microstructure for Practitioners"
+    author: Larry Harris
+    category: market_microstructure
+    type: reference_only
+    quality: 5
+
+# === Kara liste (asla ingest etme) ===
+blacklist:
+  - "*signal-service*"
+  - "*get-rich-quick*"
+  - "*paid-group-promo*"
+  - "*pump-and-dump*"

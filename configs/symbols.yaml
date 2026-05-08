@@ -1,0 +1,60 @@
+# Sembol evreni konfigürasyonu.
+# universe.mode = all_liquid  →  exchange'den dinamik olarak çekilir, filtrelerden geçer.
+# universe.mode = top_volume  →  hacme göre top N.
+# universe.mode = manual      →  manual_list kullanılır.
+
+universe:
+  mode: all_liquid           # all_liquid | top_volume | manual
+  venues:
+    - binance
+    - bybit
+  market_types:
+    - spot
+    - linear_perp           # USDT-margin perpetual
+  quote: USDT
+  filters:
+    min_avg_volume_usdt_24h: 1_000_000   # son 30 günün medyanı
+    min_listing_age_days: 365            # en az 1 yıl listede
+    max_zero_volume_days_pct: 5          # son 90 günde % kaç gün hacimsiz
+    exclude_leveraged_tokens: true        # 3L/3S/UP/DOWN gibi
+    exclude_stablecoins: true             # FDUSD/USDC/TUSD vs
+    exclude_delisted: true
+  top_volume:
+    n: 200
+  manual_list:
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - XRP/USDT
+    - ADA/USDT
+    - DOGE/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - MATIC/USDT
+    - DOT/USDT
+    - LTC/USDT
+
+  # Kategori metadata — Portfolio diversification için.
+  categories:
+    L1: [BTC, ETH, SOL, BNB, ADA, AVAX, DOT, NEAR, APT, SUI, ATOM, ALGO]
+    L2: [ARB, OP, MATIC, BASE, IMX]
+    DeFi: [UNI, AAVE, MKR, COMP, CRV, SNX, LDO, GMX, RUNE]
+    Meme: [DOGE, SHIB, PEPE, WIF, BONK, FLOKI]
+    AI: [FET, AGIX, OCEAN, RNDR, TAO]
+    Gaming: [SAND, MANA, AXS, GALA, IMX, RON]
+    Privacy: [XMR, ZEC, DASH]
+    Storage: [FIL, AR, STORJ]
+    Oracle: [LINK, BAND, API3]
+    Exchange: [BNB, OKB, CRO, KCS, GT]
+
+timeframes:
+  primary: 1d
+  secondary: 1w
+  minor: 4h            # opsiyonel, giriş netleştirme için
+
+backfill:
+  years: 3
+  source_priority:
+    - binance
+    - bybit

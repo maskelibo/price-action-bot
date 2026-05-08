@@ -1,0 +1,88 @@
+---
+agent: signal_chief
+title: Head of Signal Engineering
+model: deterministic
+type: deterministic_runbook
+reports_to: researcher (functionally), ceo (escalation)
+---
+
+# Signal Chief — Head of Signal Engineering
+
+> Saf deterministik. Bu dosya pattern detector kütüphanesinin sözleşmesi.
+
+## Persona (kısa)
+
+Jane Street / Hudson River market microstructure mühendisi. Vektörize, deterministik, lookahead-paranoid. Hız ve doğruluk takıntısı.
+
+## Kontrat
+
+**Girdi:** OHLCV DataFrame (DuckDB'den), strateji manifest, ATR/EMA türevleri.
+**Çıktı:** `Signal` event'leri:
+```python
+@dataclass
+class Signal:
+    timestamp: pd.Timestamp     # bar kapanış ts'i
+    venue: str
+    symbol: str
+    timeframe: str
+    direction: Literal["long", "short"]
+    pattern_id: str             # "bullish_pin_bar" vs
+    confluence_score: float     # 0..N
+    sl_price: float
+    tp_price: float
+    suggested_size_atr: float   # ATR bazlı; Risk dept bunu sermayeye çevirir
+    metadata: dict              # {bar_index, atr14, ema50_1w, ...}
+    manifest_hash: str          # reproducibility
+```
+
+## Pattern Kütüphanesi
+
+### Mum kalıpları
+- `bullish_pin_bar` / `bearish_pin_bar`
+- `bullish_engulfing` / `bearish_engulfing`
+- `inside_bar_breakout` (yön bir sonraki barın breakout yönü)
+- `morning_star` / `evening_star`
+- `doji_at_extreme` (S/R yakınında doji)
+
+### Yapı
+- `swing_high(t)` / `swing_low(t)` — fractal n=2 default.
+- `support_resistance` — n-bar yatay kümeleme (DBSCAN-tarzı).
+- `trendline` — son N swing point'ten regresyon.
+- `bos` (break of structure) / `choch` (change of character) — opsiyonel.
+
+### Filtreler
+- `atr_threshold(min_pct)`
+- `volume_zscore(min_z)`
+- `ema_trend_filter(period, side)`
+- `volatility_regime` — high/low (rolling 30g ortanca üstü/altı)
+
+### Confluence skor
+```python
+score = sum(weight_i * pattern_active_i) + bonus_at_sr * (close_to_sr <= 1*ATR)
+```
+
+Strateji manifest'i her pattern'a `weight` ve `enabled` flag verir.
+
+## Hard Limits
+
+- ❌ **`t` mumunun close'unu `t` kararında kullanma.** Karar `t-1` close'a dayalı, giriş `t` open'da.
+- ❌ **Future-leak'li indicator.** `df.shift(-1)` veya `rolling().center=True` yasak.
+- ❌ **Apply / for-loop.** Vektörize zorunlu (numba kabul). Profile et — single-pass < 50ms / 1000 bar.
+- ❌ **Detector'ın iç state'i.** Saf fonksiyon; aynı input → aynı output.
+- ❌ **Magic numbers.** Tüm parametreler manifest'ten gelir.
+- ❌ **NaN sızdırma.** Output her satırda explicit NaN veya değer.
+
+## KPI'lar
+
+| KPI | Hedef | Periyot |
+|---|---|---|
+| Pattern precision (manuel etiketli set) | > %75 | Faz 1 gate |
+| Detector throughput | > 1M bar/saniye (vektörize) | Sürekli |
+| Lookahead testi | %100 başarı | CI |
+| False positive oranı (post-hoc) | < %30 | Aylık |
+| Reproducibility | bit-identical | Sürekli |
+
+## Memory / Loglar
+- LLM yok; `tests/test_signals.py` içindeki test senaryoları "memory" yerine geçer.
+- Yeni pattern eklendiğinde `docs/patterns/<id>.md` (görsel + senaryo) zorunlu.
+- Manuel etiketli set: `tests/data/labeled_signals.parquet`.

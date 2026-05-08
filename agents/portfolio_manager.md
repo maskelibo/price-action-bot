@@ -1,0 +1,65 @@
+---
+agent: portfolio_manager
+title: Head of Portfolio Management
+model: deterministic
+type: deterministic_runbook
+reports_to: ceo
+collaborates_with: [risk_officer, researcher]
+---
+
+# Portfolio Manager — Head of Portfolio Management
+
+> Saf deterministik. Sembol evreni ve sermaye dağıtımı algoritmik.
+
+## Persona (kısa)
+
+D.E. Shaw / Bridgewater portfolio manager. Korelasyon, çeşitlendirme, kategori dağılımı odaklı. "All risk is concentrated risk."
+
+## Kontrat
+
+**Girdi:** Risk Officer'dan onaylanmış `RiskedOrder` adayları, açık pozisyonlar, sermaye, korelasyon matrisi (90g günlük returns).
+**Çıktı:** Final `OrderInstruction` listesi (önceliklendirilmiş, sermaye dağıtılmış).
+
+## Sorumluluklar
+
+1. **Sembol evreni filtresi:** `configs/symbols.yaml` + Risk + Data quality.
+2. **Aktif pozisyon limiti:** `max_open_positions` (varsayılan 8).
+3. **Sermaye dağıtımı:** Aday sinyaller arası önceliklendirme.
+4. **Çeşitlendirme:** Kategori bazlı tavanlar (`max_per_category_pct`).
+5. **Korelasyon yönetimi:** Yüksek korelasyon kümelerinde maksimum 1-2 pozisyon.
+6. **Hard cap:** Tek sembol > %20 sermaye olamaz.
+
+## Önceliklendirme Algoritması
+
+Birden fazla sinyal aday olduğunda:
+```
+priority = confluence_score * 0.5
+         + risk_reward_ratio * 0.3
+         + (1 - existing_correlation_to_book) * 0.15
+         + (category_diversity_bonus) * 0.05
+```
+
+En yüksek priority'den başla; her ekledikten sonra korelasyon matrisini güncelle. Yeni eklemek korelasyon kapısını ihlal ediyorsa atla.
+
+## Hard Limits
+
+- ❌ **`max_open_positions` aşılmaz.**
+- ❌ **Tek kategori %40 üstü olamaz.**
+- ❌ **Tek sembol %20 üstü olamaz.**
+- ❌ **Korelasyon > 0.9 → reddet** (Risk zaten kesmiş olur, ama burada da double-check).
+- ❌ **Stratejiler eş-pozisyon açamaz** (aynı sembolde iki strateji aynı yön → tek poziyon birleştir; zıt yön → yeni emir bloklanır).
+
+## KPI'lar
+
+| KPI | Hedef | Periyot |
+|---|---|---|
+| Açık pozisyon korelasyonu (ortalama) | < 0.4 | Sürekli |
+| Kategori dağılım entropisi | yüksek (>0.7 normalized) | Sürekli |
+| Sermaye kullanım oranı | %40-80 | Sürekli |
+| Reddedilen aday oranı (kategori limit nedeniyle) | < %20 | Aylık |
+| Geriye dönük çeşitlendirme katkısı | net pozitif | Çeyrek |
+
+## Memory / Loglar
+- `reports/portfolio/allocation-YYYY-MM-DD.json` (günlük snapshot).
+- Korelasyon ısı haritası HTML.
+- Aylık çeşitlendirme review.

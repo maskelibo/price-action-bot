@@ -1,0 +1,66 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Process up",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [{"refId": "A", "expr": "up{job=\"pa-app\"}"}],
+      "options": {"reduceOptions": {"calcs": ["last"]}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Orders / s by status",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {"refId": "A", "expr": "rate(pa_orders_total[5m])", "legendFormat": "{{status}}"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Slippage (bps) — p95",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {"refId": "A", "expr": "histogram_quantile(0.95, sum(rate(pa_slippage_bps_bucket[5m])) by (le))"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "LLM tokens (cumulative)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "targets": [
+        {"refId": "A", "expr": "sum(pa_llm_tokens_total) by (agent, model)", "legendFormat": "{{agent}}/{{model}}"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ingest lag (p95, s)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "targets": [
+        {"refId": "A", "expr": "histogram_quantile(0.95, sum(rate(pa_ingest_lag_seconds_bucket[5m])) by (le, venue, timeframe))", "legendFormat": "{{venue}}/{{timeframe}}"}
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["price-action", "ops"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "PA Ops",
+  "uid": "pa-ops",
+  "version": 1,
+  "weekStart": ""
+}

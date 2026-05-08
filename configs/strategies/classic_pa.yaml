@@ -1,0 +1,114 @@
+# Classic Price Action — ilk strateji manifestosu.
+# Researcher bunun benzerlerini üretip backtest engine'e gönderir.
+
+name: classic_pa
+version: "0.1.0"
+description: |
+  Klasik price action: 1D primary + 1W trend filtreli.
+  Pin bar + engulfing + S/R confluence ile sinyal.
+  ATR bazlı SL, R-multiple TP.
+
+universe:
+  ref: configs/symbols.yaml
+
+timeframes:
+  decision: 1d
+  trend_filter: 1w
+  refinement: null              # 4h kullanmak istersen "4h"
+
+trend_filter:
+  type: ema
+  period: 50                    # 1W EMA50 üzeri uzun, altı kısa
+  required: true
+
+signals:
+  patterns:
+    - id: bullish_pin_bar
+      enabled: true
+      weight: 1.0
+      params:
+        body_to_range_max: 0.33
+        lower_wick_to_range_min: 0.6
+        upper_wick_to_range_max: 0.15
+    - id: bearish_pin_bar
+      enabled: true
+      weight: 1.0
+      params:
+        body_to_range_max: 0.33
+        upper_wick_to_range_min: 0.6
+        lower_wick_to_range_max: 0.15
+    - id: bullish_engulfing
+      enabled: true
+      weight: 1.0
+      params:
+        prev_body_min_range_pct: 0.2     # önceki mum gerçek bir down olmalı
+    - id: bearish_engulfing
+      enabled: true
+      weight: 1.0
+    - id: inside_bar_breakout
+      enabled: true
+      weight: 0.5
+      params:
+        confirm_with_close: true
+
+  structure:
+    swing:
+      fractal_n: 2                       # n bar sol + n bar sağ
+    support_resistance:
+      lookback_bars: 200
+      cluster_atr_multiplier: 0.5
+      min_touches: 2
+      max_age_bars: 180
+    require_proximity_to_sr_atr: 1.0     # sinyal mumu S/R'ye 1 ATR'den yakın olmalı
+
+  filters:
+    atr_min_pct: 0.005                   # ATR < %0.5 ise sembol pas (cansız)
+    volume_zscore_min: 0.0               # 0 = filtre kapalı; >0 → ortalamanın üstü iste
+    min_distance_to_sr_atr: 0.0          # 0 = sınır; <0 = içeride
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.5                       # bu eşiğin altı reddedilir
+    bonus_if_at_sr: 0.5
+
+risk:
+  ref: configs/risk.yaml
+
+execution:
+  decision_after_close: true             # bar kapanış sonrası karar; bir sonraki bar açılışında giriş
+  entry_type: post_only_limit
+  limit_offset_atr: 0.0                  # 0 = bar açılış fiyatı
+  invalidation_after_bars: 1             # 1 bar içinde dolmadıysa iptal
+
+backtest:
+  start: relative_years_ago: 3
+  warmup_bars: 250                       # MA/ATR ısınması
+  fees:
+    taker: 0.00075
+    maker: -0.00010
+  slippage_bps: 5
+  initial_capital_usdt: 10000
+
+walk_forward:
+  enabled: true
+  train_years: 2
+  test_months: 6
+  step_months: 3
+  optimization:
+    backend: optuna
+    n_trials: 100
+    sampler: tpe
+    pruner: median
+    objective: oos_sharpe                # oos_sharpe | calmar | profit_factor
+  parameter_space:
+    confluence.min_score: { type: float, low: 1.0, high: 3.0, step: 0.25 }
+    risk.position_sizing.risk_per_trade: { type: float, low: 0.005, high: 0.02, step: 0.0025 }
+    stop_loss.atr_multiplier: { type: float, low: 1.5, high: 3.5, step: 0.25 }
+    take_profit.primary_R: { type: float, low: 1.5, high: 4.0, step: 0.25 }
+    trend_filter.period: { type: int, low: 20, high: 100, step: 10 }
+
+gates:                                    # Faz 2 gate
+  oos_annual_net: 0.70
+  oos_sharpe: 1.5
+  max_drawdown: 0.20
+  wf_positive_slice_ratio: 0.70

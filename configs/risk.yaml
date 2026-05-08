@@ -1,0 +1,78 @@
+# Risk Management — DEĞİŞMEZ değerler kapatılı tutulur.
+# Bu dosya Risk Officer (deterministik kod) tarafından okunur.
+
+defaults:
+  account_currency: USDT
+
+position_sizing:
+  method: fixed_fractional        # fixed_fractional | kelly_capped | atr_normalized
+  risk_per_trade: 0.01             # %1 sermaye risk (SL'e kadar)
+  kelly_cap: 0.25                  # Kelly oranını maksimum 0.25 ile kırp
+  min_quantity_usdt: 20            # ufak emirleri at
+  size_rounding: exchange_step     # exchange'in lot step'ine yuvarla
+
+stop_loss:
+  method: atr                       # atr | structural | hybrid
+  atr_period: 14
+  atr_multiplier: 2.0
+  structural_buffer_pct: 0.005      # swing low altına %0.5 tampon
+  trailing:
+    enabled: true
+    method: atr_chandelier
+    atr_period: 14
+    multiplier: 3.0
+    activate_after_R: 1.0           # 1R kâra geldikten sonra trailing açık
+
+take_profit:
+  method: r_multiple                # r_multiple | atr | structural
+  primary_R: 2.0                    # 2R hedefte yarısı kapansın
+  partial_close_at_R: 1.0           # 1R'da %50 kapat
+  runner_trail: true                # kalan trailing ile
+
+leverage:
+  enabled: true
+  max_leverage_per_symbol: 5        # perpetual; confidence-based 1x-5x dynamic (v0.3 prod)
+  max_portfolio_notional_x_equity: 5
+  margin_safety_ratio: 0.5          # likidasyon mesafesi minimum %50
+  confidence_tiers:                 # per-trade confidence map (engulfing v1)
+    - {min: 0.00, max: 0.32, leverage: 1}
+    - {min: 0.32, max: 0.42, leverage: 2}
+    - {min: 0.42, max: 0.52, leverage: 3}
+    - {min: 0.52, max: 0.58, leverage: 4}
+    - {min: 0.58, max: 1.01, leverage: 5}
+
+drawdown_breakers:
+  daily_loss_pct: 0.05              # günlük net kayıp %5 → durdur
+  weekly_loss_pct: 0.10             # haftalık %10 → durdur
+  monthly_loss_pct: 0.15            # aylık %15 → durdur
+  consecutive_losses: 6             # üst üste 6 kayıp → durdur
+  reset:
+    daily: 00:00 UTC
+    weekly: Monday 00:00 UTC
+    monthly: 1st 00:00 UTC
+
+correlation_gate:
+  enabled: true
+  max_pairwise_corr: 0.7            # 90-günlük getiri korelasyonu
+  reduction_factor: 0.5             # >0.7 ise size yarıya iner
+  hard_block_at: 0.9                # %90+ — pozisyonu reddet
+
+concentration_limits:
+  max_open_positions: 8
+  max_per_category_pct: 0.40        # tek kategori %40'tan fazla olamaz
+  max_per_symbol_pct: 0.20          # tek sembol %20'den fazla olamaz
+
+liquidity_gate:
+  max_order_to_minute_volume: 0.01  # 1-dk hacmin %1'i tavanı
+  min_book_depth_usdt: 100_000      # ±%1 derinlik tavanı
+
+execution:
+  order_type_default: post_only_limit
+  fallback_to_market_after_sec: 30
+  max_slippage_bps: 25              # 25 bps üstü → reject
+  partial_fill_timeout_sec: 60
+
+emergency:
+  kill_switch_keyword: HALT_TRADING
+  flatten_all_on_breaker: false     # breaker tetiklendiğinde mevcut açıkları KAPATMA (manuel onay)
+  require_human_to_resume: true
