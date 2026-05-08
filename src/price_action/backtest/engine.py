@@ -150,7 +150,7 @@ class BacktestEngine:
 
         # Build daily date index covering the full backtest range.
         # Timeframe-based frequency: 1d → daily, 1w → weekly, 1h → hourly, vs.
-        _freq_map = {"1d": "D", "1w": "W", "1h": "H", "4h": "4H", "15m": "15min"}
+        _freq_map = {"1d": "D", "1w": "W", "1h": "h", "4h": "4h", "15m": "15min"}
         freq = _freq_map.get(timeframe, "D")
         try:
             full_index = pd.date_range(start=start_ts, end=end_ts, freq=freq, tz="UTC")
