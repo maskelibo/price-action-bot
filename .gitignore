@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.python-version
+
+# Env
+.env
+.env.local
+*.env
+
+# Data & artifacts
+data/
+!data/.gitkeep
+!data/README.md
+artifacts/
+reports/
+logs/
+*.duckdb
+*.duckdb.wal
+*.parquet
+*.csv
+!tests/**/*.csv
+
+# RAG store
+knowledge/index/
+knowledge/cache/
+*.chroma/
+chroma.sqlite3
+
+# Memory runtime
+memory/**/runtime/
+memory/**/episodic/*.jsonl
+
+# Notebooks
+.ipynb_checkpoints/
+notebooks/scratch/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Tools
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docker
+.docker/
