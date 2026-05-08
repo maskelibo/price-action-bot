@@ -712,7 +712,31 @@ def run_daily(
                 rejects.append({**signal_info, "reason": "zero_sl_distance"})
                 continue
 
-            risk_dollar = current_equity * RISK_PER_TRADE
+            # Volatility-targeted sizing (ADR-007, opsiyonel kayıp koruma)
+            # risk.yaml::vol_target.enabled true ise: high-vol günde size azalt,
+            # low-vol günde size büyüt. Default kapalı.
+            base_risk_dollar = current_equity * RISK_PER_TRADE
+            try:
+                from price_action.risk.vol_target import (
+                    apply_vol_target,
+                    from_risk_yaml,
+                )
+                import yaml as _yaml
+                _risk_yaml_path = (
+                    Path(__file__).resolve().parents[1] / "configs" / "risk.yaml"
+                )
+                _risk_cfg = _yaml.safe_load(_risk_yaml_path.read_text(encoding="utf-8")) or {}
+                _vt_cfg = from_risk_yaml(_risk_cfg)
+                # signal metadata'sında ATR% varsa kullan; yoksa SL distance / price proxy
+                _atr_pct = sig.metadata.get("atr14", 0)
+                if _atr_pct and market_price > 0:
+                    _atr_pct_norm = float(_atr_pct) / float(market_price)
+                else:
+                    _atr_pct_norm = abs(sl_dist_dollar / max(market_price, 1.0)) / 2.0
+                risk_dollar = apply_vol_target(base_risk_dollar, _atr_pct_norm, _vt_cfg)
+            except Exception:
+                # Defansif: vol-target hesabı patlarsa baseline risk kullan
+                risk_dollar = base_risk_dollar
             quantity = (risk_dollar / sl_dist_dollar) * final_leverage
 
             # Reconstruct risked order with correct quantity
