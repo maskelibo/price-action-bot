@@ -78,23 +78,33 @@ concentration_limits:
   max_per_category_pct: 0.40        # tek kategori %40'tan fazla olamaz
   max_per_symbol_pct: 0.20          # tek sembol %20'den fazla olamaz
 
-# v0.7 — Multi-strategy + same-symbol cooldown
+# v0.8 — Multi-strategy + multi-target TP engine
 strategy_portfolio:
   enabled: true
-  strategies:                       # Top 5 (1d) — backtest avg_r > 0
-    - engulfing_continuation        # +%9.6 yillik (solo)
-    - pin_bar_round_numbers         # +%7.1
-    - obv_engulfing_confluence      # +%4.9
-    - morning_evening_star          # +%0.8
-    - equal_highs_sweep             # +%2.1
+  strategies:                       # Top 5 (1d) — multi-target engine ile
+    - engulfing_continuation        # +%28.6 yillik (solo)
+    - brooks_failed_breakout        # +%20.6
+    - brooks_h2_l2                  # +%17.5
+    - wyckoff_phase_d               # +%14.9 (DD low!)
+    - obv_engulfing_confluence      # +%14.5
   same_symbol_side_cooldown_days: 3
   max_concurrent_positions: 8
-  expected_annual_return: 0.27      # 5y backtest, dyn 1-4, gercek
-  expected_max_dd: 0.47
+  expected_annual_return: 0.25      # 13 pencere 3y rolling ortalama (range +20% to +34%)
+  expected_max_dd: 0.50
+  # 5y backtest sonuclari:
+  #   sabit %1   : yillik +%11, DD -%25 (defensive)
+  #   sabit %1.5 : yillik +%25, DD -%50 (balanced) ⭐ DEFAULT
+  #   sabit %2   : yillik +%27, DD -%73 (aggressive)
 
-# v0.8 ROADMAP (smart exit eklendiginde)
-# Smart trail icin strategy-level multi-target TP (partial close 1R/2R/3R)
-# Beklenti: +%30-50 ek yillik uplift -> realistik %50+ yillik
+# v0.8 multi-target TP engine
+exit_engine:
+  multi_target: true                # 1R/2R partials + runner trail
+  partial_close_1R: 0.30
+  partial_close_2R: 0.30
+  runner_pct: 0.40
+  break_even_after_1R: true
+  lock_1R_after_2R: true
+  runner_trail_atr: 0.7
 
 liquidity_gate:
   max_order_to_minute_volume: 0.01  # 1-dk hacmin %1'i tavanı

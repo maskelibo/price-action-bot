@@ -323,58 +323,99 @@ class BacktestEngine:
             pattern_id = sig.pattern_id
             in_position = True
 
-            # Forward path: SL/TP ilk hangisi gelirse o
+            # Forward path: MULTI-TARGET TP — partial close at 1R/2R + RUNNER TRAIL
+            # v0.8: %30 close at 1R + break-even SL
+            #       %30 close at 2R + lock SL at +1R
+            #       %40 runner with peak-1.5*ATR trail (NO TP3 hard cap)
             exit_idx = entry_idx
             exit_price = entry_price
             mae = 0.0
             mfe = 0.0
+            initial_R_dist = abs(entry_price - sl_price)
+            atr_for_trail = float(sig.metadata.get("atr14", 0)) if sig.metadata else 0.0
+            if atr_for_trail <= 0:
+                atr_for_trail = initial_R_dist * 0.5
+            tp1_price = entry_price + initial_R_dist if side == "long" else entry_price - initial_R_dist
+            tp2_price = entry_price + 2 * initial_R_dist if side == "long" else entry_price - 2 * initial_R_dist
+
+            qty1 = qty * 0.30  # TP1 partial
+            qty2 = qty * 0.30  # TP2 partial
+            qty_runner = qty - qty1 - qty2  # %40 runner
+
+            partial_pnls: list[tuple[int, float, float]] = []
+            stage = 0  # 0=full open, 1=after TP1, 2=after TP2 (runner only)
+            current_sl = sl_price
+            peak = entry_price  # MFE tracking (high for long, low for short)
+
             for j in range(entry_idx, len(df)):
                 bar = df.iloc[j]
                 hi = float(bar["high"])
                 lo = float(bar["low"])
                 if side == "long":
-                    excursion_low = (lo - entry_price) / entry_price
-                    excursion_high = (hi - entry_price) / entry_price
-                    mae = min(mae, excursion_low)
-                    mfe = max(mfe, excursion_high)
-                    if lo <= sl_price:
+                    mae = min(mae, (lo - entry_price) / entry_price)
+                    mfe = max(mfe, (hi - entry_price) / entry_price)
+                    peak = max(peak, hi)
+                    if lo <= current_sl:
+                        remaining = qty - qty1 * (1 if stage >= 1 else 0) - qty2 * (1 if stage >= 2 else 0)
+                        partial_pnls.append((j, remaining, current_sl * (1 - slip)))
                         exit_idx = j
-                        exit_price = sl_price * (1 - slip)
                         break
-                    if hi >= tp_price:
-                        exit_idx = j
-                        exit_price = tp_price * (1 - slip)
-                        break
+                    if stage == 0 and hi >= tp1_price:
+                        partial_pnls.append((j, qty1, tp1_price * (1 - slip)))
+                        stage = 1
+                    if stage >= 1 and hi >= tp2_price:
+                        partial_pnls.append((j, qty2, tp2_price * (1 - slip)))
+                        stage = 2
+                    # Bar kapanisi sonrasi SL update (next bar'da etkili)
+                    if stage >= 1:
+                        current_sl = max(current_sl, entry_price)  # break-even
+                    if stage >= 2:
+                        # Trail: max(+1R, peak - 1.5*ATR) — runner kar lock + trail
+                        trail_sl = peak - 0.7 * atr_for_trail
+                        current_sl = max(current_sl, tp1_price, trail_sl)
                 else:
-                    excursion_high = (hi - entry_price) / entry_price
-                    excursion_low = (lo - entry_price) / entry_price
-                    mae = max(mae, excursion_high)
-                    mfe = min(mfe, excursion_low)
-                    if hi >= sl_price:
+                    mae = max(mae, (hi - entry_price) / entry_price)
+                    mfe = min(mfe, (lo - entry_price) / entry_price)
+                    peak = min(peak, lo)
+                    if hi >= current_sl:
+                        remaining = qty - qty1 * (1 if stage >= 1 else 0) - qty2 * (1 if stage >= 2 else 0)
+                        partial_pnls.append((j, remaining, current_sl * (1 + slip)))
                         exit_idx = j
-                        exit_price = sl_price * (1 + slip)
                         break
-                    if lo <= tp_price:
-                        exit_idx = j
-                        exit_price = tp_price * (1 + slip)
-                        break
+                    if stage == 0 and lo <= tp1_price:
+                        partial_pnls.append((j, qty1, tp1_price * (1 + slip)))
+                        stage = 1
+                    if stage >= 1 and lo <= tp2_price:
+                        partial_pnls.append((j, qty2, tp2_price * (1 + slip)))
+                        stage = 2
+                    if stage >= 1:
+                        current_sl = min(current_sl, entry_price)
+                    if stage >= 2:
+                        trail_sl = peak + 0.7 * atr_for_trail
+                        current_sl = min(current_sl, tp1_price, trail_sl)
             else:
-                # Backtest sonuna kadar açık kaldı; close ile kapat
                 exit_idx = len(df) - 1
-                exit_price = float(df.iloc[-1]["close"])
+                final_close = float(df.iloc[-1]["close"])
+                remaining = qty - qty1 * (1 if stage >= 1 else 0) - qty2 * (1 if stage >= 2 else 0)
+                partial_pnls.append((exit_idx, remaining, final_close))
 
+            # Aggregate partials
             exit_ts = pd.Timestamp(df.iloc[exit_idx]["ts"])
-
-            # PnL
-            if side == "long":
-                pnl_per_unit = exit_price - entry_price
-            else:
-                pnl_per_unit = entry_price - exit_price
-            gross = pnl_per_unit * qty
-            fee_total = (entry_price + exit_price) * qty * fees.get("taker", 0.00075)
+            gross = 0.0
+            fee_total = 0.0
+            total_qty_closed = 0.0
+            weighted_exit_sum = 0.0
+            for _, q, ep in partial_pnls:
+                if side == "long":
+                    pnl_unit = ep - entry_price
+                else:
+                    pnl_unit = entry_price - ep
+                gross += pnl_unit * q
+                fee_total += (entry_price + ep) * q * fees.get("taker", 0.00075)
+                total_qty_closed += q
+                weighted_exit_sum += ep * q
+            exit_price = weighted_exit_sum / total_qty_closed if total_qty_closed > 0 else entry_price
             net = gross - fee_total
-
-            # R-multiple
             initial_risk = abs(entry_price - sl_price) * qty
             r_multiple = net / initial_risk if initial_risk > 0 else 0.0
 
