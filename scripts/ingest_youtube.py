@@ -279,15 +279,24 @@ def _vtt_to_text(vtt_content: str) -> str:
 # -----------------------------------------------------------------
 
 
-def _fetch_transcript_api(video_id: str) -> str:
-    """youtube_transcript_api ile transkript cekmek icin birincil yontem."""
+def _fetch_transcript_api(video_id: str, *, delay: float = 3.0) -> str:
+    """youtube_transcript_api ile transkript cekmek icin birincil yontem.
+
+    v1.2.4+ API degisikligi: get_transcript() kaldirildi, fetch() kullanilmali.
+    `delay` saniye bekletme — ard arda cok istek yapilinca YouTube IP banlama
+    uygular; her cagri arasinda kisa bir bekleme bunu onler.
+    """
+    import time
     try:
         from youtube_transcript_api import YouTubeTranscriptApi  # type: ignore[import-not-found]
     except ImportError:
         return ""
     try:
-        items = YouTubeTranscriptApi.get_transcript(video_id)
-        return "\n".join(it.get("text", "") for it in items)
+        if delay > 0:
+            time.sleep(delay)
+        api = YouTubeTranscriptApi()
+        transcript = api.fetch(video_id, languages=["en", "en-US", "en-GB"])
+        return "\n".join(s.text for s in transcript)
     except Exception:
         return ""
 

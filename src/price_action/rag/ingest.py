@@ -259,8 +259,10 @@ def fetch_youtube_transcript(video_url_or_id: str) -> str:
     if not video_id:
         return ""
     try:
-        items = YouTubeTranscriptApi.get_transcript(video_id)
-        return "\n".join(it.get("text", "") for it in items)
+        # v1.2.4+: get_transcript() removed; use instance method fetch()
+        api_instance = YouTubeTranscriptApi()
+        transcript = api_instance.fetch(video_id, languages=["en", "en-US", "en-GB"])
+        return "\n".join(s.text for s in transcript)
     except Exception as exc:
         logger.warning("rag.yt_fail", extra={"video": video_id, "err": str(exc)})
         return ""

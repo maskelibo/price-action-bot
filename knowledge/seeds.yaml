@@ -288,6 +288,143 @@ manual:
     type: reference_only
     quality: 5
 
+  # --- Web-fetched open-source articles (2026-05-09 ingest) ---
+
+  - id: grimes_beyond_patterns_rethinking_candlesticks
+    title: "Beyond Patterns: Rethinking Candlesticks"
+    author: Adam H Grimes
+    date: "2023-05-12"
+    category: classic_pa
+    type: web_article
+    notes_path: books/extra_grimes_beyond_patterns_rethinking_candlesticks.md
+    source_url: https://www.adamhgrimes.com/beyond-patterns-rethinking-candlesticks/
+    quality: 5
+
+  - id: grimes_volatility_compression_regime
+    title: "Volatility Compression: Detecting Market Regime Shifts"
+    author: Adam H Grimes
+    date: "2011-10-12"
+    category: classic_pa
+    type: web_article
+    notes_path: books/extra_grimes_volatility_compression_regime.md
+    source_url: https://www.adamhgrimes.com/volatility-compression/
+    quality: 5
+
+  - id: grimes_how_to_trade_pullbacks
+    title: "How to Trade Pullbacks"
+    author: Adam H Grimes
+    date: "2014-11-05"
+    category: classic_pa
+    type: web_article
+    notes_path: books/extra_grimes_how_to_trade_pullbacks.md
+    source_url: https://www.adamhgrimes.com/trade-pullbacks/
+    quality: 5
+
+  - id: grimes_market_myths_bearish_engulfing
+    title: "Market Myths: Data-Driven Insights on the Bearish Engulfing Pattern"
+    author: Adam H Grimes
+    date: "2024-07-21"
+    category: classic_pa
+    type: web_article
+    notes_path: books/extra_grimes_market_myths_bearish_engulfing.md
+    source_url: https://www.adamhgrimes.com/market-myths-data-driven-insights-on-the-bearish-engulfing-pattern/
+    quality: 5
+
+  - id: grimes_price_action_randomness
+    title: "Are the Secrets of Price Action Hidden in Randomness?"
+    author: Adam H Grimes
+    date: "2019-04-28"
+    category: classic_pa
+    type: web_article
+    notes_path: books/extra_grimes_price_action_randomness.md
+    source_url: https://adamhgrimes.com/are-the-secrets-of-price-action-hidden-in-randomness/
+    quality: 5
+
+  - id: grimes_impulse_moves_regime_detection
+    title: "Impulse Moves and Market Patterns: A Real-Time S&P 500 Example"
+    author: Adam H Grimes
+    date: "2024-07-28"
+    category: classic_pa
+    type: web_article
+    notes_path: books/extra_grimes_impulse_moves_regime_detection.md
+    source_url: https://www.adamhgrimes.com/impulse-moves-and-market-patterns-a-real-time-sp-500-example/
+    quality: 5
+
+  - id: grimes_reading_trend_strength
+    title: "Reading Trend Strength Through Patterns"
+    author: Adam H Grimes
+    date: "2015-04-29"
+    category: classic_pa
+    type: web_article
+    notes_path: books/extra_grimes_reading_trend_strength.md
+    source_url: https://adamhgrimes.com/reading-trend-strength-through-patterns/
+    quality: 5
+
+  - id: stockcharts_introduction_to_candlesticks
+    title: "Introduction to Candlesticks"
+    author: ChartSchool / StockCharts.com
+    category: classic_pa
+    type: web_article
+    notes_path: books/extra_stockcharts_introduction_to_candlesticks.md
+    source_url: https://chartschool.stockcharts.com/table-of-contents/chart-analysis/candlestick-charts/introduction-to-candlesticks
+    quality: 5
+
+  - id: stockcharts_support_resistance
+    title: "Support and Resistance in Technical Analysis"
+    author: ChartSchool / StockCharts.com
+    category: classic_pa
+    type: web_article
+    notes_path: books/extra_stockcharts_support_resistance.md
+    source_url: https://chartschool.stockcharts.com/table-of-contents/chart-analysis/support-and-resistance
+    quality: 5
+
+  - id: stockcharts_candlesticks_support_resistance
+    title: "Candlesticks and Support / Candlesticks and Resistance"
+    author: ChartSchool / StockCharts.com
+    category: classic_pa
+    type: web_article
+    notes_path: books/extra_stockcharts_candlesticks_support_resistance.md
+    source_url: https://chartschool.stockcharts.com/table-of-contents/chart-analysis/candlestick-charts/candlesticks-and-support
+    quality: 5
+
+  - id: stockcharts_moving_averages_sma_ema
+    title: "Moving Averages: Simple and Exponential"
+    author: ChartSchool / StockCharts.com
+    category: classic_pa
+    type: web_article
+    notes_path: books/extra_stockcharts_moving_averages_sma_ema.md
+    source_url: https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-overlays/moving-averages-simple-and-exponential
+    quality: 5
+
+  - id: stockcharts_bearish_reversal_patterns
+    title: "Candlestick Bearish Reversal Patterns"
+    author: ChartSchool / StockCharts.com
+    category: classic_pa
+    type: web_article
+    notes_path: books/extra_stockcharts_bearish_reversal_patterns.md
+    source_url: https://chartschool.stockcharts.com/table-of-contents/chart-analysis/candlestick-charts/candlestick-bearish-reversal-patterns
+    quality: 5
+
+  - id: dailypriceaction_pin_bar_strategy
+    title: "Pin Bar Trading Strategy: Everything You Need To Be Profitable"
+    author: Justin Bennett
+    date: "2025-05-05"
+    category: classic_pa
+    type: web_article
+    notes_path: books/extra_dailypriceaction_pin_bar_strategy.md
+    source_url: https://dailypriceaction.com/blog/forex-pin-bar-trading-strategy/
+    quality: 4
+
+  - id: dailypriceaction_candlestick_patterns
+    title: "3 Candlestick Patterns You Need To Use"
+    author: Justin Bennett
+    date: "2025-08-16"
+    category: classic_pa
+    type: web_article
+    notes_path: books/extra_dailypriceaction_candlestick_patterns.md
+    source_url: https://dailypriceaction.com/blog/forex-candlestick-patterns/
+    quality: 4
+
 # === Kara liste (asla ingest etme) ===
 blacklist:
   - "*signal-service*"
