@@ -115,7 +115,8 @@ def replay(trades, version="v1", initial=10_000.0, max_concurrent=5,
             if p["exit_ts"] <= now:
                 holding = (p["exit_ts"] - p["entry_ts"]).total_seconds() / 86400
                 fund = p["margin"] * p["lev"] * fund_d * holding
-                pnl = p["risk"] * p["R"] * p["lev"] - fund
+                # Futures P&L: notional fiyat hareketi = risk_d × R (lev sabit pos size)
+                pnl = p["risk"] * p["R"] - fund
                 cash += p["margin"] + pnl
                 equity = cash + sum(q["margin"] for q in still)
                 Rs.append(p["R"])
@@ -198,7 +199,7 @@ def replay(trades, version="v1", initial=10_000.0, max_concurrent=5,
     for p in open_pos:
         holding = (p["exit_ts"] - p["entry_ts"]).total_seconds() / 86400
         fund = p["margin"] * p["lev"] * fund_d * holding
-        pnl = p["risk"] * p["R"] * p["lev"] - fund
+        pnl = p["risk"] * p["R"] - fund  # Futures: lev'den bagimsiz P&L
         cash += p["margin"] + pnl
         equity = cash
         Rs.append(p["R"])

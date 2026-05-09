@@ -116,7 +116,7 @@ def replay(trades, risk_pct=0.01, max_concurrent=5,
                     # Kalan yarı: orijinal R'ın 0.5 katı pnl
                     pnl = p["risk"] * 0.5 * p["R"] * p["lev"] - f * 0.5
                 else:
-                    pnl = p["risk"] * p["R"] * p["lev"] - f
+                    pnl = p["risk"] * p["R"] - f
                 cash += p["margin"] + pnl
                 equity = cash + sum(q["margin"] for q in still)
                 if equity > peak_equity:
@@ -198,7 +198,7 @@ def replay(trades, risk_pct=0.01, max_concurrent=5,
         if p.get("partial_used"):
             pnl = p["risk"] * 0.5 * p["R"] * p["lev"] - f * 0.5
         else:
-            pnl = p["risk"] * p["R"] * p["lev"] - f
+            pnl = p["risk"] * p["R"] - f
         cash += p["margin"] + pnl
         equity = cash
         eq_curve.append(equity)

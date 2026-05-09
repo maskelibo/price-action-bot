@@ -134,7 +134,7 @@ def replay(trades, daily_dd=0.05, weekly_dd=0.10, monthly_dd=0.15,
             if p["exit_ts"] <= now:
                 holding = (p["exit_ts"] - p["entry_ts"]).total_seconds() / 86400
                 f = p["margin"] * p["lev"] * fund_d * holding
-                pnl = p["risk"] * p["R"] * p["lev"] - f
+                pnl = p["risk"] * p["R"] - f
                 cash += p["margin"] + pnl
                 equity = cash + sum(q["margin"] for q in still)
                 Rs.append(p["R"])
@@ -175,7 +175,7 @@ def replay(trades, daily_dd=0.05, weekly_dd=0.10, monthly_dd=0.15,
     for p in open_pos:
         holding = (p["exit_ts"] - p["entry_ts"]).total_seconds() / 86400
         f = p["margin"] * p["lev"] * fund_d * holding
-        cash += p["margin"] + p["risk"] * p["R"] * p["lev"] - f
+        cash += p["margin"] + p["risk"] * p["R"] - f
         equity = cash
         Rs.append(p["R"])
         eq_curve.append(equity)

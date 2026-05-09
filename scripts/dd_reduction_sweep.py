@@ -113,7 +113,7 @@ def replay(trades, risk_pct=0.02, max_concurrent=5, daily_dd=0.05, weekly_dd=0.1
             if p["exit_ts"] <= now:
                 holding = (p["exit_ts"] - p["entry_ts"]).total_seconds() / 86400
                 f = p["margin"] * p["lev"] * fund_d * holding
-                pnl = p["risk"] * p["R"] * p["lev"] - f
+                pnl = p["risk"] * p["R"] - f
                 cash += p["margin"] + pnl
                 equity = cash + sum(q["margin"] for q in still)
                 if equity > peak_equity:
@@ -173,7 +173,7 @@ def replay(trades, risk_pct=0.02, max_concurrent=5, daily_dd=0.05, weekly_dd=0.1
     for p in open_pos:
         holding = (p["exit_ts"] - p["entry_ts"]).total_seconds() / 86400
         f = p["margin"] * p["lev"] * fund_d * holding
-        cash += p["margin"] + p["risk"] * p["R"] * p["lev"] - f
+        cash += p["margin"] + p["risk"] * p["R"] - f
         equity = cash
         eq_curve.append(equity)
 
