@@ -371,7 +371,7 @@ class BacktestEngine:
                         current_sl = max(current_sl, entry_price)  # break-even
                     if stage >= 2:
                         # Trail: max(+1R, peak - 1.5*ATR) — runner kar lock + trail
-                        trail_sl = peak - 0.7 * atr_for_trail
+                        trail_sl = peak - 1.0 * atr_for_trail
                         current_sl = max(current_sl, tp1_price, trail_sl)
                 else:
                     mae = max(mae, (hi - entry_price) / entry_price)
@@ -391,7 +391,7 @@ class BacktestEngine:
                     if stage >= 1:
                         current_sl = min(current_sl, entry_price)
                     if stage >= 2:
-                        trail_sl = peak + 0.7 * atr_for_trail
+                        trail_sl = peak + 1.0 * atr_for_trail
                         current_sl = min(current_sl, tp1_price, trail_sl)
             else:
                 exit_idx = len(df) - 1

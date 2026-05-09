@@ -78,34 +78,52 @@ concentration_limits:
   max_per_category_pct: 0.40        # tek kategori %40'tan fazla olamaz
   max_per_symbol_pct: 0.20          # tek sembol %20'den fazla olamaz
 
-# v0.8 — Multi-strategy + multi-target TP engine
+# v0.9 — 11 sembol + Top 10 strateji + multi-target engine + 1.0 ATR trail
 strategy_portfolio:
   enabled: true
-  strategies:                       # Top 5 (1d) — multi-target engine ile
-    - engulfing_continuation        # +%28.6 yillik (solo)
-    - brooks_failed_breakout        # +%20.6
-    - brooks_h2_l2                  # +%17.5
-    - wyckoff_phase_d               # +%14.9 (DD low!)
-    - obv_engulfing_confluence      # +%14.5
+  symbols:                          # 11 sembol (DOGE/XRP/MATIC eklendi)
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - ADA/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - DOT/USDT
+    - DOGE/USDT
+    - XRP/USDT
+    - MATIC/USDT
+  strategies:                       # Top 10 — 11 sembolde test edilmis
+    - engulfing_continuation
+    - obv_engulfing_confluence
+    - anchored_vwap_reversal        # YENI v0.9 — VWAP reversal
+    - wyckoff_phase_d
+    - brooks_h2_l2
+    - pin_bar_round_numbers
+    - equal_highs_sweep
+    - cvd_spike_fade                # YENI v0.9 — CVD divergence
+    - vsa_climax_test               # YENI v0.9 — VSA climax
+    - brooks_failed_breakout
   same_symbol_side_cooldown_days: 3
   max_concurrent_positions: 8
-  expected_annual_return: 0.25      # 13 pencere 3y rolling ortalama (range +20% to +34%)
-  expected_max_dd: 0.50
-  signal_confidence_min: 0.20       # v0.8 confidence filter (sample +%2pp uplift)
-  # 5y backtest sonuclari:
-  #   sabit %1   : yillik +%11, DD -%25 (defensive)
-  #   sabit %1.5 : yillik +%25, DD -%50 (balanced) ⭐ DEFAULT
-  #   sabit %2   : yillik +%27, DD -%73 (aggressive)
+  signal_confidence_min: 0.20
+  expected_annual_return: 0.53      # 13 pencere 3y rolling ORT 53.58%
+  expected_max_dd: 0.80
+  # 5y backtest:
+  #   risk %1.5 : yillik +%25, DD -%72 (defensive)
+  #   risk %2.0 : yillik +%31, DD -%66 (balanced)
+  #   risk %3.0 : yillik +%62.78, DD -%76 ⭐ TARGET
+  #   risk %3.5 : yillik +%35, DD -%93 (asari)
 
-# v0.8 multi-target TP engine
+# v0.9 multi-target TP engine (1.0 ATR trail)
 exit_engine:
-  multi_target: true                # 1R/2R partials + runner trail
+  multi_target: true
   partial_close_1R: 0.30
   partial_close_2R: 0.30
   runner_pct: 0.40
   break_even_after_1R: true
   lock_1R_after_2R: true
-  runner_trail_atr: 0.7
+  runner_trail_atr: 1.0             # v0.9: 0.7 -> 1.0 (let-run gevsek)
 
 liquidity_gate:
   max_order_to_minute_volume: 0.01  # 1-dk hacmin %1'i tavanı
