@@ -476,6 +476,49 @@ Aşağıdaki her iki kriter de karşılandığında Faz 7'ye geçilebilir:
 }
 ```
 
+### Adım 6: Orderbook Imbalance Logging (Microstructure Research)
+
+Faz 6 paper trading sırasında, her engulfing sinyali tetiklendiğinde
+gerçek zamanlı orderbook snapshot otomatik olarak loglanır.
+Bu, **perp-orderbook-imbalance** hipotezinin forward validation verisidir.
+
+**Nasıl çalışır:**
+- `scripts/paper_trading_loop.py` sinyal bulunca defansif hook tetikler
+- `src/price_action/data/orderbook_logger.py` REST ile Binance orderbook çeker
+- Top-5 seviyede bid/ask imbalance hesaplanır
+- `data/orderbook_snapshots.duckdb` tablosuna append edilir
+- Herhangi bir hata (network, exchange down) → sessizce geçer, loop durmaz
+
+**Durum sorgulama:**
+```python
+from price_action.data.orderbook_logger import OrderbookLogger
+ob = OrderbookLogger()
+
+# Son 20 snapshot
+print(ob.query_recent(limit=20))
+
+# Alignment özeti (4 hafta sonra)
+print(ob.correlation_summary())
+# {'total_snapshots': N, 'aligned_count': X, 'misaligned_count': Y, 'neutral_count': Z}
+```
+
+**DuckDB direkt sorgu:**
+```bash
+duckdb data/orderbook_snapshots.duckdb
+> SELECT symbol, direction, imbalance, confidence, ts
+  FROM orderbook_snapshots
+  ORDER BY ts DESC
+  LIMIT 20;
+```
+
+**Forward validation takvimi:**
+- Başlangıç: 2026-05-09
+- Bitiş: 2026-06-06 (4 hafta)
+- Minimum hedef: 30 snapshot
+- Analiz sorusu: |imbalance| > 0.6 olduğunda win rate artıyor mu?
+
+**Hipotez belgesi:** `memory/researcher/hypotheses/2026-05-09-perp-orderbook-imbalance.md`
+
 ### Sorun Giderme
 
 **"ccxt not found"**:
@@ -486,6 +529,16 @@ uv add ccxt
 **"duckdb not found"** (journal devre dışı kalır, log dosyasına düşer):
 ```bash
 uv add duckdb
+```
+
+**Orderbook logging çalışmıyor (sessizce skip):**
+```bash
+# Modülü manuel test et (network bağlantısı gerekli)
+PYTHONPATH=src python -c "
+from price_action.data.orderbook_logger import fetch_orderbook_snapshot
+result = fetch_orderbook_snapshot('BTC/USDT', venue='binance', limit=10)
+print(result)
+"
 ```
 
 **Breaker tetiklendi**:

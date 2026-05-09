@@ -667,6 +667,27 @@ def run_daily(
                 f"leverage={leverage}x sl={sig.sl_price:.4f} tp={sig.tp_price:.4f}"
             )
 
+            # ---- Orderbook imbalance logging (Faz 6 — microstructure research hook) ----
+            # Defansif: orderbook_logger opsiyonel; herhangi bir hata loop'u durdurmaz.
+            # Hypothesis: perp-orderbook-imbalance (2026-05-09)
+            try:
+                from price_action.data.orderbook_logger import OrderbookLogger
+                _ob_logger = OrderbookLogger()
+                _ob_signal_info = {
+                    **signal_info,
+                    "venue": VENUE,
+                    "trade_id": f"pre-{uuid.uuid4().hex[:8]}",  # pre-fill ID
+                }
+                _ob_logger.log_signal_orderbook(
+                    signal_info=_ob_signal_info,
+                    exchange=exchange,
+                    top_n=5,
+                )
+            except Exception as _ob_exc:  # noqa: BLE001
+                log.bind(err=str(_ob_exc), symbol=symbol).debug(
+                    "paper_loop.orderbook_hook_skip — not critical"
+                )
+
             # ---- Risk Officer check ----
             if any_breaker:
                 rejects.append({**signal_info, "reason": "dd_breaker_active"})
