@@ -184,16 +184,73 @@ CURATED_VIDEOS: list[tuple[str, str, str, str, int, list[str]]] = [
 ]
 
 
+def _fetch_via_yt_dlp_cookies(video_id: str, cookies_path: str) -> str | None:
+    """Fallback: yt-dlp with cookies.txt to bypass IP ban."""
+    import subprocess
+    import tempfile
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cmd = [
+                sys.executable, "-m", "yt_dlp",
+                "--cookies", cookies_path,
+                "--write-auto-sub",
+                "--sub-lang", "en",
+                "--sub-format", "vtt",
+                "--skip-download",
+                "--no-warnings",
+                "-o", f"{tmpdir}/%(id)s.%(ext)s",
+                f"https://www.youtube.com/watch?v={video_id}",
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60, encoding="utf-8")
+            # Find generated VTT file
+            vtt_files = list(Path(tmpdir).glob(f"{video_id}*.vtt"))
+            if not vtt_files:
+                if proc.returncode != 0:
+                    print(f"  [yt-dlp ERR] {video_id}: rc={proc.returncode}", file=sys.stderr)
+                return None
+            # Parse VTT to plain text
+            content = vtt_files[0].read_text(encoding="utf-8", errors="replace")
+            lines = []
+            for line in content.split("\n"):
+                line = line.strip()
+                if not line or line.startswith("WEBVTT") or "-->" in line or line.startswith("NOTE"):
+                    continue
+                # Strip <c> tags etc.
+                import re as _re
+                clean = _re.sub(r"<[^>]+>", "", line)
+                if clean and clean not in lines[-3:]:  # dedup repeated captions
+                    lines.append(clean)
+            return "\n".join(lines) if lines else None
+    except subprocess.TimeoutExpired:
+        print(f"  [yt-dlp TIMEOUT] {video_id}", file=sys.stderr)
+        return None
+    except Exception as exc:
+        print(f"  [yt-dlp ERR] {video_id}: {type(exc).__name__}: {str(exc)[:100]}", file=sys.stderr)
+        return None
+
+
 def _fetch_transcript(video_id: str, delay: float = 5.0) -> str | None:
-    """Fetch transcript for one video. Returns text or None on failure."""
+    """Fetch transcript for one video. Returns text or None on failure.
+
+    Strategy:
+      1. If PA_YT_COOKIES set → yt-dlp with cookies (most reliable, bypasses IP ban)
+      2. Else → youtube-transcript-api (no cookies needed, gets banned easily)
+    """
+    cookies_path = os.environ.get("PA_YT_COOKIES")
+
+    if delay > 0:
+        time.sleep(delay)
+
+    # Path A: yt-dlp with cookies (preferred when available)
+    if cookies_path and Path(cookies_path).is_file():
+        return _fetch_via_yt_dlp_cookies(video_id, cookies_path)
+
+    # Path B: youtube-transcript-api (fallback)
     try:
         from youtube_transcript_api import YouTubeTranscriptApi  # type: ignore
     except ImportError:
         print("[ERROR] youtube-transcript-api not installed. Run: pip install youtube-transcript-api", file=sys.stderr)
         sys.exit(1)
-
-    if delay > 0:
-        time.sleep(delay)
 
     try:
         api = YouTubeTranscriptApi()
@@ -203,7 +260,7 @@ def _fetch_transcript(video_id: str, delay: float = 5.0) -> str | None:
         err_type = type(exc).__name__
         err_msg = str(exc)
         if "blocked" in err_msg.lower() or "429" in err_msg or "IpBlocked" in err_type or "RequestBlocked" in err_type:
-            print(f"  [BLOCKED] {video_id}: YouTube IP ban active — {err_type}", file=sys.stderr)
+            print(f"  [BLOCKED] {video_id}: YouTube IP ban — set PA_YT_COOKIES to bypass", file=sys.stderr)
         else:
             print(f"  [ERR] {video_id}: {err_type}: {err_msg[:100]}", file=sys.stderr)
         return None
