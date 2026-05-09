@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     pa_live_confirm: str = ""
 
     # --- Backtest / universe ---
-    pa_backtest_years: int = 3
+    pa_backtest_years: int = 5
     pa_timeframes: str = "1d,1w"
     pa_universe_mode: Literal["top_volume", "all_liquid", "manual"] = "all_liquid"
     pa_universe_min_vol_usdt: float = 1_000_000.0

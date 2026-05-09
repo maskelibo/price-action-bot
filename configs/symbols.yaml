@@ -54,7 +54,7 @@ timeframes:
   minor: 4h            # opsiyonel, giriş netleştirme için
 
 backfill:
-  years: 3
+  years: 5
   source_priority:
     - binance
     - bybit

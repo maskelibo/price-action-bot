@@ -51,6 +51,7 @@ class BacktestResult(BaseModel):
     trades: pd.DataFrame  # TradeRecord rows
     manifest: ReproducibilityManifest
     elapsed_sec: float = 0.0
+    symbol_slippage_map: dict[str, float] = Field(default_factory=dict)  # per-symbol bps
 
 
 # =====================================================================
@@ -84,6 +85,7 @@ class BacktestEngine:
         end: datetime,
         fees: dict[str, float] | None = None,
         slippage_bps: float = 5.0,
+        symbol_slippage_map: dict[str, float] | None = None,
         initial_capital: float = 10_000.0,
         timeframe: str = "1d",
         ohlcv_provider: Any | None = None,
@@ -92,9 +94,13 @@ class BacktestEngine:
 
         `ohlcv_provider`: opsiyonel (symbol, tf) -> pd.DataFrame; yoksa
         `self.store_load` veya OHLCVStore default'a düşer.
+
+        `symbol_slippage_map`: {symbol: bps} — varsa per-symbol kullanılır,
+        eksik semboller `slippage_bps` flat default'a düşer (geriye uyumlu).
         """
         t0 = time.perf_counter()
         fees = fees or {"taker": 0.00075, "maker": -0.00010}
+        symbol_slippage_map = symbol_slippage_map or {}
 
         all_trades: list[dict[str, Any]] = []
         # Tüm semboller için ortak tarihli equity curve oluştur
@@ -118,11 +124,13 @@ class BacktestEngine:
                 df["timeframe"] = timeframe
             df = strategy.prepare_features(df)
             signals = strategy.generate_signals(df)
+            # Per-symbol slippage: map override veya flat fallback
+            sym_slip = symbol_slippage_map.get(sym, slippage_bps)
             sym_trades = self._simulate_symbol(
                 df=df,
                 signals=signals,
                 strategy_id=strategy.name,
-                slippage_bps=slippage_bps,
+                slippage_bps=sym_slip,
                 fees=fees,
                 initial_capital=initial_capital,
                 pnl_accumulator=pnl_by_ts,
@@ -212,6 +220,7 @@ class BacktestEngine:
             initial_capital=initial_capital,
             fees=fees,
             slippage_bps=slippage_bps,
+            symbol_slippage_map=symbol_slippage_map,
             universe=universe,
             n_trades=len(all_trades),
             kpis=kpis,
