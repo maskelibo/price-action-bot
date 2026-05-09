@@ -5,11 +5,17 @@ defaults:
   account_currency: USDT
 
 position_sizing:
-  method: fixed_fractional        # fixed_fractional | kelly_capped | atr_normalized
-  risk_per_trade: 0.01             # %1 sermaye risk (SL'e kadar)
-  kelly_cap: 0.25                  # Kelly oranını maksimum 0.25 ile kırp
-  min_quantity_usdt: 20            # ufak emirleri at
-  size_rounding: exchange_step     # exchange'in lot step'ine yuvarla
+  method: confidence_dynamic       # v0.7 — confidence tier bazli dynamic
+  risk_per_trade: 0.02             # default fallback (confidence tier yoksa)
+  confidence_risk_tiers:           # v0.7 production: 1-4% dynamic
+    - {min: 0.00, max: 0.32, risk_pct: 0.010}  # %1 — defensive
+    - {min: 0.32, max: 0.42, risk_pct: 0.015}  # %1.5
+    - {min: 0.42, max: 0.52, risk_pct: 0.020}  # %2 — default
+    - {min: 0.52, max: 0.58, risk_pct: 0.030}  # %3
+    - {min: 0.58, max: 1.01, risk_pct: 0.040}  # %4 — yuksek conf, bas
+  kelly_cap: 0.25
+  min_quantity_usdt: 20
+  size_rounding: exchange_step
 
 stop_loss:
   method: atr                       # atr | structural | hybrid
@@ -71,6 +77,24 @@ concentration_limits:
   max_open_positions: 8
   max_per_category_pct: 0.40        # tek kategori %40'tan fazla olamaz
   max_per_symbol_pct: 0.20          # tek sembol %20'den fazla olamaz
+
+# v0.7 — Multi-strategy + same-symbol cooldown
+strategy_portfolio:
+  enabled: true
+  strategies:                       # Top 5 (1d) — backtest avg_r > 0
+    - engulfing_continuation        # +%9.6 yillik (solo)
+    - pin_bar_round_numbers         # +%7.1
+    - obv_engulfing_confluence      # +%4.9
+    - morning_evening_star          # +%0.8
+    - equal_highs_sweep             # +%2.1
+  same_symbol_side_cooldown_days: 3
+  max_concurrent_positions: 8
+  expected_annual_return: 0.27      # 5y backtest, dyn 1-4, gercek
+  expected_max_dd: 0.47
+
+# v0.8 ROADMAP (smart exit eklendiginde)
+# Smart trail icin strategy-level multi-target TP (partial close 1R/2R/3R)
+# Beklenti: +%30-50 ek yillik uplift -> realistik %50+ yillik
 
 liquidity_gate:
   max_order_to_minute_volume: 0.01  # 1-dk hacmin %1'i tavanı
