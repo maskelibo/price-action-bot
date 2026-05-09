@@ -91,6 +91,7 @@ strategy_portfolio:
   max_concurrent_positions: 8
   expected_annual_return: 0.25      # 13 pencere 3y rolling ortalama (range +20% to +34%)
   expected_max_dd: 0.50
+  signal_confidence_min: 0.20       # v0.8 confidence filter (sample +%2pp uplift)
   # 5y backtest sonuclari:
   #   sabit %1   : yillik +%11, DD -%25 (defensive)
   #   sabit %1.5 : yillik +%25, DD -%50 (balanced) ⭐ DEFAULT
