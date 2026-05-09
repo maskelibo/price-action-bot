@@ -61,7 +61,8 @@ drawdown_breakers:
   daily_loss_pct: 0.05              # günlük net kayıp %5 → durdur
   weekly_loss_pct: 0.10             # haftalık %10 → durdur
   monthly_loss_pct: 0.15            # aylık %15 → durdur
-  consecutive_losses: 6             # üst üste 6 kayıp → durdur
+  consecutive_losses: 3             # v0.9.1: 6 -> 3 (sweep'te ROI+DD iyilestirir)
+  consecutive_loss_pause_days: 5    # v0.9.1: 3 ardisik kayip -> 5 gun cool-down
   reset:
     daily: 00:00 UTC
     weekly: Monday 00:00 UTC
@@ -107,8 +108,8 @@ strategy_portfolio:
   same_symbol_side_cooldown_days: 3
   max_concurrent_positions: 8
   signal_confidence_min: 0.20
-  expected_annual_return: 0.53      # 13 pencere 3y rolling ORT 53.58%
-  expected_max_dd: 0.80
+  expected_annual_return: 0.64      # v0.9.1: 3-loss cool-down ile yillik %64.17
+  expected_max_dd: 0.75              # v0.9.1: 3-loss ile DD %77 -> %75
   # 5y backtest:
   #   risk %1.5 : yillik +%25, DD -%72 (defensive)
   #   risk %2.0 : yillik +%31, DD -%66 (balanced)
