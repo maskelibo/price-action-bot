@@ -112,13 +112,15 @@ strategy_portfolio:
   same_symbol_side_cooldown_days: 3
   max_concurrent_positions: 8
   signal_confidence_min: 0.20
-  expected_annual_return: 0.97      # v0.9.2: notional cap 0.30 ile yillik %97.6
-  expected_max_dd: 0.59              # v0.9.2: cap 0.30 DD %75 -> %59
-  # 5y backtest (v0.9.2 production):
-  #   no cap (v0.9.1)        : yillik +%64.5, DD -%75
-  #   cap 0.50               : yillik +%61, DD -%80 (etkisiz)
-  #   cap 0.30 (production)  : yillik +%97.6, DD -%59 ⭐
-  #   1y OOS (2025-05->2026-05) cap 0.30: ROI +%170, DD -%64
+  expected_annual_return: 0.57      # v0.9.2: 3y rolling 13 pencere ortalama +%57.1
+  expected_max_dd: 0.65              # v0.9.2: 3y rolling ortalama DD -%65
+  # 3y rolling stress (13 pencere — GERCEK referans):
+  #   no cap (v0.9.1)        : yillik +%57.3, DD -%78 (baseline)
+  #   cap 0.20               : yillik +%40.4, DD -%54 (siki, ROI dustu)
+  #   cap 0.30 (production)  : yillik +%57.1, DD -%65 ⭐ (DD %13pp iyi)
+  #   cap 0.50               : yillik +%96.4, DD -%77 (yuksek dispersiyon, guvensiz)
+  # 5y in-sample tek pencere (referans ama yaniltici olabilir):
+  #   cap 0.30 -> yillik %97.6 DD -%59 (sansa bagli, 3y rolling ile celiskili)
 
 # v0.9 multi-target TP engine (1.0 ATR trail)
 exit_engine:
