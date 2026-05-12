@@ -49,9 +49,14 @@ def _lazy_build_btc_halt(regime_cfg: dict) -> dict | None:
 def _lazy_build_funding_filters(alt_cfg: dict) -> tuple[dict | None, dict | None]:
     """YAML alt_data.funding_filter_enabled true ise funding calendar'lari uretir.
 
-    BTC perpetual 8h funding -> daily avg. Threshold'lar:
-      daily_avg > long_thr  -> long taraf skip (overheated long crowd, contrarian)
-      daily_avg < short_thr -> short taraf skip (overshort squeeze setup)
+    BTC perpetual funding -> threshold filter:
+      avg > long_thr  -> long taraf skip (overheated long crowd, contrarian)
+      avg < short_thr -> short taraf skip (overshort squeeze setup)
+
+    v0.9.6 LOOK-AHEAD FIX: aggregation_mode parametresi:
+      "00:00_only"  (DEFAULT) — sadece T 00:00 UTC funding (bar acilisinda bilinen, causal)
+      "lag1d"       — T-1 gunun daily avg'i (ultra-causal, en konservatif)
+      "daily_full"  — T'nin TUM gun daily avg'i (LOOK-AHEAD VAR, sadece arastirma)
 
     Returns: (long_skip_dict, short_skip_dict). Both None if disabled or no data.
     """
@@ -65,9 +70,28 @@ def _lazy_build_funding_filters(alt_cfg: dict) -> tuple[dict | None, dict | None
         df = pd.read_csv(p)
         df["ts"] = pd.to_datetime(df["ts"], utc=True, format="ISO8601")
         df["date"] = df["ts"].dt.date
-        daily = df.groupby("date")["fundingRate"].mean().reset_index()
+
+        mode = str(alt_cfg.get("funding_aggregation_mode", "00:00_only"))
         long_thr = float(alt_cfg.get("funding_long_threshold", 0.0001))
         short_thr = float(alt_cfg.get("funding_short_threshold", -0.0001))
+
+        if mode == "00:00_only":
+            # Sadece T'nin 00:00 funding'i — bar acilisinda settle olmus, causal.
+            df_00 = df[df["ts"].dt.hour == 0]
+            daily = df_00.groupby("date")["fundingRate"].mean().reset_index()
+        elif mode == "lag1d":
+            # T-1 gunun daily avg'i, T'de uygulanir (strictly causal)
+            daily_full = df.groupby("date")["fundingRate"].mean().reset_index()
+            daily_full = daily_full.sort_values("date").reset_index(drop=True)
+            daily_full["next_date"] = daily_full["date"].shift(-1)
+            daily = daily_full.dropna(subset=["next_date"])[["next_date", "fundingRate"]]
+            daily = daily.rename(columns={"next_date": "date"})
+        elif mode == "daily_full":
+            # LOOK-AHEAD VAR — sadece arastirma icin
+            daily = df.groupby("date")["fundingRate"].mean().reset_index()
+        else:
+            raise ValueError(f"Bilinmeyen funding_aggregation_mode: {mode}")
+
         long_skip = {r["date"]: True for _, r in daily.iterrows()
                      if pd.notna(r["fundingRate"]) and r["fundingRate"] > long_thr}
         short_skip = {r["date"]: True for _, r in daily.iterrows()

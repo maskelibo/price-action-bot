@@ -1,7 +1,7 @@
 # PRODUCTION BENCHMARK
 
-**Son güncelleme:** 2026-05-12 11:38 UTC
-**Git commit:** `42f9556`
+**Son güncelleme:** 2026-05-12 12:32 UTC
+**Git commit:** `db2d2ff`
 **Kaynak:** `scripts/v092_build_benchmark.py` (canonical `production_replay` üzerinden)
 
 > Bu dosya **tek doğruluk kaynağıdır**. Her commit'te güncellenir.
@@ -43,7 +43,7 @@ DD breakers (d/w/m): 0.05/0.1/0.15
 | v0.9.3 AGGRESSIVE preset | 128 | $174,374 | +1643.7% | +77.54% | -43.1% | 59.4% |
 | v0.9.3 DEFENSIVE preset | 366 | $31,513 | +215.1% | +25.92% | -23.2% | 53.0% |
 | v0.9.4 BALANCED preset (halt+r%4) | 82 | $42,756 | +327.6% | +33.88% | -29.5% | 64.6% |
-| v0.9.5 SUPER preset (funding+r%4) ⭐ | 112 | $302,583 | +2925.8% | +98.31% | -42.8% | 58.9% |
+| v0.9.5 SUPER preset (funding+r%4) ⭐ | 119 | $243,924 | +2339.2% | +89.91% | -45.1% | 57.1% |
 
 ## 3 Yıl Rolling Stress (13 pencere, 60-gün adım)
 
@@ -57,7 +57,7 @@ DD breakers (d/w/m): 0.05/0.1/0.15
 | v0.9.3 AGGRESSIVE preset | 13 | +42.48% | +34.17% | +3.4% | +102.7% | -36.9% | -45% | 4/13 | 0 |
 | v0.9.3 DEFENSIVE preset | 13 | +30.85% | +30.37% | +14.5% | +48.5% | -23.5% | -31% | 0/13 | 0 |
 | v0.9.4 BALANCED preset (halt+r%4) | 13 | +33.13% | +38.88% | +19.8% | +45.1% | -30.1% | -42% | 0/13 | 0 |
-| v0.9.5 SUPER preset (funding+r%4) ⭐ | 13 | +65.11% | +44.47% | +10.6% | +149.2% | -36.6% | -43% | 6/13 | 0 |
+| v0.9.5 SUPER preset (funding+r%4) ⭐ | 13 | +61.34% | +36.72% | +7.4% | +145.8% | -36.8% | -45% | 6/13 | 0 |
 
 ### v0.9.2 Production — 3y rolling pencereleri (tam liste)
 
