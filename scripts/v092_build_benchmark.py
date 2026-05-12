@@ -72,6 +72,8 @@ def main():
     cfg_defensive = ProductionConfig.from_yaml("configs/risk_defensive.yaml")
     # v0.9.4 BALANCED preset (AGGRESSIVE + capitulation halt)
     cfg_balanced = ProductionConfig.from_yaml("configs/risk_balanced.yaml")
+    # v0.9.5 SUPER preset (AGGRESSIVE + funding alt-data filter)
+    cfg_super = ProductionConfig.from_yaml("configs/risk_super.yaml")
 
     configs = [
         ("v0.9.1 (no cap)", cfg_v091),
@@ -80,6 +82,7 @@ def main():
         ("v0.9.3 AGGRESSIVE preset", cfg_aggressive),
         ("v0.9.3 DEFENSIVE preset", cfg_defensive),
         ("v0.9.4 BALANCED preset (halt+r%4)", cfg_balanced),
+        ("v0.9.5 SUPER preset (funding+r%4) ⭐", cfg_super),
     ]
 
     # Pencereler
@@ -215,12 +218,21 @@ def main():
     md.append("- Beklenti: yıllık +%31, DD -%24, 5y $38K, **risk-adj 1.31 (en yüksek)**")
     md.append("- Live-realistic (conc 0.20): yıllık ~%22, DD -%19, 5y $27K")
     md.append("")
-    md.append("### Balanced (v0.9.4 — Analyst regime halt) — `risk_balanced.yaml` ⭐ YENİ")
+    md.append("### Balanced (v0.9.4 — Analyst regime halt) — `risk_balanced.yaml`")
     md.append("- AGGRESSIVE base + `regime_filter.btc_capitulation_halt_enabled: true`")
     md.append("- ATR%≥6 + EMA200 streak ≥10gün + 90d-DD ≤-25% (2 of 3 → halt)")
     md.append("- Profil: \"DENGELI\" — yüksekçe getiri, dar dispersiyon")
     md.append("- Beklenti: yıllık +%33, DD -%30, **min pencere +%20 (en kötü senaryo bile iyi)**")
     md.append("- AGGRESSIVE'den farkı: dispersiyon yarı, min 6x yukseldi, DD -%7pp")
+    md.append("")
+    md.append("### Super (v0.9.5 — Researcher B alt-data funding filter) — `risk_super.yaml` ⭐⭐ EN YUKSEK r-adj")
+    md.append("- AGGRESSIVE base + `alt_data.funding_filter_enabled: true`")
+    md.append("- BTC perpetual funding daily avg > +0.0001 → long skip (overheated)")
+    md.append("- BTC perpetual funding daily avg < -0.0001 → short skip (overshort squeeze)")
+    md.append("- Profil: \"EN YUKSEK r-adj\" — alt-data destekli")
+    md.append("- Beklenti: yıllık **+%65**, DD -%37, **risk-adj 1.78** (session'ın en yüksek skoru)")
+    md.append("- Min/max pencere: +%10.6 / +%149.0, 5y compound $10K → ~$90K backtest")
+    md.append("- Veri: `data/alt_data/funding_BTCUSDT.csv` (Researcher B agent topladı)")
     md.append("")
     md.append("### Kullanim")
     md.append("```python")

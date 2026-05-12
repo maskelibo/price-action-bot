@@ -46,6 +46,37 @@ def _lazy_build_btc_halt(regime_cfg: dict) -> dict | None:
         return None
 
 
+def _lazy_build_funding_filters(alt_cfg: dict) -> tuple[dict | None, dict | None]:
+    """YAML alt_data.funding_filter_enabled true ise funding calendar'lari uretir.
+
+    BTC perpetual 8h funding -> daily avg. Threshold'lar:
+      daily_avg > long_thr  -> long taraf skip (overheated long crowd, contrarian)
+      daily_avg < short_thr -> short taraf skip (overshort squeeze setup)
+
+    Returns: (long_skip_dict, short_skip_dict). Both None if disabled or no data.
+    """
+    if not alt_cfg.get("funding_filter_enabled", False):
+        return None, None
+    try:
+        import pandas as pd
+        p = ROOT / "data" / "alt_data" / "funding_BTCUSDT.csv"
+        if not p.exists():
+            return None, None
+        df = pd.read_csv(p)
+        df["ts"] = pd.to_datetime(df["ts"], utc=True, format="ISO8601")
+        df["date"] = df["ts"].dt.date
+        daily = df.groupby("date")["fundingRate"].mean().reset_index()
+        long_thr = float(alt_cfg.get("funding_long_threshold", 0.0001))
+        short_thr = float(alt_cfg.get("funding_short_threshold", -0.0001))
+        long_skip = {r["date"]: True for _, r in daily.iterrows()
+                     if pd.notna(r["fundingRate"]) and r["fundingRate"] > long_thr}
+        short_skip = {r["date"]: True for _, r in daily.iterrows()
+                      if pd.notna(r["fundingRate"]) and r["fundingRate"] < short_thr}
+        return long_skip, short_skip
+    except Exception:
+        return None, None
+
+
 # =====================================================================
 # Production Config — tek doğruluk kaynağı
 # =====================================================================
@@ -62,6 +93,10 @@ class ProductionConfig:
     # Filtering
     conf_min: float = 0.20
     drop_strategies: frozenset[str] = field(default_factory=frozenset)
+    # v0.9.5 ablation: per-symbol drop (analyst ablation testlerinde kullanilir)
+    drop_symbols: frozenset[str] = field(default_factory=frozenset)
+    # v0.9.5 ablation: belirli (strategy, symbol) ciftlerini drop
+    drop_pairs: frozenset[tuple] = field(default_factory=frozenset)
 
     # Concurrency / cool-downs
     max_concurrent: int = 8
@@ -104,6 +139,21 @@ class ProductionConfig:
     chop_risk_factor: float = 0.0          # "chop" -> skip
     transition_risk_factor: float = 0.5    # "transition" -> half risk
 
+    # v0.9.5 ML TRADE SCORING FILTER
+    # dict[(symbol, entry_ts) -> proba]. proba < score_threshold ise skip.
+    # entry_ts pd.Timestamp veya datetime (UTC, exact match).
+    score_filter: dict | None = None
+    score_threshold: float = 0.0  # 0 = filter disabled even if dict set
+
+    # v0.9.5 ALT-DATA FILTERS (date -> bool)
+    # True -> skip o gunu. Date-aligned (entry_ts.date()).
+    # alt_data_skip_long: long taraf icin "skip" gunleri (overheated -> contrarian)
+    # alt_data_skip_short: short taraf icin "skip" gunleri
+    # alt_data_skip_all: her iki tarafa da skip (extreme regime)
+    alt_data_skip_long: dict | None = None
+    alt_data_skip_short: dict | None = None
+    alt_data_skip_all: dict | None = None
+
     # Initial capital
     initial_capital: float = 10_000.0
 
@@ -121,6 +171,13 @@ class ProductionConfig:
         vt = raw.get("vol_target", {}) or {}
         cg = raw.get("correlation_gate", {}) or {}
         rg = raw.get("regime_filter", {}) or {}
+        alt = raw.get("alt_data", {}) or {}
+
+        # v0.9.5: alt_data funding filter lazy build
+        fund_long, fund_short = _lazy_build_funding_filters(alt)
+        # v0.9.5: drop_pairs YAML list -> frozenset[tuple]
+        pairs_raw = sp.get("drop_pairs", []) or []
+        drop_pairs_set = frozenset(tuple(p) for p in pairs_raw) if pairs_raw else frozenset()
 
         # v0.9.3: optional ek alanlar
         drop_list = sp.get("drop_strategies", []) or []
@@ -167,6 +224,11 @@ class ProductionConfig:
             btc_halt_calendar=(
                 _lazy_build_btc_halt(rg) if rg.get("btc_capitulation_halt_enabled", False) else None
             ),
+            # v0.9.5: alt-data funding filter
+            alt_data_skip_long=fund_long,
+            alt_data_skip_short=fund_short,
+            # v0.9.5: ablation pair drops
+            drop_pairs=drop_pairs_set,
         )
 
     def with_overrides(self, **kw: Any) -> ProductionConfig:
@@ -251,6 +313,8 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         t for t in trades
         if t["conf"] >= cfg.conf_min
         and t["strategy"] not in cfg.drop_strategies
+        and t["symbol"] not in cfg.drop_symbols
+        and (t["strategy"], t["symbol"]) not in cfg.drop_pairs
     ]
     if not filtered:
         return None
@@ -307,6 +371,28 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         if cfg.btc_halt_calendar is not None:
             if cfg.btc_halt_calendar.get(d_key, False):
                 continue  # capitulation rejiminde yeni pozisyon yok
+
+        # v0.9.5 ALT-DATA FILTERS (funding / F&G / liquidations)
+        # alt_data_skip_all -> her iki taraf kapali (ornek: extreme greed regime'inde tum trade skip)
+        if cfg.alt_data_skip_all is not None:
+            if cfg.alt_data_skip_all.get(d_key, False):
+                continue
+        # alt_data_skip_long -> sadece long taraf skip
+        side_t = t.get("side", "").lower()
+        if cfg.alt_data_skip_long is not None and side_t == "long":
+            if cfg.alt_data_skip_long.get(d_key, False):
+                continue
+        # alt_data_skip_short -> sadece short taraf skip
+        if cfg.alt_data_skip_short is not None and side_t == "short":
+            if cfg.alt_data_skip_short.get(d_key, False):
+                continue
+
+        # v0.9.5 ML SCORE FILTER
+        if cfg.score_filter is not None and cfg.score_threshold > 0:
+            key_score = (t["symbol"], t["entry_ts"])
+            proba = cfg.score_filter.get(key_score)
+            if proba is None or proba < cfg.score_threshold:
+                continue
 
         # v0.9.4 PER-SYMBOL CHOP CLASSIFIER (Researcher B HYP-REGIME-001)
         chop_factor = 1.0
