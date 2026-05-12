@@ -244,9 +244,17 @@ class RiskOfficer:
             notional_at_risk = fixed_fractional(account_state.equity_usdt, risk_pct, sl_pct)
             quantity = notional_at_risk / price if price > 0 else 0.0
 
+        # v0.9.2: notional cap per equity — geniş SL trade'lerde oversize'a karşı kalkan.
+        # 5y backtest: yillik %64 -> %97, DD -%75 -> -%59. Wide-SL anomalileri otomatik kirpilir.
+        notional = quantity * price
+        max_notional_pct = float(cfg.position_sizing.get("max_notional_pct_equity", 0.0))
+        if max_notional_pct > 0 and notional > account_state.equity_usdt * max_notional_pct:
+            cap = account_state.equity_usdt * max_notional_pct
+            quantity *= cap / notional if notional > 0 else 0.0
+            notional = quantity * price
+
         # min notional
         min_notional = float(cfg.position_sizing.get("min_quantity_usdt", 20))
-        notional = quantity * price
         if notional < min_notional:
             return Reject(
                 signal=signal,

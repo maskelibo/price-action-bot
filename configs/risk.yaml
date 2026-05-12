@@ -16,6 +16,10 @@ position_sizing:
   kelly_cap: 0.25
   min_quantity_usdt: 20
   size_rounding: exchange_step
+  # v0.9.2: Notional cap per equity — gunis SL trade'lerin asiri buyuk pozisyon yapmasini engeller.
+  # Effect: tight SL = ayni notional, wide SL = capped notional (otomatik vol normalize).
+  # 5y backtest: yillik %64 -> %97 (+33pp), DD -%75 -> -%59 (+16pp). Bkz: v0.9.2 memo.
+  max_notional_pct_equity: 0.30
 
 stop_loss:
   method: atr                       # atr | structural | hybrid
@@ -108,13 +112,13 @@ strategy_portfolio:
   same_symbol_side_cooldown_days: 3
   max_concurrent_positions: 8
   signal_confidence_min: 0.20
-  expected_annual_return: 0.64      # v0.9.1: 3-loss cool-down ile yillik %64.17
-  expected_max_dd: 0.75              # v0.9.1: 3-loss ile DD %77 -> %75
-  # 5y backtest:
-  #   risk %1.5 : yillik +%25, DD -%72 (defensive)
-  #   risk %2.0 : yillik +%31, DD -%66 (balanced)
-  #   risk %3.0 : yillik +%62.78, DD -%76 ⭐ TARGET
-  #   risk %3.5 : yillik +%35, DD -%93 (asari)
+  expected_annual_return: 0.97      # v0.9.2: notional cap 0.30 ile yillik %97.6
+  expected_max_dd: 0.59              # v0.9.2: cap 0.30 DD %75 -> %59
+  # 5y backtest (v0.9.2 production):
+  #   no cap (v0.9.1)        : yillik +%64.5, DD -%75
+  #   cap 0.50               : yillik +%61, DD -%80 (etkisiz)
+  #   cap 0.30 (production)  : yillik +%97.6, DD -%59 ⭐
+  #   1y OOS (2025-05->2026-05) cap 0.30: ROI +%170, DD -%64
 
 # v0.9 multi-target TP engine (1.0 ATR trail)
 exit_engine:
