@@ -67,6 +67,14 @@ class ProductionConfig:
     # Production-realistic gate'ler (live'da RiskOfficer.evaluate'ta var, backtest'te yok)
     # Default None -> backward compat. Set edilirse production'a daha yakin simulasyon.
     concentration_max_per_symbol_pct: float | None = None  # 0.20 = %20 per symbol cap
+    max_same_side_concurrent: int | None = None  # 4 = max 4 long VE 4 short ayni anda
+
+    # Vol-target sizing (high-vol gunlerde kucuk pos, low-vol'de buyuk)
+    # vol_factor = target_atr_pct / sl_pct, clamped [min,max]
+    vol_target_enabled: bool = False
+    vol_target_atr_pct: float = 0.04   # %4 SL hedef (BTC normal)
+    vol_min_factor: float = 0.20       # extreme high-vol max %80 azalt
+    vol_max_factor: float = 1.50       # extreme low-vol max %50 buyut
 
     # Initial capital
     initial_capital: float = 10_000.0
@@ -82,7 +90,11 @@ class ProductionConfig:
         dd = raw.get("drawdown_breakers", {}) or {}
         sp = raw.get("strategy_portfolio", {}) or {}
         cl = raw.get("concentration_limits", {}) or {}
+        vt = raw.get("vol_target", {}) or {}
+        cg = raw.get("correlation_gate", {}) or {}
 
+        # v0.9.3: optional ek alanlar
+        drop_list = sp.get("drop_strategies", []) or []
         return cls(
             # v0.9.2: backtest_risk_pct YAML alani once gelir, yoksa risk_per_trade fallback.
             # Live tier sistemi backtest replay'de uygulanmıyor — sabit %3 kullaniyoruz.
@@ -93,6 +105,7 @@ class ProductionConfig:
                 else None
             ),
             conf_min=float(sp.get("signal_confidence_min", 0.20)),
+            drop_strategies=frozenset(drop_list),
             max_concurrent=int(cl.get("max_open_positions", sp.get("max_concurrent_positions", 8))),
             same_symbol_side_cooldown_days=int(sp.get("same_symbol_side_cooldown_days", 3)),
             daily_dd=float(dd.get("daily_loss_pct", 0.05)),
@@ -104,6 +117,21 @@ class ProductionConfig:
                 else None
             ),
             consecutive_loss_pause_days=int(dd.get("consecutive_loss_pause_days", 5)),
+            # v0.9.3: ileri risk gate'leri
+            concentration_max_per_symbol_pct=(
+                float(cl["max_per_symbol_pct"])
+                if cl.get("backtest_apply_concentration_gate", False)
+                else None
+            ),
+            max_same_side_concurrent=(
+                int(ps["max_same_side_concurrent"])
+                if ps.get("max_same_side_concurrent") not in (None, 0)
+                else None
+            ),
+            vol_target_enabled=bool(vt.get("enabled", False)),
+            vol_target_atr_pct=float(vt.get("target_atr_pct", 0.04)),
+            vol_min_factor=float(vt.get("min_factor", 0.20)),
+            vol_max_factor=float(vt.get("max_factor", 1.50)),
         )
 
     def with_overrides(self, **kw: Any) -> ProductionConfig:
@@ -291,6 +319,13 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         if sl_pct <= 0:
             continue
         risk_d = equity * cfg.risk_pct * risk_modifier
+
+        # Vol-target: high-vol gunlerde kucuk pos, low-vol'de buyuk
+        if cfg.vol_target_enabled:
+            vol_factor = cfg.vol_target_atr_pct / sl_pct
+            vol_factor = max(cfg.vol_min_factor, min(cfg.vol_max_factor, vol_factor))
+            risk_d *= vol_factor
+
         notional = risk_d / sl_pct
 
         # v0.9.2 NOTIONAL CAP
@@ -312,6 +347,13 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
             if total_sym > sym_cap:
                 continue  # reject — same-symbol exposure cap'i ihlal
 
+        # Side concentration: max long ya da max short ayni anda
+        if cfg.max_same_side_concurrent is not None:
+            side = t["side"]
+            same_side_count = sum(1 for p in open_pos if p.get("side") == side)
+            if same_side_count >= cfg.max_same_side_concurrent:
+                continue
+
         # Cross-margin yaklasimi — 3x
         margin = notional / 3.0
         if margin > cash:
@@ -327,6 +369,7 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
             "risk": risk_d,
             "R": t["R"],
             "symbol": t["symbol"],
+            "side": t["side"],
         })
 
     # Acik pozisyonlari kapat

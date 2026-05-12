@@ -64,13 +64,19 @@ def main():
         max_notional_pct_equity=None,
         consecutive_loss_n=3, consecutive_loss_pause_days=5,
     )
-    cfg_v092 = ProductionConfig.from_yaml()  # production (cap 0.30)
+    cfg_v092 = ProductionConfig.from_yaml()  # production (cap 0.30) - varsayilan
     cfg_realistic = cfg_v092.with_overrides(concentration_max_per_symbol_pct=0.20)
+
+    # v0.9.3 presets — concentration_gate YAML'da otomatik aktif (live-realistic)
+    cfg_aggressive = ProductionConfig.from_yaml("configs/risk_aggressive.yaml")
+    cfg_defensive = ProductionConfig.from_yaml("configs/risk_defensive.yaml")
 
     configs = [
         ("v0.9.1 (no cap)", cfg_v091),
         ("v0.9.2 (cap 0.30)", cfg_v092),
         ("v0.9.2 + conc 0.20 (live-like)", cfg_realistic),
+        ("v0.9.3 AGGRESSIVE preset", cfg_aggressive),
+        ("v0.9.3 DEFENSIVE preset", cfg_defensive),
     ]
 
     # Pencereler
@@ -183,6 +189,36 @@ def main():
     for r, (ws, we) in zip(results["v0.9.2 (cap 0.30)"]["rolls"], rolling_windows):
         md.append(f"| {ws.date()} → {we.date()} | {r['n']} | ${r['final']:,.0f} | "
                   f"{r['ann_pct']:+.2f}% | {r['dd_pct']:+.1f}% |")
+    md.append("")
+
+    # v0.9.3 Presets karsilastirma
+    md.append("## v0.9.3 PRESETS — İki Production Seçeneği")
+    md.append("")
+    md.append("`configs/risk_aggressive.yaml` ve `configs/risk_defensive.yaml` iki paralel preset.")
+    md.append("Production default `configs/risk.yaml` (v0.9.2) — değiştirilmedi.")
+    md.append("")
+    md.append("### Aggressive (Aday A) — `risk_aggressive.yaml`")
+    md.append("- Tek değişiklik: `backtest_risk_pct: 0.040`")
+    md.append("- Profil: \"GETIRI maksimum\"")
+    md.append("- Beklenti: yıllık +%42, DD -%37, 5y $59K")
+    md.append("- Live-realistic (conc 0.20): yıllık +%30, DD -%26, 5y $37K")
+    md.append("")
+    md.append("### Defensive (Aday B = T6 r%3.5) — `risk_defensive.yaml`")
+    md.append("- `backtest_risk_pct: 0.035`")
+    md.append("- `vol_target.enabled: true`")
+    md.append("- `max_same_side_concurrent: 4`")
+    md.append("- `drop_strategies: [equal_highs_sweep, cvd_spike_fade, vsa_climax_test]`")
+    md.append("- Profil: \"TUTARLILIK maksimum\"")
+    md.append("- Beklenti: yıllık +%31, DD -%24, 5y $38K, **risk-adj 1.31 (en yüksek)**")
+    md.append("- Live-realistic (conc 0.20): yıllık ~%22, DD -%19, 5y $27K")
+    md.append("")
+    md.append("### Kullanim")
+    md.append("```python")
+    md.append("from price_action.backtest.lab import ProductionConfig, production_replay")
+    md.append("cfg = ProductionConfig.from_yaml('configs/risk_aggressive.yaml')")
+    md.append("# veya 'configs/risk_defensive.yaml'")
+    md.append("result = production_replay(trades, cfg)")
+    md.append("```")
     md.append("")
 
     # === Yorum ===

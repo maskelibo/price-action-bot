@@ -1,0 +1,170 @@
+# Risk Management — v0.9.3 DEFENSIVE PRESET (Aday B = T6 r%3.5)
+# Production'dan farklar:
+#   1. backtest_risk_pct: %3 -> %3.5
+#   2. vol_target.enabled: true (high-vol kucuk pos, low-vol buyuk)
+#   3. drop_strategies: equal_highs_sweep + cvd_spike_fade + vsa_climax_test
+#   4. max_same_side_concurrent: 4 (max 4 long VEYA 4 short)
+#
+# Beklenti: yillik +%30.8, DD -%24, risk-adj 1.31 (EN YUKSEK)
+# 3y rolling min/max: +%14.5 / +%48.4 — cok tutarli, 5y $10K -> $38K backtest
+# Profil: "TUTARLILIK maksimum" — dar dispersiyon, dusuk travma
+
+defaults:
+  account_currency: USDT
+  preset_name: defensive
+
+position_sizing:
+  method: confidence_dynamic       # v0.7 — confidence tier bazli dynamic
+  risk_per_trade: 0.035            # DEFENSIVE: %3 -> %3.5 (hafif arttı, vol-target ile dengelenir)
+  # v0.9.3 DEFENSIVE: backtest_risk_pct %3.5 (T6 r%3.5 sweet spot)
+  # 3y rolling 13 pencere sweep: yillik +%30.8, DD -%24, risk-adj 1.31 (en yuksek)
+  backtest_risk_pct: 0.035
+  # v0.9.3 DEFENSIVE: max ayni anda 4 long VEYA 4 short pozisyon
+  max_same_side_concurrent: 4
+  confidence_risk_tiers:           # v0.7 production: 1-4% dynamic
+    - {min: 0.00, max: 0.32, risk_pct: 0.010}  # %1 — defensive
+    - {min: 0.32, max: 0.42, risk_pct: 0.015}  # %1.5
+    - {min: 0.42, max: 0.52, risk_pct: 0.020}  # %2 — default
+    - {min: 0.52, max: 0.58, risk_pct: 0.030}  # %3
+    - {min: 0.58, max: 1.01, risk_pct: 0.040}  # %4 — yuksek conf, bas
+  kelly_cap: 0.25
+  min_quantity_usdt: 20
+  size_rounding: exchange_step
+  # v0.9.2: Notional cap per equity — gunis SL trade'lerin asiri buyuk pozisyon yapmasini engeller.
+  # Effect: tight SL = ayni notional, wide SL = capped notional (otomatik vol normalize).
+  # 5y backtest: yillik %64 -> %97 (+33pp), DD -%75 -> -%59 (+16pp). Bkz: v0.9.2 memo.
+  max_notional_pct_equity: 0.30
+
+stop_loss:
+  method: atr                       # atr | structural | hybrid
+  atr_period: 14
+  atr_multiplier: 2.0
+  structural_buffer_pct: 0.005      # swing low altına %0.5 tampon
+  trailing:
+    enabled: true
+    method: atr_chandelier
+    atr_period: 14
+    multiplier: 3.0
+    activate_after_R: 1.0           # 1R kâra geldikten sonra trailing açık
+
+take_profit:
+  method: r_multiple                # r_multiple | atr | structural
+  primary_R: 2.0                    # 2R hedefte yarısı kapansın
+  partial_close_at_R: 1.0           # 1R'da %50 kapat
+  runner_trail: true                # kalan trailing ile
+
+# Volatility-targeted sizing — opsiyonel kayıp koruma katmanı.
+# Aktif olunca: yüksek-vol günlerde otomatik küçük pozisyon, düşük-vol günlerde büyük.
+# Test sonucu: yıllar arası tutarlılık 1.7x iyileşti (σ %35→%21), getiri %32 (vs %36 baseline).
+# Default kapalı; hazır olunca enable: true ile aç.
+vol_target:
+  enabled: true                     # v0.9.3 DEFENSIVE: aktif (DD'yi -%39 -> -%24'e dusurur)
+  target_atr_pct: 0.04              # %4 günlük ATR hedef (BTC normal seviyesi)
+  min_factor: 0.20                  # extreme high-vol max %80 size azaltma
+  max_factor: 1.50                  # extreme low-vol max %50 size büyütme
+
+leverage:
+  enabled: true
+  max_leverage_per_symbol: 5        # perpetual; confidence-based 1x-5x dynamic (v0.3 prod)
+  max_portfolio_notional_x_equity: 5
+  margin_safety_ratio: 0.5          # likidasyon mesafesi minimum %50
+  confidence_tiers:                 # per-trade confidence map (engulfing v1)
+    - {min: 0.00, max: 0.32, leverage: 1}
+    - {min: 0.32, max: 0.42, leverage: 2}
+    - {min: 0.42, max: 0.52, leverage: 3}
+    - {min: 0.52, max: 0.58, leverage: 4}
+    - {min: 0.58, max: 1.01, leverage: 5}
+
+drawdown_breakers:
+  daily_loss_pct: 0.05              # günlük net kayıp %5 → durdur
+  weekly_loss_pct: 0.10             # haftalık %10 → durdur
+  monthly_loss_pct: 0.15            # aylık %15 → durdur
+  consecutive_losses: 3             # v0.9.1: 6 -> 3 (sweep'te ROI+DD iyilestirir)
+  consecutive_loss_pause_days: 5    # v0.9.1: 3 ardisik kayip -> 5 gun cool-down
+  reset:
+    daily: 00:00 UTC
+    weekly: Monday 00:00 UTC
+    monthly: 1st 00:00 UTC
+
+correlation_gate:
+  enabled: true
+  max_pairwise_corr: 0.7            # 90-günlük getiri korelasyonu
+  reduction_factor: 0.5             # >0.7 ise size yarıya iner
+  hard_block_at: 0.9                # %90+ — pozisyonu reddet
+
+concentration_limits:
+  max_open_positions: 8
+  max_per_category_pct: 0.40        # tek kategori %40'tan fazla olamaz
+  max_per_symbol_pct: 0.20          # tek sembol %20'den fazla olamaz
+  # v0.9.3 PRESETS: backtest'te concentration_gate'i uygula (live'a yakin simulasyon).
+  # production risk.yaml'da false — eski sayilarin uyumlulugunu korur.
+  backtest_apply_concentration_gate: true
+
+# v0.9 — 11 sembol + Top 10 strateji + multi-target engine + 1.0 ATR trail
+strategy_portfolio:
+  enabled: true
+  symbols:                          # 11 sembol (DOGE/XRP/MATIC eklendi)
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - ADA/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - DOT/USDT
+    - DOGE/USDT
+    - XRP/USDT
+    - MATIC/USDT
+  strategies:                       # Top 10 — 11 sembolde test edilmis
+    - engulfing_continuation
+    - obv_engulfing_confluence
+    - anchored_vwap_reversal        # YENI v0.9 — VWAP reversal
+    - wyckoff_phase_d
+    - brooks_h2_l2
+    - pin_bar_round_numbers
+    - equal_highs_sweep
+    - cvd_spike_fade                # YENI v0.9 — CVD divergence
+    - vsa_climax_test               # YENI v0.9 — VSA climax
+    - brooks_failed_breakout
+  same_symbol_side_cooldown_days: 3
+  max_concurrent_positions: 8
+  signal_confidence_min: 0.20
+  # v0.9.3 DEFENSIVE: 3 marjinal/zayif strateji cikarildi (T1 sonucu)
+  drop_strategies:
+    - equal_highs_sweep             # 1y -$3,643, marginal negative
+    - cvd_spike_fade                # sample kucuk, 2/2 kayip
+    - vsa_climax_test               # 5y'de cok dusuk sample
+  expected_annual_return: 0.31      # v0.9.3 DEFENSIVE: 3y rolling ortalama +%30.8
+  expected_max_dd: 0.24              # v0.9.3 DEFENSIVE: 3y rolling ortalama DD -%24
+  # 3y rolling stress (13 pencere — GERCEK referans):
+  #   no cap (v0.9.1)        : yillik +%57.3, DD -%78 (baseline)
+  #   cap 0.20               : yillik +%40.4, DD -%54 (siki, ROI dustu)
+  #   cap 0.30 (production)  : yillik +%57.1, DD -%65 ⭐ (DD %13pp iyi)
+  #   cap 0.50               : yillik +%96.4, DD -%77 (yuksek dispersiyon, guvensiz)
+  # 5y in-sample tek pencere (referans ama yaniltici olabilir):
+  #   cap 0.30 -> yillik %97.6 DD -%59 (sansa bagli, 3y rolling ile celiskili)
+
+# v0.9 multi-target TP engine (1.0 ATR trail)
+exit_engine:
+  multi_target: true
+  partial_close_1R: 0.30
+  partial_close_2R: 0.30
+  runner_pct: 0.40
+  break_even_after_1R: true
+  lock_1R_after_2R: true
+  runner_trail_atr: 1.0             # v0.9: 0.7 -> 1.0 (let-run gevsek)
+
+liquidity_gate:
+  max_order_to_minute_volume: 0.01  # 1-dk hacmin %1'i tavanı
+  min_book_depth_usdt: 100_000      # ±%1 derinlik tavanı
+
+execution:
+  order_type_default: post_only_limit
+  fallback_to_market_after_sec: 30
+  max_slippage_bps: 25              # 25 bps üstü → reject
+  partial_fill_timeout_sec: 60
+
+emergency:
+  kill_switch_keyword: HALT_TRADING
+  flatten_all_on_breaker: false     # breaker tetiklendiğinde mevcut açıkları KAPATMA (manuel onay)
+  require_human_to_resume: true
