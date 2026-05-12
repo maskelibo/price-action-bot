@@ -1,7 +1,7 @@
 # PRODUCTION BENCHMARK
 
-**Son güncelleme:** 2026-05-12 10:02 UTC
-**Git commit:** `c997fe7`
+**Son güncelleme:** 2026-05-12 11:04 UTC
+**Git commit:** `4345bd7`
 **Kaynak:** `scripts/v092_build_benchmark.py` (canonical `production_replay` üzerinden)
 
 > Bu dosya **tek doğruluk kaynağıdır**. Her commit'te güncellenir.
@@ -28,6 +28,7 @@ DD breakers (d/w/m): 0.05/0.1/0.15
 | v0.9.2 + conc 0.20 (live-like) | 32 | $16,885 | +68.9% | +68.9% | -28.7% | 68.8% |
 | v0.9.3 AGGRESSIVE preset | 16 | $18,837 | +88.4% | +88.4% | -19.0% | 87.5% |
 | v0.9.3 DEFENSIVE preset | 87 | $11,934 | +19.3% | +19.4% | -29.0% | 52.9% |
+| v0.9.4 BALANCED preset (halt+r%4) | 16 | $18,837 | +88.4% | +88.4% | -19.0% | 87.5% |
 
 ## 5 Yıl In-Sample (tek pencere)
 
@@ -40,6 +41,7 @@ DD breakers (d/w/m): 0.05/0.1/0.15
 | v0.9.2 + conc 0.20 (live-like) | 201 | $62,079 | +520.8% | +44.28% | -50.4% | 53.2% |
 | v0.9.3 AGGRESSIVE preset | 128 | $174,374 | +1643.7% | +77.54% | -43.1% | 59.4% |
 | v0.9.3 DEFENSIVE preset | 366 | $31,513 | +215.1% | +25.92% | -23.2% | 53.0% |
+| v0.9.4 BALANCED preset (halt+r%4) | 82 | $42,756 | +327.6% | +33.88% | -29.5% | 64.6% |
 
 ## 3 Yıl Rolling Stress (13 pencere, 60-gün adım)
 
@@ -52,6 +54,7 @@ DD breakers (d/w/m): 0.05/0.1/0.15
 | v0.9.2 + conc 0.20 (live-like) | 13 | +34.74% | +35.02% | +2.8% | +85.4% | -39.5% | -50% | 2/13 | 0 |
 | v0.9.3 AGGRESSIVE preset | 13 | +42.48% | +34.17% | +3.4% | +102.7% | -36.9% | -45% | 4/13 | 0 |
 | v0.9.3 DEFENSIVE preset | 13 | +30.85% | +30.37% | +14.5% | +48.5% | -23.5% | -31% | 0/13 | 0 |
+| v0.9.4 BALANCED preset (halt+r%4) | 13 | +33.13% | +38.88% | +19.8% | +45.1% | -30.1% | -42% | 0/13 | 0 |
 
 ### v0.9.2 Production — 3y rolling pencereleri (tam liste)
 
@@ -90,6 +93,13 @@ Production default `configs/risk.yaml` (v0.9.2) — değiştirilmedi.
 - Profil: "TUTARLILIK maksimum"
 - Beklenti: yıllık +%31, DD -%24, 5y $38K, **risk-adj 1.31 (en yüksek)**
 - Live-realistic (conc 0.20): yıllık ~%22, DD -%19, 5y $27K
+
+### Balanced (v0.9.4 — Analyst regime halt) — `risk_balanced.yaml` ⭐ YENİ
+- AGGRESSIVE base + `regime_filter.btc_capitulation_halt_enabled: true`
+- ATR%≥6 + EMA200 streak ≥10gün + 90d-DD ≤-25% (2 of 3 → halt)
+- Profil: "DENGELI" — yüksekçe getiri, dar dispersiyon
+- Beklenti: yıllık +%33, DD -%30, **min pencere +%20 (en kötü senaryo bile iyi)**
+- AGGRESSIVE'den farkı: dispersiyon yarı, min 6x yukseldi, DD -%7pp
 
 ### Kullanim
 ```python

@@ -112,10 +112,27 @@ class CCXTLiveBroker(BrokerBase):
 
         # Limit price
         if instruction.order_type == "post_only_limit":
-            offset = 0.0001  # 1 bps
-            limit_price = (
-                ref_price * (1 - offset) if side_ccxt == "buy" else ref_price * (1 + offset)
-            )
+            # v0.9.4 FIX (Lab Scientist O1): mid-tabanli offset post-only REJECT'e zorluyordu.
+            # best_bid/best_ask + tick offset ile market'i cross etmeyen fiyat.
+            # Maker rebate (Binance -%0.01) bu sayede gercekten kazanilir.
+            try:
+                ob = ex.fetch_order_book(symbol, limit=5)
+                best_bid = float(ob["bids"][0][0]) if ob["bids"] else ref_price * 0.9995
+                best_ask = float(ob["asks"][0][0]) if ob["asks"] else ref_price * 1.0005
+            except Exception as exc:
+                self._log.bind(err=str(exc)).warning("live.orderbook_fail_fallback")
+                best_bid = ref_price * 0.9995
+                best_ask = ref_price * 1.0005
+
+            tick_offset = ref_price * 0.0001  # 1 bps tick
+            if side_ccxt == "buy":
+                # Post-only buy: best_bid'in 1 tick altinda — market'i cross etmez,
+                # passive limit emri olarak book'a eklenir.
+                limit_price = best_bid - tick_offset
+            else:
+                # Post-only sell: best_ask'in 1 tick ustunde.
+                limit_price = best_ask + tick_offset
+
             order_args: dict[str, Any] = {
                 "symbol": symbol,
                 "type": "limit",

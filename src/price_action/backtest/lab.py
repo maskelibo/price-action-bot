@@ -27,6 +27,25 @@ ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_YAML = ROOT / "configs" / "risk.yaml"
 
 
+def _lazy_build_btc_halt(regime_cfg: dict) -> dict | None:
+    """from_yaml -> regime.py lazy import (dairesel import'tan kacin).
+
+    YAML'da `regime_filter.btc_capitulation_halt_enabled: true` ise BTC halt
+    calendar uretilir. Parametreler regime_cfg'den okunur (varsayilan analyst HYP).
+    """
+    try:
+        from price_action.backtest.regime import compute_btc_capitulation_halt
+        return compute_btc_capitulation_halt(
+            atr_threshold=float(regime_cfg.get("atr_pct_threshold", 6.0)),
+            ema200_streak_threshold=int(regime_cfg.get("ema200_streak_days", 10)),
+            dd_90d_threshold=float(regime_cfg.get("dd_90d_threshold_pct", -25.0)),
+            resume_atr_threshold=float(regime_cfg.get("resume_atr_threshold", 4.0)),
+            resume_streak_days=int(regime_cfg.get("resume_streak_days", 5)),
+        )
+    except Exception:
+        return None
+
+
 # =====================================================================
 # Production Config — tek doğruluk kaynağı
 # =====================================================================
@@ -76,6 +95,15 @@ class ProductionConfig:
     vol_min_factor: float = 0.20       # extreme high-vol max %80 azalt
     vol_max_factor: float = 1.50       # extreme low-vol max %50 buyut
 
+    # v0.9.4 REGIME FILTERS (Analyst + Researcher B HYP)
+    # BTC capitulation halt — dict[date -> halt:bool]
+    btc_halt_calendar: dict | None = None
+    # Per-symbol chop classifier — dict[symbol -> dict[date -> "chop"|"transition"|"trend"]]
+    chop_calendars: dict | None = None
+    # Chop modlarinda risk carpani
+    chop_risk_factor: float = 0.0          # "chop" -> skip
+    transition_risk_factor: float = 0.5    # "transition" -> half risk
+
     # Initial capital
     initial_capital: float = 10_000.0
 
@@ -92,6 +120,7 @@ class ProductionConfig:
         cl = raw.get("concentration_limits", {}) or {}
         vt = raw.get("vol_target", {}) or {}
         cg = raw.get("correlation_gate", {}) or {}
+        rg = raw.get("regime_filter", {}) or {}
 
         # v0.9.3: optional ek alanlar
         drop_list = sp.get("drop_strategies", []) or []
@@ -132,6 +161,12 @@ class ProductionConfig:
             vol_target_atr_pct=float(vt.get("target_atr_pct", 0.04)),
             vol_min_factor=float(vt.get("min_factor", 0.20)),
             vol_max_factor=float(vt.get("max_factor", 1.50)),
+            # v0.9.4: regime filter (BTC capitulation halt)
+            # YAML'da `regime_filter.btc_capitulation_halt_enabled: true` ise
+            # lab.regime modulu calendar uretir, replay'de overlay olur.
+            btc_halt_calendar=(
+                _lazy_build_btc_halt(rg) if rg.get("btc_capitulation_halt_enabled", False) else None
+            ),
         )
 
     def with_overrides(self, **kw: Any) -> ProductionConfig:
@@ -266,8 +301,27 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         if cool_until and t["entry_ts"] < cool_until:
             continue
 
-        # Same-day cap (opsiyonel — default kapalı)
         d_key = t["entry_ts"].date()
+
+        # v0.9.4 BTC CAPITULATION HALT (Analyst HYP)
+        if cfg.btc_halt_calendar is not None:
+            if cfg.btc_halt_calendar.get(d_key, False):
+                continue  # capitulation rejiminde yeni pozisyon yok
+
+        # v0.9.4 PER-SYMBOL CHOP CLASSIFIER (Researcher B HYP-REGIME-001)
+        chop_factor = 1.0
+        if cfg.chop_calendars is not None:
+            sym_cal = cfg.chop_calendars.get(t["symbol"])
+            if sym_cal is not None:
+                mode = sym_cal.get(d_key, "trend")
+                if mode == "chop":
+                    chop_factor = cfg.chop_risk_factor
+                elif mode == "transition":
+                    chop_factor = cfg.transition_risk_factor
+            if chop_factor <= 0:
+                continue  # chop -> skip
+
+        # Same-day cap (opsiyonel — default kapalı)
         if cfg.same_day_max is not None:
             if same_day_count.get(d_key, 0) >= cfg.same_day_max:
                 continue
@@ -319,6 +373,9 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         if sl_pct <= 0:
             continue
         risk_d = equity * cfg.risk_pct * risk_modifier
+
+        # v0.9.4 chop transition mode -> half risk
+        risk_d *= chop_factor
 
         # Vol-target: high-vol gunlerde kucuk pos, low-vol'de buyuk
         if cfg.vol_target_enabled:
