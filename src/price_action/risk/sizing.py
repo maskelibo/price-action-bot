@@ -154,6 +154,29 @@ class RiskOfficer:
         self.breaker = breaker or DDBreaker(self.config.drawdown_breakers)
         self._log = logger.bind(component="risk_officer")
 
+        # v0.9.6 P3.9 FIX: Live alt-data filters (funding rate skip calendar).
+        # Backtest replay (lab.py) bu filtreleri zaten kullaniyor. Live RiskOfficer
+        # da ayni filtreyi okuyor ki backtest ile live ayni karari versin.
+        # YAML alt_data block'undan lazy-load. Bos sozluk -> filter pasif.
+        self._alt_data_long_skip: dict = {}
+        self._alt_data_short_skip: dict = {}
+        cfg_dict = self.config.model_dump() if hasattr(self.config, "model_dump") else {}
+        alt_cfg = cfg_dict.get("alt_data", {}) or {}
+        if alt_cfg.get("funding_filter_enabled", False):
+            try:
+                # Reuse lab.py helper (single source-of-truth)
+                from price_action.backtest.lab import _lazy_build_funding_filters
+                ls, ss = _lazy_build_funding_filters(alt_cfg)
+                self._alt_data_long_skip = ls or {}
+                self._alt_data_short_skip = ss or {}
+                self._log.bind(
+                    long_skip_n=len(self._alt_data_long_skip),
+                    short_skip_n=len(self._alt_data_short_skip),
+                    mode=alt_cfg.get("funding_aggregation_mode", "00:00_only"),
+                ).info("risk.alt_data.loaded")
+            except Exception as exc:
+                self._log.bind(err=str(exc)).warning("risk.alt_data.load_fail")
+
     @classmethod
     def from_yaml(cls, path: str | Path, breaker: DDBreaker | None = None) -> RiskOfficer:
         with Path(path).open("r", encoding="utf-8") as f:
@@ -185,6 +208,26 @@ class RiskOfficer:
                 rejected_by="risk",
                 reason="dd_breaker_active",
                 detail={"breakers": breaker_status},
+            )
+
+        # 1.5) v0.9.6 P3.9 FIX: Alt-data funding filter (signal-day causal).
+        # Backtest replay (lab.py) ile parity icin: long sinyal + long-skip gunu = REJECT.
+        # Sebep: T 00:00 BTC funding > +0.0001 => overheated long crowd, contrarian skip.
+        # Aktif olmasi icin: YAML alt_data.funding_filter_enabled: true
+        sig_date = signal.ts.date()
+        if signal.direction == "long" and self._alt_data_long_skip.get(sig_date, False):
+            return Reject(
+                signal=signal,
+                rejected_by="risk",
+                reason="alt_data_funding_filter",
+                detail={"side": "long", "date": str(sig_date), "rationale": "overheated_long_funding"},
+            )
+        if signal.direction == "short" and self._alt_data_short_skip.get(sig_date, False):
+            return Reject(
+                signal=signal,
+                rejected_by="risk",
+                reason="alt_data_funding_filter",
+                detail={"side": "short", "date": str(sig_date), "rationale": "overshort_squeeze_funding"},
             )
 
         # 2) Sermaye check
