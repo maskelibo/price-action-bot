@@ -207,10 +207,42 @@ Tüm koşulları yön ters çevir: `weekly_roc_8 < -0.08`, `weekly_close < ema20
 
 ---
 
+## Sonuclar (2026-05-14 backtest sonrasi DOLDU)
+
+- [x] Modul: `src/price_action/strategies/htf_momentum.py` (yazildi)
+- [x] Script: `scripts/htf_momentum_backtest.py`
+- [x] 5y trade pool: 232 trade (11 sym)
+- [x] 3y window (2023-01 → 2026-05): 169 sinyal, 143 replay sonrasi
+- [x] Standalone yillik: **+%0.01** [FAIL gate >=%10]
+- [x] Max DD: **-%55.61** [FAIL gate >=-%45]
+- [x] Win rate: %49.0, avg_R +0.026
+- [x] Trade frekansi: 42.5/yr (hedef 30-100 ✓)
+- [x] Karar: **RED**
+
+## Karar Gerekcesi (RED)
+
+1. **Yillik %0.01** — neredeyse breakeven. WR %49 + avg_R +0.026 = expected value sifira yakin. Mevcut TP/SL yapisi (structural swing + 0.3*ATR padding + 2R primary) bu mekanik kombinasyonda edge uretmiyor.
+2. **DD -%55.61** — gate -%45'in tahminine asar. SL geni (structural + buffer) kayipli trade'leri pahalandiriyor.
+3. Trade frekansi tahmininde (30-100/yr) — fonksiyon dogru calisiyor (42.5/yr) ama sinyaller karli degil.
+
+## Implikasyonlar
+
+A. **Kombinasyon mekanigi yetersiz** — 1W ROC > 5% + 1D pullback + engulfing trigger uc filtre cok kisitlayici degil ama edge yok. Carver "speed combination" literaturu burada gecmiyor — belki ROC esigi yanlis, belki sinyal bar timing yanlis.
+
+B. **Olasi v2 hipotez** (sonraki sprint):
+   - 1W ROC esigi %5'ten %3'e dusur (daha gevsek trend kalitesi)
+   - Trigger: engulfing yerine "inside bar breakout" (Brooks IIB pattern)
+   - TP: 3R primary + 1.5R partial (mevcut 2R primary'den daha agresif)
+   - Stress windows: 2022-05 LUNA + 2024-08 yen carry — bu pencereler edge testi
+
+C. **BALANCED'a ekleme test'i atlanildi** — standalone basarisiz oldugu icin BALANCED+htf_momentum testi mantiksiz (negatif beklenen katki).
+
 ## Reproducibility Footer
 
 ```
-git_hash: <to-be-filled-when-backtest-runs>
-config_hash: <to-be-filled>
-data_hash: <to-be-filled>
+git_hash: 2fec8f16847586030467a8eced1e807ef05b4ab4
+config_hash: htf_momentum_v0.1.0 default_manifest
+data_hash: market.duckdb 11 sym 1d 5y
+run_timestamp: 2026-05-14 (Elapsed 1.8s)
+report: inline log
 ```

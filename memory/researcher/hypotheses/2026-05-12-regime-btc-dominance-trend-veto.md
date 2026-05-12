@@ -184,3 +184,62 @@ backtest_replay(modified_trades, v092_config)
 - BTC her zaman PASS = sistemin "anchor" sembolüne dokunma; aksi takdirde BTC trade'leri ortadan kalkar, win-rate distortion.
 - "Alt-short half-risk" yerine "Alt-short SKIP" varyantı reddedildi — alt-short kazançları (2025-05 DOGE/SOL/ETH short'ları gibi) sistemin önemli alpha kaynağı; tamamen bloklamak ROI'yi yıkar.
 - Bu hipotez tek başına DD'yi büyük düşürmeyebilir; **HYP-REGIME-001 veya 002 ile kombo** halinde maksimum DD reduction beklenir.
+
+---
+
+## Sonuclar (2026-05-14 backtest sonrasi DOLDU)
+
+**VERI KISITI**: CoinGecko free tier sadece son 90 gun BTC.D verir. 5y backtest icin **sentetik BTC.D** proxy kullanildi: BTC mcap (close × approx_supply) / sum_11_sym mcap. Yapilan ingest (data/dominance.duckdb): 90 satir (sadece 2026-02-12 → 2026-05-12). Gercek 5y BTC.D icin **TradingView CSV export** veya **paid CoinGecko Pro tier** gerekli.
+
+**Sentetik BTC.D karakteristik:**
+- Aralik: %49.47 - %77.07 (mantıklı: gercek BTC.D %40-65 araliginda hareket eder)
+- Tarih: 2021-05-01 → 2026-05-08 (1834 gun)
+- Yan-bulgu: sentetik BTC.D'nin gercege ne kadar yakin oldugu HENUZ DOGRULANMADI (paid data ile bilateral test gerekli)
+
+**3y window (2023-01 → 2026-05) sonuclari (sentetik BTC.D ile):**
+- 3138 trade -> overlay sonrasi 461 (vs baseline 475)
+- Rejim dagilim: BTC_DOMINANT 1495 (%48), ALT_ROTATION 730 (%23), NEUTRAL 913 (%29)
+- Aksiyon: PASS 2174 (%69), SKIP 583 (%19), HALF 381 (%12)
+
+| Metric | Baseline | Overlay | Delta |
+|---|---|---|---|
+| Final $ | 13763.60 | 11111.21 | -2652.39 |
+| Yillik % (CAGR) | +9.97% | +3.18% | **-6.78pp** |
+| Max DD | -72.26% | -76.32% | **-4.07pp** (kotulesti) |
+| Trade | 475 | 461 | -14 |
+| WR | 48.2% | 46.0% | -2.2pp |
+| Avg R | +0.065 | +0.062 | -0.003 |
+
+**Gate'ler:**
+- [FAIL] Yillik delta >= +5pp: actual -6.78pp
+- [FAIL] DD delta >= +3pp: actual -4.07pp (DD daha da kotu)
+
+**Karar: RED**
+
+## Karar Gerekcesi (RED)
+
+1. **Yillik %6.78pp KAYIP** — SKIP eylemi (alt-long 583 trade) kazanmasi gereken trade'leri kaciriyor. ALT_ROTATION'da half-risk short (381 trade) potansiyel kayiplari yarisina indirmek yerine fırsat maliyeti uretmiyor.
+2. **DD kotuye gitti -%4.07pp** — daha az trade ile DD birikme alanı genis kaldi; equity tabani daha dar (skip'li). Beklentinin (DD daralma) tersi.
+3. **Sentetik BTC.D bias riski** — proxy method (approx_supply ile mcap hesabi) yıllar arasi supply degisikligi (DOGE inflation, MATIC unlock, vb) hesabin ihmal eder. Sentetik bizi yanıltıyor olabilir; gercek BTC.D ile ayni sonucu vermiyor olabilir. **Karar provisional**.
+
+## Implikasyonlar
+
+A. **Gercek BTC.D 5y data icin Data Engineer task**: TradingView CRYPTOCAP:BTC.D CSV export OR CoinGecko Pro tier (~$129/ay) OR Glassnode (~$39/ay). Bu olmadan **kesin RED degil** ama mevcut kanit RED.
+
+B. **Sentetik proxy ile gercek BTC.D arasindaki sapmayi olcmek icin** son 90 gun (CoinGecko'dan elde edilen ingest) ile yan-yana karsilastirma yapilmali. Sentetik gercege yakinsa "RED kesin"; uzaksa "test gecersiz".
+
+C. **Alternatif rejim filtresi adaylari** (BTC.D yerine):
+   - BTC realized volatility regime (ATR_5d/ATR_60d) — Glassnode'lu olmadan icsel
+   - ETH/BTC oran trend (Carver "speed combination")
+   - Risk-off filter: SPY/BTC korelasyon spike + funding rate negative
+
+## Reproducibility Footer
+
+```
+git_hash: 2fec8f16847586030467a8eced1e807ef05b4ab4
+data_source: synthetic_btcd (BTC mcap / sum_11_sym mcap, approx_supply)
+trade_pool: 4787 trades 5y, 3138 in 3y window
+script: scripts/btc_dominance_regime_veto_backtest.py
+run_timestamp: 2026-05-14 (Elapsed 27.2s)
+report: inline log
+```

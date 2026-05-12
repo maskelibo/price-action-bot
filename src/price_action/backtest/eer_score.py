@@ -528,12 +528,323 @@ def eer_to_tier(
     return 4
 
 
+# ===========================================================================
+# EER v2 — Hierarchical Fallback + Bayesian Shrinkage + Edge-Gated Sizing
+# ===========================================================================
+# v1 (RED): 6-dim bucket -> %0 coverage. v2 fix:
+#   - 4-dim bucket (strategy, symbol, regime, atr) — funding+fng dropped
+#   - 365-day lookback (v1: 180)
+#   - Hierarchical fallback (L1 4-dim -> L2 3-dim drop symbol -> L3 2-dim drop atr -> L4 strategy avg)
+#   - Bayesian shrinkage (k=20) to global avg
+#   - Edge-gate: tier sizing applied only if in-sample top/bot edge_ratio >= 3.5
+# Pre-registered: memory/researcher/hypotheses/2026-05-14-eer-score-v2.md
+# ===========================================================================
+
+DEFAULT_LOOKBACK_DAYS_V2: int = 365
+DEFAULT_SAMPLE_MIN_V2: int = 30
+DEFAULT_SHRINKAGE_K: int = 20
+DEFAULT_EDGE_GATE: float = 3.5
+DEFAULT_FEATURE_KEYS_V2_L1: tuple[str, ...] = (
+    "strategy_id", "symbol", "regime_bucket", "atr_pct_bucket",
+)
+
+
+@dataclass
+class EERConfigV2:
+    """Pre-registered EER v2 konfigurasyonu — sweep YASAK."""
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS_V2
+    sample_min: int = DEFAULT_SAMPLE_MIN_V2
+    sample_min_l4: int = 10  # strategy avg (lvl 4) gevsek esik
+    shrinkage_k: int = DEFAULT_SHRINKAGE_K
+    edge_gate: float = DEFAULT_EDGE_GATE
+    # Regime threshold'lari (v1 ile ayni)
+    regime_dd_bull: float = REGIME_DD_BULL
+    regime_dd_bear: float = REGIME_DD_BEAR
+    atr_quantiles: tuple[float, float] = ATR_PCT_QUANTILES
+    min_buckets_for_rank: int = 5
+
+    def config_hash(self) -> str:
+        d = {
+            "v": 2,
+            "lookback_days": self.lookback_days,
+            "sample_min": self.sample_min,
+            "sample_min_l4": self.sample_min_l4,
+            "shrinkage_k": self.shrinkage_k,
+            "edge_gate": self.edge_gate,
+            "regime_dd_bull": self.regime_dd_bull,
+            "regime_dd_bear": self.regime_dd_bear,
+            "atr_quantiles": list(self.atr_quantiles),
+        }
+        s = json.dumps(d, sort_keys=True)
+        return hashlib.sha256(s.encode()).hexdigest()[:16]
+
+
+@dataclass
+class EERStatsV2:
+    """v2 EER hesaplama istatistikleri — hierarchical level dagilimini takip eder."""
+    n_total: int = 0
+    n_l1: int = 0           # full 4-dim bucket
+    n_l2: int = 0           # symbol dropped
+    n_l3: int = 0           # atr dropped (strategy + regime)
+    n_l4: int = 0           # strategy avg only
+    n_fallback: int = 0     # ne L4 bile yetmedi → 0.50
+    bucket_counts_l1: dict[tuple, int] = field(default_factory=dict)
+    eer_distribution: list[float] = field(default_factory=list)
+
+    @property
+    def bucket_coverage(self) -> float:
+        return (self.n_l1 + self.n_l2 + self.n_l3) / max(1, self.n_total)
+
+    @property
+    def fallback_rate(self) -> float:
+        return self.n_fallback / max(1, self.n_total)
+
+    def summary(self) -> dict:
+        return {
+            "n_total": self.n_total,
+            "n_l1": self.n_l1,
+            "n_l2": self.n_l2,
+            "n_l3": self.n_l3,
+            "n_l4": self.n_l4,
+            "n_fallback": self.n_fallback,
+            "bucket_coverage_l1_l3": round(self.bucket_coverage, 4),
+            "fallback_rate": round(self.fallback_rate, 4),
+            "n_unique_buckets_l1": len(self.bucket_counts_l1),
+            "l1_share": round(self.n_l1 / max(1, self.n_total), 4),
+            "l4_share": round(self.n_l4 / max(1, self.n_total), 4),
+        }
+
+
+def _bucket_key_v2_4dim(entry_ts, symbol, strategy_id, context: FeatureContext) -> tuple[str, str, str, str]:
+    """4-dim bucket key — funding+fng cikartildi (v2 fix)."""
+    if entry_ts.tzinfo is None:
+        entry_ts = entry_ts.tz_localize("UTC")
+    yesterday = entry_ts.normalize() - pd.Timedelta(days=1)
+
+    close = context._asof(context.btc_daily, yesterday, "close")
+    ema200 = context._asof(context.btc_daily, yesterday, "ema200")
+    dd_90d = context._asof(context.btc_daily, yesterday, "dd_90d")
+    regime = _regime_bucket(close, ema200, dd_90d)
+
+    sym_atr = context.symbol_atr_pct.get(symbol)
+    sym_q = context.symbol_atr_quantiles.get(symbol)
+    atr_pct = context._asof(sym_atr, yesterday, "atr_pct") if sym_atr is not None else float("nan")
+    q33 = context._asof(sym_q, yesterday, "q33") if sym_q is not None else float("nan")
+    q67 = context._asof(sym_q, yesterday, "q67") if sym_q is not None else float("nan")
+    atr_b = _atr_pct_bucket(atr_pct, q33, q67)
+
+    return (strategy_id, symbol, regime, atr_b)
+
+
+def _shrunken_avg(bucket_R: list[float], global_avg: float, k: int = 20) -> float:
+    """Bayesian shrinkage — bucket avg_R global'a cek (sample-size weighted)."""
+    n = len(bucket_R)
+    if n == 0:
+        return global_avg
+    bucket_avg = float(np.mean(bucket_R))
+    return (n * bucket_avg + k * global_avg) / (n + k)
+
+
+def compute_eer_v2_for_trades(
+    trades: list[dict],
+    context: FeatureContext,
+    config: EERConfigV2 | None = None,
+) -> tuple[list[dict], EERStatsV2]:
+    """v2: hierarchical fallback + Bayesian shrinkage. Causal — exit_ts < entry_ts."""
+    cfg = config or EERConfigV2()
+    stats = EERStatsV2()
+    stats.n_total = len(trades)
+    if not trades:
+        return [], stats
+
+    # Defensive copy + 4-dim bucket key
+    enriched = []
+    for t in trades:
+        t2 = dict(t)
+        entry_ts = pd.Timestamp(t2["entry_ts"])
+        if entry_ts.tzinfo is None:
+            entry_ts = entry_ts.tz_localize("UTC")
+        exit_ts = pd.Timestamp(t2["exit_ts"])
+        if exit_ts.tzinfo is None:
+            exit_ts = exit_ts.tz_localize("UTC")
+        t2["entry_ts"] = entry_ts
+        t2["exit_ts"] = exit_ts
+        try:
+            bk = _bucket_key_v2_4dim(entry_ts, t2["symbol"], t2["strategy"], context)
+            t2["bucket_key_v2"] = bk
+            stats.bucket_counts_l1[bk] = stats.bucket_counts_l1.get(bk, 0) + 1
+        except Exception:
+            t2["bucket_key_v2"] = None
+        enriched.append(t2)
+
+    enriched.sort(key=lambda x: x["entry_ts"])
+
+    # Forward pass
+    for i, trade in enumerate(enriched):
+        bk1 = trade.get("bucket_key_v2")
+        if bk1 is None:
+            trade["eer_v2"] = 0.50
+            trade["eer_v2_level"] = 0
+            trade["eer_v2_bucket_n"] = 0
+            stats.n_fallback += 1
+            stats.eer_distribution.append(0.50)
+            continue
+
+        cutoff_start = trade["entry_ts"] - pd.Timedelta(days=cfg.lookback_days)
+
+        # Collect prior closed trades in window
+        l1_pool = defaultdict(list)  # 4-dim
+        l2_pool = defaultdict(list)  # 3-dim
+        l3_pool = defaultdict(list)  # 2-dim (strategy, regime)
+        l4_pool = defaultdict(list)  # 1-dim (strategy)
+        all_pool = []                # global
+
+        for j in range(i - 1, -1, -1):
+            cand = enriched[j]
+            if cand["entry_ts"] < cutoff_start:
+                break
+            cand_bk = cand.get("bucket_key_v2")
+            if cand_bk is None:
+                continue
+            if cand["exit_ts"] >= trade["entry_ts"]:
+                continue
+            try:
+                R = float(cand["R"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            s_id, s_sym, regime, atr_b = cand_bk
+            l1_pool[(s_id, s_sym, regime, atr_b)].append(R)
+            l2_pool[(s_id, regime, atr_b)].append(R)
+            l3_pool[(s_id, regime)].append(R)
+            l4_pool[s_id].append(R)
+            all_pool.append(R)
+
+        if len(all_pool) < 30:
+            # global avg unreliable — fallback
+            trade["eer_v2"] = 0.50
+            trade["eer_v2_level"] = 0
+            trade["eer_v2_bucket_n"] = 0
+            stats.n_fallback += 1
+            stats.eer_distribution.append(0.50)
+            continue
+
+        global_avg = float(np.mean(all_pool))
+
+        # Hierarchical level resolution
+        my_l1 = (bk1[0], bk1[1], bk1[2], bk1[3])
+        my_l2 = (bk1[0], bk1[2], bk1[3])
+        my_l3 = (bk1[0], bk1[2])
+        my_l4 = bk1[0]
+
+        chosen_level = 0
+        chosen_pool = None
+        my_bucket_rs = None
+
+        l1_rs = l1_pool.get(my_l1, [])
+        if len(l1_rs) >= cfg.sample_min:
+            chosen_level = 1
+            chosen_pool = l1_pool
+            my_bucket_rs = l1_rs
+        else:
+            l2_rs = l2_pool.get(my_l2, [])
+            if len(l2_rs) >= cfg.sample_min:
+                chosen_level = 2
+                chosen_pool = l2_pool
+                my_bucket_rs = l2_rs
+            else:
+                l3_rs = l3_pool.get(my_l3, [])
+                if len(l3_rs) >= cfg.sample_min:
+                    chosen_level = 3
+                    chosen_pool = l3_pool
+                    my_bucket_rs = l3_rs
+                else:
+                    l4_rs = l4_pool.get(my_l4, [])
+                    if len(l4_rs) >= cfg.sample_min_l4:
+                        chosen_level = 4
+                        chosen_pool = l4_pool
+                        my_bucket_rs = l4_rs
+
+        if chosen_level == 0 or my_bucket_rs is None:
+            trade["eer_v2"] = 0.50
+            trade["eer_v2_level"] = 0
+            trade["eer_v2_bucket_n"] = 0
+            stats.n_fallback += 1
+            stats.eer_distribution.append(0.50)
+            continue
+
+        # Shrinkage
+        my_shrunken = _shrunken_avg(my_bucket_rs, global_avg, k=cfg.shrinkage_k)
+
+        # Percentile rank within the same level's buckets
+        # All other buckets at this level, shrunken
+        same_level_buckets_shrunken = []
+        threshold_n = cfg.sample_min if chosen_level <= 3 else cfg.sample_min_l4
+        for k, rs in chosen_pool.items():
+            if len(rs) >= threshold_n:
+                same_level_buckets_shrunken.append(_shrunken_avg(rs, global_avg, k=cfg.shrinkage_k))
+
+        if len(same_level_buckets_shrunken) < cfg.min_buckets_for_rank:
+            trade["eer_v2"] = 0.50
+            trade["eer_v2_level"] = chosen_level
+            trade["eer_v2_bucket_n"] = len(my_bucket_rs)
+            stats.n_fallback += 1
+            stats.eer_distribution.append(0.50)
+            continue
+
+        rank = sum(1 for x in same_level_buckets_shrunken if x <= my_shrunken) / len(same_level_buckets_shrunken)
+        trade["eer_v2"] = float(rank)
+        trade["eer_v2_level"] = chosen_level
+        trade["eer_v2_bucket_n"] = len(my_bucket_rs)
+        trade["eer_v2_bucket_avg_R_shrunken"] = my_shrunken
+        trade["eer_v2_bucket_avg_R_raw"] = float(np.mean(my_bucket_rs))
+
+        if chosen_level == 1:
+            stats.n_l1 += 1
+        elif chosen_level == 2:
+            stats.n_l2 += 1
+        elif chosen_level == 3:
+            stats.n_l3 += 1
+        elif chosen_level == 4:
+            stats.n_l4 += 1
+        stats.eer_distribution.append(float(rank))
+
+    return enriched, stats
+
+
+def compute_in_sample_edge_ratio(
+    trades: list[dict],
+    score_field: str = "eer_v2",
+    top_cut: float = 0.80,
+    bot_cut: float = 0.20,
+    min_n: int = 30,
+) -> float:
+    """In-sample edge ratio: top-tier avg_R / bot-tier avg_R.
+
+    Bu sayi >=3.5 ise EER tier sizing kullanmaya deger; aksi takdirde flat T2.
+    Analyst input (`reports/analytics/2026-05-13-dynamic-failure.md`): top/bot
+    spread 1.39x (gercek). Tier sizing icin 3.5x+ gerek.
+    """
+    top_Rs = [t["R"] for t in trades if t.get(score_field, 0.5) >= top_cut]
+    bot_Rs = [t["R"] for t in trades if t.get(score_field, 0.5) <= bot_cut]
+    if len(top_Rs) < min_n or len(bot_Rs) < min_n:
+        return 1.0
+    top_avg = float(np.mean(top_Rs))
+    bot_avg = float(np.mean(bot_Rs))
+    if bot_avg <= 0:
+        return 1.0 if top_avg <= 0 else 999.0
+    return top_avg / bot_avg
+
+
 __all__ = [
     "EERConfig",
+    "EERConfigV2",
     "EERStats",
+    "EERStatsV2",
     "FeatureContext",
     "compute_eer",
     "compute_eer_for_trades",
+    "compute_eer_v2_for_trades",
+    "compute_in_sample_edge_ratio",
     "context_data_hash",
     "eer_to_tier",
     "precompute_btc_features",
@@ -541,6 +852,10 @@ __all__ = [
     "precompute_symbol_atr_quantiles",
     "trades_data_hash",
     "DEFAULT_LOOKBACK_DAYS",
+    "DEFAULT_LOOKBACK_DAYS_V2",
     "DEFAULT_SAMPLE_MIN",
+    "DEFAULT_SAMPLE_MIN_V2",
     "DEFAULT_FEATURE_KEYS",
+    "DEFAULT_SHRINKAGE_K",
+    "DEFAULT_EDGE_GATE",
 ]
