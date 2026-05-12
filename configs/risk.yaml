@@ -7,6 +7,10 @@ defaults:
 position_sizing:
   method: confidence_dynamic       # v0.7 — confidence tier bazli dynamic
   risk_per_trade: 0.02             # default fallback (confidence tier yoksa)
+  # v0.9.2: backtest_replay icin SABIT risk (lab.py production_replay buradan okur).
+  # Live tier sistemi backtest'te uygulanmiyor, bu yuzden ayri parametre.
+  # Production lock: %3 (5y in-sample ve 3y rolling validasyonlu)
+  backtest_risk_pct: 0.030
   confidence_risk_tiers:           # v0.7 production: 1-4% dynamic
     - {min: 0.00, max: 0.32, risk_pct: 0.010}  # %1 — defensive
     - {min: 0.32, max: 0.42, risk_pct: 0.015}  # %1.5

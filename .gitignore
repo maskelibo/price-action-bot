@@ -22,7 +22,8 @@ data/
 !data/.gitkeep
 !data/README.md
 artifacts/
-reports/
+reports/*
+!reports/PRODUCTION_BENCHMARK.md
 logs/
 *.duckdb
 *.duckdb.wal

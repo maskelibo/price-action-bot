@@ -1,10 +1,14 @@
 """Merkezi loglama — loguru tabanlı, JSON çıktı opsiyonel.
 
 Tüm modüller `from price_action.logging_config import logger` ile alır.
+
+QUIET MODE: `PA_LOG_QUIET=1` env'i set edilirse stdout'a log basılmaz
+(yalnızca dosyaya). Backtest çıktısını okumayı kolaylaştırmak için.
 """
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -53,18 +57,21 @@ def configure() -> None:
     """Settings'e göre loguru'yu yapılandır."""
     s = get_settings()
     _logger.remove()
-    if s.log_format == "json":
-        _logger.add(_json_sink, level=s.log_level, enqueue=True)
-    else:
-        _logger.add(
-            sys.stderr,
-            level=s.log_level,
-            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-                   "<level>{level: <8}</level> | "
-                   "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
-                   "{message}",
-            enqueue=True,
-        )
+    # PA_LOG_QUIET=1 -> stdout sink atla, sadece dosyaya log.
+    quiet = os.getenv("PA_LOG_QUIET", "").strip() in ("1", "true", "yes", "on")
+    if not quiet:
+        if s.log_format == "json":
+            _logger.add(_json_sink, level=s.log_level, enqueue=True)
+        else:
+            _logger.add(
+                sys.stderr,
+                level=s.log_level,
+                format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+                       "<level>{level: <8}</level> | "
+                       "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+                       "{message}",
+                enqueue=True,
+            )
 
     # Dosya log
     log_file: Path = s.logs_dir / "app.log"
