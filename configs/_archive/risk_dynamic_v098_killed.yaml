@@ -1,36 +1,38 @@
-# Risk Management — v0.9.7 BALANCED PRESET (B3 sweep WIN-WIN)
-# AGGRESSIVE (r%4) + BTC capitulation halt + F&G fear short-skip
+# Risk Management — v0.9.8 DYNAMIC PRESET
+# BALANCED (halt + F&G short-skip) + CONFIDENCE-BASED dynamic sizing & leverage
 #
-# v0.9.4 base: halt (Analyst HYP: ATR%>=6 + EMA200streak>=10 + 90d-DD<=-25)
-# v0.9.7 +ADD: F&G value <=20 (extreme fear) -> short skip (Researcher B HYP)
+# YENI v0.9.8:
+#   - use_confidence_dynamic_sizing: true (master flag)
+#   - use_conf_percentile: true (rolling 180g percentile rank ile re-normalize)
+#   - confidence_risk_tiers genisletildi: %2 / %4 / %6 / %7 (top tier 10/10 sinyal)
+#   - leverage tiers: 3x / 4x / 5x (yuksek conf'da yuksek lev)
 #
-# 3y rolling 13 pencere: yillik +%36.1 (B0 %33.1'den +%3pp), DD -%30 (degismedi)
-# Risk-adj: 1.100 -> 1.200, min pencere +%19.8 -> +%22.0
-# AGGRESSIVE'den fark: dispersiyon yarisi (max +%103 -> +%48), min 7x yukseldi.
-# Profil: "DENGELI" — yuksek getiri, dusuk DD, dar dispersiyon (B3 sweep onayli)
+# Mantik: 10/10 checklist = top %5 = %7 risk + 5x leverage (BUYUK POZISYON)
+#         Tek pattern = bottom %50 = %2 risk + 3x leverage (KUCUK POZISYON)
+# Kullanici intent: "guvenli sinyallere buyuk bas, riskli sinyallere kucuk gir"
 
 defaults:
   account_currency: USDT
-  preset_name: balanced
+  preset_name: dynamic
 
 position_sizing:
-  method: confidence_dynamic       # v0.7 — confidence tier bazli dynamic
-  risk_per_trade: 0.04             # AGGRESSIVE: %3 -> %4 (yuksek conf'da live)
-  # v0.9.3 AGGRESSIVE: backtest_risk_pct %4 (production %3'ten +1pp)
-  # 3y rolling 13 pencere sweep: yillik +%42.4 (production +%34.7), DD -%37 (-%39)
+  method: confidence_dynamic       # v0.9.8 — gerçekten dinamik (replay'de tier'lar aktif)
+  risk_per_trade: 0.04             # tier MATCH etmezse fallback
   backtest_risk_pct: 0.040
-  confidence_risk_tiers:           # v0.7 production: 1-4% dynamic
-    - {min: 0.00, max: 0.32, risk_pct: 0.010}  # %1 — defensive
-    - {min: 0.32, max: 0.42, risk_pct: 0.015}  # %1.5
-    - {min: 0.42, max: 0.52, risk_pct: 0.020}  # %2 — default
-    - {min: 0.52, max: 0.58, risk_pct: 0.030}  # %3
-    - {min: 0.58, max: 1.01, risk_pct: 0.040}  # %4 — yuksek conf, bas
+  # v0.9.8 MASTER FLAG: confidence_risk_tiers + leverage_tiers ACTIVE
+  use_confidence_dynamic_sizing: true
+  # v0.9.8: percentile rank ile conf yeniden normalize (180g rolling)
+  use_conf_percentile: true
+  conf_pct_lookback_days: 180
+  # Dinamik risk tier'lari — conf_pct'a (0-1 rolling rank) gore
+  confidence_risk_tiers:
+    - {min: 0.00, max: 0.50, risk_pct: 0.020}  # %2 — alt %50 (basit pattern)
+    - {min: 0.50, max: 0.75, risk_pct: 0.040}  # %4 — orta %25 (saglam pattern)
+    - {min: 0.75, max: 0.90, risk_pct: 0.060}  # %6 — ust %15 (cok iyi pattern)
+    - {min: 0.90, max: 1.01, risk_pct: 0.070}  # %7 — top %10 (10/10 checklist)
   kelly_cap: 0.25
   min_quantity_usdt: 20
   size_rounding: exchange_step
-  # v0.9.2: Notional cap per equity — gunis SL trade'lerin asiri buyuk pozisyon yapmasini engeller.
-  # Effect: tight SL = ayni notional, wide SL = capped notional (otomatik vol normalize).
-  # 5y backtest: yillik %64 -> %97 (+33pp), DD -%75 -> -%59 (+16pp). Bkz: v0.9.2 memo.
   max_notional_pct_equity: 0.30
 
 stop_loss:
@@ -63,15 +65,15 @@ vol_target:
 
 leverage:
   enabled: true
-  max_leverage_per_symbol: 5        # perpetual; confidence-based 1x-5x dynamic (v0.3 prod)
+  max_leverage_per_symbol: 5
   max_portfolio_notional_x_equity: 5
-  margin_safety_ratio: 0.5          # likidasyon mesafesi minimum %50
-  confidence_tiers:                 # per-trade confidence map (engulfing v1)
-    - {min: 0.00, max: 0.32, leverage: 1}
-    - {min: 0.32, max: 0.42, leverage: 2}
-    - {min: 0.42, max: 0.52, leverage: 3}
-    - {min: 0.52, max: 0.58, leverage: 4}
-    - {min: 0.58, max: 1.01, leverage: 5}
+  margin_safety_ratio: 0.5
+  default_leverage: 3.0             # tier match etmezse fallback
+  # v0.9.8: conf_pct'a gore dinamik leverage (yuksek conf -> yuksek lev)
+  confidence_tiers:
+    - {min: 0.00, max: 0.50, leverage: 3}     # alt %50: 3x lev
+    - {min: 0.50, max: 0.75, leverage: 4}     # orta %25: 4x lev
+    - {min: 0.75, max: 1.01, leverage: 5}     # ust %25: 5x lev (max)
 
 drawdown_breakers:
   daily_loss_pct: 0.05              # günlük net kayıp %5 → durdur
@@ -148,23 +150,8 @@ strategy_portfolio:
   same_symbol_side_cooldown_days: 3
   max_concurrent_positions: 8
   signal_confidence_min: 0.20
-  # v0.9.9 NOTE: CEO drop_pairs eklenmesini onerdi (Ablation +%10.81pp)
-  # ama production'da test edilince ETKISIZ cikti (BALANCED %36 -> %35).
-  # Sebep: halt + F&G zaten dolayli olarak kotu pair'leri filterliyordu.
-  # drop_pairs YORUM SATIRINDA — yeniden test edilirse kullanilabilir:
-  # drop_pairs:
-  #   - [anchored_vwap_reversal, ETH/USDT]
-  #   - [anchored_vwap_reversal, LINK/USDT]
-  #   - [anchored_vwap_reversal, BTC/USDT]
-  #   - [pin_bar_round_numbers, BNB/USDT]
-  #   - [equal_highs_sweep, BNB/USDT]
-  #   - [equal_highs_sweep, ETH/USDT]
-  #   - [pin_bar_round_numbers, BTC/USDT]
-  #   - [pin_bar_round_numbers, ADA/USDT]
-  #   - [equal_highs_sweep, AVAX/USDT]
-  #   - [wyckoff_phase_d, DOT/USDT]
-  expected_annual_return: 0.36      # v0.9.7 BALANCED (+F&G): 3y rolling +%36.1
-  expected_max_dd: 0.30              # v0.9.7 BALANCED: DD -%30
+  expected_annual_return: 0.40      # v0.9.8 DYNAMIC: TBD (sweep ile dogrulanacak)
+  expected_max_dd: 0.30              # v0.9.8 DYNAMIC: TBD
   # 3y rolling stress (13 pencere — GERCEK referans):
   #   no cap (v0.9.1)        : yillik +%57.3, DD -%78 (baseline)
   #   cap 0.20               : yillik +%40.4, DD -%54 (siki, ROI dustu)

@@ -138,6 +138,16 @@ class ProductionConfig:
     # Sizing
     risk_pct: float = 0.030
     max_notional_pct_equity: float | None = 0.30  # v0.9.2 cap
+    # v0.9.8: leverage carpani (margin = notional / leverage). 3 = backwards-compat default.
+    leverage: float = 3.0
+    # v0.9.8: confidence-based dynamic sizing — TIER YAPISI
+    # Eger None: sabit risk_pct + leverage kullanilir (eski davranis)
+    # Eger set edilir: her trade'in conf_pct (rolling rank) bucket'ina gore risk + lev
+    confidence_risk_tiers: tuple | None = None
+    leverage_tiers: tuple | None = None
+    # v0.9.8: conf'i percentile rank ile yeniden hesapla (180-gun rolling)
+    use_conf_percentile: bool = False
+    conf_pct_lookback_days: int = 180
 
     # Filtering
     conf_min: float = 0.20
@@ -228,6 +238,21 @@ class ProductionConfig:
         pairs_raw = sp.get("drop_pairs", []) or []
         drop_pairs_set = frozenset(tuple(p) for p in pairs_raw) if pairs_raw else frozenset()
 
+        # v0.9.8: dynamic sizing tier'lari ve leverage
+        # MASTER FLAG: ps.use_confidence_dynamic_sizing. False ise tier'lar yok sayilir
+        # (backwards-compat). True ise YAML'da yazili tier'lar aktif.
+        use_dynamic = bool(ps.get("use_confidence_dynamic_sizing", False))
+        lev_block = raw.get("leverage", {}) or {}
+        if use_dynamic:
+            conf_risk_tiers_raw = ps.get("confidence_risk_tiers")
+            lev_tiers_raw = lev_block.get("confidence_tiers")
+            conf_risk_tiers = tuple(conf_risk_tiers_raw) if conf_risk_tiers_raw else None
+            lev_tiers = tuple(lev_tiers_raw) if lev_tiers_raw else None
+        else:
+            conf_risk_tiers = None
+            lev_tiers = None
+        leverage_default = float(lev_block.get("default_leverage", 3.0))
+
         # v0.9.3: optional ek alanlar
         drop_list = sp.get("drop_strategies", []) or []
         return cls(
@@ -278,6 +303,12 @@ class ProductionConfig:
             alt_data_skip_short=fund_short,
             # v0.9.5: ablation pair drops
             drop_pairs=drop_pairs_set,
+            # v0.9.8: dynamic sizing + leverage
+            confidence_risk_tiers=conf_risk_tiers,
+            leverage_tiers=lev_tiers,
+            leverage=leverage_default,
+            use_conf_percentile=bool(ps.get("use_conf_percentile", False)),
+            conf_pct_lookback_days=int(ps.get("conf_pct_lookback_days", 180)),
         )
 
     def with_overrides(self, **kw: Any) -> ProductionConfig:
@@ -356,6 +387,12 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         cfg = ProductionConfig.from_yaml()
     if not trades:
         return None
+
+    # v0.9.8: optional conf_pct percentile rank (rolling 180g)
+    if cfg.use_conf_percentile:
+        from price_action.backtest.scoring import normalize_conf_percentile
+        # Inplace: trades'e conf_pct alani eklenir (orijinal conf korunur)
+        normalize_conf_percentile(trades, lookback_days=cfg.conf_pct_lookback_days)
 
     # Filtering
     filtered = [
@@ -507,7 +544,19 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         sl_pct = abs(t["entry_price"] - t["initial_sl"]) / t["entry_price"]
         if sl_pct <= 0:
             continue
-        risk_d = equity * cfg.risk_pct * risk_modifier
+
+        # v0.9.8: confidence-based dynamic risk_pct (tier sistemi)
+        # Eger confidence_risk_tiers verildi ise trade'in conf_pct/conf'una gore tier sec.
+        # Yoksa sabit cfg.risk_pct kullan (backwards-compat).
+        if cfg.confidence_risk_tiers:
+            from price_action.backtest.scoring import get_tier_value
+            conf_for_tier = t.get("conf_pct", t["conf"])
+            trade_risk_pct = float(get_tier_value(
+                cfg.confidence_risk_tiers, conf_for_tier, "risk_pct", cfg.risk_pct
+            ))
+        else:
+            trade_risk_pct = cfg.risk_pct
+        risk_d = equity * trade_risk_pct * risk_modifier
 
         # v0.9.4 chop transition mode -> half risk
         risk_d *= chop_factor
@@ -546,8 +595,18 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
             if same_side_count >= cfg.max_same_side_concurrent:
                 continue
 
-        # Cross-margin yaklasimi — 3x
-        margin = notional / 3.0
+        # v0.9.8: dynamic leverage (confidence tier veya sabit cfg.leverage)
+        if cfg.leverage_tiers:
+            from price_action.backtest.scoring import get_tier_value
+            conf_for_tier = t.get("conf_pct", t["conf"])
+            trade_lev = float(get_tier_value(
+                cfg.leverage_tiers, conf_for_tier, "leverage", cfg.leverage
+            ))
+        else:
+            trade_lev = cfg.leverage
+        if trade_lev <= 0:
+            trade_lev = 1.0
+        margin = notional / trade_lev
         if margin > cash:
             continue
 

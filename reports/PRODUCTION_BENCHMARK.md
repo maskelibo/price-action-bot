@@ -1,7 +1,7 @@
 # PRODUCTION BENCHMARK
 
-**Son güncelleme:** 2026-05-12 13:02 UTC
-**Git commit:** `6f49f99`
+**Son güncelleme:** 2026-05-12 13:57 UTC
+**Git commit:** `27c9752`
 **Kaynak:** `scripts/v092_build_benchmark.py` (canonical `production_replay` üzerinden)
 
 > Bu dosya **tek doğruluk kaynağıdır**. Her commit'te güncellenir.
@@ -28,7 +28,7 @@ DD breakers (d/w/m): 0.05/0.1/0.15
 | v0.9.2 + conc 0.20 (live-like) | 32 | $16,885 | +68.9% | +68.9% | -28.7% | 68.8% |
 | v0.9.3 AGGRESSIVE preset | 16 | $18,837 | +88.4% | +88.4% | -19.0% | 87.5% |
 | v0.9.3 DEFENSIVE preset | 87 | $11,934 | +19.3% | +19.4% | -29.0% | 52.9% |
-| v0.9.4 BALANCED preset (halt+r%4) | 16 | $18,837 | +88.4% | +88.4% | -19.0% | 87.5% |
+| v0.9.4 BALANCED preset (halt+r%4) | 16 | $17,671 | +76.7% | +76.8% | -19.2% | 81.2% |
 | v0.9.5 SUPER preset (funding+r%4) ⭐ | 16 | $18,837 | +88.4% | +88.4% | -19.0% | 87.5% |
 
 ## 5 Yıl In-Sample (tek pencere)
@@ -42,7 +42,7 @@ DD breakers (d/w/m): 0.05/0.1/0.15
 | v0.9.2 + conc 0.20 (live-like) | 201 | $62,079 | +520.8% | +44.28% | -50.4% | 53.2% |
 | v0.9.3 AGGRESSIVE preset | 128 | $174,374 | +1643.7% | +77.54% | -43.1% | 59.4% |
 | v0.9.3 DEFENSIVE preset | 366 | $31,513 | +215.1% | +25.92% | -23.2% | 53.0% |
-| v0.9.4 BALANCED preset (halt+r%4) | 79 | $48,619 | +386.2% | +37.38% | -29.5% | 65.8% |
+| v0.9.4 BALANCED preset (halt+r%4) | 78 | $47,316 | +373.2% | +36.63% | -29.5% | 65.4% |
 | v0.9.5 SUPER preset (funding+r%4) ⭐ | 119 | $243,924 | +2339.2% | +89.91% | -45.1% | 57.1% |
 
 ## 3 Yıl Rolling Stress (13 pencere, 60-gün adım)
@@ -56,7 +56,7 @@ DD breakers (d/w/m): 0.05/0.1/0.15
 | v0.9.2 + conc 0.20 (live-like) | 13 | +34.74% | +35.02% | +2.8% | +85.4% | -39.5% | -50% | 2/13 | 0 |
 | v0.9.3 AGGRESSIVE preset | 13 | +42.48% | +34.17% | +3.4% | +102.7% | -36.9% | -45% | 4/13 | 0 |
 | v0.9.3 DEFENSIVE preset | 13 | +30.85% | +30.37% | +14.5% | +48.5% | -23.5% | -31% | 0/13 | 0 |
-| v0.9.4 BALANCED preset (halt+r%4) | 13 | +36.13% | +42.60% | +22.0% | +47.6% | -30.1% | -42% | 0/13 | 0 |
+| v0.9.4 BALANCED preset (halt+r%4) | 13 | +35.19% | +41.07% | +21.7% | +45.5% | -30.1% | -42% | 0/13 | 0 |
 | v0.9.5 SUPER preset (funding+r%4) ⭐ | 13 | +61.34% | +36.72% | +7.4% | +145.8% | -36.8% | -45% | 6/13 | 0 |
 
 ### v0.9.2 Production — 3y rolling pencereleri (tam liste)
