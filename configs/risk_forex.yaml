@@ -1,0 +1,104 @@
+# Risk Management — FOREX PRESET (v1.0.7 sec7 forex sprint)
+#
+# Forex spesifik profil:
+# - sl_pct mean %0.94 (crypto %4 — 4x kucuk)
+# - Daily ATR %0.5-1 (crypto %3-5 — 5x dusuk volatilite)
+# - Standart retail leverage 30x (crypto 1-5x perp)
+# - Risk per trade %0.5-1 (crypto %2-4)
+#
+# Forex'te BALANCED preset (crypto-spesifik) calismadi:
+# 1045/1148 trade `margin > cash` ile reddedildi (crypto cap 0.30 + lev 3x)
+#
+# Bu preset uygun forex profil ile retest icin.
+
+defaults:
+  account_currency: USD
+  preset_name: forex
+
+position_sizing:
+  method: fixed                     # forex'te confidence_dynamic ALAKASIZ (conf hep 0.333)
+  risk_per_trade: 0.010             # %1 per trade (forex retail standart)
+  backtest_risk_pct: 0.010
+  confidence_risk_tiers: null       # tier sizing kapali
+  kelly_cap: 0.25
+  min_quantity_usdt: 1              # forex micro lots
+  size_rounding: standard
+  max_notional_pct_equity: null     # forex'te cap YOK (lev 30x ile dogal kontrol)
+
+stop_loss:
+  method: atr
+  atr_period: 14
+  atr_multiplier: 2.0
+  structural_buffer_pct: 0.001
+  trailing:
+    enabled: true
+    method: atr_chandelier
+    atr_period: 14
+    multiplier: 3.0
+    activate_after_R: 1.0
+
+take_profit:
+  method: r_multiple
+  primary_R: 2.0
+  partial_close_at_R: 1.0
+  runner_trail: true
+
+vol_target:
+  enabled: false
+
+leverage:
+  enabled: true
+  max_leverage_per_symbol: 30       # forex retail standart 30x
+  max_portfolio_notional_x_equity: 30
+  margin_safety_ratio: 0.3
+  confidence_tiers: null            # forex'te tier yok, sabit 30x
+
+drawdown_breakers:
+  daily_loss_pct: 0.10              # forex'te gevsek (crypto 5% degil 10%)
+  weekly_loss_pct: 0.20             # haftalik 20%
+  monthly_loss_pct: 0.30            # aylik 30%
+  consecutive_losses: 999           # disable (forex pin_bar 60% loss WR)
+  consecutive_loss_pause_days: 0
+  reset:
+    daily: 00:00 UTC
+    weekly: Monday 00:00 UTC
+    monthly: 1st 00:00 UTC
+
+correlation_gate:
+  enabled: false                    # forex'te 3 sym, gerek yok
+
+concentration_limits:
+  max_open_positions: 6             # 3 sym × 2 side = max 6
+  max_per_category_pct: 1.0
+  max_per_symbol_pct: 0.50
+  backtest_apply_concentration_gate: true
+
+regime_filter:
+  btc_capitulation_halt_enabled: false  # crypto-spesifik
+  atr_pct_threshold: 0.0
+  ema200_streak_days: 0
+  dd_90d_threshold_pct: 0.0
+  resume_atr_threshold: 0.0
+  resume_streak_days: 0
+
+alt_data:
+  fng_short_skip_enabled: false     # crypto-spesifik (F&G crypto sentiment)
+  funding_filter_enabled: false     # crypto-spesifik
+
+strategy_portfolio:
+  enabled: true
+  symbols:
+    - EUR/USD
+    - GBP/USD
+    - USD/JPY
+  strategies:
+    - pin_bar_round_numbers       # standalone POZITIF (mR +0.28)
+    - equal_highs_sweep           # standalone POZITIF (mR +0.54)
+    - brooks_failed_breakout      # standalone POZITIF (mR +0.13)
+
+# Cooldown gevsek
+trade_throttling:
+  same_symbol_side_cooldown_days: 1   # forex'te 1d kafi (crypto 3d)
+  same_day_max: null
+
+initial_capital: 10000
