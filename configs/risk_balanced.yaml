@@ -77,11 +77,11 @@ leverage:
 drawdown_breakers:
   daily_loss_pct: 0.05              # günlük net kayıp %5 → durdur
   weekly_loss_pct: 0.10             # haftalık %10 → durdur
-  monthly_loss_pct: 0.06            # combined dd
+  monthly_loss_pct: 0.99            # v1.5.1 PURE side-cond: combined disabled (+%19.9 ek)
   monthly_halt_days: 21             # halt period
-  # v1.5 sec14.1: SIDE-CONDITIONAL monthly dd (HIBRIT, DD korunmus)
-  monthly_loss_pct_long: 0.10       # long-side ay icinde %10 net loss -> halt
-  monthly_loss_pct_short: 0.05      # short-side ay icinde %5 net loss -> halt (1.66x daha karli, sıkı tut)
+  # v1.5.1 sec15.6 PURE SIDE-CONDITIONAL (mdd_combined disabled, +%136.2 / DD -%38.6 / r-adj 3.530)
+  monthly_loss_pct_long: 0.15       # gevsek long (bull trend'leri yakala)
+  monthly_loss_pct_short: 0.05      # siki short (1.66x karli, halt erken)
   # v1.5 STACK (A6 force-exit + side-cond HIBRIT): yıllık +%116.3 / DD -%34.9 / r-adj 3.332
   # v1.4 baseline: +%67.8 / DD -%34.8 / r-adj 1.946 (delta +%48.5pp)
   # PURE side-cond varyasyonu (mdd=disable): +%136.2 / DD -%38.6 / r-adj 3.530 ama DD +%4 ek

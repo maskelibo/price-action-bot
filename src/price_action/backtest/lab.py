@@ -148,6 +148,12 @@ class ProductionConfig:
     # v0.9.8: conf'i percentile rank ile yeniden hesapla (180-gun rolling)
     use_conf_percentile: bool = False
     conf_pct_lookback_days: int = 180
+    # v1.5.1 (sec15.1): sl_pct rolling-180g percentile rank — CONF DATA QUALITY FIX
+    # SEC9 forensik: %96.9 trade conf=0.333 (tek-tier yığılma) — tier sistemi etkisiz.
+    # Çözüm C: sl_pct rank (Spearman vs R = +0.30, p<0.001 — gerçek alpha sinyali).
+    # Use_sl_pct_conf=True ise pool'a conf_pct = sl_pct rolling rank yazılır,
+    # confidence_risk_tiers / leverage_tiers bunu kullanır.
+    use_sl_pct_conf: bool = False
 
     # Filtering
     conf_min: float = 0.20
@@ -220,6 +226,21 @@ class ProductionConfig:
     alt_data_skip_long: dict | None = None
     alt_data_skip_short: dict | None = None
     alt_data_skip_all: dict | None = None
+
+    # v1.6 sec15.4: VOL-CONDITIONAL ADAPTIVE RISK (BTC ATR%-based dynamic sizing)
+    # Default kapali (False) -> backwards compat, sabit cfg.risk_pct kullanilir.
+    # Aktif edilirse: trade entry_ts'inden onceki son 14-bar BTC ATR% bakilir.
+    #   ATR% < vol_low_atr_pct  -> risk_pct = vol_low_risk_pct  (sakin -> agresif)
+    #   ATR% > vol_high_atr_pct -> risk_pct = vol_high_risk_pct (oynak -> defensive)
+    #   araligi    -> risk_pct = cfg.risk_pct (normal)
+    # btc_atr_pct_calendar: dict[date -> float (oran, %0.04 = 0.04 NOT 4)]
+    # Lookahead-bias yasak — calendar'da tarih T icin ATR%, T-1 close-of-day verisi.
+    vol_conditional_risk: bool = False
+    vol_low_atr_pct: float = 0.03    # ATR%<3 (sakin)
+    vol_high_atr_pct: float = 0.05   # ATR%>5 (oynak)
+    vol_low_risk_pct: float = 0.05   # sakin gunlerde risk %5 (agresif)
+    vol_high_risk_pct: float = 0.03  # oynak gunlerde risk %3 (defensive)
+    btc_atr_pct_calendar: dict | None = None  # date -> float ATR% (oran)
 
     # Initial capital
     initial_capital: float = 10_000.0
@@ -414,6 +435,16 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         from price_action.backtest.scoring import normalize_conf_percentile
         # Inplace: trades'e conf_pct alani eklenir (orijinal conf korunur)
         normalize_conf_percentile(trades, lookback_days=cfg.conf_pct_lookback_days)
+    # v1.5.1: sl_pct rolling-180g percentile rank (CONF DATA QUALITY FIX)
+    # use_sl_pct_conf use_conf_percentile'den bagimsiz; ikinci icin daha agir
+    # data quality: sl_pct trade pool'da daima mevcut + Spearman(R)=+0.30.
+    if cfg.use_sl_pct_conf:
+        from price_action.backtest.scoring import (
+            normalize_conf_via_sl_pct_percentile,
+        )
+        normalize_conf_via_sl_pct_percentile(
+            trades, lookback_days=cfg.conf_pct_lookback_days,
+        )
 
     # Filtering
     filtered = [
@@ -608,6 +639,24 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
             ))
         else:
             trade_risk_pct = cfg.risk_pct
+
+        # v1.6 sec15.4: VOL-CONDITIONAL adaptive risk override
+        # Vol-targeting yapisina yakin ama farkli mekanik:
+        # vol_target -> per-trade SL'e gore size carpani (continuous).
+        # vol_conditional_risk -> BTC market-wide ATR% bucket'ina gore risk_pct DEGISTIRIR.
+        # NOT: confidence_risk_tiers ile cakistiginda vol-conditional cfg.risk_pct'e
+        # default referans alir, conf-tier degerini OVERRIDE etmez (yalnizca cfg.risk_pct
+        # set edildiginde override eder). Kullanim: vol_conditional ile tier'lar
+        # birlikte kullanilirsa, conf-tier degeri pas gecilir; sweep ic tutarlilik icin
+        # tier'lar None birakilir.
+        if cfg.vol_conditional_risk and cfg.btc_atr_pct_calendar is not None:
+            atr_p = cfg.btc_atr_pct_calendar.get(d_key)
+            if atr_p is not None:
+                if atr_p < cfg.vol_low_atr_pct:
+                    trade_risk_pct = cfg.vol_low_risk_pct
+                elif atr_p > cfg.vol_high_atr_pct:
+                    trade_risk_pct = cfg.vol_high_risk_pct
+                # else normal range -> trade_risk_pct degismez (cfg.risk_pct)
         risk_d = equity * trade_risk_pct * risk_modifier
 
         # v0.9.4 chop transition mode -> half risk

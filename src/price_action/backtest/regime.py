@@ -173,8 +173,43 @@ def build_all_chop_calendars(symbols: list[str]) -> dict[str, dict[date, str]]:
     return {sym: compute_per_symbol_chop(sym) for sym in symbols}
 
 
+def compute_btc_atr_pct_calendar(period: int = 14) -> dict[date, float]:
+    """v1.6 sec15.4 — BTC ATR% calendar (vol-conditional adaptive risk icin).
+
+    Causal: trade entry_ts T'de bakar -> calendar[T] = T-1 close-of-day verisi
+    ile hesaplanan rolling 14-bar ATR / close. Lookahead-bias yok.
+
+    Implementation:
+      - Wilder ATR(14) BTC/USDT 1d
+      - ATR / close = ATR% (oran, %4 = 0.04)
+      - Calendar[T] = ATR%[T-1]  (T gunu giren trade T-1 close-of-day verisini bilir)
+
+    Returns: dict[date -> float ATR% (oran)]
+    """
+    df = _load_ohlcv("BTC/USDT", tf="1d")
+
+    # Wilder ATR(period)
+    h_l = df["high"] - df["low"]
+    h_c = (df["high"] - df["close"].shift()).abs()
+    l_c = (df["low"] - df["close"].shift()).abs()
+    tr = pd.concat([h_l, h_c, l_c], axis=1).max(axis=1)
+    df["atr"] = tr.ewm(alpha=1 / period, adjust=False).mean()
+    df["atr_pct"] = df["atr"] / df["close"]   # ORAN (0.04 = %4)
+
+    # CAUSAL shift: T gunu giren trade T-1 close-of-day verisini bilir
+    df["atr_pct_lag1"] = df["atr_pct"].shift(1)
+
+    out: dict[date, float] = {}
+    for i in range(len(df)):
+        v = df["atr_pct_lag1"].iloc[i]
+        if pd.notna(v):
+            out[df["ts"].iloc[i].date()] = float(v)
+    return out
+
+
 __all__ = [
     "compute_btc_capitulation_halt",
     "compute_per_symbol_chop",
     "build_all_chop_calendars",
+    "compute_btc_atr_pct_calendar",
 ]

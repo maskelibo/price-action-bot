@@ -78,4 +78,81 @@ def get_tier_value(tiers: list[dict], conf: float, default_key: str, default_val
     return default_value
 
 
-__all__ = ["normalize_conf_percentile", "get_tier_value"]
+# =====================================================================
+# v1.5.1 — sl_pct rolling percentile rank (CONF DATA QUALITY FIX)
+# =====================================================================
+# SEC9 forensik: confluence_score'un %96.9'u tek-tier'a (~0.333)
+# sıkışıyor — strategy'lerin emit_signals filtresi (min_score=2.0) tek
+# bir base_score (=2.0) emit ediyor. Tier sistemi etkisiz kalıyor.
+#
+# ÇOZUM C (lab pre-reg): Trade pool'dan post-process ile percentile rank.
+# Composite signal:  sl_pct (entry_price - initial_sl) / entry_price
+# Sebep (lab forensics):
+#   - Spearman(sl_pct_rank, R) = +0.30 (p<0.001)  — gerçek alpha sinyali
+#   - Wide SL trade'lerin mean_R'si tight SL'den 2.6x büyük (T5/T1)
+#   - sl_pct = ATR-driven volatility proxy + structural sl distance composite
+#   - 1/sl_pct kullanılırsa korelasyon TERS yöne döner (-0.30) — bu yüzden direkt sl_pct
+#
+# Rolling 180-gün rank (look-ahead-free):
+#   conf_pct(t) = (#past_trades within 180d with sl_pct <= sl_pct(t)) / #past_trades
+#
+# Tier dağılımı (v1.5 pool 6650 trade):
+#   T1 [0,0.32) = 2331 (35.1%), mean_R +0.212, WR 48.4%
+#   T2 [0.32,0.42) = 645 (9.7%), mean_R +0.429, WR 53.5%
+#   T3 [0.42,0.52) = 711 (10.7%), mean_R +0.423, WR 49.9%
+#   T4 [0.52,0.58) = 379 (5.7%), mean_R +0.190, WR 48.0%
+#   T5 [0.58,1) = 2584 (38.9%), mean_R +0.554, WR 53.1%
+# Dağılım bimodal ama 5 tier'a dağıtık. T5 vs T1 = 2.6x mean_R, monoton-değil
+# ama trend pozitif (T1<T2≈T3, T5 en yüksek). T4 outlier (n=379 küçük örnek).
+
+
+def normalize_conf_via_sl_pct_percentile(
+    trades: list[dict],
+    lookback_days: int = 180,
+    min_history: int = 30,
+) -> list[dict]:
+    """Trade pool'a `conf_pct` alani ekle (sl_pct rolling rank).
+
+    Look-ahead bias yok: rank cutoff = entry_ts - lookback_days,
+    history sadece geçmiş trade'lerden.
+    History < min_history ise conf_pct = 0.5 (orta tier).
+
+    Original `conf` korunur, yeni alan `conf_pct`.
+    """
+    if not trades:
+        return trades
+    trades_sorted = sorted(trades, key=lambda t: t["entry_ts"])
+
+    # Pre-compute sl_pct
+    sl_pcts = []
+    for t in trades_sorted:
+        ep = float(t["entry_price"])
+        sl = float(t["initial_sl"])
+        if ep <= 0:
+            sl_pcts.append(0.0)
+            continue
+        sl_pcts.append(abs(ep - sl) / ep)
+
+    for i, t in enumerate(trades_sorted):
+        cutoff = t["entry_ts"] - timedelta(days=lookback_days)
+        # Geçmiş history (look-ahead-free)
+        history = []
+        for j in range(i - 1, -1, -1):
+            if trades_sorted[j]["entry_ts"] < cutoff:
+                break
+            history.append(sl_pcts[j])
+        if len(history) < min_history:
+            t["conf_pct"] = 0.5
+            continue
+        mine = sl_pcts[i]
+        rank = sum(1 for h in history if h <= mine) / len(history)
+        t["conf_pct"] = rank
+
+    return trades_sorted
+
+
+__all__ = [
+    "normalize_conf_percentile",
+    "normalize_conf_via_sl_pct_percentile",
+    "get_tier_value",
+]
