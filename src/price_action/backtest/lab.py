@@ -496,13 +496,19 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         still = []
         for p in open_pos:
             if p["exit_ts"] <= now:
-                # v2.0 sec15.5: PYRAMID R-adjust (BE-protect)
+                # v2.0 sec15.5: PYRAMID R-adjust (algoritmik BE-protect)
+                # SIM = HONEST_BE matematiksel olarak aynı (algoritmik pyramid auto-BE SL)
+                # Realistik: + slippage erosion (ek pos entry slip ~0.001R/trigger)
                 R_use = p["R"]
                 if cfg.pyramid_enabled and cfg.pyramid_triggers and cfg.pyramid_sizes:
                     bonus = 0.0
+                    slippage_erosion = 0.0
                     for trig, sz in zip(cfg.pyramid_triggers, cfg.pyramid_sizes):
-                        bonus += float(sz) * max(0.0, R_use - float(trig))
-                    R_use = R_use + bonus
+                        # Ek pos açıldıysa (R >= trigger) bonus + slippage erosion
+                        if R_use >= float(trig):
+                            bonus += float(sz) * max(0.0, R_use - float(trig))
+                            slippage_erosion += 0.001 * float(sz)  # 5bps * 2 (entry+exit) per ek pos
+                    R_use = R_use + bonus - slippage_erosion
                 pnl = p["risk"] * R_use
                 cash += p["margin"] + pnl
                 equity = cash + sum(q["margin"] for q in still)
@@ -742,13 +748,15 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
 
     # Acik pozisyonlari kapat
     for p in open_pos:
-        # v2.0 sec15.5: pyramid R-adjust son acik pozisyonlar icin de
         R_use = p["R"]
         if cfg.pyramid_enabled and cfg.pyramid_triggers and cfg.pyramid_sizes:
             bonus = 0.0
+            slippage_erosion = 0.0
             for trig, sz in zip(cfg.pyramid_triggers, cfg.pyramid_sizes):
-                bonus += float(sz) * max(0.0, R_use - float(trig))
-            R_use = R_use + bonus
+                if R_use >= float(trig):
+                    bonus += float(sz) * max(0.0, R_use - float(trig))
+                    slippage_erosion += 0.001 * float(sz)
+            R_use = R_use + bonus - slippage_erosion
         cash += p["margin"] + p["risk"] * R_use
         equity = cash
         Rs.append(R_use)

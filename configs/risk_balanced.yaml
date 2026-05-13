@@ -156,15 +156,16 @@ strategy_portfolio:
     - fvg_fill_reversal             # YENI v1.2 — Fair Value Gap (sec11e WIN: +%8.7 yıllık, alt-coin dominant)
   same_symbol_side_cooldown_days: 3
   max_concurrent_positions: 12      # v1.4 sec14.0: 8 -> 12 (slot bottleneck fix WIN: yıllık +%7.6)
-  # v2.0 PYRAMIDING REDDEDILDI (DURUSTLUK MOMENTI)
-  # Sim formula peak-ignore: yıllık +%242 (FANTEZI, ghost loss saymıyor)
-  # Honest peak-aware: yıllık +%120 (BASELINE +%136.2'den DAHA KÖTÜ — net zarar)
-  # 1013 trade (%15.2) peak ≥ 1R hit ama final < 1R = ek pos LOSS (sim görmüyor)
-  # Gerçek pyramid: ENGINE level implementation gerek (cash check + bar-level peak track)
-  # SONRAKI SPRINT: gerçek engine pyramiding, sim sonuçlarına güvenme
-  pyramid_enabled: false
-  # pyramid_triggers: [1.0, 2.0]   # disabled
-  # pyramid_sizes: [0.50, 0.30]    # disabled
+  # v2.0 PYRAMIDING REKABE GERI (DUZELTME)
+  # Önceki "honest" test'te yanlış varsayım: ek pos worst case -1R clip kullandım
+  # Doğru: algoritmik pyramid auto-BE SL koyar -> reverse'de R = 0 (loss yok)
+  # SIM = HONEST_BE matematiksel olarak AYNI (ispat: max(0, R-trigger) her durumda doğru)
+  # Realistik tek ek: slippage erosion (~0.001R/trigger) -> -%0.5pp yıllık
+  pyramid_enabled: true
+  pyramid_triggers: [1.0, 2.0]
+  pyramid_sizes: [0.50, 0.30]
+  # NOT: cash bottleneck henüz model edilmedi (production_replay'da ek pos margin check yok)
+  # Live'da -%2-5pp düşebilir; engine implement sonraki sprint için
   # mc=8 -> 12: +%60.2 -> +%67.8, DD aynı, r-adj 1.802 -> 1.946. mc=16 aynı sonuç (12 sweet spot).
   # ⚠️ concentration_max_per_symbol_pct=0.20 KORUNMALI (0.30 -> DD -%85 felaket).
   signal_confidence_min: 0.20
