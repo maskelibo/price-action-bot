@@ -77,8 +77,12 @@ leverage:
 drawdown_breakers:
   daily_loss_pct: 0.05              # günlük net kayıp %5 → durdur
   weekly_loss_pct: 0.10             # haftalık %10 → durdur
-  monthly_loss_pct: 0.08            # v1.1: 0.15 -> 0.08 (sec10.C sweep WIN: yillik +%3.9, DD +%0.8)
-  # 13 pencere 3y rolling: yillik +%33.6 -> +%37.5, DD -32.6% -> -31.8%, r-adj 1.029 -> 1.178
+  monthly_loss_pct: 0.06            # v1.3 sec12a: 0.08 -> 0.06 (combined sweep WIN ile mdd=0.06+halt=21)
+  monthly_halt_days: 21             # v1.3 sec12a: 30 -> 21 (kotu pencerede halt cabuk biter, recovery yakala)
+  # v1.1 0.08+30g: +%37.5/-%31.8/r-adj 1.178
+  # v1.3 0.06+21g: +%60.16/-%33.38/r-adj 1.802 (+%22.66pp yıllık, sweet spot)
+  # NOT: side-conditional dd (long=0.12, short=0.06) +%64.46/r-adj 1.957 mumkun
+  #      ama lab.py orta-seviye degisiklik gerek (sonraki sprint v1.4)
   consecutive_losses: 3             # v0.9.1: 6 -> 3 (sweep'te ROI+DD iyilestirir)
   consecutive_loss_pause_days: 5    # v0.9.1: 3 ardisik kayip -> 5 gun cool-down
   reset:

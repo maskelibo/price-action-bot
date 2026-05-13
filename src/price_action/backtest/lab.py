@@ -165,6 +165,10 @@ class ProductionConfig:
     daily_dd: float = 0.05
     weekly_dd: float = 0.10
     monthly_dd: float = 0.15
+    # v1.3 sec12a: monthly halt configurable (default 30g, 21g WIN: +%9 yıllık)
+    monthly_halt_days: int = 30
+    daily_halt_days: int = 1
+    weekly_halt_days: int = 7
 
     # Consecutive-loss cool-down (v0.9.1)
     consecutive_loss_n: int | None = 3
@@ -271,6 +275,9 @@ class ProductionConfig:
             daily_dd=float(dd.get("daily_loss_pct", 0.05)),
             weekly_dd=float(dd.get("weekly_loss_pct", 0.10)),
             monthly_dd=float(dd.get("monthly_loss_pct", 0.15)),
+            monthly_halt_days=int(dd.get("monthly_halt_days", 30)),
+            daily_halt_days=int(dd.get("daily_halt_days", 1)),
+            weekly_halt_days=int(dd.get("weekly_halt_days", 7)),
             consecutive_loss_n=(
                 int(dd["consecutive_losses"])
                 if dd.get("consecutive_losses") not in (None, 0)
@@ -520,13 +527,13 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         if blocked_until and t["entry_ts"] < blocked_until:
             continue
         if (daily_anchor - equity) / max(daily_anchor, 1) >= cfg.daily_dd:
-            blocked_until = t["entry_ts"] + timedelta(days=1)
+            blocked_until = t["entry_ts"] + timedelta(days=cfg.daily_halt_days)
             continue
         if (weekly_anchor - equity) / max(weekly_anchor, 1) >= cfg.weekly_dd:
-            blocked_until = t["entry_ts"] + timedelta(days=7)
+            blocked_until = t["entry_ts"] + timedelta(days=cfg.weekly_halt_days)
             continue
         if (monthly_anchor - equity) / max(monthly_anchor, 1) >= cfg.monthly_dd:
-            blocked_until = t["entry_ts"] + timedelta(days=30)
+            blocked_until = t["entry_ts"] + timedelta(days=cfg.monthly_halt_days)
             continue
 
         if len(open_pos) >= cfg.max_concurrent:
