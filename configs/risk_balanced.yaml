@@ -76,7 +76,8 @@ leverage:
 drawdown_breakers:
   daily_loss_pct: 0.05              # günlük net kayıp %5 → durdur
   weekly_loss_pct: 0.10             # haftalık %10 → durdur
-  monthly_loss_pct: 0.15            # aylık %15 → durdur
+  monthly_loss_pct: 0.08            # v1.1: 0.15 -> 0.08 (sec10.C sweep WIN: yillik +%3.9, DD +%0.8)
+  # 13 pencere 3y rolling: yillik +%33.6 -> +%37.5, DD -32.6% -> -31.8%, r-adj 1.029 -> 1.178
   consecutive_losses: 3             # v0.9.1: 6 -> 3 (sweep'te ROI+DD iyilestirir)
   consecutive_loss_pause_days: 5    # v0.9.1: 3 ardisik kayip -> 5 gun cool-down
   reset:
