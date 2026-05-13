@@ -496,18 +496,23 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         still = []
         for p in open_pos:
             if p["exit_ts"] <= now:
-                # v2.0 sec15.5: PYRAMID R-adjust (algoritmik BE-protect)
-                # SIM = HONEST_BE matematiksel olarak aynı (algoritmik pyramid auto-BE SL)
-                # Realistik: + slippage erosion (ek pos entry slip ~0.001R/trigger)
+                # v2.0.3 PYRAMID R-adjust (SEC16 düzeltmeleri)
+                # MFE-aware: peak_R kullan (ek pos peak >= trigger ise açıldı)
+                # Slippage erosion proper: 0.06R per ek pos
+                #   = fee 0.075% × 2 (entry+exit) / initial_R~4% = 0.0375R
+                #   + spread/slippage 5bps × 2 / 4% = 0.025R = ~0.06R total
+                # Realistic ek pos cost (Quality agent: önceki 0.001R 60x küçüktü)
                 R_use = p["R"]
                 if cfg.pyramid_enabled and cfg.pyramid_triggers and cfg.pyramid_sizes:
+                    peak_R_p = float(p.get("peak_R", R_use))  # MFE-aware fallback final R
                     bonus = 0.0
                     slippage_erosion = 0.0
+                    SLIP_PER_EKPOS = 0.06  # realistic fee+spread+slip
                     for trig, sz in zip(cfg.pyramid_triggers, cfg.pyramid_sizes):
-                        # Ek pos açıldıysa (R >= trigger) bonus + slippage erosion
-                        if R_use >= float(trig):
+                        # Ek pos açıldıysa (peak >= trigger) bonus + slippage erosion
+                        if peak_R_p >= float(trig):
                             bonus += float(sz) * max(0.0, R_use - float(trig))
-                            slippage_erosion += 0.001 * float(sz)  # 5bps * 2 (entry+exit) per ek pos
+                            slippage_erosion += SLIP_PER_EKPOS * float(sz)
                     R_use = R_use + bonus - slippage_erosion
                 pnl = p["risk"] * R_use
                 cash += p["margin"] + pnl
@@ -746,16 +751,18 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
             "side": t["side"],
         })
 
-    # Acik pozisyonlari kapat
+    # Acik pozisyonlari kapat (v2.0.3 SEC16 fix)
     for p in open_pos:
         R_use = p["R"]
         if cfg.pyramid_enabled and cfg.pyramid_triggers and cfg.pyramid_sizes:
+            peak_R_p = float(p.get("peak_R", R_use))
             bonus = 0.0
             slippage_erosion = 0.0
+            SLIP_PER_EKPOS = 0.06
             for trig, sz in zip(cfg.pyramid_triggers, cfg.pyramid_sizes):
-                if R_use >= float(trig):
+                if peak_R_p >= float(trig):
                     bonus += float(sz) * max(0.0, R_use - float(trig))
-                    slippage_erosion += 0.001 * float(sz)
+                    slippage_erosion += SLIP_PER_EKPOS * float(sz)
             R_use = R_use + bonus - slippage_erosion
         cash += p["margin"] + p["risk"] * R_use
         equity = cash

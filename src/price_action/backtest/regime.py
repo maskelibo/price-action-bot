@@ -85,21 +85,24 @@ def compute_btc_capitulation_halt(
         & (df["above_ema50"].rolling(resume_streak_days, min_periods=resume_streak_days).sum() == resume_streak_days)
     )
 
-    # 3 kuraldan en az 2'si saglanirsa "halt candidate"
+    # SEC16 LOOK-AHEAD FIX: T günü kararı T-1 verisine bakmalı (causal)
+    # Önce: halt[T] = T günü atr_pct/streak/dd_90d -> trade entry T'de yapıldıysa T verisi kullanım = LOOK-AHEAD
+    # Sonra: rules.shift(1) ile T günü kararı T-1 ATR/streak/DD'ye bakar (causal)
     rules = pd.DataFrame({
         "high_vol": df["atr_pct"] >= atr_threshold,
         "bear_streak": df["below_ema200_streak"] >= ema200_streak_threshold,
         "deep_dd": df["dd_90d"] <= dd_90d_threshold,
     })
-    halt_candidate = rules.sum(axis=1) >= 2
+    halt_candidate = (rules.sum(axis=1) >= 2).shift(1).fillna(False)
+    resume_ok_lag = df["resume_ok"].shift(1).fillna(False)
 
-    # Sticky halt: bir kez tetiklenince resume kuralina kadar acik
+    # Sticky halt: bir kez tetiklenince resume kuralina kadar acik (causal)
     halt = []
     in_halt = False
     for i in range(len(df)):
         if not in_halt and halt_candidate.iloc[i]:
             in_halt = True
-        elif in_halt and df["resume_ok"].iloc[i]:
+        elif in_halt and resume_ok_lag.iloc[i]:
             in_halt = False
         halt.append(in_halt)
 
