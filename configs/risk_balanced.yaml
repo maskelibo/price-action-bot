@@ -156,6 +156,12 @@ strategy_portfolio:
     - fvg_fill_reversal             # YENI v1.2 — Fair Value Gap (sec11e WIN: +%8.7 yıllık, alt-coin dominant)
   same_symbol_side_cooldown_days: 3
   max_concurrent_positions: 12      # v1.4 sec14.0: 8 -> 12 (slot bottleneck fix WIN: yıllık +%7.6)
+  # v2.0 sec15.5: PYRAMIDING (R-transform sim, BE-protect)
+  # Standard winner: pyramid_triggers=[1.0, 2.0], pyramid_sizes=[0.50, 0.30]
+  # Sim STACK (PURE side-cond + Pyramid std): yıllık +%242.2 / DD -%38.6 / r-adj 6.269
+  pyramid_enabled: true
+  pyramid_triggers: [1.0, 2.0]
+  pyramid_sizes: [0.50, 0.30]
   # mc=8 -> 12: +%60.2 -> +%67.8, DD aynı, r-adj 1.802 -> 1.946. mc=16 aynı sonuç (12 sweet spot).
   # ⚠️ concentration_max_per_symbol_pct=0.20 KORUNMALI (0.30 -> DD -%85 felaket).
   signal_confidence_min: 0.20

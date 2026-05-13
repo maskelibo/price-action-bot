@@ -179,6 +179,12 @@ class ProductionConfig:
     # None ise monthly_dd kullan (geriye uyumlu). Set edilirse side-spesifik anchor track.
     monthly_dd_long: float | None = None   # set edilirse long-only equity halt
     monthly_dd_short: float | None = None  # set edilirse short-only equity halt
+    # v2.0 sec15.5: PYRAMIDING R-adjust (sim-equivalent, production_replay seviyesinde)
+    # R_pyramid = R_orig + sum_i [ s_i * max(0, R_orig - t_i) ] (BE-protect)
+    # standard winner: triggers=[1.0, 2.0], sizes=[0.50, 0.30] -> sim +%150
+    pyramid_enabled: bool = False
+    pyramid_triggers: tuple = ()  # ör (1.0, 2.0)
+    pyramid_sizes: tuple = ()     # ör (0.50, 0.30)
 
     # Consecutive-loss cool-down (v0.9.1)
     consecutive_loss_n: int | None = 3
@@ -313,6 +319,9 @@ class ProductionConfig:
                 if dd.get("monthly_loss_pct_short") is not None
                 else None
             ),
+            pyramid_enabled=bool(sp.get("pyramid_enabled", False)),
+            pyramid_triggers=tuple(sp.get("pyramid_triggers") or ()),
+            pyramid_sizes=tuple(sp.get("pyramid_sizes") or ()),
             consecutive_loss_n=(
                 int(dd["consecutive_losses"])
                 if dd.get("consecutive_losses") not in (None, 0)
@@ -487,11 +496,18 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         still = []
         for p in open_pos:
             if p["exit_ts"] <= now:
-                pnl = p["risk"] * p["R"]
+                # v2.0 sec15.5: PYRAMID R-adjust (BE-protect)
+                R_use = p["R"]
+                if cfg.pyramid_enabled and cfg.pyramid_triggers and cfg.pyramid_sizes:
+                    bonus = 0.0
+                    for trig, sz in zip(cfg.pyramid_triggers, cfg.pyramid_sizes):
+                        bonus += float(sz) * max(0.0, R_use - float(trig))
+                    R_use = R_use + bonus
+                pnl = p["risk"] * R_use
                 cash += p["margin"] + pnl
                 equity = cash + sum(q["margin"] for q in still)
                 peak_equity = max(peak_equity, equity)
-                Rs.append(p["R"])
+                Rs.append(R_use)
                 eq_curve.append(equity)
                 # v1.5: side-bazlı pnl tracking
                 if p.get("side") == "long":
@@ -726,9 +742,16 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
 
     # Acik pozisyonlari kapat
     for p in open_pos:
-        cash += p["margin"] + p["risk"] * p["R"]
+        # v2.0 sec15.5: pyramid R-adjust son acik pozisyonlar icin de
+        R_use = p["R"]
+        if cfg.pyramid_enabled and cfg.pyramid_triggers and cfg.pyramid_sizes:
+            bonus = 0.0
+            for trig, sz in zip(cfg.pyramid_triggers, cfg.pyramid_sizes):
+                bonus += float(sz) * max(0.0, R_use - float(trig))
+            R_use = R_use + bonus
+        cash += p["margin"] + p["risk"] * R_use
         equity = cash
-        Rs.append(p["R"])
+        Rs.append(R_use)
         eq_curve.append(equity)
 
     # Max DD hesap
