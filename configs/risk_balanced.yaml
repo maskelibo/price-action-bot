@@ -97,7 +97,7 @@ correlation_gate:
   hard_block_at: 0.9                # %90+ — pozisyonu reddet
 
 concentration_limits:
-  max_open_positions: 8
+  max_open_positions: 12            # v1.4 sec14.0: 8 -> 12 (slot bottleneck WIN +%7.6 yıllık)
   max_per_category_pct: 0.40        # tek kategori %40'tan fazla olamaz
   max_per_symbol_pct: 0.20          # tek sembol %20'den fazla olamaz
   # v0.9.3 PRESETS: backtest'te concentration_gate'i uygula (live'a yakin simulasyon).
@@ -153,7 +153,9 @@ strategy_portfolio:
     - brooks_failed_breakout
     - fvg_fill_reversal             # YENI v1.2 — Fair Value Gap (sec11e WIN: +%8.7 yıllık, alt-coin dominant)
   same_symbol_side_cooldown_days: 3
-  max_concurrent_positions: 8
+  max_concurrent_positions: 12      # v1.4 sec14.0: 8 -> 12 (slot bottleneck fix WIN: yıllık +%7.6)
+  # mc=8 -> 12: +%60.2 -> +%67.8, DD aynı, r-adj 1.802 -> 1.946. mc=16 aynı sonuç (12 sweet spot).
+  # ⚠️ concentration_max_per_symbol_pct=0.20 KORUNMALI (0.30 -> DD -%85 felaket).
   signal_confidence_min: 0.20
   # v0.9.9 NOTE: CEO drop_pairs eklenmesini onerdi (Ablation +%10.81pp)
   # ama production'da test edilince ETKISIZ cikti (BALANCED %36 -> %35).
