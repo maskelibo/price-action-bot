@@ -77,12 +77,14 @@ leverage:
 drawdown_breakers:
   daily_loss_pct: 0.05              # günlük net kayıp %5 → durdur
   weekly_loss_pct: 0.10             # haftalık %10 → durdur
-  monthly_loss_pct: 0.06            # v1.3 sec12a: 0.08 -> 0.06 (combined sweep WIN ile mdd=0.06+halt=21)
-  monthly_halt_days: 21             # v1.3 sec12a: 30 -> 21 (kotu pencerede halt cabuk biter, recovery yakala)
-  # v1.1 0.08+30g: +%37.5/-%31.8/r-adj 1.178
-  # v1.3 0.06+21g: +%60.16/-%33.38/r-adj 1.802 (+%22.66pp yıllık, sweet spot)
-  # NOT: side-conditional dd (long=0.12, short=0.06) +%64.46/r-adj 1.957 mumkun
-  #      ama lab.py orta-seviye degisiklik gerek (sonraki sprint v1.4)
+  monthly_loss_pct: 0.06            # combined dd
+  monthly_halt_days: 21             # halt period
+  # v1.5 sec14.1: SIDE-CONDITIONAL monthly dd (HIBRIT, DD korunmus)
+  monthly_loss_pct_long: 0.10       # long-side ay icinde %10 net loss -> halt
+  monthly_loss_pct_short: 0.05      # short-side ay icinde %5 net loss -> halt (1.66x daha karli, sıkı tut)
+  # v1.5 STACK (A6 force-exit + side-cond HIBRIT): yıllık +%116.3 / DD -%34.9 / r-adj 3.332
+  # v1.4 baseline: +%67.8 / DD -%34.8 / r-adj 1.946 (delta +%48.5pp)
+  # PURE side-cond varyasyonu (mdd=disable): +%136.2 / DD -%38.6 / r-adj 3.530 ama DD +%4 ek
   consecutive_losses: 3             # v0.9.1: 6 -> 3 (sweep'te ROI+DD iyilestirir)
   consecutive_loss_pause_days: 5    # v0.9.1: 3 ardisik kayip -> 5 gun cool-down
   reset:

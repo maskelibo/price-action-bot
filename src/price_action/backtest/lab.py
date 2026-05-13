@@ -169,6 +169,10 @@ class ProductionConfig:
     monthly_halt_days: int = 30
     daily_halt_days: int = 1
     weekly_halt_days: int = 7
+    # v1.5 sec14.1: side-conditional monthly_dd (long_dd=0.12, short_dd=0.06 +%4.3pp)
+    # None ise monthly_dd kullan (geriye uyumlu). Set edilirse side-spesifik anchor track.
+    monthly_dd_long: float | None = None   # set edilirse long-only equity halt
+    monthly_dd_short: float | None = None  # set edilirse short-only equity halt
 
     # Consecutive-loss cool-down (v0.9.1)
     consecutive_loss_n: int | None = 3
@@ -278,6 +282,16 @@ class ProductionConfig:
             monthly_halt_days=int(dd.get("monthly_halt_days", 30)),
             daily_halt_days=int(dd.get("daily_halt_days", 1)),
             weekly_halt_days=int(dd.get("weekly_halt_days", 7)),
+            monthly_dd_long=(
+                float(dd["monthly_loss_pct_long"])
+                if dd.get("monthly_loss_pct_long") is not None
+                else None
+            ),
+            monthly_dd_short=(
+                float(dd["monthly_loss_pct_short"])
+                if dd.get("monthly_loss_pct_short") is not None
+                else None
+            ),
             consecutive_loss_n=(
                 int(dd["consecutive_losses"])
                 if dd.get("consecutive_losses") not in (None, 0)
@@ -425,6 +439,11 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
     last_w = first.isocalendar()[1]
     last_m = first.month
     blocked_until = None
+    # v1.5: side-conditional dd: ay başından beri side-bazlı net pnl
+    monthly_long_pnl = 0.0
+    monthly_short_pnl = 0.0
+    blocked_long_until = None
+    blocked_short_until = None
     last_entry: dict[tuple, Any] = {}
     consecutive_losses = 0
     cool_until = None
@@ -433,6 +452,7 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
 
     def close_due(now):
         nonlocal cash, equity, peak_equity, consecutive_losses, cool_until
+        nonlocal monthly_long_pnl, monthly_short_pnl
         still = []
         for p in open_pos:
             if p["exit_ts"] <= now:
@@ -442,6 +462,11 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
                 peak_equity = max(peak_equity, equity)
                 Rs.append(p["R"])
                 eq_curve.append(equity)
+                # v1.5: side-bazlı pnl tracking
+                if p.get("side") == "long":
+                    monthly_long_pnl += pnl
+                elif p.get("side") == "short":
+                    monthly_short_pnl += pnl
                 if pnl < 0:
                     consecutive_losses += 1
                     if cfg.consecutive_loss_n and consecutive_losses >= cfg.consecutive_loss_n:
@@ -524,6 +549,9 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         if cm != last_m:
             monthly_anchor = equity
             last_m = cm
+            # v1.5: side-bazlı monthly pnl reset
+            monthly_long_pnl = 0.0
+            monthly_short_pnl = 0.0
         if blocked_until and t["entry_ts"] < blocked_until:
             continue
         if (daily_anchor - equity) / max(daily_anchor, 1) >= cfg.daily_dd:
@@ -535,6 +563,23 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         if (monthly_anchor - equity) / max(monthly_anchor, 1) >= cfg.monthly_dd:
             blocked_until = t["entry_ts"] + timedelta(days=cfg.monthly_halt_days)
             continue
+        # v1.5 SIDE-CONDITIONAL monthly_dd
+        side_t = str(t.get("side", "")).lower()
+        if cfg.monthly_dd_long is not None and side_t == "long":
+            if blocked_long_until and t["entry_ts"] < blocked_long_until:
+                continue
+            # Long-side ay başından beri net loss
+            long_loss_pct = -monthly_long_pnl / max(monthly_anchor, 1) if monthly_long_pnl < 0 else 0
+            if long_loss_pct >= cfg.monthly_dd_long:
+                blocked_long_until = t["entry_ts"] + timedelta(days=cfg.monthly_halt_days)
+                continue
+        if cfg.monthly_dd_short is not None and side_t == "short":
+            if blocked_short_until and t["entry_ts"] < blocked_short_until:
+                continue
+            short_loss_pct = -monthly_short_pnl / max(monthly_anchor, 1) if monthly_short_pnl < 0 else 0
+            if short_loss_pct >= cfg.monthly_dd_short:
+                blocked_short_until = t["entry_ts"] + timedelta(days=cfg.monthly_halt_days)
+                continue
 
         if len(open_pos) >= cfg.max_concurrent:
             continue

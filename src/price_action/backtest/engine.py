@@ -69,12 +69,15 @@ class BacktestEngine:
         *,
         risk_officer: RiskOfficer | None = None,
         store_load: Any | None = None,
-        runner_trail_mult: float = 1.0,
+        runner_trail_mult: float = 1.5,   # v1.5 sec13.4 WIN: 1.0 -> 1.5 (artifact-free w/ time-exit)
         trail_activate_stage: int = 2,
         tp1_R: float = 1.0,
-        tp2_R: float = 2.0,
+        tp2_R: float = 1.5,                # v1.2 sec11b WIN: 2.0 -> 1.5
         tp1_close_pct: float = 0.30,
         tp2_close_pct: float = 0.30,
+        runner_force_exit_method: str = "time",  # v1.5 sec13.4 WIN: artifact prevention
+        runner_force_exit_bars: int | None = 30,  # v1.5 sec13.4 WIN: 30bar force exit
+        runner_force_exit_ema: int = 20,
     ) -> None:
         """`store_load` = lazy callable: (symbol, tf, start, end) -> DataFrame.
 
@@ -91,6 +94,15 @@ class BacktestEngine:
         `tp1_close_pct` / `tp2_close_pct`: fraction of original qty closed at TP1/TP2.
             Defaults 0.30 / 0.30 = production v1.0 (30% / 30% / 40% runner).
             Runner fraction = 1 - tp1_close_pct - tp2_close_pct.
+        `runner_force_exit_method`: extra runner exit guard (sec13.4 artifact prevention).
+            "atr_only" (default) = sadece ATR trail, mevcut davranis.
+            "time" = trail aktive olduktan sonra `runner_force_exit_bars` bar sonra force-exit (close).
+            "ema_cross" = runner aktif iken EMA(`runner_force_exit_ema`) cross karsi yon -> exit.
+            "combined" = time AND ema_cross — ikisi de tetiklenince exit (en gevsek).
+            "either" = time OR ema_cross — biri tetiklenince exit (en siki).
+        `runner_force_exit_bars`: time-based exit icin bar sayisi (None = devre disi).
+            Sadece method in {"time", "combined", "either"} ile anlamli.
+        `runner_force_exit_ema`: EMA cross icin period (default 20).
         """
         self.risk_officer = risk_officer
         self.store_load = store_load
@@ -100,6 +112,11 @@ class BacktestEngine:
         self.tp2_R = float(tp2_R)
         self.tp1_close_pct = float(tp1_close_pct)
         self.tp2_close_pct = float(tp2_close_pct)
+        self.runner_force_exit_method = str(runner_force_exit_method)
+        self.runner_force_exit_bars = (
+            int(runner_force_exit_bars) if runner_force_exit_bars is not None else None
+        )
+        self.runner_force_exit_ema = int(runner_force_exit_ema)
         self._log = logger.bind(component="backtest_engine")
 
     # ----- public API -----
@@ -279,6 +296,27 @@ class BacktestEngine:
         idx_by_ts: dict[pd.Timestamp, int] = {pd.Timestamp(t): i for i, t in enumerate(df["ts"])}
         signals_sorted = sorted(signals, key=lambda s: s.ts)
 
+        # Force-exit precompute: EMA series for runner exit (sec13.4)
+        _force_exit_active = (
+            self.runner_force_exit_method != "atr_only"
+            and (
+                self.runner_force_exit_bars is not None
+                or self.runner_force_exit_method in ("ema_cross", "combined", "either")
+            )
+        )
+        ema_close_arr: np.ndarray | None = None
+        if _force_exit_active and "close" in df.columns:
+            try:
+                ema_period = max(2, int(self.runner_force_exit_ema))
+                ema_close_arr = (
+                    df["close"]
+                    .ewm(span=ema_period, adjust=False, min_periods=ema_period)
+                    .mean()
+                    .to_numpy()
+                )
+            except Exception:
+                ema_close_arr = None
+
         trades: list[dict[str, Any]] = []
         in_position = False  # tek pozisyon — basitlik için
         entry_idx = 0
@@ -378,11 +416,13 @@ class BacktestEngine:
             stage = 0  # 0=full open, 1=after TP1, 2=after TP2 (runner only)
             current_sl = sl_price
             peak = entry_price  # MFE tracking (high for long, low for short)
+            trail_active_bar: int | None = None  # sec13.4 force-exit clock
 
             for j in range(entry_idx, len(df)):
                 bar = df.iloc[j]
                 hi = float(bar["high"])
                 lo = float(bar["low"])
+                close_j = float(bar["close"])
                 if side == "long":
                     mae = min(mae, (lo - entry_price) / entry_price)
                     mfe = max(mfe, (hi - entry_price) / entry_price)
@@ -405,6 +445,33 @@ class BacktestEngine:
                         # Trail: max(+1R, peak - mult*ATR) — runner kar lock + trail
                         trail_sl = peak - self.runner_trail_mult * atr_for_trail
                         current_sl = max(current_sl, tp1_price, trail_sl)
+                        # sec13.4: runner force-exit (artifact prevention)
+                        if _force_exit_active:
+                            if trail_active_bar is None:
+                                trail_active_bar = j
+                            time_hit = (
+                                self.runner_force_exit_bars is not None
+                                and (j - trail_active_bar) >= self.runner_force_exit_bars
+                            )
+                            ema_hit = False
+                            if ema_close_arr is not None and not np.isnan(ema_close_arr[j]):
+                                ema_hit = close_j < float(ema_close_arr[j])
+                            method = self.runner_force_exit_method
+                            should_exit = False
+                            if method == "time":
+                                should_exit = time_hit
+                            elif method == "ema_cross":
+                                should_exit = ema_hit
+                            elif method == "combined":
+                                should_exit = time_hit and ema_hit
+                            elif method == "either":
+                                should_exit = time_hit or ema_hit
+                            if should_exit:
+                                remaining = qty - qty1 * (1 if stage >= 1 else 0) - qty2 * (1 if stage >= 2 else 0)
+                                if remaining > 0:
+                                    partial_pnls.append((j, remaining, close_j * (1 - slip)))
+                                exit_idx = j
+                                break
                 else:
                     mae = max(mae, (hi - entry_price) / entry_price)
                     mfe = min(mfe, (lo - entry_price) / entry_price)
@@ -425,6 +492,32 @@ class BacktestEngine:
                     if stage >= self.trail_activate_stage:
                         trail_sl = peak + self.runner_trail_mult * atr_for_trail
                         current_sl = min(current_sl, tp1_price, trail_sl)
+                        if _force_exit_active:
+                            if trail_active_bar is None:
+                                trail_active_bar = j
+                            time_hit = (
+                                self.runner_force_exit_bars is not None
+                                and (j - trail_active_bar) >= self.runner_force_exit_bars
+                            )
+                            ema_hit = False
+                            if ema_close_arr is not None and not np.isnan(ema_close_arr[j]):
+                                ema_hit = close_j > float(ema_close_arr[j])
+                            method = self.runner_force_exit_method
+                            should_exit = False
+                            if method == "time":
+                                should_exit = time_hit
+                            elif method == "ema_cross":
+                                should_exit = ema_hit
+                            elif method == "combined":
+                                should_exit = time_hit and ema_hit
+                            elif method == "either":
+                                should_exit = time_hit or ema_hit
+                            if should_exit:
+                                remaining = qty - qty1 * (1 if stage >= 1 else 0) - qty2 * (1 if stage >= 2 else 0)
+                                if remaining > 0:
+                                    partial_pnls.append((j, remaining, close_j * (1 + slip)))
+                                exit_idx = j
+                                break
             else:
                 exit_idx = len(df) - 1
                 final_close = float(df.iloc[-1]["close"])
