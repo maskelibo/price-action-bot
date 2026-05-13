@@ -47,9 +47,10 @@ stop_loss:
 
 take_profit:
   method: r_multiple                # r_multiple | atr | structural
-  primary_R: 2.0                    # 2R hedefte yarısı kapansın
-  partial_close_at_R: 1.0           # 1R'da %50 kapat
-  runner_trail: true                # kalan trailing ile
+  primary_R: 1.5                    # v1.2: 2.0 -> 1.5 (sec11b WIN: yıllık +%9.5, dispersiyon dar)
+  partial_close_at_R: 1.0           # 1R'da partial kapat (v1.0)
+  runner_trail: true                # kalan trailing ile (engine default mult=1.0)
+  # NOT: engine.tp2_R default 2.0 — orchestrator BacktestEngine(tp2_R=1.5) ile çağırmalı.
 
 # Volatility-targeted sizing — opsiyonel kayıp koruma katmanı.
 # Aktif olunca: yüksek-vol günlerde otomatik küçük pozisyon, düşük-vol günlerde büyük.
@@ -146,6 +147,7 @@ strategy_portfolio:
     - cvd_spike_fade                # YENI v0.9 — CVD divergence
     - vsa_climax_test               # YENI v0.9 — VSA climax
     - brooks_failed_breakout
+    - fvg_fill_reversal             # YENI v1.2 — Fair Value Gap (sec11e WIN: +%8.7 yıllık, alt-coin dominant)
   same_symbol_side_cooldown_days: 3
   max_concurrent_positions: 8
   signal_confidence_min: 0.20

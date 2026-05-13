@@ -69,10 +69,37 @@ class BacktestEngine:
         *,
         risk_officer: RiskOfficer | None = None,
         store_load: Any | None = None,
+        runner_trail_mult: float = 1.0,
+        trail_activate_stage: int = 2,
+        tp1_R: float = 1.0,
+        tp2_R: float = 2.0,
+        tp1_close_pct: float = 0.30,
+        tp2_close_pct: float = 0.30,
     ) -> None:
-        """`store_load` = lazy callable: (symbol, tf, start, end) -> DataFrame."""
+        """`store_load` = lazy callable: (symbol, tf, start, end) -> DataFrame.
+
+        `runner_trail_mult`: ATR multiplier for runner trailing stop.
+            Default 1.0 = production v1.0 (effective trail = peak - 1.0*ATR).
+            Higher = looser trail (let winners run more), lower = tighter trail.
+        `trail_activate_stage`: stage threshold for trail engagement (sec11a grid).
+            2 (default) = trail starts AFTER TP2 (2R) hit (production behavior).
+            1 = trail starts AFTER TP1 (1R) hit (earlier trail).
+            0 = trail from entry (NOT recommended, breaks initial SL semantics).
+        `tp1_R` / `tp2_R`: R-multiple distances for partial close targets.
+            Defaults 1.0 / 2.0 = production v1.0 (1R partial + 2R partial + runner).
+            sec11b grid: tp1_R in {0.5, 1.0, 1.5}, tp2_R in {1.5, 2.0, 2.5, 3.0}.
+        `tp1_close_pct` / `tp2_close_pct`: fraction of original qty closed at TP1/TP2.
+            Defaults 0.30 / 0.30 = production v1.0 (30% / 30% / 40% runner).
+            Runner fraction = 1 - tp1_close_pct - tp2_close_pct.
+        """
         self.risk_officer = risk_officer
         self.store_load = store_load
+        self.runner_trail_mult = float(runner_trail_mult)
+        self.trail_activate_stage = int(trail_activate_stage)
+        self.tp1_R = float(tp1_R)
+        self.tp2_R = float(tp2_R)
+        self.tp1_close_pct = float(tp1_close_pct)
+        self.tp2_close_pct = float(tp2_close_pct)
         self._log = logger.bind(component="backtest_engine")
 
     # ----- public API -----
@@ -335,12 +362,17 @@ class BacktestEngine:
             atr_for_trail = float(sig.metadata.get("atr14", 0)) if sig.metadata else 0.0
             if atr_for_trail <= 0:
                 atr_for_trail = initial_R_dist * 0.5
-            tp1_price = entry_price + initial_R_dist if side == "long" else entry_price - initial_R_dist
-            tp2_price = entry_price + 2 * initial_R_dist if side == "long" else entry_price - 2 * initial_R_dist
+            # sec11b: TP1/TP2 R-multiples ve partial close fractions parametrize
+            tp1_R = self.tp1_R
+            tp2_R = self.tp2_R
+            tp1_close_pct = self.tp1_close_pct
+            tp2_close_pct = self.tp2_close_pct
+            tp1_price = entry_price + tp1_R * initial_R_dist if side == "long" else entry_price - tp1_R * initial_R_dist
+            tp2_price = entry_price + tp2_R * initial_R_dist if side == "long" else entry_price - tp2_R * initial_R_dist
 
-            qty1 = qty * 0.30  # TP1 partial
-            qty2 = qty * 0.30  # TP2 partial
-            qty_runner = qty - qty1 - qty2  # %40 runner
+            qty1 = qty * tp1_close_pct  # TP1 partial
+            qty2 = qty * tp2_close_pct  # TP2 partial
+            qty_runner = qty - qty1 - qty2  # runner
 
             partial_pnls: list[tuple[int, float, float]] = []
             stage = 0  # 0=full open, 1=after TP1, 2=after TP2 (runner only)
@@ -369,9 +401,9 @@ class BacktestEngine:
                     # Bar kapanisi sonrasi SL update (next bar'da etkili)
                     if stage >= 1:
                         current_sl = max(current_sl, entry_price)  # break-even
-                    if stage >= 2:
-                        # Trail: max(+1R, peak - 1.5*ATR) — runner kar lock + trail
-                        trail_sl = peak - 1.0 * atr_for_trail
+                    if stage >= self.trail_activate_stage:
+                        # Trail: max(+1R, peak - mult*ATR) — runner kar lock + trail
+                        trail_sl = peak - self.runner_trail_mult * atr_for_trail
                         current_sl = max(current_sl, tp1_price, trail_sl)
                 else:
                     mae = max(mae, (hi - entry_price) / entry_price)
@@ -390,8 +422,8 @@ class BacktestEngine:
                         stage = 2
                     if stage >= 1:
                         current_sl = min(current_sl, entry_price)
-                    if stage >= 2:
-                        trail_sl = peak + 1.0 * atr_for_trail
+                    if stage >= self.trail_activate_stage:
+                        trail_sl = peak + self.runner_trail_mult * atr_for_trail
                         current_sl = min(current_sl, tp1_price, trail_sl)
             else:
                 exit_idx = len(df) - 1
