@@ -27,33 +27,70 @@ sys.path.insert(0, str(ROOT / "src"))
 
 
 def run_signal_scan():
-    """Daily signal scan + submit (paper_trade_daily.daily_run)."""
+    """Signal scan + submit — her dakika tetiklenir, cache'li.
+
+    1d bar tabanlı bot: sinyaller sadece UTC 00:00 bar kapanışında değişir.
+    Cache mantığı: bugünkü tarih için zaten tarama yapıldıysa instant skip.
+    Bu sayede her dakika tetik olur ama gerçek scan günde 1 kez.
+    """
+    import json
+    _bot = os.environ.get("PA_BOT_NAME", "default").lower()
+    last_scan_path = ROOT / "logs" / "execution" / f"last_scan_{_bot}.json"
+    today_utc = datetime.now(timezone.utc).date().isoformat()
+
+    # Cache check: bugün zaten taradık mı?
+    if last_scan_path.exists():
+        try:
+            last = json.loads(last_scan_path.read_text())
+            if last.get("date") == today_utc:
+                return  # Bugün zaten taradık, instant skip
+        except Exception:
+            pass
+
+    # Yeni 1d bar — scan yap
     print(f"\n{'='*80}")
-    print(f"[{datetime.now(timezone.utc).isoformat()}] DAILY SIGNAL SCAN")
+    print(f"[{datetime.now(timezone.utc).isoformat()}] DAILY SIGNAL SCAN ({_bot.upper()})")
     print(f"{'='*80}")
     from scripts.paper_trade_daily import daily_run
     from datetime import timedelta
     target = datetime.now(timezone.utc) - timedelta(days=1)  # dün kapanışı
     daily_run(target, dry_run=False)
 
+    # Cache güncelle
+    last_scan_path.parent.mkdir(parents=True, exist_ok=True)
+    last_scan_path.write_text(json.dumps({
+        "date": today_utc,
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "bot": _bot,
+    }))
+
 
 def run_position_monitor():
-    """Position monitoring (saatlik)."""
+    """Position monitoring — her dakika tetiklenir (SL/TP latency 60dk → 1dk)."""
     from scripts.paper_position_monitor import monitor_all_positions
-    monitor_all_positions(verbose=True)
+    monitor_all_positions(verbose=False)  # her dakika spam yapmasın
 
 
 def equity_snapshot():
     """Günlük equity snapshot."""
     import json, uuid, duckdb
-    state_path = ROOT / "logs" / "execution" / "paper_state.json"
+    # Multi-bot support
+    _bot = os.environ.get("PA_BOT_NAME", "").lower()
+    if _bot == "atlas":
+        state_path = ROOT / "logs" / "execution" / "paper_state_atlas.json"
+        journal = ROOT / "data" / "paper_journal_atlas.duckdb"
+    elif _bot == "phoenix":
+        state_path = ROOT / "logs" / "execution" / "paper_state_phoenix.json"
+        journal = ROOT / "data" / "paper_journal_phoenix.duckdb"
+    else:
+        state_path = ROOT / "logs" / "execution" / "paper_state.json"
+        journal = ROOT / "data" / "paper_journal.duckdb"
     if not state_path.exists():
         return
     state = json.loads(state_path.read_text())
     equity = state.get('balances', {}).get('USDT', 0)
     open_pos = len(state.get('positions', []))
     realized = state.get('realized_pnl_total', 0)
-    journal = ROOT / "data" / "paper_journal.duckdb"
     con = duckdb.connect(str(journal))
     con.execute("""
         INSERT INTO paper_equity_snapshots VALUES (?, ?, ?, ?, ?, ?)
@@ -73,17 +110,17 @@ def main_loop():
         return
 
     sched = BlockingScheduler(timezone="UTC")
-    # Daily signal scan: UTC 00:05
-    sched.add_job(run_signal_scan, CronTrigger(hour=0, minute=5), id='signal_scan')
-    # Position monitor: her saat :00
-    sched.add_job(run_position_monitor, CronTrigger(minute=0), id='position_monitor')
+    # Signal scan: HER DAKİKA tetiklenir, cache'li (yeni 1d bar varsa scan, yoksa skip)
+    sched.add_job(run_signal_scan, CronTrigger(minute='*'), id='signal_scan')
+    # Position monitor: HER DAKİKA (SL/TP latency 60dk → 1dk)
+    sched.add_job(run_position_monitor, CronTrigger(minute='*'), id='position_monitor')
     # Equity snapshot: UTC 23:55 her gün
     sched.add_job(equity_snapshot, CronTrigger(hour=23, minute=55), id='equity_snapshot')
 
     print(f"[{datetime.now(timezone.utc).isoformat()}] DAEMON started")
-    print(f"  - Daily signal scan: UTC 00:05")
-    print(f"  - Position monitor: every hour")
-    print(f"  - Equity snapshot: UTC 23:55")
+    print(f"  - Signal scan: HER DAKİKA (cache'li — gerçek scan yeni 1d bar geldiğinde)")
+    print(f"  - Position monitor: HER DAKİKA (SL/TP hızlı yakalanır)")
+    print(f"  - Equity snapshot: UTC 23:55 (günlük)")
     print(f"  Ctrl+C to stop")
     try:
         sched.start()

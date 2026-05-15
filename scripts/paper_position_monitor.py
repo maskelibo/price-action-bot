@@ -36,8 +36,17 @@ sys.path.insert(0, str(ROOT / "src"))
 from price_action.execution.ccxt_paper import CCXTPaperBroker
 from price_action.execution.paper_state import PaperState
 
-JOURNAL = ROOT / "data" / "paper_journal.duckdb"
-STATE_PATH = ROOT / "logs" / "execution" / "paper_state.json"
+# Multi-bot support (ATLAS / PHOENIX paralel paper test)
+_BOT_NAME = os.environ.get("PA_BOT_NAME", "").lower()
+if _BOT_NAME == "atlas":
+    JOURNAL = ROOT / "data" / "paper_journal_atlas.duckdb"
+    STATE_PATH = ROOT / "logs" / "execution" / "paper_state_atlas.json"
+elif _BOT_NAME == "phoenix":
+    JOURNAL = ROOT / "data" / "paper_journal_phoenix.duckdb"
+    STATE_PATH = ROOT / "logs" / "execution" / "paper_state_phoenix.json"
+else:
+    JOURNAL = ROOT / "data" / "paper_journal.duckdb"
+    STATE_PATH = ROOT / "logs" / "execution" / "paper_state.json"
 
 # v2.0.3 production config
 TP1_R = 1.0

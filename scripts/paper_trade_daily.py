@@ -42,11 +42,28 @@ from price_action.backtest.lab import ProductionConfig
 from scripts.run_real_backtest import _load_symbol_ohlcv
 from scripts.v09_optimize_top10 import TOP_10
 
+# Multi-bot paper trading desteği (ATLAS vs PHOENIX paralel A/B test)
+# Env var ile bot seçimi:
+#   PA_BOT_NAME=atlas    -> wyckoff dahil, paper_journal_atlas.duckdb
+#   PA_BOT_NAME=phoenix  -> wyckoff disable, paper_journal_phoenix.duckdb
+#   (default)            -> standart paper_journal.duckdb (legacy single-bot)
+_BOT_NAME = os.environ.get("PA_BOT_NAME", "").lower()
+
 TOP_11 = TOP_10 + [("fvg_fill_reversal", "FVGFillReversalStrategy")]
+if _BOT_NAME == "phoenix":
+    # PHOENIX: wyckoff_phase_d disable (WYK-001)
+    TOP_11 = [(m, c) for m, c in TOP_11 if m != "wyckoff_phase_d"]
 
 SYMBOLS = ["BTC/USDT","ETH/USDT","SOL/USDT","BNB/USDT","ADA/USDT","AVAX/USDT","LINK/USDT","DOT/USDT","DOGE/USDT","XRP/USDT","MATIC/USDT"]
 
-JOURNAL = ROOT / "data" / "paper_journal.duckdb"
+if _BOT_NAME == "atlas":
+    JOURNAL = ROOT / "data" / "paper_journal_atlas.duckdb"
+elif _BOT_NAME == "phoenix":
+    JOURNAL = ROOT / "data" / "paper_journal_phoenix.duckdb"
+else:
+    JOURNAL = ROOT / "data" / "paper_journal.duckdb"
+
+print(f"[paper_trade_daily] BOT={_BOT_NAME or 'default'} | strategies={len(TOP_11)} | journal={JOURNAL.name}")
 
 
 def init_journal():
@@ -123,12 +140,17 @@ def scan_signals(target_date: datetime) -> list[dict]:
                     if sig_ts.tzinfo is None:
                         sig_ts = sig_ts.tz_localize('UTC')
                     if sig_ts.date() == target_date.date():
+                        # SEC26.A FIX: entry_price alanı ATR değil, gerçek entry price
+                        # Strateji sl_price/tp_price'ı bar close bazında üretir.
+                        # entry_price = sinyal bar close (midpoint approx: (sl+tp)/2 değil).
+                        # Bar close için df_filtered.iloc[-1]['close'] kullanıyoruz.
+                        _last_close = float(df_filtered.iloc[-1]['close']) if not df_filtered.empty else 0.0
                         signals.append({
                             'ts': sig_ts,
                             'symbol': sym,
                             'strategy': module_name,
                             'side': sig.direction,
-                            'entry_price': sig.metadata.get('atr14', 0) if sig.metadata else 0,
+                            'entry_price': _last_close,  # bar close (approx next bar open)
                             'sl_price': sig.sl_price,
                             'tp_price': sig.tp_price,
                             'confluence': sig.confluence_score,
@@ -177,17 +199,18 @@ def submit_to_paper_broker(signals: list[dict], dry_run: bool = False) -> int:
         sig_id = uuid.uuid4().hex[:16]
         try:
             # Risk Officer simulasyonu (basit: %2 risk)
+            # SEC26.A FIX: sl_dist = entry_price - sl_price (atr14 değil — yanlış formüldü)
             risk_dollar = equity * 0.02
-            sl_dist = abs(float(s['signal_obj'].sl_price) - float(s['signal_obj'].metadata.get('atr14', 0) or 0))
+            entry_p_actual = float(s['entry_price']) if s.get('entry_price', 0) > 0 else (
+                (float(s['sl_price']) + float(s['tp_price'])) / 2
+            )
+            sl_dist = abs(entry_p_actual - float(s['signal_obj'].sl_price))
             if sl_dist <= 0:
                 continue
             qty = risk_dollar / sl_dist
 
             # OrderInstruction kur
             from price_action.contracts import RiskedOrder, TPLevel
-            entry_p = float(s['signal_obj'].metadata.get('atr14', 0) or 0) or s['sl_price']
-            # entry price as last close approx (signal'ın ts'sinde)
-            entry_p_actual = (s['sl_price'] + s['tp_price']) / 2  # midpoint approx
             notional = qty * entry_p_actual
             risked = RiskedOrder(
                 signal=s['signal_obj'],

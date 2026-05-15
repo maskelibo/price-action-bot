@@ -27,6 +27,27 @@ ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_YAML = ROOT / "configs" / "risk.yaml"
 
 
+def _load_strategy_taxonomy(path: str | Path | None = None) -> tuple[dict, dict, str]:
+    """SEC21 — slot allocation icin strategy taxonomy yukle.
+
+    Default path: configs/strategy_taxonomy.yaml (repo root).
+    Returns (taxonomy_map, default_slot_caps, default_class).
+    Eger dosya yoksa bos dict + default 'trend_continuation' doner (FIFO fallback).
+    """
+    p = Path(path) if path else (ROOT / "configs" / "strategy_taxonomy.yaml")
+    if not p.exists():
+        return {}, {}, "trend_continuation"
+    try:
+        with p.open("r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        tax = dict(raw.get("taxonomy", {}) or {})
+        caps = dict(raw.get("default_slot_caps", {}) or {})
+        default_class = str(raw.get("default_class", "trend_continuation"))
+        return tax, caps, default_class
+    except Exception:
+        return {}, {}, "trend_continuation"
+
+
 def _lazy_build_btc_halt(regime_cfg: dict) -> dict | None:
     """from_yaml -> regime.py lazy import (dairesel import'tan kacin).
 
@@ -251,6 +272,16 @@ class ProductionConfig:
     # Initial capital
     initial_capital: float = 10_000.0
 
+    # SEC21: per-strategy-class slot allocation
+    # Default OFF (backwards compat — pure FIFO at cfg.max_concurrent).
+    # When True: lookup strategy class via taxonomy, enforce per-class max + min_reserved.
+    # taxonomy: dict[strategy_module_name -> class_label]
+    # slot_caps: dict[class_label -> {"max": int, "min_reserved": int}]
+    slot_allocation_enabled: bool = False
+    slot_taxonomy: dict | None = None       # strat_name -> class
+    slot_caps: dict | None = None           # class -> {max, min_reserved}
+    slot_default_class: str = "trend_continuation"
+
     @classmethod
     def from_yaml(cls, path: str | Path | None = None) -> ProductionConfig:
         """risk.yaml'dan productionconfig olustur."""
@@ -266,6 +297,7 @@ class ProductionConfig:
         cg = raw.get("correlation_gate", {}) or {}
         rg = raw.get("regime_filter", {}) or {}
         alt = raw.get("alt_data", {}) or {}
+        sa = raw.get("slot_allocation", {}) or {}  # SEC21
 
         # v0.9.5: alt_data funding filter lazy build
         fund_long, fund_short = _lazy_build_funding_filters(alt)
@@ -287,6 +319,15 @@ class ProductionConfig:
             conf_risk_tiers = None
             lev_tiers = None
         leverage_default = float(lev_block.get("default_leverage", 3.0))
+
+        # SEC21: slot allocation taxonomy + caps
+        sa_enabled = bool(sa.get("enabled", False))
+        sa_tax, sa_caps_default, sa_default_class = _load_strategy_taxonomy()
+        # YAML override (per preset slot_caps override taxonomy file defaults)
+        sa_caps_yaml = sa.get("class_caps") or {}
+        sa_caps_final = dict(sa_caps_default)
+        for klass, caps in sa_caps_yaml.items():
+            sa_caps_final[klass] = dict(caps)
 
         # v0.9.3: optional ek alanlar
         drop_list = sp.get("drop_strategies", []) or []
@@ -360,6 +401,11 @@ class ProductionConfig:
             leverage=leverage_default,
             use_conf_percentile=bool(ps.get("use_conf_percentile", False)),
             conf_pct_lookback_days=int(ps.get("conf_pct_lookback_days", 180)),
+            # SEC21 slot allocation
+            slot_allocation_enabled=sa_enabled,
+            slot_taxonomy=sa_tax if sa_tax else None,
+            slot_caps=sa_caps_final if sa_caps_final else None,
+            slot_default_class=sa_default_class,
         )
 
     def with_overrides(self, **kw: Any) -> ProductionConfig:
@@ -642,6 +688,54 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         if len(open_pos) >= cfg.max_concurrent:
             continue
 
+        # SEC21 PER-STRATEGY-CLASS SLOT ALLOCATION
+        # Default OFF: skip block entirely (pure FIFO at cfg.max_concurrent).
+        # When ON: enforce class.max cap AND reserve slots for under-represented
+        # classes (min_reserved). Reserved slots are NOT available to other classes
+        # while their owning class has 0 open positions, until cfg.max_concurrent
+        # leaves enough room for both this trade AND every other class's reservation.
+        if (
+            cfg.slot_allocation_enabled
+            and cfg.slot_taxonomy is not None
+            and cfg.slot_caps
+        ):
+            strat_name = t.get("strategy", "")
+            trade_class = cfg.slot_taxonomy.get(
+                strat_name, cfg.slot_default_class
+            )
+            caps_for_class = cfg.slot_caps.get(trade_class, {})
+            class_max = int(caps_for_class.get("max", cfg.max_concurrent))
+            # Count currently open positions per class
+            open_by_class: dict = {}
+            for p in open_pos:
+                pc = cfg.slot_taxonomy.get(
+                    p.get("strategy", ""), cfg.slot_default_class
+                )
+                open_by_class[pc] = open_by_class.get(pc, 0) + 1
+            n_open_class = open_by_class.get(trade_class, 0)
+            if n_open_class >= class_max:
+                continue  # class cap exhausted
+            # Reservation check: for OTHER classes with min_reserved > 0 and
+            # open_count < min_reserved, those slots are "reserved" and cannot
+            # be taken by this trade (unless after taking the slot we'd still
+            # leave their reservations honored).
+            other_reserved_unfilled = 0
+            for klass, caps in cfg.slot_caps.items():
+                if klass == trade_class:
+                    continue
+                min_res = int(caps.get("min_reserved", 0) or 0)
+                if min_res <= 0:
+                    continue
+                cur_open = open_by_class.get(klass, 0)
+                shortfall = max(0, min_res - cur_open)
+                other_reserved_unfilled += shortfall
+            # After taking this slot, used_slots = len(open_pos)+1
+            # Free remaining = max_concurrent - used_slots
+            # Must be >= other_reserved_unfilled
+            free_after = cfg.max_concurrent - (len(open_pos) + 1)
+            if free_after < other_reserved_unfilled:
+                continue  # taking this slot would crowd out reserved classes
+
         # Equity protection
         dd_from_peak = (peak_equity - equity) / peak_equity if peak_equity > 0 else 0
         risk_modifier = 1.0
@@ -749,6 +843,8 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
             "R": t["R"],
             "symbol": t["symbol"],
             "side": t["side"],
+            "strategy": t.get("strategy", ""),  # SEC21: needed for slot class lookup
+            "peak_R": t.get("peak_R", t["R"]),  # SEC16 MFE-aware pyramid
         })
 
     # Acik pozisyonlari kapat (v2.0.3 SEC16 fix)

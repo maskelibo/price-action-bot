@@ -24,7 +24,31 @@
       "PowerShell($content = Get-Content 'C:\\\\Users\\\\koray\\\\projeler\\\\Price Action\\\\knowledge\\\\books\\\\grimes_summary.md' -Raw -Encoding UTF8; $words = \\($content -split '\\\\s+' | Where-Object { $_ -ne '' }\\).Count; Write-Output \"WordCount: $words\")",
       "Bash(python -m yt_dlp --flat-playlist --print \"%\\(id\\)s|%\\(title\\)s\" --playlist-end 3 --skip-download --no-warnings --cookies-from-browser edge \"https://www.youtube.com/@BrooksPriceAction/videos\")",
       "Bash(python -m yt_dlp --flat-playlist --print \"%\\(id\\)s|%\\(title\\)s\" --playlist-end 3 --skip-download --no-warnings \"https://www.youtube.com/@BrooksPriceAction/videos\")",
-      "Bash(PYTHONPATH=src python scripts/ingest_books.py)"
+      "Bash(PYTHONPATH=src python scripts/ingest_books.py)",
+      "PowerShell(Get-Command *)",
+      "Bash(python scripts/v091_test_2025_2026.py)",
+      "Bash(findstr /V \"ts\\\\\": \\\\\"2026\")",
+      "Bash(python scripts/v091_trade_detail_2025_2026.py)",
+      "Bash(python scripts/v091_loss_analysis.py)",
+      "Bash(python scripts/v091_fix_test.py)",
+      "Bash(python scripts/v092_verify_cap.py)",
+      "Bash(git add *)",
+      "PowerShell(New-Item *)",
+      "PowerShell(powershell -NoProfile -Command \"& { . $env:USERPROFILE\\\\OneDrive\\\\Belgeler\\\\WindowsPowerShell\\\\Microsoft.PowerShell_profile.ps1; Get-Command caffeine | Format-List Name, CommandType, Definition }\")",
+      "Bash(xxd)",
+      "Bash(python *)",
+      "Bash(git check-ignore *)",
+      "PowerShell(Get-CimInstance *)",
+      "WebSearch",
+      "Bash(findstr \"sec11 sec15 sec18\")",
+      "Bash(xargs -I{} echo {})",
+      "Bash(PYTHONPATH=\"src:.\" python scripts/sec24_turtle_soup_standalone.py)",
+      "Bash(PYTHONPATH=\"src:.\" python scripts/sec24_turtle_soup_drill.py)",
+      "Bash(tee reports/researcher/_sec25_brooks_db_default_run.log)",
+      "Bash(tee reports/researcher/_sec25_brooks_db_drill_run.log)",
+      "Bash(tee reports/researcher/_sec25_brooks_db_honest_audit.log)",
+      "Bash(powershell.exe *)",
+      "Bash(awk '{print $NF, $5}')"
     ]
   }
 }

@@ -1,0 +1,102 @@
+# Strategy class taxonomy — SEC21 per-strategy slot allocation
+#
+# Maps each strategy module name to a class for slot-allocation grouping.
+# Used by lab.production_replay when slot_allocation_enabled=True.
+#
+# Classes:
+#   trend_continuation : entries that ride existing momentum (engulfing, BOS, HTF momentum)
+#   mean_reversion     : entries that fade overshoots (FVG fill, IDF, naked POC, II breakout)
+#   structural         : entries at structural levels (S/R flip, equal highs sweep,
+#                        liquidity sweep, order block, Wyckoff)
+#   contrarian         : counter-trend special-case signals (climax, three soldiers/crows)
+#   alt_data           : signals driven by external data (funding, on-chain, dominance)
+#
+# Backward compat: any strategy NOT listed below falls back to "trend_continuation".
+# This taxonomy is conservative — when in doubt, classify by primary edge driver.
+
+taxonomy:
+  # === trend_continuation ===
+  engulfing_continuation: trend_continuation
+  engulfing_continuation_4h: trend_continuation
+  engulfing_mtf: trend_continuation
+  engulfing_universe_filter: trend_continuation
+  obv_engulfing_confluence: trend_continuation
+  htf_momentum: trend_continuation
+  pin_bar_htf_sr: trend_continuation
+  pin_bar_round_numbers: trend_continuation
+  brooks_h2_l2: trend_continuation
+  brooks_failed_breakout: trend_continuation
+  donchian_breakout: trend_continuation
+  high_tight_flag: trend_continuation
+  three_methods: trend_continuation
+  three_bar_reversal: trend_continuation
+  morning_evening_star: trend_continuation
+  volume_expansion: trend_continuation
+  nr7_breakout_v2: trend_continuation
+  bollinger_squeeze_breakout: trend_continuation
+  ii_breakout: trend_continuation
+
+  # === mean_reversion ===
+  fvg_fill_reversal: mean_reversion
+  naked_poc_mr: mean_reversion
+  anchored_vwap_reversal: mean_reversion
+  cvd_spike_fade: mean_reversion
+  vsa_climax_test: mean_reversion
+  inside_day_failure: mean_reversion
+  microstructure_proxy: mean_reversion
+  quasimodo_reversal: mean_reversion
+  vol_risk_premium: mean_reversion
+
+  # === structural ===
+  wyckoff_phase_d: structural
+  wyckoff_spring_vsa: structural
+  equal_highs_sweep: structural
+  liquidity_sweep_reversal: structural
+  failed_bo_bos_reclaim: structural
+  smc_orderblock: structural
+  ob_mitigation_strict: structural
+  tpo_value_area: structural
+  classic_pa: structural
+
+  # === contrarian ===
+  crows_buying_climax: contrarian
+  three_black_crows: contrarian
+  three_white_soldiers: contrarian
+
+  # === alt_data ===
+  funding_mean_reversion: alt_data
+  liquidation_fade: alt_data
+  onchain_signals: alt_data
+  btc_eth_pairs: alt_data
+  halving_cycle: alt_data
+  dominance_filter: alt_data
+  sentiment_filter: alt_data
+  compound_sentiment_filter: alt_data
+  stablecoin_liquidity_filter: alt_data
+  volume_zscore_filter: alt_data
+
+# Default class for any unmapped strategy
+default_class: trend_continuation
+
+# Default per-class slot caps (used if not overridden in risk preset YAML)
+# These sum/structure such that total max <= max_open_positions (12 for v2.0.3).
+# - max: upper bound on simultaneously open positions for this class
+# - min_reserved: slots HELD OPEN for this class (excluded from other classes'
+#   pool until consumed). Used to give underrepresented classes guaranteed
+#   slot access against trend_cont's natural high signal frequency.
+default_slot_caps:
+  trend_continuation:
+    max: 8
+    min_reserved: 0
+  mean_reversion:
+    max: 6
+    min_reserved: 2
+  structural:
+    max: 4
+    min_reserved: 1
+  contrarian:
+    max: 2
+    min_reserved: 0
+  alt_data:
+    max: 4
+    min_reserved: 0

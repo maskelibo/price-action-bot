@@ -137,10 +137,15 @@ def test_atr_normalized_size():
 def test_breaker_triggers_on_daily_loss(tmp_path, risk_config):
     state_path = tmp_path / "br.json"
     breaker = DDBreaker(risk_config["drawdown_breakers"], state_path=state_path)
-    # Anchor 10k, equity 9.4k → -%6 → daily breaker tetik
+    # SEC26.B-4: daily_pnl artık realized_pnl_today'den okunur (equity delta yerine).
+    # Anchor 10k, equity 9.4k, realized_pnl_today=-600 → -%6 → daily breaker tetik
     acct = AccountState(equity_usdt=10_000, free_margin_usdt=10_000)
     breaker.update(acct)
-    acct2 = AccountState(equity_usdt=9_400, free_margin_usdt=9_400)
+    acct2 = AccountState(
+        equity_usdt=9_400,
+        free_margin_usdt=9_400,
+        realized_pnl_today=-600.0,  # SEC26.B-4: realized PnL kaynağı
+    )
     snap = breaker.update(acct2)
     assert snap["daily"] is True
 
@@ -306,16 +311,21 @@ def test_risk_officer_rejects_when_breaker_active(risk_config, make_signal, tmp_
     breaker = DDBreaker(risk_config["drawdown_breakers"], state_path=tmp_path / "br.json")
     ro = RiskOfficer(risk_config, breaker=breaker)
     sig = make_signal()
-    # Anchor'ları "bugün" reset edilmiş gibi sabitle, sonra equity'yi düşür → daily breaker
+    # SEC26.B-4: daily_pnl realized_pnl_today'den. -%5 daily_loss_pct için
+    # realized_pnl_today >= 0.05 * daily_anchor_equity gerekli.
     today = _dt.now(_tz.utc).date().isoformat()
     breaker.state.last_reset_daily = today
-    breaker.state.last_reset_weekly = today  # week anchor da tutarlı kalsın
+    breaker.state.last_reset_weekly = today
     breaker.state.last_reset_monthly = today
-    breaker.state.daily_anchor_equity = 11_000  # equity 10k → -%9 ≥ %5
+    breaker.state.daily_anchor_equity = 11_000  # equity 10k → realized -1000 → -%9 ≥ %5
     breaker.state.weekly_anchor_equity = 10_000
     breaker.state.monthly_anchor_equity = 10_000
     breaker._save()
-    acct = AccountState(equity_usdt=10_000, free_margin_usdt=10_000)
+    acct = AccountState(
+        equity_usdt=10_000,
+        free_margin_usdt=10_000,
+        realized_pnl_today=-1_000.0,  # SEC26.B-4: realized kayıp
+    )
     out = ro.evaluate(sig, acct, market_price=100.0, atr=2.0)
     assert not hasattr(out, "quantity")
 

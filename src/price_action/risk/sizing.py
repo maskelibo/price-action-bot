@@ -33,6 +33,7 @@ from price_action.risk.gates import (
     leverage_gate,
     liquidity_gate,
 )
+from price_action.risk.regime_filter import RegimeFilter
 
 
 # =====================================================================
@@ -182,6 +183,14 @@ class RiskOfficer:
             except Exception as exc:
                 self._log.bind(err=str(exc)).warning("risk.alt_data.load_fail")
 
+        # SEC26.B-2: Live regime filter (BTC capitulation halt).
+        # Backtest replay (lab.py) `btc_halt_calendar` overlay yapıyor; live
+        # RiskOfficer aynı calendar'ı kullanır ki backtest/live parity korunsun.
+        # YAML regime_filter block'undan lazy-load (compute_btc_capitulation_halt
+        # SEC16 LOOK-AHEAD FIX zaten causal — T günü kararı T-1 verisine bakar).
+        regime_cfg = cfg_dict.get("regime_filter", {}) or {}
+        self.regime_filter: RegimeFilter = RegimeFilter(regime_cfg)
+
     @classmethod
     def from_yaml(cls, path: str | Path, breaker: DDBreaker | None = None) -> RiskOfficer:
         with Path(path).open("r", encoding="utf-8") as f:
@@ -214,6 +223,24 @@ class RiskOfficer:
                 reason="dd_breaker_active",
                 detail={"breakers": breaker_status},
             )
+        # 1.B) SEC26.B-1: SIDE-CONDITIONAL DD BREAKER (lab.py parity)
+        # Backtest engine `lab.py` side-bazlı monthly DD halt uyguluyor
+        # (monthly_loss_pct_long=0.15, monthly_loss_pct_short=0.05). Live'da
+        # da DDBreaker bunu okuyup, side için ayrı bloke ediyor — long
+        # halt'ta short trade'e izin var (ve tersi).
+        # check_side: hem combined-halt hem side-halt kontrol eder.
+        if not self.breaker.check_side(signal.direction, signal.ts):
+            return Reject(
+                signal=signal,
+                rejected_by="risk",
+                reason="dd_breaker_side_cond",
+                detail={
+                    "side": signal.direction,
+                    "blocked_long_until": self.breaker.state.blocked_long_until,
+                    "blocked_short_until": self.breaker.state.blocked_short_until,
+                    "blocked_combined_until": self.breaker.state.blocked_combined_until,
+                },
+            )
 
         # 1.5) v0.9.6 P3.9 FIX: Alt-data funding filter (signal-day causal).
         # Backtest replay (lab.py) ile parity icin: long sinyal + long-skip gunu = REJECT.
@@ -233,6 +260,24 @@ class RiskOfficer:
                 rejected_by="risk",
                 reason="alt_data_funding_filter",
                 detail={"side": "short", "date": str(sig_date), "rationale": "overshort_squeeze_funding"},
+            )
+
+        # 1.6) SEC26.B-2: BTC capitulation regime halt (live wiring).
+        # Backtest engine (lab.py) bu halt'u uygulayarak yıllık min pencereyi
+        # +%3 -> +%19.8 (6x) çıkarıyor (SEC10 bulgusu). Live RiskOfficer aynı
+        # calendar'ı kullanmazsa backtest/live parity kırık -> CRITICAL BLOCKER.
+        # Halt bidirectional (long ve short hepsi reject) — capitulation
+        # rejiminde new exposure açma.
+        if self.regime_filter.is_capitulation(signal.ts):
+            return Reject(
+                signal=signal,
+                rejected_by="risk",
+                reason="regime_capitulation_halt",
+                detail={
+                    "side": signal.direction,
+                    "date": str(sig_date),
+                    "rationale": "btc_capitulation_atr_pct_ema200_dd90d",
+                },
             )
 
         # 2) Sermaye check

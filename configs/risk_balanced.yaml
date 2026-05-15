@@ -213,8 +213,29 @@ execution:
   fallback_to_market_after_sec: 30
   max_slippage_bps: 25              # 25 bps üstü → reject
   partial_fill_timeout_sec: 60
+  # SEC26.B-5 — Post-Only Limit Slippage Gate (CONDITIONAL, paper test ZORUNLU)
+  # Backtest assumption: 5bps × 2 = 10 bps round-trip
+  # Paper trading gerçek slippage: 45.4 bps mean, max 85.8 bps (9× kötü)
+  # Default: DISABLED — market order yolu (backward compat, replay etkisi: zero).
+  # Paper trading 7-14 gün sonra fill_rate ölç:
+  #   fill_rate >= %60 -> enable production
+  #   fill_rate <  %60 -> keep disabled
+  post_only_limit_enabled: false      # safe default — paper test sonrası enable
+  post_only_fallback_seconds: 30      # post-only timeout, sonra market fallback
+  slippage_limit_bps: 25              # market fallback slippage > limit -> reverse + raise
 
 emergency:
   kill_switch_keyword: HALT_TRADING
   flatten_all_on_breaker: false     # breaker tetiklendiğinde mevcut açıkları KAPATMA (manuel onay)
   require_human_to_resume: true
+
+# Phase1.B1 — Capital Cap (pre-live 30-gün zorunlu kısıt)
+# Live deployment ilk 30 gün: max sermaye $1000 USDT.
+# paper/backtest mode'da tamamen yoksayılır (live gate aşağıda).
+# cap_expires_at geçince: cap inactive → warning log → None.
+# enabled: false → hiçbir şey yapma (backward compat).
+live_capital_cap:
+  enabled: true
+  max_equity_usdt: 1000.0
+  cap_expires_at: "2026-06-14"      # 30 gün
+  warn_threshold_pct: 0.80          # %80'e ulaştığında uyarı log

@@ -78,6 +78,7 @@ class BacktestEngine:
         runner_force_exit_method: str = "time",  # v1.5 sec13.4 WIN: artifact prevention
         runner_force_exit_bars: int | None = 30,  # v1.5 sec13.4 WIN: 30bar force exit
         runner_force_exit_ema: int = 20,
+        force_exit_from_entry: bool = False,  # SEC21: pre-trail-stage force-exit
     ) -> None:
         """`store_load` = lazy callable: (symbol, tf, start, end) -> DataFrame.
 
@@ -103,6 +104,16 @@ class BacktestEngine:
         `runner_force_exit_bars`: time-based exit icin bar sayisi (None = devre disi).
             Sadece method in {"time", "combined", "either"} ile anlamli.
         `runner_force_exit_ema`: EMA cross icin period (default 20).
+        `force_exit_from_entry`: SEC21 — force-exit clock'u entry bar'dan baslat
+            (trail_activate_stage'i beklemeden). Default False = backward compat
+            (mevcut davranis: force-exit yalnizca stage >= trail_activate_stage iken).
+            True olunca:
+              - "time": entry+N bar sonra hala acik trade -> close
+              - "ema_cross": EMA cross karsi yon -> close (entry'den itibaren takip)
+              - "combined"/"either": ikisi de entry'den baslatilir
+            Stage<trail_activate_stage trade'leri (TP1'e bile ulasamayanlar) icin
+            time-based "stuck trade" guard saglar. No-lookahead: t bar karari
+            t-1 close bilgisiyle alinir (EMA causal, time t-entry_bar arithmetic).
         """
         self.risk_officer = risk_officer
         self.store_load = store_load
@@ -117,6 +128,7 @@ class BacktestEngine:
             int(runner_force_exit_bars) if runner_force_exit_bars is not None else None
         )
         self.runner_force_exit_ema = int(runner_force_exit_ema)
+        self.force_exit_from_entry = bool(force_exit_from_entry)
         self._log = logger.bind(component="backtest_engine")
 
     # ----- public API -----
@@ -417,6 +429,11 @@ class BacktestEngine:
             current_sl = sl_price
             peak = entry_price  # MFE tracking (high for long, low for short)
             trail_active_bar: int | None = None  # sec13.4 force-exit clock
+            # SEC21: force_exit_from_entry -> clock starts at entry bar
+            # so stage<trail_activate_stage trade'leri (stuck at TP0/TP1) bile
+            # time-based exit'e tabi. Causal: t-bar karari t-entry_idx arithmetic.
+            if self.force_exit_from_entry and _force_exit_active:
+                trail_active_bar = entry_idx
 
             for j in range(entry_idx, len(df)):
                 bar = df.iloc[j]
@@ -441,6 +458,38 @@ class BacktestEngine:
                     # Bar kapanisi sonrasi SL update (next bar'da etkili)
                     if stage >= 1:
                         current_sl = max(current_sl, entry_price)  # break-even
+                    # SEC21 PRE-TRAIL FORCE-EXIT: stage<trail_activate_stage iken
+                    # de time/ema-based exit calistir (stuck trade guard).
+                    # Sadece force_exit_from_entry=True ise aktif.
+                    if (
+                        self.force_exit_from_entry
+                        and _force_exit_active
+                        and stage < self.trail_activate_stage
+                    ):
+                        time_hit_pre = (
+                            self.runner_force_exit_bars is not None
+                            and trail_active_bar is not None
+                            and (j - trail_active_bar) >= self.runner_force_exit_bars
+                        )
+                        ema_hit_pre = False
+                        if ema_close_arr is not None and not np.isnan(ema_close_arr[j]):
+                            ema_hit_pre = close_j < float(ema_close_arr[j])
+                        method_pre = self.runner_force_exit_method
+                        should_exit_pre = False
+                        if method_pre == "time":
+                            should_exit_pre = time_hit_pre
+                        elif method_pre == "ema_cross":
+                            should_exit_pre = ema_hit_pre
+                        elif method_pre == "combined":
+                            should_exit_pre = time_hit_pre and ema_hit_pre
+                        elif method_pre == "either":
+                            should_exit_pre = time_hit_pre or ema_hit_pre
+                        if should_exit_pre:
+                            remaining = qty - qty1 * (1 if stage >= 1 else 0) - qty2 * (1 if stage >= 2 else 0)
+                            if remaining > 0:
+                                partial_pnls.append((j, remaining, close_j * (1 - slip)))
+                            exit_idx = j
+                            break
                     if stage >= self.trail_activate_stage:
                         # Trail: max(+1R, peak - mult*ATR) — runner kar lock + trail
                         trail_sl = peak - self.runner_trail_mult * atr_for_trail
@@ -489,6 +538,36 @@ class BacktestEngine:
                         stage = 2
                     if stage >= 1:
                         current_sl = min(current_sl, entry_price)
+                    # SEC21 PRE-TRAIL FORCE-EXIT (short side mirror)
+                    if (
+                        self.force_exit_from_entry
+                        and _force_exit_active
+                        and stage < self.trail_activate_stage
+                    ):
+                        time_hit_pre = (
+                            self.runner_force_exit_bars is not None
+                            and trail_active_bar is not None
+                            and (j - trail_active_bar) >= self.runner_force_exit_bars
+                        )
+                        ema_hit_pre = False
+                        if ema_close_arr is not None and not np.isnan(ema_close_arr[j]):
+                            ema_hit_pre = close_j > float(ema_close_arr[j])
+                        method_pre = self.runner_force_exit_method
+                        should_exit_pre = False
+                        if method_pre == "time":
+                            should_exit_pre = time_hit_pre
+                        elif method_pre == "ema_cross":
+                            should_exit_pre = ema_hit_pre
+                        elif method_pre == "combined":
+                            should_exit_pre = time_hit_pre and ema_hit_pre
+                        elif method_pre == "either":
+                            should_exit_pre = time_hit_pre or ema_hit_pre
+                        if should_exit_pre:
+                            remaining = qty - qty1 * (1 if stage >= 1 else 0) - qty2 * (1 if stage >= 2 else 0)
+                            if remaining > 0:
+                                partial_pnls.append((j, remaining, close_j * (1 + slip)))
+                            exit_idx = j
+                            break
                     if stage >= self.trail_activate_stage:
                         trail_sl = peak + self.runner_trail_mult * atr_for_trail
                         current_sl = min(current_sl, tp1_price, trail_sl)

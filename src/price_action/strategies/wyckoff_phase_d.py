@@ -68,6 +68,16 @@ def _detect_spring(
 
     Döner: Her index konumunda Spring ONAYLANDI mi (1/0) boolean pd.Series.
     Spring indexi, reclaim barının indexidir (giriş kararı verildiği bar).
+
+    ⚠️ WYK-001 (2026-05-15 Signal Chief audit): Bu fonksiyon `closes[t+k]`
+    (k=1..3) future bar close kullanıyor — HARD FAIL lookahead. Spring flag
+    reclaim_bar index'inde set ediliyor ama o index'in close'unu okumak için
+    BAR KAPANIŞINI bekliyor — backtest engine flag'ı reclaim_bar açılışında
+    kullanırsa fantasy alpha üretir. Ticket WYK-001 Engineering Chief sprint'inde
+    causal versiyonla (Seçenek A same-bar VEYA Seçenek B 1-bar offset) replace
+    edilecek + 6 test fixture causal data ile rewrite + replay re-baseline.
+    Geçici güvenlik: configs/risk_balanced.yaml sat 149'da wyckoff_phase_d'yi
+    Principal onayı ile production pool'dan disable etmek önerilir.
     """
     lows = df["low"].to_numpy()
     closes = df["close"].to_numpy()
@@ -182,6 +192,10 @@ def _detect_utad(
     UTAD at reclaim_bar eğer:
       - t barının high'ı [t-lookback..t-1]'in max high'ını aşıyor
       - t+1, t+2 veya t+3 bar'larından biri range_high'ın altında kapanıyor
+
+    ⚠️ WYK-001 (2026-05-15 Signal Chief audit): Bu fonksiyon `closes[t+k]`
+    future bar close kullanıyor — _detect_spring ile aynı HARD FAIL.
+    Engineering Chief sprint'inde causal versiyonla replace edilecek.
     """
     highs = df["high"].to_numpy()
     closes = df["close"].to_numpy()

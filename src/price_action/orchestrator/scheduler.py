@@ -75,9 +75,47 @@ async def _job_signal_scan() -> None:
 
 
 async def _job_execute_orders() -> None:
-    """Execution emir akışı (placeholder)."""
-    # Trading agent'ları başka modülde; buradan sadece sinyal verilir.
-    logger.info("scheduler.execute_orders_tick")
+    """Execution emir akışı — futures testnet/live daily_run çağrısı.
+
+    PA_RUN_MODE=paper  → futures_daemon.py testnet'e gönderir
+    PA_RUN_MODE=live   → PA_LIVE_CONFIRM=YES_I_KNOW + live_mode_enabled=true zorunlu
+    PA_RUN_MODE=backtest → hiçbir şey gönderilmez (log only)
+
+    Scheduler'dan ayrı olarak futures_daemon.py da kendi döngüsünde çalışır;
+    bu job scheduler wiring'ini kapatır (SEC20 show-stopper fix).
+    """
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+
+    from price_action.settings import get_settings
+
+    s = get_settings()
+    logger.info(
+        "scheduler.execute_orders_tick",
+        extra={"mode": s.pa_run_mode, "is_live": s.is_live},
+    )
+
+    if s.pa_run_mode == "backtest":
+        logger.info("scheduler.execute_orders_skip_backtest")
+        return
+
+    try:
+        from scripts.futures_trade_daily import daily_run  # type: ignore[import-not-found]
+
+        target = datetime.now(timezone.utc) - timedelta(days=1)
+        dry = not s.is_live  # live değilse dry_run=True (paper/testnet)
+
+        logger.info(
+            "scheduler.execute_orders_run",
+            extra={"target": str(target.date()), "dry_run": dry},
+        )
+        await asyncio.to_thread(daily_run, target, dry)
+        logger.info("scheduler.execute_orders_done", extra={"date": str(target.date())})
+    except ImportError:
+        logger.warning("scheduler.execute_orders_import_fail",
+                       extra={"hint": "scripts/futures_trade_daily.py bulunamadı"})
+    except Exception as exc:
+        logger.error("scheduler.execute_orders_fail", extra={"err": str(exc)[:300]})
 
 
 async def _job_daily_kpi() -> None:
