@@ -110,6 +110,117 @@ equity_usdt = _get_or_create(
     "Güncel hesap özsermayesi (USDT).",
 )
 
+# =====================================================================
+# Scalper-Spesifik Metrics (15m, 5m, 1m intraday)
+# =====================================================================
+
+scalp_fill_rate = _get_or_create(
+    Gauge,
+    "pa_scalp_fill_rate",
+    "Intraday fill rate (maker/post-only) — TF-scaled.",
+    labelnames=("timeframe", "symbol"),
+)
+
+scalp_slippage_bps = _get_or_create(
+    Histogram,
+    "pa_scalp_slippage_bps",
+    "Scalper fill slippage (bps) — TF-specific buckets.",
+    labelnames=("timeframe", "symbol", "side"),
+    buckets=(0.5, 1, 2, 5, 10, 20, 30, 50, 75, 100),
+)
+
+scalp_fee_burn_usdt_per_hour = _get_or_create(
+    Gauge,
+    "pa_scalp_fee_burn_usdt_per_hour",
+    "Fee erosion (USDT/hour) — TF + symbol.",
+    labelnames=("timeframe", "symbol"),
+)
+
+scalp_trade_count_per_hour = _get_or_create(
+    Counter,
+    "pa_scalp_trade_count_per_hour",
+    "Trades executed per hour (scalper).",
+    labelnames=("timeframe", "strategy"),
+)
+
+scalp_hold_time_minutes = _get_or_create(
+    Histogram,
+    "pa_scalp_hold_time_minutes",
+    "Median hold time per trade (minutes).",
+    labelnames=("timeframe", "strategy"),
+    buckets=(1, 2, 5, 10, 15, 30, 60, 120, 240),
+)
+
+scalp_post_only_cancel_rate = _get_or_create(
+    Gauge,
+    "pa_scalp_post_only_cancel_rate",
+    "Post-only order timeout + cancel rate (0-100%).",
+    labelnames=("timeframe",),
+)
+
+scalp_drawdown_bps = _get_or_create(
+    Gauge,
+    "pa_scalp_drawdown_bps",
+    "Current drawdown (basis points) — TF + level.",
+    labelnames=("timeframe", "level"),  # level: daily, weekly, monthly
+)
+
+scalp_breaker_active = _get_or_create(
+    Gauge,
+    "pa_scalp_breaker_active",
+    "Drawdown breaker status (1=halted, 0=trading).",
+    labelnames=("timeframe", "level"),
+)
+
+# SEC54.6d — Per-strategy regime filter features staleness
+regime_features_age_minutes = _get_or_create(
+    Gauge,
+    "pa_regime_features_age_minutes",
+    "BTC regime features parquet yaşı (dakika) — staleness monitor. >60 = uyarı.",
+)
+
+
+# =====================================================================
+# 15m Daemon Loop Telemetry (SEC54.4)
+# =====================================================================
+
+scan_latency_seconds = _get_or_create(
+    Histogram,
+    "pa_scan_latency_seconds",
+    "Signal scan suresi (saniye) — bar-close sonrasi tarama.",
+    labelnames=("tf",),
+    buckets=(1, 2, 5, 10, 15, 20, 30, 60, 120, 300),
+)
+
+signal_to_order_latency_seconds = _get_or_create(
+    Histogram,
+    "pa_signal_to_order_latency_seconds",
+    "Sinyal alimindaki order submit suresi (saniye).",
+    buckets=(0.1, 0.5, 1, 2, 5, 10, 20, 30),
+)
+
+missed_bars_total = _get_or_create(
+    Counter,
+    "pa_missed_bars_total",
+    "Kaçırılan bar sayısı (processing aşıldı, sonraki bar başladı).",
+    labelnames=("tf",),
+)
+
+# DQ-02 (SEC54.5): Stale signal reject sayacı — her TF için ayrı.
+stale_signal_reject_total = _get_or_create(
+    Counter,
+    "pa_stale_signal_reject_total",
+    "Reddedilen stale sinyal sayısı (max_age aşıldı).",
+    labelnames=("tf",),
+)
+
+position_monitor_duration_seconds = _get_or_create(
+    Histogram,
+    "pa_position_monitor_duration_seconds",
+    "Position monitor döngüsü suresi (saniye) — pyramid trigger detection dahil.",
+    buckets=(0.5, 1, 2, 5, 10, 20, 30, 60),
+)
+
 
 def reset_for_tests() -> None:
     """Test için sayaçları sıfırla (default registry'de kalan değerleri silmez,

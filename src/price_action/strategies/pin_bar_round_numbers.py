@@ -295,6 +295,7 @@ class PinBarRoundNumbersStrategy(Strategy):
     def prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df.copy()
+        self.apply_tf_manifest(df)
         df = df.sort_values("ts").reset_index(drop=True).copy()
 
         symbol = str(df["symbol"].iloc[0]) if "symbol" in df.columns else "UNKNOWN"

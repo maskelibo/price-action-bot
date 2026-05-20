@@ -1,0 +1,90 @@
+# ARCHIVED: 5m RED 2026-05-17 — SEC47 standalone n=7738 mean R -0.274 WR 38.3% (gate +0.10 fail)
+# All 5y negatif; bear vs bull spread +0.06 (gate altinda). Yapisal fee-grave.
+# Keep for reference / 15m TF future calibration baseline.
+# vsa_buying_climax — 5m TF manifest (S3-A dedicated short-only)
+# Kaynak: SEC47 / D5-sec49 / 2026-05-17 — researcher pre-reg HYP-2026-05-17-S3-A
+#
+# Kalibrasyon mantigi (15m -> 5m TF scaling, vsa_climax_test_5m basecase):
+#   confirm_min_bars : 3 (15 dakika)  -> 5m'de hizli distribution test
+#   confirm_max_bars : 5 (25 dakika)  -> bekleme penceresi siki
+#   vol_sma_period   : 120bar = 10h   -> 15m=40bar referans, 5m x3
+#   vol_sma_mult     : 2.5             -> climax filter (15m'deki 3.0 daha siki, 5m'de
+#                                         vol baselining oturur, 2.5 baseline retain edildi)
+#   rsi_max          : 70              -> overbought'tan cikmis kosulu
+#   sl_atr_buffer    : 0.5             -> SHORT'ta BC high'in ustu (yakin SL)
+#   primary_R        : 1.5             -> 5m'de fee 23bps RT, fast TP
+#
+# UYARI (Renaissance disiplini):
+#   5m TF empirik olarak KANITLI fee-grave (signal_chief pool R -0.37 5y).
+#   sec40 sonuclari: VWAP MR + CVD div RED, struct dead.
+#   Bu hipotez aday gerekce: distribution mekanigi mevcut BC+UT mirror'dan
+#   farkli (3-5 bar bekleme vs 3-15 bar). Honest expected outcome: RED %70-80;
+#   pre-reg disiplini icin yine de full test.
+
+name: vsa_buying_climax
+version: "1.0.0-5m"
+description: "VSA Buying Climax + Immediate Distribution Test — 5m short-only. S3-A."
+
+trend_filter:
+  type: ema
+  period: 200
+  required: false
+
+signals:
+  patterns:
+    - id: vsa_bc_distribution_short
+      enabled: true
+      weight: 2.0
+      params:
+        spread_atr_mult: 1.5            # oransal, degismedi
+        vol_sma_mult: 2.5               # baseline; 15m=3.0 daha siki, 5m'de baseline tut
+        close_pos_max: 0.40             # close < lower 40% range (BC ust fitil sart)
+        max_high_bars: 5                # 5-bar local max
+        confirm_min_bars: 3             # BC sonrasi en az 3 bar (15dk) bekleme
+        confirm_max_bars: 5             # BC sonrasi en cok 5 bar (25dk) — hizli failure
+        rsi_period: 14
+        rsi_max: 70.0                   # overbought'tan cikmis kosul
+        sl_atr_buffer: 0.5
+        primary_R: 1.5
+
+  structure:
+    swing:
+      fractal_n: 2
+    support_resistance:
+      lookback_bars: 288                # 5m 24h penceresi
+      cluster_atr_multiplier: 0.35
+      min_touches: 2
+      max_age_bars: 288
+    require_proximity_to_sr_atr: 0.0
+
+  filters:
+    atr_min_pct: 0.001                  # 5m'de kucuk ATR%
+    volume_zscore_min: 0.0              # vol_sma_mult zaten kapsiyor
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.5
+    bonus_if_at_sr: 0.0
+
+risk:
+  stop_loss:
+    method: bc_high_atr
+    atr_buffer: 0.5
+  take_profit:
+    method: r_multiple
+    primary_R: 1.5
+  position_sizing:
+    method: fixed_fractional
+    risk_per_trade: 0.01                # phoenix_scalp_5m yaml override
+
+vsa_internals:
+  atr_period: 20                        # 20 × 5m = 100dk
+  vol_sma_period: 120                   # 5m=120bar(10h), 15m=40bar(10h) parite
+
+backtest:
+  warmup_bars: 200                      # vol_sma=120 + confirm=5 + buffer
+  fees:
+    taker: 0.00040
+    maker: -0.00010
+  slippage_bps: 8.0
+  initial_capital_usdt: 10000.0

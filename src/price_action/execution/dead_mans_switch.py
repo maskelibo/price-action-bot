@@ -1,9 +1,15 @@
 """Dead Man's Switch — heartbeat + emergency flatten.
 
 Mimari:
-  - HeartbeatEmitter: her 60s DB'ye heartbeat yazar (daemon içinde çalışır)
-  - Watchdog: her 30s son heartbeat'i kontrol eder; 5dk yok → flatten
+  - HeartbeatEmitter: atomic file touch() her 60s (DMS lockless)
+  - Fallback DB: heartbeat_log yazı (backward compat + audit trail)
+  - Watchdog: file mtime kontrolü; yok/stale → flatten
   - EmergencyFlattener: tüm pozisyonları MARKET ile kapatır
+
+Design:
+  - Primary: file mtime (lockless, no DB lock risk)
+  - Fallback: DuckDB heartbeat_log (if file write fails)
+  - Reader: check file mtime every watchdog_interval; if > timeout → flatten
 
 Usage (daemon içinde):
     dms = DeadMansSwitch(exchange, service_name="futures_daemon")
@@ -30,17 +36,43 @@ from typing import Any
 
 import duckdb
 
+from price_action.execution.heartbeat_watchdog import HeartbeatWatchdog
+
 ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_DB = ROOT / "data" / "idempotency.duckdb"
 KILL_SWITCH_PATH = ROOT / "logs" / "kill_switch.json"
 
 HEARTBEAT_INTERVAL_SEC = 60
 WATCHDOG_INTERVAL_SEC = 30
-DEAD_MAN_TIMEOUT_SEC = 300  # 5 dakika
+DEAD_MAN_TIMEOUT_SEC = 300  # 5 dakika (1d default)
+
+# TF-spesifik heartbeat ve timeout ayarlari (master plan §4.5)
+# heartbeat_sec: ne siklıkla DB'ye heartbeat yazilir
+# timeout_sec: bu kadar susarsa flatten tetiklenir
+TF_DMS_PARAMS: dict[str, dict[str, int]] = {
+    "1d":  {"heartbeat_sec": 60,   "timeout_sec": 300,   "watchdog_sec": 30},
+    "4h":  {"heartbeat_sec": 60,   "timeout_sec": 300,   "watchdog_sec": 30},
+    "1h":  {"heartbeat_sec": 30,   "timeout_sec": 180,   "watchdog_sec": 15},
+    "15m": {"heartbeat_sec": 20,   "timeout_sec": 1800,  "watchdog_sec": 10},
+    "5m":  {"heartbeat_sec": 10,   "timeout_sec": 600,   "watchdog_sec": 5},
+    "1m":  {"heartbeat_sec": 5,    "timeout_sec": 120,   "watchdog_sec": 3},
+}
+
+
+def _dms_params_for_tf(tf: str) -> dict[str, int]:
+    """TF icin DMS parametrelerini don."""
+    return TF_DMS_PARAMS.get(tf, TF_DMS_PARAMS["1d"])
 
 
 class DeadMansSwitch:
-    """Heartbeat + watchdog + emergency flatten."""
+    """Heartbeat + watchdog + emergency flatten.
+
+    TF-aware constructor: tf parametresi ile heartbeat/timeout otomatik ayarlanir.
+    Ornek:
+        dms = DeadMansSwitch(exchange, tf="15m")  # 30 dk timeout
+        dms = DeadMansSwitch(exchange, tf="1m")   # 2 dk timeout
+        dms = DeadMansSwitch(exchange)             # 1d default (5 dk timeout)
+    """
 
     def __init__(
         self,
@@ -48,20 +80,37 @@ class DeadMansSwitch:
         *,
         service_name: str = "execution",
         db_path: Path | str | None = None,
-        heartbeat_sec: int = HEARTBEAT_INTERVAL_SEC,
-        timeout_sec: int = DEAD_MAN_TIMEOUT_SEC,
+        heartbeat_sec: int | None = None,
+        timeout_sec: int | None = None,
+        tf: str = "1d",
+        heartbeat_file: Path | str | None = None,
     ) -> None:
+        # TF-bazli parametreleri hesapla
+        tf_params = _dms_params_for_tf(tf)
+        _heartbeat = heartbeat_sec if heartbeat_sec is not None else tf_params["heartbeat_sec"]
+        _timeout = timeout_sec if timeout_sec is not None else tf_params["timeout_sec"]
+        self._watchdog_interval = tf_params["watchdog_sec"]
+        self.tf = tf
         self.exchange = exchange
         self.service_name = service_name
         self._path = Path(db_path) if db_path else DEFAULT_DB
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self.heartbeat_sec = heartbeat_sec
-        self.timeout_sec = timeout_sec
+        self.heartbeat_sec = _heartbeat
+        self.timeout_sec = _timeout
         self._stop = threading.Event()
         self._heartbeat_thread: threading.Thread | None = None
         self._watchdog_thread: threading.Thread | None = None
         self._last_heartbeat_ts: float = time.time()
         self._flatten_done = False
+
+        # Initialize lockless file-based watchdog (primary) + DB fallback
+        self._watchdog = HeartbeatWatchdog(
+            service_name=service_name,
+            heartbeat_file=heartbeat_file,
+        )
+        # Initialize heartbeat file (so file exists before threads start)
+        self._watchdog.ping()
+
         self._init_db()
 
     def _init_db(self) -> None:
@@ -93,26 +142,53 @@ class DeadMansSwitch:
         )
         self._heartbeat_thread.start()
         self._watchdog_thread.start()
-        self._log(f"DEAD_MANS_SWITCH started: service={self.service_name} timeout={self.timeout_sec}s")
+        self._log(
+            f"DEAD_MANS_SWITCH started: service={self.service_name} "
+            f"tf={self.tf} heartbeat={self.heartbeat_sec}s "
+            f"timeout={self.timeout_sec}s watchdog={self._watchdog_interval}s"
+        )
 
     def stop(self) -> None:
         """Düzgün durdur — kill_switch'e dokunma."""
         self._stop.set()
+        # Clean up file watchdog
+        self._watchdog.reset_heartbeat_file()
         self._write_heartbeat(status="stopping")
 
     def ping(self, equity_usdt: float = 0.0, n_open_positions: int = 0) -> None:
         """Manuel heartbeat ping (opsiyonel — thread zaten otomatik yapar)."""
         self._last_heartbeat_ts = time.time()
+        # Primary: write to lockless file watchdog
+        self._watchdog.ping()
+        # Fallback: also write to DB (for backward compat + audit trail)
         self._write_heartbeat(equity_usdt=equity_usdt, n_open_positions=n_open_positions)
 
     @property
     def is_triggered(self) -> bool:
-        """Dead man's switch tetiklendi mi?"""
+        """
+        Dead man's switch tetiklendi mi?
+
+        Primary check: file mtime (lockless). If file check fails, fall back
+        to in-memory timestamp (for backward compat).
+        """
+        # Primary: check file mtime (no lock risk)
+        if self._watchdog.is_stale(self.timeout_sec):
+            return True
+        # Fallback: in-memory timestamp (shouldn't reach here unless file_watchdog broken)
         return time.time() - self._last_heartbeat_ts > self.timeout_sec
 
     @property
     def seconds_since_heartbeat(self) -> float:
-        return time.time() - self._last_heartbeat_ts
+        """
+        Seconds elapsed since last heartbeat (from file mtime, primary).
+
+        Falls back to in-memory timestamp if file doesn't exist yet.
+        """
+        file_elapsed = self._watchdog.seconds_since_heartbeat()
+        if file_elapsed == float("inf"):
+            # File not written yet, use in-memory timestamp
+            return time.time() - self._last_heartbeat_ts
+        return file_elapsed
 
     # ----- internal threads -----
 
@@ -129,6 +205,14 @@ class DeadMansSwitch:
                         n_pos = state.get("n_positions", 0)
                     except Exception:
                         pass
+
+                # Primary: write to lockless file watchdog (no DB lock risk)
+                file_ok = self._watchdog.ping()
+                if not file_ok:
+                    self._log("HEARTBEAT_FILE_WRITE_FAILED: watchdog.ping() error")
+
+                # Fallback: also write to DB (backward compat + audit trail)
+                # DB write errors are silently ignored (don't block heartbeat)
                 self._write_heartbeat(equity_usdt=equity, n_open_positions=n_pos)
             except Exception as e:
                 self._log(f"HEARTBEAT_ERROR: {e}")
@@ -139,12 +223,12 @@ class DeadMansSwitch:
             elapsed = self.seconds_since_heartbeat
             if elapsed > self.timeout_sec and not self._flatten_done:
                 self._log(
-                    f"DEAD_MANS_SWITCH TRIGGERED: heartbeat {elapsed:.0f}s ago "
+                    f"DEAD_MANS_SWITCH TRIGGERED [{self.tf}]: heartbeat {elapsed:.0f}s ago "
                     f"(timeout={self.timeout_sec}s)"
                 )
                 self._emergency_flatten()
                 self._flatten_done = True
-            self._stop.wait(WATCHDOG_INTERVAL_SEC)
+            self._stop.wait(self._watchdog_interval)
 
     # ----- core actions -----
 

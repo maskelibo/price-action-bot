@@ -1,0 +1,78 @@
+# ARCHIVED: 5m KILL 2026-05-17 — pool mR ≈ -0.37 at 5y span, fee-structural fail. Keep for reference / future 15m TF calibration baseline.
+# obv_engulfing_confluence — 5m TF manifest override
+# Kaynak: Signal Chief, SEC-SCALP-S7, 2026-05-17
+#
+# Kalibrasyon: 15m → 5m (x3)
+#   obv_lookback: 15m=96bar(24h) → 5m=288bar(24h)
+#   sr_lookback : 15m=192bar(48h) → 5m=576bar(48h) [cap 500 — cok agir]
+#     Karar: 5m'de 288bar (24h) — 2g S/R 5m'de cok fazla stale seviye uretir
+#   swing_sl    : 15m=15bar → 5m=45bar
+#   primary_R   : 15m=1.5 → 5m=1.2
+#   vol_z_min   : 15m=0.8 → 5m=0.8 [ayni; OBV filtresi zaten guclu]
+
+name: obv_engulfing_confluence
+version: "1.0.0-5m"
+description: "OBV Divergence + Engulfing Confluence — 5m intraday. SEC-SCALP-S7."
+
+trend_filter:
+  type: ema
+  period: 50            # 50 x 5m = 250 dak — session trend proxy; opsiyonel
+  required: false
+
+signals:
+  patterns:
+    - id: bullish_obv_div_engulfing
+      enabled: true
+      weight: 2.0
+      params:
+        body_ratio_min: 0.50            # 15m ile ayni
+        obv_lookback: 288               # 15m=96bar(24h) → 5m=288bar(24h)
+        engulfing_lookback: 60          # 15m=20bar(5h) → 5m=60bar(5h)
+        obv_slope_threshold: 0.0
+
+    - id: bearish_obv_div_engulfing
+      enabled: true
+      weight: 2.0
+      params:
+        body_ratio_min: 0.50
+        obv_lookback: 288
+        engulfing_lookback: 60
+        obv_slope_threshold: 0.0
+
+  structure:
+    swing:
+      fractal_n: 2
+    support_resistance:
+      lookback_bars: 288                # 5m'de 24h yeterli (48h cok fazla stale)
+      cluster_atr_multiplier: 0.35
+      min_touches: 2
+      max_age_bars: 288
+    require_proximity_to_sr_atr: 0.0
+
+  filters:
+    atr_min_pct: 0.001                  # 15m=0.002; 5m ATR% daha kucuk
+    volume_zscore_min: 0.8              # 15m ile ayni; OBV + vol double filter
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.5
+    bonus_if_at_sr: 0.5
+
+risk:
+  stop_loss:
+    method: structural
+    swing_lookback: 45                  # 15m=15bar → 5m=45bar(225dk)
+  take_profit:
+    method: r_multiple
+    primary_R: 1.2                      # 15m=1.5 → 5m=1.2
+  position_sizing:
+    method: fixed_fractional
+    risk_per_trade: 0.01
+
+backtest:
+  warmup_bars: 600
+  fees:
+    taker: 0.00040
+    maker: -0.00010
+  slippage_bps: 8.0
+  initial_capital_usdt: 10000.0

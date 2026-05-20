@@ -1,0 +1,87 @@
+# ARCHIVED: 5m KILL 2026-05-17 — pool mR ≈ -0.37 at 5y span, fee-structural fail. Keep for reference / future 15m TF calibration baseline.
+# brooks_h2_l2 — 5m TF manifest override
+# Kaynak: Signal Chief, SEC-SCALP-S7, 2026-05-17
+#
+# Kalibrasyon: 15m → 5m (x3)
+#   leg_min_bars  : 15m=5bar(75dk) → 5m=15bar(75dk) [zaman koru]
+#   bounce_max    : 15m=5bar(75dk) → 5m=15bar(75dk)
+#   max_lookback  : 15m=25bar(6.25h) → 5m=75bar(6.25h)
+#   trend_n_bars  : 15m=20bar(5h) → 5m=60bar(5h)
+#   primary_R     : 15m=1.5 → 5m=1.2
+#
+# PERF NOTU: _detect_h2_l2 nested while loop O(n*max_lookback).
+#   5m'de n=50000 × lookback=75 = 3.75M iter. Tek sembol ~2-5s bekleniyor.
+#   Kabul edilebilir; ancak 10 sym × 10 strat = potansiyel bottleneck.
+
+name: brooks_h2_l2
+version: "1.0.0-5m"
+description: "Brooks H2/L2 two-legged pullback continuation — 5m intraday. SEC-SCALP-S7."
+
+trend_filter:
+  type: ema
+  period: 50            # 50 x 5m = 250 dak — session trend
+  required: true
+
+signals:
+  patterns:
+    - id: h2_long
+      enabled: true
+      weight: 2.0
+      params:
+        leg_min_bars: 15                # 15m=5bar(75dk) → 5m=15bar(75dk) [zaman koru]
+        bounce_max_bars: 15             # 15m=5bar(75dk) → 5m=15bar(75dk)
+        max_lookback: 75                # 15m=25bar(6.25h) → 5m=75bar(6.25h)
+        sl_atr_buffer: 0.5              # degismedi
+
+    - id: l2_short
+      enabled: true
+      weight: 2.0
+      params:
+        leg_min_bars: 15
+        bounce_max_bars: 15
+        max_lookback: 75
+        sl_atr_buffer: 0.5
+
+  structure:
+    swing:
+      fractal_n: 2
+    support_resistance:
+      lookback_bars: 288                # 5m=288bar(24h)
+      cluster_atr_multiplier: 0.35
+      min_touches: 2
+      max_age_bars: 288
+    require_proximity_to_sr_atr: 0.0
+
+  filters:
+    atr_min_pct: 0.001
+    volume_zscore_min: 0.8              # 15m=0.5 → 5m=0.8 [gurultulu]
+    kaufman_er_period: 14
+    kaufman_er_min: 0.08                # 15m=0.10 → 5m=0.08 [daha gurultulu]
+    always_in_required: false
+    bear_regime_size_factor: 0.75
+    trend_n_bars: 60                    # 15m=20bar(5h) → 5m=60bar(5h) [zaman koru]
+    rolling_sharpe_period: 288          # 15m=96bar(24h) → 5m=288bar(24h)
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.0
+    bonus_if_at_sr: 0.0
+
+risk:
+  stop_loss:
+    method: leg_c_extreme
+    atr_buffer: 0.5
+  take_profit:
+    method: r_multiple
+    primary_R: 1.2                      # 15m=1.5 → 5m=1.2
+  position_sizing:
+    method: fixed_fractional
+    risk_per_trade: 0.01
+
+backtest:
+  warmup_bars: 500                      # max_lookback=75 + ema + buffer
+  fees:
+    taker: 0.00040
+    maker: -0.00010
+  slippage_bps: 8.0
+  initial_capital_usdt: 10000.0

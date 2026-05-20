@@ -208,24 +208,32 @@ def fetch_futures_state(exchange):
     margin_bal = float(raw.get('totalMarginBalance', wallet))
     available = float(raw.get('availableBalance', 0))
 
+    # A3 fix: rate-limit ban'de (binance 418) silently boş liste dönerse pos_check
+    # "tüm pozisyonlar kapanmış" sanıp journal'a yanlış 'filled' yazıyordu.
+    # Şimdi her endpoint için 'ok' flag tutuyoruz; consumer rate-limit'te skip eder.
+    positions_ok = True
     try:
         positions = exchange.fetch_positions()
         active_pos = [p for p in positions if abs(float(p.get('contracts', 0))) > 0]
     except Exception:
         active_pos = []
+        positions_ok = False
 
-    # Klasik orderlar
+    regular_orders_ok = True
     try:
         regular_orders = exchange.fapiPrivateGetOpenOrders()
     except Exception:
         regular_orders = []
-    # Algo orderlar (TAKE_PROFIT_MARKET, STOP_MARKET) — ayri endpoint
+        regular_orders_ok = False
+
+    algo_orders_ok = True
     try:
         algo_orders = exchange.fapiPrivateGetOpenAlgoOrders()
         if not isinstance(algo_orders, list):
             algo_orders = []
     except Exception:
         algo_orders = []
+        algo_orders_ok = False
 
     return {
         'wallet_balance': wallet,
@@ -238,6 +246,9 @@ def fetch_futures_state(exchange):
         'n_algo_orders': len(algo_orders),
         'positions': active_pos,
         'algo_orders': algo_orders,
+        'positions_ok': positions_ok,
+        'regular_orders_ok': regular_orders_ok,
+        'algo_orders_ok': algo_orders_ok,
     }
 
 
@@ -252,6 +263,105 @@ def setup_leverage(exchange, symbol: str, leverage: int):
             return True
         print(f"    [LEV] {symbol} set_leverage fail: {str(e)[:100]}")
         return False
+
+
+def _is_margin_error(exc: Exception) -> bool:
+    """Borsa hatasının margin/yetersiz fon kaynakli olup olmadığını kontrol et.
+
+    SEC58-M6: ccxt InsufficientFunds + Binance -2019 (margin insufficient) +
+    -1100 (invalid qty at lower leverage) yakalanir.
+    """
+    msg = str(exc).lower()
+    margin_keywords = (
+        "insufficient",
+        "margin",
+        "balance",
+        "-2019",    # binance: insufficient margin
+        "-1100",    # binance: qty precision / margin at lower leverage
+        "notional must be no smaller",
+        "not enough",
+    )
+    return any(kw in msg for kw in margin_keywords)
+
+
+def _submit_order_with_adaptive_leverage(
+    exchange,
+    symbol: str,
+    order_side: str,
+    qty: float,
+    base_leverage: int,
+    *,
+    post_only_enabled: bool = False,
+    post_only_timeout_sec: int = 30,
+    slippage_limit_bps: float = 25.0,
+    target_price: float | None = None,
+) -> tuple[dict, int, str]:
+    """Market/post-only emir gönder; margin hatası varsa leverage düşür ve yeniden dene.
+
+    SEC58-M6: Cascade: base_leverage → 2x → 1x (3 deneme max).
+    Her denemede setup_leverage() + emir. Başarıda (order, kullanılan_lev, method) döner.
+    Hiçbiri başaramadıysa son exception raise.
+
+    Args:
+        exchange: ccxt exchange instance.
+        symbol: "BTC/USDT"
+        order_side: "buy" | "sell"
+        qty: base miktarı (leverage'dan bağımsız — notional değişmez).
+        base_leverage: RiskOfficer'dan gelen ilk leverage teklifi.
+        post_only_enabled: SEC26.B-5 flag.
+        post_only_timeout_sec: post-only timeout.
+        slippage_limit_bps: market fallback slip cap.
+        target_price: post-only için hedef fiyat (None → caller'ın cur_px'i kullanılır).
+
+    Returns:
+        (order_dict, leverage_used, order_method)
+
+    Raises:
+        Exception: tüm cascade başarısız oldu.
+    """
+    # Cascade dizisi: istenen leverage'dan geriye doğru 1x'e kadar
+    # Örnek: base=3 → [3, 2, 1]; base=1 → [1]
+    cascade = list(dict.fromkeys([base_leverage, 2, 1]))  # deduped, sıralı azalan
+    cascade = [lv for lv in cascade if 1 <= lv <= base_leverage]
+
+    last_exc: Exception | None = None
+    for attempt_lev in cascade:
+        setup_leverage(exchange, symbol, attempt_lev)
+        try:
+            if post_only_enabled and target_price is not None:
+                order, method = place_post_only_with_fallback(
+                    exchange,
+                    symbol=symbol,
+                    side=order_side,
+                    qty=qty,
+                    target_price=target_price,
+                    fallback_after_sec=post_only_timeout_sec,
+                    slippage_limit_bps=slippage_limit_bps,
+                )
+            else:
+                order = exchange.create_market_order(symbol, order_side, qty)
+                method = "market_only"
+
+            if attempt_lev != base_leverage:
+                print(f"    [LEV_CASCADE] {symbol} leverage {base_leverage}x→{attempt_lev}x "
+                      f"(margin insufficient retry #{cascade.index(attempt_lev) + 1})")
+            return order, attempt_lev, method
+        except SlippageExceededError:
+            # Slippage aşımı — leverage cascade değil, direkt raise
+            raise
+        except Exception as exc:
+            last_exc = exc
+            if _is_margin_error(exc):
+                if attempt_lev > 1:
+                    print(f"    [LEV_CASCADE] {symbol} margin err at {attempt_lev}x, "
+                          f"trying lower... ({str(exc)[:80]})")
+                    continue
+            # Margin dışı hata — direkt raise, cascade yok
+            raise
+
+    # Tüm cascade tükendi
+    assert last_exc is not None
+    raise last_exc
 
 
 def place_protection_orders(exchange, symbol: str, side: str, qty: float,
@@ -277,10 +387,12 @@ def place_protection_orders(exchange, symbol: str, side: str, qty: float,
     """
     close_side = 'SELL' if side == 'long' else 'BUY'
 
-    # Multi-target quantities (backtest engine parity)
-    TP1_FRAC = 0.30   # %30 TP1'de kapat
-    TP2_FRAC = 0.30   # %30 TP2'de kapat
-    # Kalan %40 runner: SL + zaman bazli exit (daemon position_check'e birakiliyor)
+    # Multi-target quantities — 25/25/50 (kullanıcı kararı 2026-05-20).
+    # Backtest 30/30/40 idi; runner %40 → %50 büyütüldü ki trailing stop
+    # (Faz 2) daha geniş runner ile trendi daha çok yakalasın.
+    TP1_FRAC = 0.25   # %25 TP1'de kapat
+    TP2_FRAC = 0.25   # %25 TP2'de kapat
+    # Kalan %50 runner: trailing stop yönetir (daemon position_check)
 
     qty_tp1 = qty * TP1_FRAC
     qty_tp2 = qty * TP2_FRAC
@@ -560,40 +672,39 @@ def submit_to_futures(signals: list[dict], dry_run: bool = False, max_pos_usdt: 
                 continue
 
             # 4) Leverage + order
-            setup_leverage(exchange, sym, leverage_used)
+            # SEC58-M6: setup_leverage artık _submit_order_with_adaptive_leverage
+            # içinde yapılıyor. Adaptive cascade: base_lev → 2x → 1x on margin error.
             order_side = 'buy' if s['side'] == 'long' else 'sell'
-
-            # SEC26.B-5 — Post-only limit gate (config-gated, default OFF).
-            # Disabled-by-default: market order yolu (mevcut davranis, backward compat).
-            # Enabled: post-only limit + 30s fallback + slippage gate.
             order_method = 'market_only'
-            if post_only_enabled:
-                try:
-                    order, order_method = place_post_only_with_fallback(
-                        exchange,
-                        symbol=sym,
-                        side=order_side,
-                        qty=qty,
-                        target_price=cur_px,
-                        fallback_after_sec=post_only_timeout_sec,
-                        slippage_limit_bps=slippage_limit_bps,
-                    )
-                except SlippageExceededError as slip_err:
-                    rejected += 1
-                    print(f"  [REJECT-SLIPPAGE] {sym:<10} {s['strategy']:<25} {slip_err}")
-                    con.execute(
-                        """
-                        INSERT INTO futures_signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (sig_id, s['ts'], sym, s['strategy'], s['side'], float(s['sl_price']),
-                         float(s['tp_price']), float(s['confluence']), leverage_used,
-                         f'reject:slippage_exceeded:{slip_err.slippage_bps:.1f}bps',
-                         None, None, None, notional, margin,
-                         f'limit={slippage_limit_bps:.1f}bps,actual={slip_err.slippage_bps:.1f}bps'),
-                    )
-                    continue
-            else:
-                order = exchange.create_market_order(sym, order_side, qty)
+
+            try:
+                order, leverage_used, order_method = _submit_order_with_adaptive_leverage(
+                    exchange,
+                    sym,
+                    order_side,
+                    qty,
+                    leverage_used,
+                    post_only_enabled=post_only_enabled,
+                    post_only_timeout_sec=post_only_timeout_sec,
+                    slippage_limit_bps=slippage_limit_bps,
+                    target_price=cur_px,
+                )
+                # leverage_used cascade sonrası güncellenmiş olabilir → notional / margin yeniden
+                margin = notional / leverage_used if leverage_used > 0 else notional
+            except SlippageExceededError as slip_err:
+                rejected += 1
+                print(f"  [REJECT-SLIPPAGE] {sym:<10} {s['strategy']:<25} {slip_err}")
+                con.execute(
+                    """
+                    INSERT INTO futures_signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (sig_id, s['ts'], sym, s['strategy'], s['side'], float(s['sl_price']),
+                     float(s['tp_price']), float(s['confluence']), leverage_used,
+                     f'reject:slippage_exceeded:{slip_err.slippage_bps:.1f}bps',
+                     None, None, None, notional, margin,
+                     f'limit={slippage_limit_bps:.1f}bps,actual={slip_err.slippage_bps:.1f}bps'),
+                )
+                continue
 
             submitted += 1
             filled_qty = float(order.get('filled', qty))

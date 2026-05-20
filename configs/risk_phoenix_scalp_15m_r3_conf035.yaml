@@ -1,0 +1,202 @@
+# =============================================================================
+# PHOENIX-SCALP 15m RISK PRESET — v1.0 DRAFT (2026-05-16)
+# =============================================================================
+# Bot adı: PHOENIX-SCALP 15m
+# Durum: R&D TASLAK — Principal sign-off ZORUNLU (live değil)
+# Master plan: reports/ceo/2026-05-16_phoenix_scalp_v1_master_plan.md §4.4
+#
+# Phoenix 1d champion (v2.0.4) referans alınarak TF-scale yapıldı.
+# Temel fark: fee erozyonu nedeniyle risk_per_trade %4 → %2, breaker'lar
+# daha sık tetiklenebilecek şekilde daha geniş (15m'de ardışık kayıp daha
+# hızlı birikir), post-only zorunlu (taker fee %4 → %12'ye çıkıyor).
+#
+# Fee modeli (master plan §2.1):
+#   15m avg hold ~1.5h → ~13,500 trade/yıl
+#   Taker 8-12 bps × 13,500 = %108-162 yıllık fee erosyon
+#   Post-only maker ile ~4 bps × 13,500 = %54 — hala ağır
+#   → risk_per_trade 1d %4'ten yarıya (%2) + maker fill ≥%60 zorunlu
+#
+# KIL KRİTERİ (master plan §4.4): daily_loss_pct breaker simde >5×/yıl
+# tetikleniyor ise preset agresif sayılır, revize edilir.
+# =============================================================================
+
+defaults:
+  account_currency: USDT
+  preset_name: phoenix_scalp_15m_r3_conf035
+  bot_name: PHOENIX-SCALP-15m-R3-CONF035
+  timeframe: 15m
+  # TASLAK: sim=true iken kullan; live için Principal sign-off + enabled: true
+  sim_only: true
+
+position_sizing:
+  method: confidence_dynamic
+  # DIFF vs 1d: %4 → %2
+  # Gerekçe: 13,500 trade/yıl × 8 bps taker = %108 fee erosyon baseline.
+  # %2 risk + maker rebate ile breakeven yakını hedeflenir.
+  # Kelly cap %25 → %15: daha yüksek trade frekansta Kelly daha aşırı büyür.
+  risk_per_trade: 0.030
+  backtest_risk_pct: 0.030
+  confidence_risk_tiers:
+    - {min: 0.00, max: 0.32, risk_pct: 0.005}   # %0.5 — micro
+    - {min: 0.32, max: 0.42, risk_pct: 0.008}   # %0.8
+    - {min: 0.42, max: 0.52, risk_pct: 0.018}   # %1.2 — default
+    - {min: 0.52, max: 0.58, risk_pct: 0.024}   # %1.6
+    - {min: 0.58, max: 1.01, risk_pct: 0.030}   # %3.0 — yüksek conf
+  # DIFF vs 1d: 0.25 → 0.15 (scalp'te Kelly patlaması riski daha yüksek)
+  kelly_cap: 0.15
+  min_quantity_usdt: 10
+  size_rounding: exchange_step
+  # DIFF vs 1d: 0.30 → 0.30 (aynı; volatil 15m sinyallerinde cap kritik)
+  max_notional_pct_equity: 0.30
+
+stop_loss:
+  method: atr
+  # DIFF vs 1d: period 14 barsın 15m karşılığı = 3.5 saat ATR
+  # 1d'de 14 bar = 14 gün; 15m'de 14 bar = 3.5 saat — TF parametrize edilmeli
+  # manifest layer'da: atr_period_bars: 14 (her TF'de kendi barı)
+  atr_period: 14
+  # DIFF vs 1d: multiplier 2.0 → 1.5 (scalp'te geniş SL fee'den büyük olur)
+  atr_multiplier: 1.5
+  structural_buffer_pct: 0.003   # 1d %0.5 → %0.3 (daha sıkı scalp buffer)
+  trailing:
+    enabled: true
+    method: atr_chandelier
+    atr_period: 14
+    # DIFF vs 1d: 3.0 → 2.0 (scalp'te runner daha kısa sürer)
+    multiplier: 2.0
+    activate_after_R: 1.0
+
+take_profit:
+  method: r_multiple
+  # DIFF vs 1d: 1.5 → 1.2R (scalp'te hızlı kâr realizasyonu, fee etkisi büyük)
+  primary_R: 1.2
+  partial_close_at_R: 0.8       # 0.8R'da kısmi kapat (1d'de 1.0R)
+  runner_trail: true
+
+vol_target:
+  # DIFF vs 1d: aktif (1d'de kapalı) — scalp'te vol spike'larında auto-shrink
+  enabled: true
+  # 15m ATR% hedef: 1d %4 → 15m ~%1 (TF-scaled; 1d vol / sqrt(96 bar) ≈ %0.4-1)
+  target_atr_pct: 0.010
+  min_factor: 0.20
+  max_factor: 1.50
+
+leverage:
+  enabled: true
+  # DIFF vs 1d: max 5 → 3 (scalp'te kaldıraç × volatilite likidasyon riski)
+  max_leverage_per_symbol: 3
+  max_portfolio_notional_x_equity: 3
+  margin_safety_ratio: 0.5
+  confidence_tiers:
+    - {min: 0.00, max: 0.32, leverage: 1}
+    - {min: 0.32, max: 0.52, leverage: 2}
+    - {min: 0.52, max: 1.01, leverage: 3}
+
+drawdown_breakers:
+  # DIFF vs 1d: %5 → %3
+  # Gerekçe: 15m'de günde 96 bar; %3 daily stop yaklaşık 2-3 ardışık max-loss
+  # trade'e eşdeğer (risk_per_trade %2 × leverage 3 = %6 max single hit → sıkı)
+  daily_loss_pct: 0.03
+  # DIFF vs 1d: %10 → %08 (scalp haftalık fırsat penceresi daha dar)
+  weekly_loss_pct: 0.08
+  # combined monthly — side-cond ile birlikte; 0.99 = effectively off (pure side-cond)
+  monthly_loss_pct: 0.99
+  monthly_halt_days: 3           # 1d'de 21 → 3 gün (15m rejim değişim hızı)
+  daily_halt_days: 1
+  weekly_halt_days: 2
+  # DIFF vs 1d: long %15 → %10, short %5 → %4
+  # Gerekçe: intraday long/short kayıp kapasitesi daha dar (daha hızlı birikir)
+  monthly_loss_pct_long: 0.10
+  monthly_loss_pct_short: 0.04
+  # DIFF vs 1d: 3 → 5 (15m'de daha fazla sample; 3 1d kaybı = ~%6-12 → 5 15m)
+  consecutive_losses: 5
+  # DIFF vs 1d: 5g → 1g (15m rejim 3-7 gün sürer; uzun halt fırsat kaybı)
+  # UYARI (kod bug): breaker.py satır 128 → int(pause_days) → int(1.0) = 1 TAMAM.
+  # 5m ve 1m için 0.5/0.25 değerler int() sonrası 0 olur → ayrı nota ekle.
+  consecutive_loss_pause_days: 1.0
+  reset:
+    daily: 00:00 UTC
+    weekly: Monday 00:00 UTC
+    monthly: 1st 00:00 UTC
+
+correlation_gate:
+  enabled: true
+  # DIFF vs 1d: aynı (0.7/0.9) — korelasyon TF bağımsız; pairwise return
+  # hesaplama 15m bar bazlı olacak (manifest layer sync gerekli)
+  max_pairwise_corr: 0.7
+  reduction_factor: 0.5
+  hard_block_at: 0.9
+
+concentration_limits:
+  # DIFF vs 1d: 12 → 16 (15m daha fazla eş zamanlı fırsat; throughput gerekli)
+  max_open_positions: 16
+  max_per_category_pct: 0.35     # 1d %40 → %35 (intraday konsantrasyon riski)
+  # DIFF vs 1d: %20 → %15 (sıkılaştı; master plan §1.3 "en çok %20" ama scalp'te
+  # daha agresif fiyat hareketleri var, %15 daha güvenli)
+  max_per_symbol_pct: 0.15
+  backtest_apply_concentration_gate: true
+
+# Regime filter — TF-scaled
+# DIFF vs 1d: 1d ATR% eşiği 6.0 → scalp'te aynı KORUNDU (BTC günlük ATR% ölçüm
+# değişmez; halt calendar 1d OHLCV bazlı). Halt süresi 21g → 3g (§2.4: 15m rejim
+# değişim hızı 3-7 gün).
+regime_filter:
+  btc_capitulation_halt_enabled: true
+  atr_pct_threshold: 6.0
+  ema200_streak_days: 10
+  dd_90d_threshold_pct: -25.0
+  resume_atr_threshold: 4.0
+  resume_streak_days: 5
+  # Scalp-spesifik: halt süresi YAML overrideable değil (breaker.py monthly_halt_days)
+  # Halt süresini 3g yapmak için drawdown_breakers.monthly_halt_days: 3 kullanılıyor.
+
+alt_data:
+  fng_short_skip_enabled: true
+  fng_short_skip_threshold: 20
+  funding_filter_enabled: false
+
+# Strateji portföyü — 15m TF uyumlu (Phase 2 audit sonrası doldurulacak)
+# Şimdi placeholder; Signal Chief lookahead audit tamamlanınca güncellenir.
+strategy_portfolio:
+  enabled: true
+  # Semboller 1d ile aynı (Phase 2'de likidite screen ile revize edilebilir)
+  symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - ADA/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - DOT/USDT
+    - DOGE/USDT
+    - XRP/USDT
+  strategies:
+    # Phoenix 1d stratejilerinin 15m uyumluluğu Signal Chief audit'e bağlı.
+    # Şimdi PLACEHOLDER — Phase 2 PASS sonrası aktif edilir.
+    # - engulfing_continuation
+    # - obv_engulfing_confluence
+    # - anchored_vwap_reversal
+    # - brooks_h2_l2
+    # - pin_bar_round_numbers
+    # - equal_highs_sweep
+    # - cvd_spike_fade
+    # - vsa_climax_test
+    # - brooks_failed_breakout
+    # - fvg_fill_reversal
+  same_symbol_side_cooldown_days: 0.010  # ~15 dakika (bar bazlı cooldown)
+  max_concurrent_positions: 16
+  pyramid_enabled: true          # scalp'te pyramid disabled (hold süresi kısa)
+  signal_confidence_min: 0.35    # 1d'de 0.20 → 0.25 (scalp gürültü filtresi)
+  expected_annual_return: 0.60   # konservatif backtest beklentisi (master plan §2.5)
+  expected_max_dd: 0.25
+
+exit_engine:
+  multi_target: true
+  # DIFF vs 1d: scalp'te daha agresif kısmi realizasyon
+  partial_close_1R: 0.40         # 1d %30 → %40
+  partial_close_2R: 0.30
+  runner_pct: 0.30               # 1d %40 → %30 (kısa hold, runner daha az)
+  break_even_after_1R: true
+  lock_1R_after_2R: true
+  runner_trail_atr: 0.7          # 1d 1.0 → 0.7 (daha sıkı trailing scalp'

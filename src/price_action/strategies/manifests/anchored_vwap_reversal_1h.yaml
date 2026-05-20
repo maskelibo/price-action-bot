@@ -1,0 +1,84 @@
+# anchored_vwap_reversal — 1h TF manifest override
+# Kaynak: Lab Scientist, SEC-S6 1h pivot feasibility, 2026-05-17
+#
+# Kalibrasyon: 15m → 1h
+#   avwap_swing_lookback: 15m=96(24h) → 1h=24bar(24h)
+#   poc_lookback:         15m=96(24h) → 1h=24bar(24h)
+#   ema (trend filter):   15m=ema50(12.5h) → 1h=ema50(50h≈2.1gün)
+#   rsi_long_max:         15m=60 → 1h=58 (1h RSI daha az gurultulu)
+#   rsi_short_min:        15m=40 → 1h=42
+#   atr_min_pct:          15m=0.002 → 1h=0.003
+#   primary_R:            15m=1.5 → 1h=1.8 (1h hold daha uzun)
+#   swing_lookback:       15m=15bar(225dk) → 1h=4bar(240dk)
+#
+# PERFORMANS:
+#   _volume_profile_poc 1h'de poc_lookback=24 → 15m=96'dan 4x daha hizli.
+#   1h pool collect 15m'den ~%70 daha hizli olmali.
+
+name: anchored_vwap_reversal
+version: "1.0.0-1h"
+description: "Anchored VWAP + POC mean-reversion — 1h intraday. SEC-S6."
+
+trend_filter:
+  type: ema
+  period: 50              # 50 × 1h = 50h (2 gun trend)
+  required: false
+
+signals:
+  patterns:
+    - id: avwap_long_reversal
+      enabled: true
+      weight: 1.5
+      params:
+        poc_atr_tolerance: 1.5
+        rsi_long_max: 58.0            # 15m=60 → 1h=58
+        avwap_swing_lookback: 24      # 15m=96(24h) → 1h=24bar(24h)
+        poc_lookback: 24              # 15m=96(24h) → 1h=24bar(24h)
+
+    - id: avwap_short_reversal
+      enabled: true
+      weight: 1.5
+      params:
+        poc_atr_tolerance: 1.5
+        rsi_short_min: 42.0           # 15m=40 → 1h=42
+        avwap_swing_lookback: 24
+        poc_lookback: 24
+
+  structure:
+    swing:
+      fractal_n: 2
+    support_resistance:
+      lookback_bars: 48              # 15m=192(48h) → 1h=48bar(48h)
+      cluster_atr_multiplier: 0.40
+      min_touches: 2
+      max_age_bars: 48
+    require_proximity_to_sr_atr: 0.0
+
+  filters:
+    atr_min_pct: 0.003               # 15m=0.002 → 1h=0.003
+    volume_zscore_min: 0.5
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.5
+    bonus_if_at_sr: 0.0
+
+risk:
+  stop_loss:
+    method: structural_atr
+    swing_lookback: 4                # 15m=15(225dk) → 1h=4bar(240dk)
+    atr_buffer: 1.0
+  take_profit:
+    method: r_multiple
+    primary_R: 1.8                   # 15m=1.5 → 1h=1.8
+  position_sizing:
+    method: fixed_fractional
+    risk_per_trade: 0.02
+
+backtest:
+  warmup_bars: 50                    # 24 POC + AVWAP + ema50 buffer; 50 × 1h = 50h
+  fees:
+    taker: 0.00040
+    maker: -0.00010
+  slippage_bps: 6.5
+  initial_capital_usdt: 10000.0

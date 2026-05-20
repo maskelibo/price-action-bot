@@ -1,0 +1,111 @@
+# obv_engulfing_confluence — 15m TF manifest override
+# Kaynak: SEC-SCALP-S5 / Signal Chief 2026-05-17
+#
+# Kalibrasyon mantigi:
+#   1d ref → 15m esiti (1d = 96 × 15m)
+#
+#   obv_lookback=20bar  → 1d'de 20 gun. 15m'de 20bar = 5 saat (anlamsiz kisa).
+#     Compromise: 96bar = 24h (1 trading gunu) — OBV divergence penceresi
+#     anlamli olmasi icin en az 1 tam seans gerekli.
+#
+#   vol_z_window=60bar  → 1d'de 60 gun. 15m'de 60bar = 15 saat.
+#     15 saat ~ 1 trading gunu (kripto 7/24).
+#     Compromise: 96bar = 24h. Daha genis pencere, daha kararlı z-score.
+#
+#   swing_sl lookback=10bar → 1d'de 10 gun. 15m'de 10bar = 150 dak.
+#     15m'de SL icin 15bar = 225dak (~3.75h) makul yapısal swing.
+#
+#   sr_lookback=120bar  → 1d'de 4 ay. 15m'de anlamli S/R icin
+#     192bar = 48h (2 gunluk profil) yeterli; cok genis pencere
+#     15m'de cok fazla "stale" seviye uretir.
+#
+#   primary_R=2.0  → 15m'de fee+slip etkisi daha agir.
+#     Gerçekçi hedef: 1.5R.
+#
+# NOT: risk_per_trade tanimsiz — risk_phoenix_scalp_15m.yaml override eder.
+
+name: obv_engulfing_confluence
+version: "1.0.0-15m"
+description: "OBV Divergence + Engulfing Confluence — 15m intraday parametreleri. SEC-SCALP-S5."
+
+trend_filter:
+  type: ema
+  period: 50            # 50 x 15m = 12.5h — session trend filtresi olarak kabul edilebilir
+  required: false       # OBV div kendin yeterince filtrele; trend optional
+
+signals:
+  patterns:
+    - id: bullish_obv_div_engulfing
+      enabled: true
+      weight: 2.0
+      params:
+        body_ratio_min: 0.50          # 1d=0.55; 15m gurultulu, tolerans arttirildi
+        obv_lookback: 96              # 1d=20bar(20gun) → 15m=96bar(24h=1g)
+        engulfing_lookback: 20        # 1d ile ayni (bar sayisi, 15m'de 5h)
+        obv_slope_threshold: 0.0      # degismedi
+
+    - id: bearish_obv_div_engulfing
+      enabled: true
+      weight: 2.0
+      params:
+        body_ratio_min: 0.50
+        obv_lookback: 96
+        engulfing_lookback: 20
+        obv_slope_threshold: 0.0
+
+  structure:
+    swing:
+      fractal_n: 2                    # 1d ile ayni; 2-bar fractal 15m'de causal
+    support_resistance:
+      lookback_bars: 192              # 1d=120bar(4ay) → 15m=192bar(48h=2g)
+      cluster_atr_multiplier: 0.35    # 1d=0.50; 15m ATR kucuk, cluster tol daralt
+      min_touches: 2
+      max_age_bars: 192
+    require_proximity_to_sr_atr: 0.0  # OBV div + engulfing yeterince filtreler
+
+  filters:
+    atr_min_pct: 0.002                # 1d=0.004; 15m ATR% kucuk → esik indir
+    volume_zscore_min: 0.8            # 1d=0.0; 15m'de hacim filtresi zorunlu (noise)
+    # vol_z hesaplamak icin kod 60-bar pencere kullanir; manifest parametresi yok
+    # (prepare_features icinde hardcoded — Phase 4 refactor: manifest-driven olacak)
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.5
+    bonus_if_at_sr: 0.5
+
+risk:
+  stop_loss:
+    method: structural
+    swing_lookback: 15                # 1d=10bar → 15m=15bar(225dak=3.75h)
+  take_profit:
+    method: r_multiple
+    primary_R: 1.5                    # 1d=2.0; 15m fee+slip ile 1.5R daha gercekci
+  position_sizing:
+    method: fixed_fractional
+    risk_per_trade: 0.02              # Phase 3'te risk_phoenix_scalp_15m.yaml override eder
+
+backtest:
+  warmup_bars: 250                    # ema200 icin 200bar + buffer; 250 x 15m = 62.5h
+  fees:
+    taker: 0.00040                    # Binance 15m taker: ~4bps per leg
+    maker: -0.00010
+  slippage_bps: 7.5                   # 15m slippage est: 5-10bps orta
+  initial_capital_usdt: 10000.0
+
+# TF-spesifik notlar:
+#
+# OBV lookback 1d→15m en buyuk sapma:
+#   1d=20bar (20 gun semantigi) vs 15m=96bar (1 gun semantigi).
+#   20 gunluk OBV slope 15m'de anlamsiz; 1 gunluk proxy daha anlamli.
+#   UYARI: 96-bar linreg slope hesabi O(n*96) — profil et.
+#
+# Engulfing lookback 15m'de 20bar=5h:
+#   1d'de 20 gun pullback ararken burada 5h ariyoruz.
+#   Daha kisa pullback = daha sik tetiklenir = daha fazla gurultu.
+#   Phase 4 ablation: 20 vs 40 bar karsilastir.
+#
+# Phase 3 eylem:
+#   1. risk_phoenix_scalp_15m.yaml → risk_per_trade + daily_loss cap
+#   2. obv_lookback=96 ablation: 48 vs 96 vs 144
+#   3. volume_zscore_min=0.8 kalibre et (cok katiysa sinyal sayisi dusuyor)

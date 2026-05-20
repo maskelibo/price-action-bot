@@ -7,6 +7,11 @@ Lab.py'de uygulanan kural:
 Bu modül paper/futures daily trade script'lerinin scan_signals() çıktısına
 uygulanır. Backtest ile birebir parity: aynı kural, aynı semantik.
 
+SEC58.M1 — Cooldown tiebreak (deterministic):
+  - Aynı (sym, side, ts) → farklı strategy sinyalleri
+  - Tiebreak: strategy alphabetical order → ilk accept, sonrakiler reject
+  - Seçim deterministik (alfabetik < rastgele)
+
 Public API:
   filter_signals_by_cooldown(signals, cooldown_days, journal_path, table) -> list[dict]
 """
@@ -118,15 +123,70 @@ def filter_signals_by_cooldown(
     Semantik (lab.py parity):
         key = (symbol, side)  — farklı strategy aynı (sym,side) cooldown kapsar
         cooldown_days <= 0 ise no-op (filter bypass)
+
+    SEC58.M1 tiebreak: Aynı (sym, side, ts) → strategy'leri alphabetical sort,
+        ilk kabul et, sonrakiler reject et (deterministic seçim).
     """
+    # SEC58.M1: Tiebreak preprocessing — same (sym, side, ts) → keep only first alphabetically
+    # Bu, aynı zaman damgasında aynı (sym, side) çok sinyali tutarlı şekilde ele alır.
+    sig_groups: dict[tuple, list[dict]] = {}
+    for sig in signals:
+        key = (sig.get("symbol"), sig.get("side"), sig.get("ts"))
+        if key not in sig_groups:
+            sig_groups[key] = []
+        sig_groups[key].append(sig)
+
+    # Her grup içinde strategy'ye göre alfabetik sort, sadece ilkini sakla
+    tiebreak_filtered: list[dict] = []
+    for group in sig_groups.values():
+        if len(group) > 1:
+            # Çok stratejisi varsa, alfabetik sıraya koyup ilkini seç
+            group.sort(key=lambda s: s.get("strategy", ""))
+            first = group[0]
+            tiebreak_filtered.append(first)
+            for other in group[1:]:
+                log.info(
+                    "TIEBREAK_REJECT: sym=%s side=%s strategy=%s "
+                    "(duplicate ts with %s, keeping %s alphabetically)",
+                    other["symbol"],
+                    other["side"],
+                    other.get("strategy", "?"),
+                    first.get("strategy", "?"),
+                    first.get("strategy", "?"),
+                )
+        else:
+            # Tek sinyal, doğru geç
+            tiebreak_filtered.append(group[0])
+
+    # Tiebreak sonrası cooldown filtresine geç
     if cooldown_days <= 0:
-        return list(signals)
+        return tiebreak_filtered
 
     recent_fills = _query_recent_fills(journal_path, table, cooldown_days)
     last_entry = _build_last_entry(recent_fills)
 
     filtered: list[dict] = []
-    for sig in signals:
+    seen_cooldown_key: set[tuple] = set()  # (sym, side) cooldown reddetilen track
+
+    for sig in tiebreak_filtered:
+        cooldown_key = (sig["symbol"], sig["side"])
+
+        # Aynı (sym, side) grubu içinde ilk sinyali kontrol et
+        # Eğer zaten reject'tiyse, bu gruptaki diğer sinyalleri de reject et
+        if cooldown_key in seen_cooldown_key:
+            log.info(
+                "COOLDOWN_REJECT (cascading): sym=%s side=%s strategy=%s "
+                "(group already rejected)",
+                sig["symbol"],
+                sig["side"],
+                sig.get("strategy", "?"),
+            )
+            print(
+                f"  [COOLDOWN_REJECT (cascading)] sym={sig['symbol']:<10} side={sig['side']:<5} "
+                f"strategy={sig.get('strategy','?')}"
+            )
+            continue
+
         if is_in_cooldown(sig, last_entry, cooldown_days):
             log.info(
                 "COOLDOWN_REJECT: sym=%s side=%s strategy=%s "
@@ -141,6 +201,7 @@ def filter_signals_by_cooldown(
                 f"  [COOLDOWN_REJECT] sym={sig['symbol']:<10} side={sig['side']:<5} "
                 f"strategy={sig.get('strategy','?')}"
             )
+            seen_cooldown_key.add(cooldown_key)
         else:
             filtered.append(sig)
 

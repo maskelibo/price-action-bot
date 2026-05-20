@@ -183,7 +183,8 @@ def main() -> None:
     print("=" * 70)
     print()
 
-    exchange = ccxt.binance({"enableRateLimit": True})
+    # DQ-04 FIX (SEC54.5): futures endpoint — perp OHLCV, doğru contractSize/tickSize
+    exchange = ccxt.binance({"enableRateLimit": True, "options": {"defaultType": "future"}})
     store = OHLCVStore()
 
     results: list[dict] = []

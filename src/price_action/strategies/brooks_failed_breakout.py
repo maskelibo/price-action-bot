@@ -23,6 +23,15 @@ Bağlam filtresi:
 
 Referans: brooks_deep_catalog.md §"Failed Breakout / Trap — En Güvenilir Reversal"
           Edge iddiası: %65-75 win rate, 2-3:1 R:R, EV ~+0.8-1.5R
+
+---
+Performance (SEC55.C — 2026-05-18):
+  _failed_breakout_flags icindeki O(n*max_bars_to_fail) nested loops Numba JIT ile
+  port edildi. BO detection + failure scan tek kernel'da birlestirildi.
+  Fallback: numba yoksa Python path (mevcut mantik), no crash.
+  Parity: rtol=1e-9, atol=1e-12 garantili.
+  fastmath=False: floating point determinizm korur.
+  cache=True: ilk-run JIT compile maliyeti sonraki run'larda sifir.
 """
 from __future__ import annotations
 
@@ -41,6 +50,167 @@ from price_action.strategies.classic_pa import (
     _ema,
     _kaufman_efficiency_ratio,
 )
+
+
+# =====================================================================
+# Numba JIT kernel — SEC55.C
+# =====================================================================
+
+_BROOKS_NUMBA_AVAILABLE = False
+
+try:
+    import numba  # noqa: F401
+    from numba import njit
+
+    @njit(cache=True, fastmath=False)
+    def _failed_bo_jit_kernel(
+        closes: np.ndarray,
+        highs: np.ndarray,
+        lows: np.ndarray,
+        nb_high: np.ndarray,
+        nb_low: np.ndarray,
+        max_bars_to_fail: int,
+    ) -> tuple:
+        """Numba JIT — BO detection + failure scan tek geciste.
+
+        Bull BO: high > nb_high AND close > nb_high (require_close_beyond=True hardcoded parity)
+        Bear BO: low < nb_low  AND close < nb_low
+
+        Failure (bull BO -> short):
+          [i-max_bars..i-1]'de bull BO varsa ve bu barda close < nb_high_at_BO
+        Failure (bear BO -> long):
+          [i-max_bars..i-1]'de bear BO varsa ve bu barda close > nb_low_at_BO
+
+        Lookahead-free: nb_high/nb_low zaten shift(1).rolling().max/min ile hesaplanmis.
+        BO bar'i dahil i bari exclude: range(1, max_bars+1) -> bo_idx = i-k (k>=1).
+
+        Returns:
+            (bull_failed, bear_failed, bull_extreme, bear_extreme)
+            dtype: float64 (0/1 flag, nan for missing extreme)
+        """
+        n = len(closes)
+        bull_failed = np.zeros(n, dtype=np.float64)
+        bear_failed = np.zeros(n, dtype=np.float64)
+        bull_extreme = np.full(n, np.nan)
+        bear_extreme = np.full(n, np.nan)
+
+        # BO bar'larini onceden hesapla (O(n) pass)
+        bull_bo_arr = np.zeros(n, dtype=np.float64)
+        bear_bo_arr = np.zeros(n, dtype=np.float64)
+        for i in range(n):
+            nh = nb_high[i]
+            nl = nb_low[i]
+            if np.isnan(nh) or np.isnan(nl):
+                continue
+            if highs[i] > nh and closes[i] > nh:
+                bull_bo_arr[i] = 1.0
+            if lows[i] < nl and closes[i] < nl:
+                bear_bo_arr[i] = 1.0
+
+        # Failure scan: her i icin son 1..max_bars_to_fail barda BO ara
+        for i in range(1, n):
+            # Bull BO -> Short setup
+            for k in range(1, max_bars_to_fail + 1):
+                bo_idx = i - k
+                if bo_idx < 0:
+                    break
+                if bull_bo_arr[bo_idx] > 0.0:
+                    level = nb_high[bo_idx]
+                    if not np.isnan(level) and closes[i] < level:
+                        bull_failed[i] = 1.0
+                        bull_extreme[i] = highs[bo_idx]
+                    break  # En yakin BO bar yeterli
+
+            # Bear BO -> Long setup
+            for k in range(1, max_bars_to_fail + 1):
+                bo_idx = i - k
+                if bo_idx < 0:
+                    break
+                if bear_bo_arr[bo_idx] > 0.0:
+                    level = nb_low[bo_idx]
+                    if not np.isnan(level) and closes[i] > level:
+                        bear_failed[i] = 1.0
+                        bear_extreme[i] = lows[bo_idx]
+                    break
+
+        return bull_failed, bear_failed, bull_extreme, bear_extreme
+
+    _BROOKS_NUMBA_AVAILABLE = True
+
+except Exception:
+    pass
+
+
+# =====================================================================
+# Python fallback
+# =====================================================================
+
+def _failed_bo_python_fallback(
+    closes: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    nb_high: np.ndarray,
+    nb_low: np.ndarray,
+    max_bars_to_fail: int,
+) -> tuple:
+    """Python fallback — _failed_bo_jit_kernel ile bit-identical."""
+    n = len(closes)
+    bull_failed = np.zeros(n, dtype=np.float64)
+    bear_failed = np.zeros(n, dtype=np.float64)
+    bull_extreme = np.full(n, np.nan)
+    bear_extreme = np.full(n, np.nan)
+
+    bull_bo_arr = np.zeros(n, dtype=np.float64)
+    bear_bo_arr = np.zeros(n, dtype=np.float64)
+    for i in range(n):
+        nh = nb_high[i]
+        nl = nb_low[i]
+        if np.isnan(nh) or np.isnan(nl):
+            continue
+        if highs[i] > nh and closes[i] > nh:
+            bull_bo_arr[i] = 1.0
+        if lows[i] < nl and closes[i] < nl:
+            bear_bo_arr[i] = 1.0
+
+    for i in range(1, n):
+        for k in range(1, max_bars_to_fail + 1):
+            bo_idx = i - k
+            if bo_idx < 0:
+                break
+            if bull_bo_arr[bo_idx] > 0.0:
+                level = nb_high[bo_idx]
+                if not np.isnan(level) and closes[i] < level:
+                    bull_failed[i] = 1.0
+                    bull_extreme[i] = highs[bo_idx]
+                break
+
+        for k in range(1, max_bars_to_fail + 1):
+            bo_idx = i - k
+            if bo_idx < 0:
+                break
+            if bear_bo_arr[bo_idx] > 0.0:
+                level = nb_low[bo_idx]
+                if not np.isnan(level) and closes[i] > level:
+                    bear_failed[i] = 1.0
+                    bear_extreme[i] = lows[bo_idx]
+                break
+
+    return bull_failed, bear_failed, bull_extreme, bear_extreme
+
+
+def _run_failed_bo_kernel(
+    closes: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    nb_high: np.ndarray,
+    nb_low: np.ndarray,
+    max_bars_to_fail: int,
+    use_numba: bool = True,
+) -> tuple:
+    """Numba varsa JIT kernel, yoksa Python fallback."""
+    if use_numba and _BROOKS_NUMBA_AVAILABLE:
+        return _failed_bo_jit_kernel(closes, highs, lows, nb_high, nb_low, max_bars_to_fail)
+    return _failed_bo_python_fallback(closes, highs, lows, nb_high, nb_low, max_bars_to_fail)
 
 
 # =====================================================================
@@ -97,8 +267,9 @@ def _failed_breakout_flags(
     n_bar_high: pd.Series,
     n_bar_low: pd.Series,
     max_bars_to_fail: int = 3,
+    use_numba: bool = True,
 ) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
-    """Failed breakout (trap) tespiti — lookahead-free vektörize.
+    """Failed breakout (trap) tespiti — Numba JIT accelerated.
 
     Logic (SHORT / bull trap):
       Bar B:     bull breakout (high > N_high, close > N_high)
@@ -118,66 +289,24 @@ def _failed_breakout_flags(
 
     Lookahead-free: sadece geçmişe bakar (shift + rolling mantığı).
     """
-    close = df["close"]
-    high = df["high"]
-    low = df["low"]
-    n = len(df)
+    closes = df["close"].to_numpy(dtype=np.float64)
+    highs = df["high"].to_numpy(dtype=np.float64)
+    lows = df["low"].to_numpy(dtype=np.float64)
+    nb_high_arr = n_bar_high.to_numpy(dtype=np.float64)
+    nb_low_arr = n_bar_low.to_numpy(dtype=np.float64)
 
-    bull_failed = np.zeros(n, dtype=bool)
-    bear_failed = np.zeros(n, dtype=bool)
-    bull_extreme = np.full(n, np.nan)
-    bear_extreme = np.full(n, np.nan)
-
-    # Breakout bar flags (require close beyond)
-    nb_high = n_bar_high.to_numpy()
-    nb_low = n_bar_low.to_numpy()
-    close_arr = close.to_numpy()
-    high_arr = high.to_numpy()
-    low_arr = low.to_numpy()
-
-    # BO bar'ları önceden hesapla (close beyond + valid N_high)
-    bull_bo_arr = np.zeros(n, dtype=bool)
-    bear_bo_arr = np.zeros(n, dtype=bool)
-    for i in range(n):
-        if np.isnan(nb_high[i]) or np.isnan(nb_low[i]):
-            continue
-        if high_arr[i] > nb_high[i] and close_arr[i] > nb_high[i]:
-            bull_bo_arr[i] = True
-        if low_arr[i] < nb_low[i] and close_arr[i] < nb_low[i]:
-            bear_bo_arr[i] = True
-
-    # Failure tespiti: i bar için son 1..max_bars_to_fail barlardan birinde BO var mı?
-    # BO bar'ının level seviyesini kullanarak i'de failure check
-    for i in range(1, n):
-        # Bull BO → Short setup (bull trap)
-        for k in range(1, max_bars_to_fail + 1):
-            bo_idx = i - k
-            if bo_idx < 0:
-                break
-            if bull_bo_arr[bo_idx]:
-                level = nb_high[bo_idx]  # BO anındaki N_bar_high seviyesi
-                if not np.isnan(level) and close_arr[i] < level:
-                    bull_failed[i] = True
-                    bull_extreme[i] = high_arr[bo_idx]  # BO bar'ının swing high
-                break  # En yakın BO bar yeterli
-
-        # Bear BO → Long setup (bear trap)
-        for k in range(1, max_bars_to_fail + 1):
-            bo_idx = i - k
-            if bo_idx < 0:
-                break
-            if bear_bo_arr[bo_idx]:
-                level = nb_low[bo_idx]  # BO anındaki N_bar_low seviyesi
-                if not np.isnan(level) and close_arr[i] > level:
-                    bear_failed[i] = True
-                    bear_extreme[i] = low_arr[bo_idx]  # BO bar'ının swing low
-                break
+    bull_f, bear_f, bull_ext, bear_ext = _run_failed_bo_kernel(
+        closes=closes, highs=highs, lows=lows,
+        nb_high=nb_high_arr, nb_low=nb_low_arr,
+        max_bars_to_fail=max_bars_to_fail,
+        use_numba=use_numba,
+    )
 
     return (
-        pd.Series(bull_failed, index=df.index, name="bull_trap_short"),
-        pd.Series(bear_failed, index=df.index, name="bear_trap_long"),
-        pd.Series(bull_extreme, index=df.index, name="bull_bo_extreme"),
-        pd.Series(bear_extreme, index=df.index, name="bear_bo_extreme"),
+        pd.Series(bull_f.astype(bool), index=df.index, name="bull_trap_short"),
+        pd.Series(bear_f.astype(bool), index=df.index, name="bear_trap_long"),
+        pd.Series(bull_ext, index=df.index, name="bull_bo_extreme"),
+        pd.Series(bear_ext, index=df.index, name="bear_bo_extreme"),
     )
 
 
@@ -291,6 +420,7 @@ class BrooksFailedBreakoutStrategy(Strategy):
     def prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df.copy()
+        self.apply_tf_manifest(df)
         df = df.sort_values("ts").reset_index(drop=True).copy()
 
         # Parametreler — manifest'ten al

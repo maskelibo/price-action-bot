@@ -160,7 +160,7 @@ class TestPlaceProtectionOrdersMultiTarget:
         assert abs(float(result['tp2_price']) - expected_tp2) < 1.0
 
     def test_multi_target_qty_split(self):
-        """TP1=%30 qty, TP2=%30 qty, SL=100% qty (reduceOnly)."""
+        """TP1=%25 qty, TP2=%25 qty, SL=100% qty (reduceOnly). Runner %50."""
         from scripts.futures_trade_daily import place_protection_orders
 
         orders_placed = []
@@ -180,10 +180,10 @@ class TestPlaceProtectionOrdersMultiTarget:
             qty=qty, tp_price=1800.0, sl_price=2500.0, entry_price=2200.0,
         )
         assert len(orders_placed) == 3
-        # TP1: 30% qty
-        assert abs(orders_placed[0]['amount'] - 0.30) < 0.01
-        # TP2: 30% qty
-        assert abs(orders_placed[1]['amount'] - 0.30) < 0.01
+        # TP1: 25% qty
+        assert abs(orders_placed[0]['amount'] - 0.25) < 0.01
+        # TP2: 25% qty
+        assert abs(orders_placed[1]['amount'] - 0.25) < 0.01
         # SL: 100% qty
         assert abs(orders_placed[2]['amount'] - 1.0) < 0.01
 

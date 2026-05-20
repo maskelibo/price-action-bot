@@ -1,0 +1,88 @@
+# brooks_failed_breakout — 1h TF manifest override
+# Kaynak: Lab Scientist, SEC-S6 1h pivot feasibility, 2026-05-17
+#
+# Kalibrasyon: 15m → 1h (zaman koruyarak)
+#   lookback_period: 15m=20(5h) → 1h=8bar(8h) (1 seans yerine 1 gun ortasi resistance)
+#   max_bars_to_fail: 15m=5(75dk) → 1h=2bar(120dk) (1h'de 2 bar trap dogrulamasi)
+#   sl_atr_factor:   15m=0.7 → 1h=0.7 (oransal korundu)
+#   primary_R:       15m=1.5 → 1h=1.8 (1h hold avg uzun, R uplift)
+#   kaufman_er_period: 15m=14(3.5h) → 1h=14bar(14h) — 14 × 1h = 14h gun ortasi
+#   atr_min_pct:     15m=0.003 → 1h=0.004 (1h ATR% biraz yuksek)
+#   lookback_bars (S/R): 15m=192(48h) → 1h=48bar(48h)
+#
+# Brooks 1h beklentisi:
+#   1h failed BO retail trap'ler hala sik (1d'den daha sik, 15m'den daha az).
+#   Beklenen WR ~%62, avg_R ~+0.12 (15m'den hafif iyi, fee aside).
+
+name: brooks_failed_breakout
+version: "1.0.0-1h"
+description: "Brooks Failed Breakout / Trap reversal — 1h intraday. SEC-S6."
+
+trend_filter:
+  type: none
+  period: 0
+  required: false
+
+signals:
+  patterns:
+    - id: bull_trap_short
+      enabled: true
+      weight: 2.0
+      params:
+        lookback_period: 8             # 15m=20bar(5h) → 1h=8bar(8h)
+        max_bars_to_fail: 2            # 15m=5bar(75dk) → 1h=2bar(120dk)
+        require_close_beyond: true
+        sl_atr_factor: 0.7
+        tp_method: r_multiple
+        primary_R: 1.8                 # 15m=1.5 → 1h=1.8 (uzun hold uplift)
+
+    - id: bear_trap_long
+      enabled: true
+      weight: 2.0
+      params:
+        lookback_period: 8
+        max_bars_to_fail: 2
+        require_close_beyond: true
+        sl_atr_factor: 0.7
+        tp_method: r_multiple
+        primary_R: 1.8
+
+  structure:
+    swing:
+      fractal_n: 2
+    support_resistance:
+      lookback_bars: 48                # 15m=192(48h) → 1h=48bar(48h)
+      cluster_atr_multiplier: 0.40
+      min_touches: 2
+      max_age_bars: 48
+    require_proximity_to_sr_atr: 0.0
+
+  filters:
+    atr_min_pct: 0.004                 # 15m=0.003 → 1h=0.004
+    volume_zscore_min: 0.0
+    kaufman_er_period: 14              # 14 × 1h = 14h
+    kaufman_er_max_trend: 0.90
+
+  confluence:
+    method: weighted_sum
+    min_score: 2.0
+    bonus_if_at_sr: 0.0
+
+risk:
+  stop_loss:
+    method: swing_extreme_plus_atr
+    atr_factor: 0.7
+  take_profit:
+    method: r_multiple
+    primary_R: 1.8
+  position_sizing:
+    method: fixed_fractional
+    risk_per_trade: 0.02
+
+backtest:
+  warmup_bars: 50                      # lookback + buffer; 50 × 1h = 50h
+  fees:
+    taker: 0.00040
+    maker: -0.00010
+  slippage_bps: 6.5
+  initial_capital_usdt: 10000.0

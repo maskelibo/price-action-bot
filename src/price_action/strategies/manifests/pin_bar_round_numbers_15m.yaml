@@ -1,0 +1,125 @@
+# pin_bar_round_numbers — 15m TF manifest override
+# Kaynak: SEC-SCALP-S5 / Signal Chief 2026-05-17
+#
+# Kalibrasyon mantigi:
+#   1d ref → 15m esiti (1d = 96 × 15m)
+#
+#   round_proximity_atr=0.3  → Round number'a yakınlık: 0.3 × ATR.
+#     1d ATR buyuk (BTC ~%2-3 gunluk). 15m ATR kucuk (~%0.1-0.2).
+#     Oransal olarak 0.3 ATR her iki TF'de de gecerli; degerismez.
+#     ANCAK: 15m'de round grid'e ulasmak daha sik olur → daha fazla sinyal.
+#     Bunu vol_z filtresi dengeler.
+#
+#   wick_ratio_min=0.60  → 1d'de pin bar icin. 15m'de gurultu nedeniyle
+#     pin bar daha sik olusur ama quality duser. Esigi biraz yukselt: 0.65.
+#
+#   body_ratio_max=0.33  → 1d ile ayni. 15m'de pin govedesinin kucuk olmasi
+#     daha katı bir gereksinim — 0.30'a indir (daha temiz pin ariyoruz).
+#
+#   vol_z rolling=60bar → 1d'de 60 gun. 15m'de 60bar = 15h.
+#     96bar = 24h daha anlamli referans noktasi.
+#     (Kod seviyesinde hardcoded — Phase 4 manifest-driven yapilacak)
+#
+#   kaufman_er_period=14 → 14 × 15m = 3.5h. Intraday ER olarak makul.
+#
+#   SR lookback: 1d=120bar (4ay). 15m'de 192bar = 48h.
+#     Eski seviyelerin 15m'de gecerliligi kisa; 2 gunluk profil yeterli.
+#
+#   Round number grids (sembol spesifik, kod icinde tanimli):
+#     BTC: 10000, ETH: 500, SOL: 50 — degismedi.
+#     15m'de round number hepsi ayni fiyat seviyeleri; grid degismez.
+#
+# NOT: risk_per_trade tanimsiz — risk_phoenix_scalp_15m.yaml override eder.
+
+name: pin_bar_round_numbers
+version: "1.0.0-15m"
+description: "Pin bar at round number levels — 15m intraday parametreleri. SEC-SCALP-S5."
+
+trend_filter:
+  type: ema
+  period: 50              # 50 x 15m = 12.5h — session trend; opsiyonel (round=kendi filtre)
+  required: false         # round number reversal trend-bagimsiz calisir
+
+signals:
+  patterns:
+    - id: bullish_pin_at_round
+      enabled: true
+      weight: 2.0
+      params:
+        body_ratio_max: 0.30          # 1d=0.33; 15m'de daha temiz pin gerekli (gürültü az)
+        wick_ratio_min: 0.65          # 1d=0.60; 15m'de daha uzun wick talep et
+        round_proximity_atr: 0.3      # degismedi; oransal olarak gecerli
+
+    - id: bearish_pin_at_round
+      enabled: true
+      weight: 2.0
+      params:
+        body_ratio_max: 0.30
+        wick_ratio_min: 0.65
+        round_proximity_atr: 0.3
+
+  structure:
+    swing:
+      fractal_n: 2
+    support_resistance:
+      lookback_bars: 192              # 1d=120bar(4ay) → 15m=192bar(48h=2g)
+      cluster_atr_multiplier: 0.35   # 1d=0.50; 15m kucuk ATR
+      min_touches: 2
+      max_age_bars: 192
+    require_proximity_to_sr_atr: 0.0 # round number bizzat filtre
+
+  filters:
+    atr_min_pct: 0.002                # 1d=0.003; 15m ATR% kucuk
+    volume_zscore_min: 1.0            # 1d=0.0; 15m'de round number'da hacim ZORUNLU
+    kaufman_er_period: 14             # 14 × 15m = 3.5h; OK
+    kaufman_er_min: 0.0               # 1d ile ayni; pin=reversal, trend gucunu arama
+    bear_regime_size_factor: 0.5      # 1d ile ayni
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.5
+    bonus_if_at_sr: 0.5               # round number + S/R cakismasi = bonus
+
+risk:
+  stop_loss:
+    method: pin_tail
+    tail_atr_buffer: 0.5              # degismedi; pin tail ucu + 0.5 ATR
+  take_profit:
+    method: r_multiple
+    primary_R: 1.5                    # 1d=2.0; 15m fee+slip ile 1.5R
+  position_sizing:
+    method: fixed_fractional
+    risk_per_trade: 0.02              # Phase 3 override
+
+backtest:
+  warmup_bars: 200                    # ema200 warmup; 200 × 15m = 50h
+  fees:
+    taker: 0.00040
+    maker: -0.00010
+  slippage_bps: 7.5
+  initial_capital_usdt: 10000.0
+
+# TF-spesifik notlar:
+#
+# volume_zscore_min 0.0→1.0 en kritik degisiklik:
+#   15m'de round number'a her saat ulasiliyor — filtre olmadan cok fazla sinyal.
+#   vol_z >= 1.0: round number'da hacim spike olmasi gerektiriyor.
+#   Kurumsal activity proxy olarak kullanilir (Volman hipotezi).
+#   Ablation: 0.5 vs 1.0 vs 1.5 karsilastir.
+#
+# wick_ratio_min 0.60→0.65:
+#   15m mum gürültüsü nedeniyle pin bar daha sik olusur.
+#   0.65 daha yuksek kalite filtresi. Bu sinyal sayisini %15-25 azaltabilir.
+#
+# body_ratio_max 0.33→0.30:
+#   Daha kucuk govde = daha belirgin rejeksiyon. 15m'de noise icin kalite artar.
+#
+# Round grid 15m'de gecerlilik:
+#   BTC 10000, ETH 500 vb. seviyeleri gun boyunca birden fazla test edilir.
+#   15m'de round level'e ulasma sikliği 1d'ye gore 96× fazla.
+#   vol_z ve wick_ratio kalite filtreleri bu artisi dengeler.
+#
+# Phase 3 eylem:
+#   1. vol_z_window kodda 60→96 guncelle
+#   2. volume_zscore_min ablation: 0.5 / 1.0 / 1.5
+#   3. Sin sayisi takip: gunluk 15m pin bar at round ~ kac sinyal?

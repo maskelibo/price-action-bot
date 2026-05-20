@@ -1,0 +1,77 @@
+# ARCHIVED: 5m KILL 2026-05-17 — pool mR ≈ -0.37 at 5y span, fee-structural fail. Keep for reference / future 15m TF calibration baseline.
+# cvd_spike_fade — 5m TF manifest override
+# Kaynak: Signal Chief, SEC-SCALP-S7, 2026-05-17
+#
+# Kalibrasyon: 15m → 5m (x3)
+#   obv_lookback  : 15m=64bar(16h) → 5m=192bar(16h) [zaman koru]
+#   zscore_thresh : 15m=3.0 → 5m=3.2 [5m'de micro spike daha sik → daha siki]
+#   tp_r          : 15m=1.5 → 5m=1.2 [mean-reversion 5m'de daha hizli]
+#
+# CVD spike fade 5m'de IDEAL ortam:
+#   Retail FOMO 5m bar'larda en belirgin. Spike → reversal latency 1-3 bar.
+#   tp_r=1.2 ile yuksek WR (>%55) hedefleniyor.
+
+name: cvd_spike_fade
+version: "1.0.0-5m"
+description: "OBV z-score spike fade (CVD proxy) — 5m intraday. SEC-SCALP-S7."
+
+trend_filter:
+  type: none
+  period: 50
+  required: false
+
+signals:
+  patterns:
+    - id: obv_spike_short
+      enabled: true
+      weight: 2.0
+      params:
+        obv_lookback: 192               # 15m=64bar(16h) → 5m=192bar(16h)
+        zscore_thresh: 3.2              # 15m=3.0 → 5m=3.2 [5m gurultulu]
+        body_ratio_min: 0.5
+
+    - id: obv_spike_long
+      enabled: true
+      weight: 2.0
+      params:
+        obv_lookback: 192
+        zscore_thresh: 3.2
+        body_ratio_min: 0.5
+
+  structure:
+    swing:
+      fractal_n: 2
+    support_resistance:
+      lookback_bars: 288
+      cluster_atr_multiplier: 0.35
+      min_touches: 2
+      max_age_bars: 288
+    require_proximity_to_sr_atr: 0.0
+
+  filters:
+    atr_min_pct: 0.001
+    volume_zscore_min: 0.0              # OBV spike zaten vol filtresi; ek gerekmez
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.5
+    bonus_if_at_sr: 0.0
+
+risk:
+  stop_loss:
+    method: atr
+    atr_mult: 1.0
+  take_profit:
+    method: r_multiple
+    tp_r: 1.2                           # 15m=1.5 → 5m=1.2 [hizli mean-rev]
+  position_sizing:
+    method: fixed_fractional
+    risk_per_trade: 0.01
+
+backtest:
+  warmup_bars: 300                      # obv_lookback=192 + buffer
+  fees:
+    taker: 0.00040
+    maker: -0.00010
+  slippage_bps: 8.0
+  initial_capital_usdt: 10000.0

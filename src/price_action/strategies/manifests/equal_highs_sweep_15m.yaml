@@ -1,0 +1,111 @@
+# equal_highs_sweep — 15m TF manifest override
+# Kaynak: SEC-SCALP-S5 / Signal Chief 2026-05-17
+#
+# Kalibrasyon mantigi:
+#   1d ref → 15m esiti (1d = 96 × 15m)
+#
+#   lookback_bars=30  → 1d'de 30 gun (1 ay). Swing high'lar 1 aylik pencerede araniyor.
+#     15m'de 30bar = 7.5h. EQH olusmasi icin 1 trading gunu yeterli: 48bar = 12h.
+#     Compromise: 48bar (12h) — birden fazla seans pattern'lerini kapsar.
+#
+#   tolerance_atr=0.15  → Equal highs'in esit sayilmasi icin ATR toleransi.
+#     1d'de 0.15 ATR. 15m'de ATR kucuk; oransal 0.15 yeterli.
+#     Ancak 15m'de swing high'lar daha sik olusur ve daha kucuk farklar var.
+#     Toleransi biraz artir: 0.20 — daha fazla EQH pairi yakalar.
+#
+#   fractal_n=3  → 3-bar fractal swing confirmation. Daha buyuk fractal = daha
+#     dusuk gurultu. 1d ile ayni.
+#     ANCAK: 15m'de 3-bar fractal = 45 dak lag. Kabul edilebilir.
+#
+#   reversal_window=3  → Sweep'ten sonra 3 bar icinde reversal. 1d'de 3 gun.
+#     15m'de 3bar = 45 dak. 5bar = 75 dak daha makul (reversal'in onaylenmesi icin).
+#
+#   sl_atr_mult=0.5  → SL: sweep high/low + 0.5 ATR. Degismedi (oransal).
+#
+#   tp_r_multiple=2.5  → 1d'de EQH sweep hedefe 2.5R. 15m'de fee/slip ile 2.0R.
+#
+# NOT: risk_per_trade tanimsiz — risk_phoenix_scalp_15m.yaml override eder.
+
+name: equal_highs_sweep
+version: "1.0.0-15m"
+description: "SMC Equal Highs/Lows sweep + reversal — 15m intraday parametreleri. SEC-SCALP-S5."
+
+trend_filter:
+  type: ema
+  period: 50
+  required: false         # EQH sweep counter-trend; trend filter opsiyonel
+
+signals:
+  patterns:
+    - id: eqh_sweep_short
+      enabled: true
+      weight: 2.0
+      params:
+        lookback_bars: 48             # 1d=30bar(1ay) → 15m=48bar(12h=2 seans)
+        tolerance_atr: 0.20           # 1d=0.15; 15m'de swing eslesme toleransi arttirildi
+        fractal_n: 3                  # degismedi; 3-bar confirmation
+        reversal_window: 5            # 1d=3bar(3gun) → 15m=5bar(75dak)
+        sl_atr_mult: 0.5              # degismedi
+        tp_r_multiple: 2.0            # 1d=2.5; 15m fee+slip ile 2.0R
+
+    - id: eql_sweep_long
+      enabled: true
+      weight: 2.0
+      params:
+        lookback_bars: 48
+        tolerance_atr: 0.20
+        fractal_n: 3
+        reversal_window: 5
+        sl_atr_mult: 0.5
+        tp_r_multiple: 2.0
+
+  filters:
+    atr_min_pct: 0.002                # 1d=0.003; 15m ATR% kucuk
+    volume_zscore_min: 0.5            # 1d=0.0; sweep bar'da hacim confirmation ekle
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.5
+    bonus_if_at_sr: 0.0
+
+risk:
+  take_profit:
+    primary_R: 2.0                    # manifest'teki pattern-level ile tutarli
+
+backtest:
+  warmup_bars: 150                    # fractal_n + lookback + buffer; 150 × 15m = 37.5h
+  fees:
+    taker: 0.00040
+    maker: -0.00010
+  slippage_bps: 7.5
+  initial_capital_usdt: 10000.0
+
+# TF-spesifik notlar:
+#
+# lookback_bars 30→48 (12h):
+#   1 aylik EQH havuzunun 15m karsili 1 trading gunu.
+#   Likidite havuzlarinin 15m'de 2-3 seans arkasindan olusmasi beklenir.
+#   48bar (12h) genel coverage sagliyor. Ablation: 32 vs 48 vs 64.
+#
+# tolerance_atr 0.15→0.20:
+#   15m'de swing high'lar 1d'ye gore daha "serbest" — kucuk farklar da EQH olabilir.
+#   0.20 ile daha fazla pairing = daha fazla sinyal.
+#   Risk: fazla tolerans = zayif EQH → daha fazla false positive.
+#   volume_zscore_min=0.5 ile dengele.
+#
+# reversal_window 3→5 (75 dak):
+#   15m'de 3 bar = 45 dak. Reversal'in onaylenmesi icin daha uzun pencere.
+#   5 bar sonraya kadar close < eqh_level = short entry. Mantikli.
+#
+# tp_r_multiple 2.5→2.0:
+#   EQH sweep 1d'de genis hedef verir (range). 15m'de range kucuk.
+#   Fee+slip ile 2.0R gerçekci. Yuksek WR (>%60 beklenen) ile pozitif EV.
+#
+# _detect_equal_highs nested loop O(n*lookback*swings):
+#   15m'de n=10000+ barda ciddi performans problemi. Numba JIT kandidati.
+#   Phase 4 oncesi profil zorunlu.
+#
+# Phase 3 eylem:
+#   1. EQH detection profil — 15m'de ortalama islem suresi olc
+#   2. tolerance_atr ablation: 0.15 vs 0.20 vs 0.25
+#   3. volume_zscore_min=0.5 sweep bar'a ozel uygulama (kod refactor gerekiyor)

@@ -261,6 +261,40 @@ def test_disabled_pause_days_default(tmp_path):
     assert abs((expiry - (T0 + timedelta(days=5))).total_seconds()) < 5
 
 
+def test_subday_pause_days_15m_scalp(tmp_path):
+    """SEC-SCALP-B1: pause_days=0.5 -> 12h cool-down (int() bug regression).
+
+    Önceki int(0.5)=0 -> timedelta(days=0) -> cool-down anında expire.
+    float() cast sonrası: 0.5g = 12h gerçek cool-down.
+    """
+    cfg = {
+        "consecutive_losses": 8,
+        "consecutive_loss_pause_days": 0.5,  # 5m scalp preset
+    }
+    breaker = DDBreaker(cfg, state_path=tmp_path / "br.json")
+    breaker.update(_acct(10_000, consec=8), now=T0)
+    from datetime import datetime as _dt
+    expiry = _dt.fromisoformat(breaker.state.blocked_consecutive_until)
+    expected = T0 + timedelta(hours=12)
+    delta = abs((expiry - expected).total_seconds())
+    assert delta < 5, f"Expected ~12h cool-down, got expiry={expiry} (delta={delta}s)"
+
+
+def test_subday_pause_days_1m_scalp(tmp_path):
+    """SEC-SCALP-B1: pause_days=0.25 -> 6h cool-down."""
+    cfg = {
+        "consecutive_losses": 12,
+        "consecutive_loss_pause_days": 0.25,  # 1m scalp preset (archived ama parity)
+    }
+    breaker = DDBreaker(cfg, state_path=tmp_path / "br.json")
+    breaker.update(_acct(10_000, consec=12), now=T0)
+    from datetime import datetime as _dt
+    expiry = _dt.fromisoformat(breaker.state.blocked_consecutive_until)
+    expected = T0 + timedelta(hours=6)
+    delta = abs((expiry - expected).total_seconds())
+    assert delta < 5, f"Expected ~6h cool-down, got expiry={expiry} (delta={delta}s)"
+
+
 def test_backward_compat_no_pause_days_no_change(tmp_path):
     """Eski state JSON'da blocked_consecutive_until yoksa -> default "" (no crash)."""
     state_path = tmp_path / "br.json"

@@ -33,7 +33,7 @@ from price_action.risk.gates import (
     leverage_gate,
     liquidity_gate,
 )
-from price_action.risk.regime_filter import RegimeFilter
+from price_action.risk.regime_filter import BTCFeatures, CacheFreshnessConfig, PerStrategyRegimeFilter, RegimeCacheStatus, RegimeFilter
 
 
 # =====================================================================
@@ -191,11 +191,177 @@ class RiskOfficer:
         regime_cfg = cfg_dict.get("regime_filter", {}) or {}
         self.regime_filter: RegimeFilter = RegimeFilter(regime_cfg)
 
+        # SEC54.6d: Per-strategy regime filter (live wiring).
+        # YAML regime_filter_per_strategy block'undan lazy-load.
+        # enabled=False (default) → no-op, 1d Phoenix v2.0.4 etkilenmez.
+        per_strat_cfg = cfg_dict.get("regime_filter_per_strategy", {}) or {}
+        self.per_strategy_regime_filter: PerStrategyRegimeFilter = PerStrategyRegimeFilter(per_strat_cfg)
+        # Features cache: None → fail-safe ALLOW
+        self._regime_features_cache: BTCFeatures | None = None
+        self._regime_features_path: str = str(
+            per_strat_cfg.get("features_path", "data/regime_features_latest.parquet")
+        )
+        # SEC58.HIGH-3: Cache freshness config (config-driven thresholds).
+        # PA_REGIME_CACHE_STRICT=0 → legacy ALLOW behaviour on missing/stale cache.
+        freshness_cfg = per_strat_cfg.get("cache_freshness", {}) or {}
+        self._freshness_cfg: CacheFreshnessConfig = CacheFreshnessConfig.from_cfg(freshness_cfg)
+
+        if per_strat_cfg.get("enabled", False):
+            self._regime_features_cache, _init_status = self._load_regime_features()
+            if _init_status not in (RegimeCacheStatus.FRESH, RegimeCacheStatus.WARN):
+                self._log.bind(
+                    status=_init_status.value,
+                    path=self._regime_features_path,
+                ).warning("risk.regime_features.init_status_degraded")
+
     @classmethod
     def from_yaml(cls, path: str | Path, breaker: DDBreaker | None = None) -> RiskOfficer:
         with Path(path).open("r", encoding="utf-8") as f:
             raw = yaml.safe_load(f)
         return cls(raw or {}, breaker=breaker)
+
+    # ----- SEC54.6d: regime features loader (SEC58.HIGH-3 staleness tiers) -----
+    def _load_regime_features(
+        self,
+    ) -> tuple[BTCFeatures | None, RegimeCacheStatus]:
+        """Load BTCFeatures from parquet cache with staleness classification.
+
+        SEC58.HIGH-3 FIX: previous version returned None on any failure ->
+        downstream fail-safe ALLOW silently bypassed the capitulation filter.
+
+        Now returns (features, status) where status drives the decision:
+          FRESH       -> ALLOW + no alarm
+          WARN        -> ALLOW + WARN log + Telegram
+          REJECT      -> REJECT all signals (cron broken 24-48h)
+          HARD_REJECT -> REJECT + critical alarm (cron broken >48h)
+          MISSING     -> REJECT (strict_mode=True) or ALLOW (strict_mode=False)
+
+        Grace buffer (freshness_cfg.grace_minutes, default 30min) prevents
+        a cron that runs a few minutes late from jumping to the next tier.
+
+        Causal guarantee: parquet stores t-1 daily close features written
+        by scripts/regime_features_refresh.py at 00:01 UTC daily.
+
+        Returns:
+            (BTCFeatures | None, RegimeCacheStatus)
+        """
+        try:
+            import pandas as pd
+            from datetime import timezone as _tz
+
+            p = Path(self._regime_features_path)
+            if not p.exists():
+                self._log.bind(path=str(p)).warning(
+                    "regime_features.file_missing"
+                )
+                status = (
+                    RegimeCacheStatus.REJECT
+                    if self._freshness_cfg.strict_mode
+                    else RegimeCacheStatus.MISSING
+                )
+                return None, status
+            df = pd.read_parquet(p)
+            if df.empty:
+                self._log.bind(path=str(p)).warning(
+                    "regime_features.file_empty"
+                )
+                status = (
+                    RegimeCacheStatus.REJECT
+                    if self._freshness_cfg.strict_mode
+                    else RegimeCacheStatus.MISSING
+                )
+                return None, status
+            # Latest row (most recently written)
+            row = df.iloc[-1]
+            fetched_at_raw = row.get("fetched_at", None)
+            if fetched_at_raw is None:
+                # No fetched_at column: treat as just-loaded (assume fresh)
+                fetched_at = datetime.now(_tz.utc)
+            elif hasattr(fetched_at_raw, "to_pydatetime"):
+                fetched_at = fetched_at_raw.to_pydatetime()
+                if fetched_at.tzinfo is None:
+                    fetched_at = fetched_at.replace(tzinfo=_tz.utc)
+            else:
+                fetched_at = datetime.now(_tz.utc)
+
+            # Classify staleness
+            age_hours = (datetime.now(_tz.utc) - fetched_at).total_seconds() / 3600.0
+            status = self._freshness_cfg.classify(age_hours)
+
+            if status == RegimeCacheStatus.WARN:
+                self._log.bind(
+                    age_hours=round(age_hours, 2),
+                    warn_threshold=self._freshness_cfg.warn_hours,
+                    path=str(p),
+                ).warning("regime_features.stale.warn")
+                # Telegram alert (throttled — import lazily to avoid circular import)
+                try:
+                    from price_action.ops import get_telegram_throttle
+                    get_telegram_throttle().send_throttled(
+                        alert_type="regime_cache_stale_warn",
+                        message=(
+                            f"WARN: regime features cache is {age_hours:.1f}h old "
+                            f"(threshold {self._freshness_cfg.warn_hours}h). "
+                            f"Check scripts/regime_features_refresh.py cron."
+                        ),
+                        level="WARNING",
+                    )
+                except Exception:
+                    pass  # Telegram down -- log already above
+
+            elif status in (RegimeCacheStatus.REJECT, RegimeCacheStatus.HARD_REJECT):
+                self._log.bind(
+                    age_hours=round(age_hours, 2),
+                    status=status.value,
+                    path=str(p),
+                ).error("regime_features.stale.reject")
+                try:
+                    from price_action.ops import get_telegram_throttle
+                    lvl = "CRITICAL" if status == RegimeCacheStatus.HARD_REJECT else "ERROR"
+                    get_telegram_throttle().send_throttled(
+                        alert_type="regime_cache_stale_reject",
+                        message=(
+                            f"{lvl}: regime features cache {age_hours:.1f}h old -- "
+                            f"all signals REJECTED until cache refreshes. "
+                            f"Path: {p}"
+                        ),
+                        level=lvl,
+                    )
+                except Exception:
+                    pass
+                return None, status
+
+            ts_raw = row.get("ts", None)
+            if ts_raw is None:
+                return None, RegimeCacheStatus.MISSING
+            if hasattr(ts_raw, "date"):
+                ts_date = ts_raw.date()
+            else:
+                from datetime import date as _date
+                ts_date = _date.fromisoformat(str(ts_raw))
+
+            features = BTCFeatures(
+                ts=ts_date,
+                atr_pct_30d=float(row.get("atr_pct_30d", 0.0)),
+                return_30d=float(row.get("return_30d", 0.0)),
+                return_30d_abs_pct=float(row.get("return_30d_abs_pct", 0.0)),
+                ema200_distance_pct=float(row.get("ema200_distance_pct", 0.0)),
+                above_ema200=bool(row.get("above_ema200", True)),
+                fng_value=float(row.get("fng_value", -1.0)),  # -1 = missing (fail-safe)
+                realized_vol_7d_annualized=float(row.get("realized_vol_7d_annualized", 0.0)),
+                fetched_at=fetched_at,
+            )
+            return features, status
+
+        except Exception as exc:  # pragma: no cover (data-load defensive)
+            self._log.bind(err=str(exc)).warning("regime_features.load_exception")
+            # Exception during load: treat as MISSING
+            miss_status = (
+                RegimeCacheStatus.REJECT
+                if self._freshness_cfg.strict_mode
+                else RegimeCacheStatus.MISSING
+            )
+            return None, miss_status
 
     # ----- core -----
     def evaluate(
@@ -280,6 +446,72 @@ class RiskOfficer:
                 },
             )
 
+        # 1.8) SEC54.6d: Per-strategy regime filter (live wiring).
+        # SEC58.HIGH-3 FIX: cache staleness now fail-closed (REJECT on stale cache).
+        # Previously: _load_regime_features() -> None -> ALLOW on any failure.
+        # Now: returns (features, status); REJECT/HARD_REJECT statuses block signal.
+        #
+        # Backtest sec54_6d_regime_filter_replay.py: 4 filter combo annual +%1935,
+        # neg 8/61, mandate 5/5 (vs baseline +%1283, neg 9/61).
+        # enabled=False -> immediate no-op (1d Phoenix v2.0.4 unaffected).
+        if self.per_strategy_regime_filter.enabled:
+            btc_features, cache_status = self._load_regime_features()
+
+            # SEC58.HIGH-3: Fail-closed on stale/missing cache.
+            # REJECT and HARD_REJECT mean cron has not refreshed for >24h/48h.
+            # The capitulation halt filter (our strongest filter) would be silently
+            # disabled if we ALLOW here -- hidden alpha loss + risk exposure.
+            # PA_REGIME_CACHE_STRICT=0 restores legacy ALLOW behaviour.
+            if cache_status in (RegimeCacheStatus.REJECT, RegimeCacheStatus.HARD_REJECT):
+                return Reject(
+                    signal=signal,
+                    rejected_by="risk",
+                    reason="regime_cache_stale",
+                    detail={
+                        "cache_status": cache_status.value,
+                        "path": self._regime_features_path,
+                        "date": str(sig_date),
+                        "rationale": (
+                            "regime_features parquet stale or missing; "
+                            "check scripts/regime_features_refresh.py cron"
+                        ),
+                    },
+                )
+            elif cache_status == RegimeCacheStatus.MISSING and self._freshness_cfg.strict_mode:
+                # strict_mode=True (default): MISSING -> REJECT
+                return Reject(
+                    signal=signal,
+                    rejected_by="risk",
+                    reason="regime_cache_missing",
+                    detail={
+                        "cache_status": cache_status.value,
+                        "path": self._regime_features_path,
+                        "date": str(sig_date),
+                        "rationale": (
+                            "regime_features parquet not found; "
+                            "run scripts/regime_features_refresh.py first"
+                        ),
+                    },
+                )
+
+            allow_strat, filter_reason = self.per_strategy_regime_filter.evaluate_strategy_regime_filter(
+                strategy=signal.pattern_id,
+                side=signal.direction,
+                ts=signal.ts,
+                btc_features=btc_features,
+            )
+            if not allow_strat:
+                return Reject(
+                    signal=signal,
+                    rejected_by="risk",
+                    reason=f"regime_filter_{filter_reason}",
+                    detail={
+                        "side": signal.direction,
+                        "pattern_id": signal.pattern_id,
+                        "filter": filter_reason,
+                        "date": str(sig_date),
+                    },
+                )
         # 2) Sermaye check
         # Neden: free margin yoksa giriş yok
         if account_state.free_margin_usdt <= 0:
@@ -345,6 +577,36 @@ class RiskOfficer:
             cap = account_state.equity_usdt * max_notional_pct
             quantity *= cap / notional if notional > 0 else 0.0
             notional = quantity * price
+
+        # SEC58 FIX: Concentration-aware secondary cap (prevents concentration_gate paradox).
+        # Sorun: max_notional_pct_equity (ornek: 0.30) > max_per_symbol_pct (ornek: 0.15) ise
+        # sizing 0 pozisyonla bile concentration_gate'i gecemez.
+        # Cozum: notional'i max_per_symbol_pct sinirina ayni sembol pozisyonu dusulerek klip.
+        # Bu adim concentration_gate reddetmeden once sizing'i uyumlu kilar.
+        # Backtest etkisi: yoktur (backtest.lab.py bu cap'i uygulamiyordu — ancak
+        # backtest icin concentration_gate da uygulanmiyordu — live parity oruntusu).
+        sym_cap_for_sizing = float(cfg.concentration_limits.get("max_per_symbol_pct", 0.0))
+        if sym_cap_for_sizing > 0 and account_state.equity_usdt > 0:
+            same_sym_notional = sum(
+                p.quantity * p.current_price
+                for p in account_state.open_positions
+                if p.symbol == signal.symbol
+            )
+            sym_headroom = account_state.equity_usdt * sym_cap_for_sizing - same_sym_notional
+            if sym_headroom <= 0:
+                # No headroom at all — concentration_gate will reject cleanly.
+                pass
+            elif notional > sym_headroom:
+                # Clip: size down to fit within headroom.
+                _notional_before = notional
+                quantity *= sym_headroom / notional
+                notional = quantity * price
+                self._log.bind(
+                    symbol=signal.symbol,
+                    headroom=round(sym_headroom, 2),
+                    notional_before=round(_notional_before, 2),
+                    notional_after=round(notional, 2),
+                ).debug("risk.sizing.conc_cap_applied")
 
         # min notional
         min_notional = float(cfg.position_sizing.get("min_quantity_usdt", 20))

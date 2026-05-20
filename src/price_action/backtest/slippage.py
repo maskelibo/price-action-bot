@@ -169,7 +169,8 @@ def fetch_orderbook_snapshot(symbol: str, limit: int = 20) -> OrderBookSnapshot:
     except ImportError as e:
         raise ImportError("ccxt kurulu değil: pip install ccxt") from e
 
-    ex = ccxt.binance({"enableRateLimit": True})
+    # DQ-04 FIX (SEC54.5): futures endpoint — perp orderbook depth
+    ex = ccxt.binance({"enableRateLimit": True, "options": {"defaultType": "future"}})
     # CCXT sembol formatı BTC/USDT → binance native BTCUSDT
     book = ex.fetch_order_book(symbol, limit=limit)
 

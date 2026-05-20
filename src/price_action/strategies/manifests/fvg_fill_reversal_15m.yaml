@@ -1,0 +1,120 @@
+# fvg_fill_reversal — 15m TF manifest override
+# Kaynak: SEC-SCALP-S5 / Signal Chief 2026-05-17
+#
+# Kalibrasyon mantigi:
+#   1d ref → 15m esiti (1d = 96 × 15m)
+#
+#   fill_window=10bar  → 1d'de 10 gun (2 hafta). FVG'nin ne kadar sure "aktif" oldugu.
+#     15m'de 10bar = 150 dak (2.5h). Bu makul — FVG'ler 15m'de hizli doldurulur.
+#     Artirmak gerekmez; 15m FVG'si genellikle 1-4 bar icinde fill alir.
+#     Degismedi: 10bar (150 dak aktif FVG penceresi).
+#
+#   min_gap_atr=0.20  → Minimum FVG buyuklugu: 0.20 × ATR. Kucuk FVG'leri filtreler.
+#     1d ile ayni (oransal). 15m'de ATR kucuk ama oran tutarli.
+#     Artir: 0.25 — daha buyuk/anlamli FVG'ler. Noise azalir.
+#
+#   sl_atr_mult=0.5  → SL = FVG alt/ust siniri + 0.5 ATR. Degismedi (oransal).
+#
+#   tp_r_multiple=2.0  → 1d ile ayni. 15m'de fee+slip ile 1.5R daha gercekci.
+#     ANCAK: FVG fill 15m'de hizli gerceklesir ve otesi devam edebilir.
+#     Compromise: 1.5R (daha yuksek WR, daha az run) vs 2.0R ablation ile sec.
+#
+#   cooldown_bars=5  → Ayni FVG'den 5 bar sonra tekrar sinyal yok. 1d'de 5 gun.
+#     15m'de 5bar = 75 dak. FVG fill sonrasi daha uzun cooldown: 10bar = 150 dak.
+#
+#   vol_z rolling=60bar → 15m'de 60bar = 15h. Manifest notu olarak isaretlendi.
+#
+#   FVG olusumu (3-bar imbalance):
+#     Lookback: bar[t-2].high < bar[t].low. Bu 15m'de ayni calisir.
+#     15m'de FVG daha sik olusur (1d'ye gore 96×). fill_window=10 + cooldown=10
+#     ile sinyal sayisi makul tutulabilir.
+#
+# NOT: risk_per_trade tanimsiz — risk_phoenix_scalp_15m.yaml override eder.
+# AVANTAJ: FVG strateji mevcut PHOENIX setinde yer aliyor (production edge kaniti var).
+
+name: fvg_fill_reversal
+version: "1.0.0-15m"
+description: "FVG 3-bar imbalance fill + reclaim reversal — 15m intraday. SEC-SCALP-S5."
+
+trend_filter:
+  type: ema
+  period: 50
+  required: false         # FVG mean-reversion; trend filtre opsiyonel
+
+signals:
+  patterns:
+    - id: fvg_bull_reclaim_long
+      enabled: true
+      weight: 2.0
+      params:
+        fill_window: 10               # degismedi; 15m'de 150 dak aktif pencere
+        min_gap_atr: 0.25             # 1d=0.20; 15m'de kucuk FVG'leri at → 0.25
+        sl_atr_mult: 0.5              # degismedi
+        tp_r_multiple: 1.5            # 1d=2.0; 15m'de 1.5R gercekci
+        cooldown_bars: 10             # 1d=5bar(5gun) → 15m=10bar(150dak)
+
+    - id: fvg_bear_reclaim_short
+      enabled: true
+      weight: 2.0
+      params:
+        fill_window: 10
+        min_gap_atr: 0.25
+        sl_atr_mult: 0.5
+        tp_r_multiple: 1.5
+        cooldown_bars: 10
+
+  filters:
+    atr_min_pct: 0.002                # 1d=0.005; 15m ATR% kucuk → önemli ölçüde indirildi
+    volume_zscore_min: 0.5            # 1d=0.0; 15m noise icin ekle
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.5
+    bonus_if_at_sr: 0.0
+
+risk:
+  take_profit:
+    primary_R: 1.5                    # pattern-level ile tutarli
+
+backtest:
+  warmup_bars: 100                    # atr14 + vol_z + FVG lookback; 100 × 15m = 25h
+  fees:
+    taker: 0.00040
+    maker: -0.00010
+  slippage_bps: 7.5
+  initial_capital_usdt: 10000.0
+
+# TF-spesifik notlar:
+#
+# FVG 15m'de PHOENIX production edge:
+#   PHOENIX portfoyunde fvg_fill_reversal aktif. 15m versiyonu bu edge'i
+#   daha sik tetikleyecek. Dikkat: 1d edge != 15m edge; ayri backtest zorunlu.
+#
+# min_gap_atr 0.20→0.25:
+#   15m'de cok sayida kucuk FVG olusur (her impuls harekette).
+#   0.25 ile minimum "anlamli imbalance" filtresi. 0.20 sinyal sayisini 2-3× artirabilir.
+#   Ablation: 0.15 vs 0.20 vs 0.25 vs 0.30.
+#
+# tp_r_multiple 2.0→1.5:
+#   15m FVG genellikle tek seans icinde dolabilir; impuls devami sinirli.
+#   1.5R ile WR > %55 bekleniyor. 2.0R ile daha az WR ama buyuk kazananlar.
+#   Phase 4: her iki TP ablation ile net EV karsilastir.
+#
+# cooldown_bars 5→10 (150 dak):
+#   1d'de 5 gun cooldown mantikli. 15m'de 75 dak (5 bar) kisa.
+#   Ayni FVG bolgesinden 150 dak (10 bar) sonra yeni sinyal: re-test mantigi.
+#
+# atr_min_pct 0.005→0.002:
+#   15m ATR% tipik: BTC ~%0.05-0.15, ETH benzer. 0.005 = %0.5 threshold.
+#   15m'de neredeyse hicbir bar bu esigi asmaz (1d'de %0.5 gun ATR olarak mantikli).
+#   0.002 ile 15m ATR >=  %0.2 olan barlar secilir — donuk/dead market filtresi.
+#
+# fill_window=10 degismedi:
+#   15m'de FVG fill bekleme penceresi 10 bar = 150 dak. Gercekci.
+#   Cok genis fill_window: stale FVG'leri aktif tutar = false signal artar.
+#
+# Phase 3 eylem:
+#   1. min_gap_atr ablation: 0.20 / 0.25 / 0.30
+#   2. tp_r_multiple ablation: 1.5 vs 2.0 (EV vs WR dengesi)
+#   3. 15m FVG sinyal sikligi olc: gunluk kac FVG fill oluyor?
+#   4. vol_z_window kodda 60→96 guncelle

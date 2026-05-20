@@ -1,0 +1,190 @@
+﻿# PHOENIX-SCALP 5m RISK PRESET -- v1.0 DRAFT (2026-05-16)
+# Durum: R&D TASLAK -- Principal sign-off ZORUNLU (live degil)
+# Master plan: reports/ceo/2026-05-16_phoenix_scalp_v1_master_plan.md s4.4
+#
+# Phoenix 1d (v2.0.4) ve 15m presetten TF-scaled.
+# 5m fee fizigi: ~40,000 trade/yil x 8 bps taker = %320 erosyon baseline.
+# Post-only maker x 40k = %160 -- hala agir; risk_per_trade %1 ile minimum viable.
+# KIL KRITERI: daily breaker >5x/yil simde -> revize. fill_rate <%60 -> KILL.
+
+defaults:
+  account_currency: USDT
+  preset_name: phoenix_scalp_5m
+  bot_name: PHOENIX-SCALP-5m
+  timeframe: 5m
+  sim_only: true
+
+position_sizing:
+  method: confidence_dynamic
+  # DIFF vs 15m: %2 -> %1 (fee erosyon nedeniyle yarilandi)
+  risk_per_trade: 0.010
+  backtest_risk_pct: 0.010
+  confidence_risk_tiers:
+    - {min: 0.00, max: 0.32, risk_pct: 0.002}
+    - {min: 0.32, max: 0.42, risk_pct: 0.004}
+    - {min: 0.42, max: 0.52, risk_pct: 0.006}
+    - {min: 0.52, max: 0.58, risk_pct: 0.008}
+    - {min: 0.58, max: 1.01, risk_pct: 0.010}
+  # DIFF vs 15m: 0.15 -> 0.10 (Kelly varyans kontrolu)
+  kelly_cap: 0.10
+  min_quantity_usdt: 5
+  size_rounding: exchange_step
+  # DIFF vs 15m: 0.30 -> 0.25 (master plan tablosu)
+  max_notional_pct_equity: 0.25
+
+stop_loss:
+  method: atr
+  atr_period: 14
+  # DIFF vs 15m: 1.5 -> 1.2 (wide SL fee eater)
+  atr_multiplier: 1.2
+  structural_buffer_pct: 0.002
+  trailing:
+    enabled: true
+    method: atr_chandelier
+    atr_period: 14
+    multiplier: 1.5
+    activate_after_R: 0.8
+
+take_profit:
+  method: r_multiple
+  # DIFF vs 15m: 1.2R -> 1.0R (hizli realizasyon)
+  primary_R: 1.0
+  partial_close_at_R: 0.6
+  runner_trail: true
+
+vol_target:
+  enabled: true
+  # DIFF vs 15m: %1.0 -> %0.5 (5m bar vol daha kucuk)
+  target_atr_pct: 0.005
+  min_factor: 0.20
+  max_factor: 1.30
+
+leverage:
+  enabled: true
+  # master plan tablosu: 5m = 3 (15m ile ayni)
+  max_leverage_per_symbol: 3
+  max_portfolio_notional_x_equity: 3
+  margin_safety_ratio: 0.5
+  confidence_tiers:
+    - {min: 0.00, max: 0.32, leverage: 1}
+    - {min: 0.32, max: 0.52, leverage: 2}
+    - {min: 0.52, max: 1.01, leverage: 3}
+
+drawdown_breakers:
+  # SEC-S1 (2026-05-17): Regime-conditional daily DD (Phase 2 engineering).
+  # daily_loss_pct: base threshold (normal BTC rejim / düşük volatilite).
+  # Volatile rejimde (BTC ATR% persantil > %90) eşik ×2 = 0.06.
+  # Linear blend persantil %60-90 arası (cliff yok).
+  # Y1 bear hedefi: ~%50+ ROI (vs %30 sabit threshold ile).
+  # CV hedefi: %70-80 (vs %105 sabit threshold ile).
+  daily_loss_pct: 0.03
+  daily_loss_pct_regime_aware: true
+  daily_loss_pct_volatile_multiplier: 2.0
+  regime_percentile_low: 60
+  regime_percentile_high: 90
+  # DIFF vs 15m: %8 -> %6
+  weekly_loss_pct: 0.06
+  monthly_loss_pct: 0.99
+  monthly_halt_days: 1
+  daily_halt_days: 1
+  weekly_halt_days: 1
+  # DIFF vs 15m: long %10 -> %8, short %4 -> %3
+  monthly_loss_pct_long: 0.08
+  monthly_loss_pct_short: 0.03
+  # DIFF vs 15m: 5 -> 8 (5m'de fazla sample; 8 kayip ~3-4 saat)
+  consecutive_losses: 8
+  # KOD UYARI: breaker.py satir 128 int(pause_days) yapiyor.
+  # int(0.5) = 0 -> timedelta(days=0) -> cool-down CALISMAZ.
+  # live oncesi breaker.py duzeltilmeli: float() cast gerekli.
+  # Sprint: SEC-SCALP-B1
+  consecutive_loss_pause_days: 0.5
+  reset:
+    daily: 00:00 UTC
+    weekly: Monday 00:00 UTC
+    monthly: 1st 00:00 UTC
+
+correlation_gate:
+  enabled: true
+  max_pairwise_corr: 0.7
+  reduction_factor: 0.5
+  hard_block_at: 0.9
+
+concentration_limits:
+  # DIFF vs 15m: 16 -> 20 (master plan tablosu)
+  max_open_positions: 20
+  max_per_category_pct: 0.30
+  max_per_symbol_pct: 0.15
+  backtest_apply_concentration_gate: true
+
+regime_filter:
+  btc_capitulation_halt_enabled: true
+  atr_pct_threshold: 6.0
+  ema200_streak_days: 10
+  dd_90d_threshold_pct: -25.0
+  resume_atr_threshold: 4.0
+  resume_streak_days: 5
+
+alt_data:
+  fng_short_skip_enabled: true
+  fng_short_skip_threshold: 20
+  funding_filter_enabled: false
+
+strategy_portfolio:
+  enabled: true
+  symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - ADA/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - DOT/USDT
+    - DOGE/USDT
+    - XRP/USDT
+  # PLACEHOLDER -- Signal Chief 5m lookahead audit sonrasi aktif edilir
+  strategies: []
+  same_symbol_side_cooldown_days: 0.003
+  max_concurrent_positions: 20
+  pyramid_enabled: false
+  # DIFF vs 15m: 0.25 -> 0.30 (5m gurultu fazla)
+  signal_confidence_min: 0.30
+  expected_annual_return: 0.40
+  expected_max_dd: 0.25
+
+exit_engine:
+  multi_target: true
+  partial_close_1R: 0.50
+  partial_close_2R: 0.30
+  runner_pct: 0.20
+  break_even_after_1R: true
+  lock_1R_after_2R: true
+  runner_trail_atr: 0.5
+
+liquidity_gate:
+  # DIFF vs 15m: %0.5 -> %0.3 (5m slip 8-15 bps, alt-coin 15-30 bps)
+  max_order_to_minute_volume: 0.003
+  min_book_depth_usdt: 30000
+
+execution:
+  order_type_default: post_only_limit
+  # DIFF vs 15m: 15s -> 8s (5m bar = 300s)
+  fallback_to_market_after_sec: 8
+  # DIFF vs 15m: 15 bps -> 12 bps (master plan tablosu)
+  max_slippage_bps: 12
+  partial_fill_timeout_sec: 15
+  post_only_limit_enabled: true
+  post_only_fallback_seconds: 8
+  slippage_limit_bps: 12
+
+emergency:
+  kill_switch_keyword: HALT_TRADING
+  flatten_all_on_breaker: false
+  require_human_to_resume: true
+
+# DIFF vs 15m: $500 -> $300 (master plan tablosu)
+live_capital_cap:
+  enabled: true
+  max_equity_usdt: 300.0
+  cap_expires_at: '2026-06-16'
+  warn_threshold_pct: 0.80

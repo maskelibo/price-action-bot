@@ -18,6 +18,28 @@ from price_action.contracts import Signal, stable_hash
 from price_action.logging_config import logger
 
 
+# ---------------------------------------------------------------------------
+# Deep merge utility (YAML override icin)
+# ---------------------------------------------------------------------------
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursive dict merge: override degerler base'i ust yazimlar.
+
+    - Override'da olan anahtarlar base'dekini gecer.
+    - Her ikisi de dict ise recursive merge.
+    - Override'da olmayan base anahtarlari korunur.
+    Ornek: _deep_merge({"a": {"x": 1, "y": 2}}, {"a": {"x": 99}})
+           -> {"a": {"x": 99, "y": 2}}
+    """
+    result = dict(base)
+    for k, v in override.items():
+        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            result[k] = _deep_merge(result[k], v)
+        else:
+            result[k] = v
+    return result
+
+
 # =====================================================================
 # Manifest schema
 # =====================================================================
@@ -175,6 +197,49 @@ class Strategy(ABC):
         self.name = manifest.name
         self.version = manifest.version
         self._log = logger.bind(strategy=self.name, version=self.version)
+        # TF override durumunu takip et (tekrar uygulamayi onle)
+        self._tf_manifest_applied: str | None = None
+
+    # ----- TF manifest overlay -----
+    def apply_tf_manifest(self, df: pd.DataFrame) -> None:
+        """df'den timeframe bilgisini al, TF-specific YAML override uygula.
+
+        Cagirim: prepare_features() basinda df bos degilse.
+        Ayni TF icin birden fazla cagri no-op (idempotent).
+        Backward compat: 1d YAML yoksa (manifest yok -> bos dict) manifest degismez.
+        """
+        if df.empty:
+            return
+        tf_raw = str(df["timeframe"].iloc[0]) if "timeframe" in df.columns else "1d"
+
+        # Normalizasyon
+        from price_action.strategies.manifest_loader import (
+            load_manifest_full,
+            normalize_tf,
+        )
+        tf = normalize_tf(tf_raw)
+
+        # Tekrar uygulama engellemek icin cache
+        cache_key = f"{self.name}:{tf}"
+        if self._tf_manifest_applied == cache_key:
+            return
+
+        override = load_manifest_full(self.name, tf)
+        if override:
+            # Mevcut manifest'i raw dict'e don, merge et, yeniden validate et
+            base_raw = self.manifest.model_dump(mode="python")
+            merged_raw = _deep_merge(base_raw, override)
+            try:
+                self.manifest = StrategyManifest.model_validate(merged_raw)
+                self._log.bind(tf=tf, strategy=self.name).debug(
+                    "strategy.tf_manifest_applied"
+                )
+            except Exception as exc:
+                self._log.bind(
+                    tf=tf, strategy=self.name, err=str(exc)
+                ).warning("strategy.tf_manifest_merge_fail — default korundu")
+
+        self._tf_manifest_applied = cache_key
 
     # ----- factory -----
     @classmethod

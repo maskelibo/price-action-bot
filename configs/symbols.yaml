@@ -52,6 +52,7 @@ timeframes:
   primary: 1d
   secondary: 1w
   minor: 4h            # opsiyonel, giriş netleştirme için
+  scalp: 15m           # SEC54.5: 15m C2+V5 intraday scalp pipeline
 
 backfill:
   years: 5
