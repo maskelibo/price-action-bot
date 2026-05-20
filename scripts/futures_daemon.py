@@ -459,21 +459,28 @@ def position_check():
                 if _entry <= 0 or _side not in ('long', 'short'):
                     continue
                 # Sembolün açık SL emirleri (orderType=STOP_MARKET)
-                _sl_orders = []
+                _sl_orders = []   # (trigger, algoId, qty)
                 for o in state.get('algo_orders', []) or []:
                     if (o.get('symbol') == _sym_algo
                             and str(o.get('orderType', '')).upper() == 'STOP_MARKET'):
                         _t = o.get('triggerPrice') or o.get('stopPrice')
                         _a = o.get('algoId') or o.get('algo_id')
                         if _t and _a is not None:
-                            _sl_orders.append((float(_t), _a))
+                            try:
+                                _q = float(o.get('quantity')
+                                           or o.get('origQty') or 0)
+                            except (TypeError, ValueError):
+                                _q = 0.0
+                            _sl_orders.append((float(_t), _a, _q))
                 # En iyi mevcut SL (long→en yüksek, short→en düşük trigger)
                 _cur_sl = _cur_aid = None
+                _cur_sl_qty = 0.0
                 if _sl_orders:
-                    _cur_sl, _cur_aid = (max if _side == 'long' else min)(
+                    _cur_sl, _cur_aid, _cur_sl_qty = (
+                        max if _side == 'long' else min)(
                         _sl_orders, key=lambda t: t[0])
                 # Fazla SL'leri temizle (en iyinin dışındakiler)
-                for _t, _a in _sl_orders:
+                for _t, _a, _q in _sl_orders:
                     if _a != _cur_aid:
                         try:
                             ex.fapiPrivateDeleteAlgoOrder(
@@ -542,6 +549,32 @@ def position_check():
                             log(f"  PROT_WATCHDOG: {_sym_algo} SL eksikti → "
                                 f"kondu @ ${_sl_str} qty={_qty_str}")
                     else:
+                        # B-2 fix (CEO 2026-05-20): SL qty pozisyonu tam
+                        # kapsamıyorsa (pyramid leg / re-arm pozisyonu
+                        # büyüttü, eski SL küçük kaldı) tam qty'ye çek.
+                        # reduceOnly → güvenli; mevcut trigger fiyatı korunur.
+                        # Önce tam qty yeni SL, sonra eski kısmi SL iptal.
+                        if (_cur_sl_qty > 0
+                                and _cur_sl_qty < _contracts * 0.99):
+                            _sl_str = ex.price_to_precision(_sym_ccxt, _cur_sl)
+                            ex.create_order(
+                                symbol=_sym_ccxt, type='STOP_MARKET',
+                                side=_close_side, amount=float(_qty_str),
+                                params={'stopPrice': _sl_str,
+                                        'reduceOnly': True,
+                                        'workingType': 'MARK_PRICE'})
+                            try:
+                                ex.fapiPrivateDeleteAlgoOrder(
+                                    {'symbol': _sym_algo,
+                                     'algoId': _cur_aid})
+                            except Exception as _cx:
+                                log(f"  PROT_WATCHDOG: {_sym_algo} eski "
+                                    f"kısmi SL iptal edilemedi: "
+                                    f"{str(_cx)[:60]}")
+                            log(f"  PROT_WATCHDOG: {_sym_algo} SL qty "
+                                f"eksik ({_cur_sl_qty}/{_contracts}) → "
+                                f"tam qty'ye çekildi @ ${_sl_str}")
+                            continue
                         # SL var → ratchet: hedef daha iyiyse taşı
                         _tol = _mark * 0.0005 if _mark > 0 else 0.0
                         _better = ((_sl_price > _cur_sl + _tol) if _side == 'long'
