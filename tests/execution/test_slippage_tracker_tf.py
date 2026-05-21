@@ -177,3 +177,126 @@ def test_alarm_fires_on_tf_critical(tmp_path, capsys):
     # 25bps > 20bps → CRITICAL
     assert summary["alarm_level"] == "CRITICAL"
     assert summary["alarm_triggered"] is True
+
+
+# ── G14 fix: fill_type parametresi + notes alanı ─────────────────────────────
+
+def test_fill_type_stored_in_notes(tmp_path):
+    """G14 fix (hard review 2026-05-21): fill_type=entry/tp/sl notes alanına yazılır.
+
+    Batch D daemon çağrısı: entry fill → fill_type='entry',
+    TP fill → fill_type='tp', SL fill → fill_type='sl'.
+    notes kolonu 'fill_type=<type>' prefix ile başlar.
+    """
+    import duckdb
+    t = _tracker(tmp_path)
+    ts = datetime.now(timezone.utc)
+
+    t.record_fill(
+        fill_id="ft_entry",
+        ts=ts, symbol="BTC/USDT", strategy="engulfing",
+        side="long", expected_price=1000.0, realized_price=1001.0,
+        quantity=0.01, fee_usdt=0.08, is_maker=False,
+        order_type="market", mode="paper", tf="15m",
+        fill_type="entry",
+    )
+    t.record_fill(
+        fill_id="ft_tp",
+        ts=ts, symbol="BTC/USDT", strategy="engulfing",
+        side="long", expected_price=1020.0, realized_price=1019.5,
+        quantity=0.005, fee_usdt=0.04, is_maker=True,
+        order_type="limit", mode="paper", tf="15m",
+        fill_type="tp",
+    )
+    t.record_fill(
+        fill_id="ft_sl",
+        ts=ts, symbol="BTC/USDT", strategy="engulfing",
+        side="long", expected_price=980.0, realized_price=979.0,
+        quantity=0.005, fee_usdt=0.04, is_maker=False,
+        order_type="stop_market", mode="paper", tf="15m",
+        fill_type="sl",
+    )
+
+    con = duckdb.connect(str(tmp_path / "test_fills.duckdb"))
+    rows = {
+        row[0]: row[1]
+        for row in con.execute("SELECT fill_id, notes FROM fills ORDER BY fill_id").fetchall()
+    }
+    con.close()
+
+    assert rows["ft_entry"].startswith("fill_type=entry"), f"entry notes: {rows['ft_entry']}"
+    assert rows["ft_tp"].startswith("fill_type=tp"), f"tp notes: {rows['ft_tp']}"
+    assert rows["ft_sl"].startswith("fill_type=sl"), f"sl notes: {rows['ft_sl']}"
+
+
+def test_fill_type_default_is_entry(tmp_path):
+    """fill_type verilmezse default 'entry' notes'a yazılır (backward compat)."""
+    import duckdb
+    t = _tracker(tmp_path)
+    ts = datetime.now(timezone.utc)
+    t.record_fill(
+        fill_id="ft_default",
+        ts=ts, symbol="ETH/USDT", strategy="test",
+        side="short", expected_price=500.0, realized_price=499.5,
+        quantity=0.1, fee_usdt=0.02, is_maker=False,
+        order_type="market", mode="paper",
+        # fill_type yok → default "entry"
+    )
+    con = duckdb.connect(str(tmp_path / "test_fills.duckdb"))
+    notes = con.execute("SELECT notes FROM fills WHERE fill_id='ft_default'").fetchone()[0]
+    con.close()
+    assert notes == "fill_type=entry", f"default notes: {notes}"
+
+
+def test_fill_type_with_existing_notes(tmp_path):
+    """fill_type + mevcut notes → 'fill_type=X <eski_notes>' formatı."""
+    import duckdb
+    t = _tracker(tmp_path)
+    ts = datetime.now(timezone.utc)
+    t.record_fill(
+        fill_id="ft_combined",
+        ts=ts, symbol="SOL/USDT", strategy="pin_bar",
+        side="long", expected_price=50.0, realized_price=50.05,
+        quantity=1.0, fee_usdt=0.02, is_maker=False,
+        order_type="market", mode="paper", tf="15m",
+        fill_type="pyramid",
+        notes="leg=2 trigger=1.0R",
+    )
+    con = duckdb.connect(str(tmp_path / "test_fills.duckdb"))
+    notes = con.execute("SELECT notes FROM fills WHERE fill_id='ft_combined'").fetchone()[0]
+    con.close()
+    assert notes.startswith("fill_type=pyramid"), f"notes: {notes}"
+    assert "leg=2" in notes, f"existing notes lost: {notes}"
+
+
+def test_init_db_idempotent_on_record_fill(tmp_path):
+    """G14 fix: record_fill her çağrıda _init_db çağırır → tablo garantisi.
+
+    Senaryo: DB başka bir yerden açılmış, fills tablosu yok.
+    SlippageTracker başlatılmadan (init atlanmış gibi) direkt record_fill
+    çağrılsa bile tablo oluşur. (Test: _init_db doğrudan çağrılabilir idempotent.)
+    """
+    t = _tracker(tmp_path)
+    # Mevcut tabloyu sil (en kötü senaryo simülasyonu)
+    import duckdb
+    con = duckdb.connect(str(tmp_path / "test_fills.duckdb"))
+    con.execute("DROP TABLE IF EXISTS fills")
+    con.commit()
+    con.close()
+
+    # record_fill → _init_db → fills tablosu yeniden yaratılır
+    ts = datetime.now(timezone.utc)
+    slip = t.record_fill(
+        fill_id="rebuild_test",
+        ts=ts, symbol="ADA/USDT", strategy="test",
+        side="long", expected_price=0.5, realized_price=0.5005,
+        quantity=100.0, fee_usdt=0.01, is_maker=False,
+        order_type="market", mode="paper", tf="15m",
+        fill_type="entry",
+    )
+    assert slip >= 0.0  # slippage hesaplandı (tablo rebuild oldu)
+
+    con2 = duckdb.connect(str(tmp_path / "test_fills.duckdb"))
+    cnt = con2.execute("SELECT COUNT(*) FROM fills WHERE fill_id='rebuild_test'").fetchone()[0]
+    con2.close()
+    assert cnt == 1, f"rebuild sonrası satır yok (cnt={cnt})"

@@ -129,6 +129,7 @@ class SlippageTracker:
         client_order_id: str = "",
         notes: str = "",
         tf: str = "1d",
+        fill_type: str = "entry",
     ) -> float:
         """Fill'i kayıt altına al. Hesaplanan slippage_bps döndür.
 
@@ -139,7 +140,24 @@ class SlippageTracker:
         Args:
             tf: Timeframe bucket ("1m", "5m", "15m", "1h", "4h", "1d").
                 TF-bazlı slippage budget eşiklerini seçer.
+            fill_type: Fill türü — "entry" | "tp" | "sl" | "tp1" | "tp2" | "pyramid".
+                notes alanına eklenir; Batch D daemon fill noktasını etiketlemek için.
+                Mevcut çağrılar etkilenmez (default "entry").
+
+        G14 fix (hard review 2026-05-21): fill_type parametresi eklendi. Daemon
+        entry/TP/SL fill noktalarını etiketleyerek logs/execution JSONL + DB'ye
+        yazar. Ayrıca _init_db çağrısı burada da garantilenir (koşullu DuckDB
+        init race, farklı process'ten DB ilk açılışında schema kaçabilir).
         """
+        # G14 fix: her record_fill çağrısında schema varlığını garantile.
+        # PyramidRouter + daemon concurrent bağlantıda tablo eksik olabilir.
+        self._init_db()
+        # fill_type → notes alanına yaz (mevcut notes varsa önüne ekle)
+        _type_prefix = f"fill_type={fill_type}"
+        if notes:
+            notes = f"{_type_prefix} {notes}"
+        else:
+            notes = _type_prefix
         notional = quantity * realized_price
         if side == "long":
             slippage_bps = (realized_price - expected_price) / max(expected_price, 1e-10) * 10_000

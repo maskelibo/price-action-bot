@@ -530,6 +530,36 @@ class RiskOfficer:
                 detail={"current": len(account_state.open_positions), "max": max_open},
             )
 
+        # 3.5) SEC-G16: SIDE-CONCENTRATION GATE (lab.py parity)
+        # Backtest engine `lab.py` (sat 977-982) açık pozisyonlar arasında aynı
+        # yönde (long/short) `max_same_side_concurrent`'ten fazla varsa yeni
+        # aynı-yön trade'i atlıyor (`continue`). Live RiskOfficer aynı limiti
+        # uygulamazsa yön-konsantrasyon riski açık kalır — 15m hard review T7:
+        # 8 ardışık SHORT kaybı bu gate yokken birikti.
+        # Backward-compat: key yoksa (None) → no-op (byte-identical davranış).
+        # NOT: key position_sizing altında (lab.py:433-436 + risk_defensive.yaml
+        # parity) — concentration_limits değil. Batch A/B koordinasyon fix.
+        max_same_side = cfg.position_sizing.get("max_same_side_concurrent")
+        if max_same_side is not None:
+            max_same_side_int = int(max_same_side)
+            same_side_count = sum(
+                1
+                for p in account_state.open_positions
+                if p.side == signal.direction
+            )
+            # lab.py semantiği: same_side_count >= limit → reject (>= , not >).
+            if same_side_count >= max_same_side_int:
+                return Reject(
+                    signal=signal,
+                    rejected_by="risk",
+                    reason="same_side_concentration",
+                    detail={
+                        "side": signal.direction,
+                        "current": same_side_count,
+                        "max": max_same_side_int,
+                    },
+                )
+
         # 4) Likidite check
         # Neden: agents/risk_officer.md "Order/1m_volume ≤ %1?"
         max_v = float(cfg.liquidity_gate.get("max_order_to_minute_volume", 0.01))

@@ -133,6 +133,13 @@ class TradeJournal:
         sl_price: float,
         close_reason: Literal["tp", "sl", "time", "force"] = "tp",
     ) -> bool:
+        # G8 fix (hard review 2026-05-21): _ensure_schema her record_close çağrısında
+        # da garanti edilir. Daemon farklı DB path ile (phoenix/atlas bot JOURNAL)
+        # ilk kez TradeJournal(db_path=JOURNAL) yaptığında __init__ schema'yı kurar;
+        # ama JOURNAL başka bağlantıyla açık/boş ise (örn. equity_snapshot DuckDB
+        # exclusive lock alırsa) schema kaçabilir. __init__ + record_close çift güvence.
+        # _ensure_schema CREATE TABLE IF NOT EXISTS → idempotent, perf yükü minimax.
+        self._ensure_schema()
         """Kapanan trade'i kaydet. Idempotent — aynı trade_id 2. kez çağrılırsa False.
 
         Returns:

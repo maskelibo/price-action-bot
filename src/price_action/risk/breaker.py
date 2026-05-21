@@ -516,6 +516,15 @@ class DDBreaker:
             ).warning("breaker.monthly_short.triggered")
         return snap
 
+    # ----- G19: standalone loop helper -----
+    def update_from_account(self, account_state: "AccountState") -> dict[str, bool]:
+        """G19 — daemon 15m loop'undan sinyal-bağımsız tick çağrısı.
+
+        Sadece `update()` wrapper'ı; semantik farklılık yok.
+        Ayrı isim: çağıran kodda niyet açık olsun ("bu bir standalone tick").
+        """
+        return self.update(account_state)
+
     def _send_trigger_alarms(self) -> None:
         """Send throttled Telegram alarms for active triggers (SEC26.C-2)."""
         try:

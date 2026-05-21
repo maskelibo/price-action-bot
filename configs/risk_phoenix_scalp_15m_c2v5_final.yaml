@@ -74,6 +74,27 @@ defaults:
   # TASLAK: sim=true iken kullan; live için Principal sign-off + enabled: true
   sim_only: true
 
+# =============================================================================
+# G11/G12 FIX (hard review 2026-05-21): EXECUTION / FEE MODELI
+# =============================================================================
+# ÖNCE: bu blok YOKTU → lab.py:475 `raw.get("execution", {})` boş dict döndürüp
+# fee_bps_per_trade=0.0 (zero-fee) varsayıyordu. İdealize +%1253 backtest'inin
+# kök sebebi BUYDU — fee erozyonu hiç simüle edilmiyordu.
+#
+# Consuming code: lab.py:474-477
+#   fee_bps_per_trade = float(raw["execution"]["fee_bps_per_trade"])
+# Birim (lab.py:316 yorumu): "round-trip fee in basis points (entry + exit
+# combined)". Formül lab.py:700 base_fee_R = fee_bps_per_trade / (sl_pct*10_000)
+# tek terimle hem entry hem exit leg'ini kapsıyor → değer ROUND-TRIP yazılmalı.
+#
+# Gerçekçi değer: Binance USDM futures taker ~7.5 bps/leg (VIP-0 0.05% +
+# spread/slippage payı). Round-trip = 2 leg ≈ 15 bps. Bu, taker-only worst-case
+# senaryo (post_only maker fill ile düşer ama o henüz canlıda doğrulanmadı —
+# defensive olarak taker varsay).
+# =============================================================================
+execution:
+  fee_bps_per_trade: 15.0   # round-trip (entry+exit), Binance USDM taker ~7.5bps/leg
+
 position_sizing:
   method: confidence_dynamic
   # DIFF vs 1d: %4 → %2
@@ -94,6 +115,13 @@ position_sizing:
   size_rounding: exchange_step
   # SEC58 FIX: 0.30 -> 0.15 to match max_per_symbol_pct (0.30 caused concentration_gate REJECT at 0 positions)
   max_notional_pct_equity: 0.15  # SEC58 FIX: align with max_per_symbol_pct=0.15 (was 0.30 -> concentration_gate paradox)
+  # G16 FIX (hard review 2026-05-21): side-concentration limit — max 4 long VEYA
+  # 4 short ayni anda. 8/8 pencere AYNI YON kaybinin yapisal sebebi yon-konsantrasyon
+  # limitinin olmamasiydi. risk_defensive.yaml referans degeri = 4.
+  # NOT: lab.py:434 bu key'i `position_sizing` blogundan okuyor
+  # (ps = raw["position_sizing"]) — `concentration_limits` blogundan DEGIL.
+  # backtest_apply_concentration_gate'den bagimsiz, her zaman aktif.
+  max_same_side_concurrent: 4
 
 stop_loss:
   method: atr
@@ -281,6 +309,20 @@ regime_filter_per_strategy:
   enabled: true
   features_max_age_hours: 24    # stale → fail-safe ALLOW (conservative)
   features_path: data/regime_features_latest.parquet
+  # G5 FIX (hard review 2026-05-21): regime cache staleness tier'leri.
+  # ÖNCE blok yoktu → CacheFreshnessConfig defaults (warn 24h / reject 48h) devreye
+  # girip features_max_age_hours=24 ile uyumsuzdu (24h/48h vs 24h eşik çelişkisi).
+  # 15m bot için sıkılaştırıldı: regime features cron'u 00:01 UTC günlük yazıyor,
+  # 15m TF'de 1 günden eski rejim verisi ile trade etmek riskli.
+  # Consuming code: regime_filter.py CacheFreshnessConfig.from_cfg()
+  #   YAML path = regime_filter_per_strategy.cache_freshness
+  #   keys: warn_hours / reject_hours / hard_reject_hours / grace_minutes / strict_mode
+  cache_freshness:
+    warn_hours: 6              # 6h sonrası ALLOW + WARN log + Telegram
+    reject_hours: 24           # 24h sonrası tüm sinyaller REJECT
+    hard_reject_hours: 48      # 48h sonrası REJECT + critical alarm
+    grace_minutes: 30          # cron jitter buffer (geç çalışan cron tier atlamasın)
+    strict_mode: true          # MISSING parquet → REJECT (fail-closed)
   filters:
     # F1: anchored_vwap_reversal — range rejim skip (both sides)
     # Forensic: 2025-04 AVWAP -%560, WR %11.8, BTC ATR%<4% sıkışık range
@@ -315,12 +357,31 @@ regime_filter_per_strategy:
       side: BOTH
       btc_realized_vol_7d_annualized_gt_pct: 100.0  # 7g realized vol > 100% ann
 
-exit_engine:
+# =============================================================================
+# G13 FIX (hard review 2026-05-21): DEAD CONFIG — hiçbir kod okumuyor
+# =============================================================================
+# T5 doğruladı: `grep -rn exit_engine src/` BOŞ. Bu blok hiçbir kod tarafından
+# parse edilmiyor — ne backtest engine (lab.py) ne canlı (place_protection_orders)
+# bu key'leri okumuyor. Backtest engine kendi sabit close_pct'lerini kullanır,
+# canlı `place_protection_orders` kendi sabitlerini kullanır.
+# Blok SİLİNMEDİ çünkü dosya DRAFT — sign-off review'inde niyetin görünür kalması
+# gerek; ama AKTİF DEĞİL, runtime davranışına ETKİSİ YOK.
+#
+# G9 FIX (hard review 2026-05-21): close_pct değerleri GERÇEĞE hizalandı.
+# ÖNCE bu blok 40/30/30 diyordu; backtest engine 30/30/40 kullanıyor; canlı
+# `place_protection_orders` 25/25/50 kullanıyor — 3 farklı gerçek vardı.
+# Aşağıdaki değerler CANLI gerçeğe (25/25/50) hizalandı ki dökümantasyon
+# yanıltıcı olmasın. UYARI: bu blok yine de DEAD CONFIG — değerler sadece
+# referans/dökümantasyon amaçlı, runtime'da OKUNMUYOR. Backtest engine hâlâ
+# 30/30/40 kullanır → backtest↔canlı close_pct PARITY KIRIK (kod tarafı gap,
+# bu config fix kapsamında değil — Batch B/kod fix'e bırakıldı).
+# =============================================================================
+exit_engine:   # DEAD CONFIG — hiçbir kod okumuyor (hard review 2026-05-21)
   multi_target: true
-  # DIFF vs 1d: scalp'te daha agresif kısmi realizasyon
-  partial_close_1R: 0.40         # 1d %30 → %40
-  partial_close_2R: 0.30
-  runner_pct: 0.30               # 1d %40 → %30 (kısa hold, runner daha az)
+  # G9: canlı place_protection_orders gerçeği = TP1 %25 / TP2 %25 / runner %50
+  partial_close_1R: 0.25         # canlı reality (ÖNCE 0.40 — yanlış)
+  partial_close_2R: 0.25         # canlı reality (ÖNCE 0.30 — yanlış)
+  runner_pct: 0.50               # canlı reality (ÖNCE 0.30 — yanlış)
   break_even_after_1R: true
   lock_1R_after_2R: true
   runner_trail_atr: 0.7          # 1d 1.0 → 0.7 (daha sıkı trailing scalp'

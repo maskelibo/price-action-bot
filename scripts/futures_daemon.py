@@ -391,8 +391,10 @@ def position_check():
                             con.execute("""UPDATE futures_protection_orders SET status='filled' WHERE prot_id=?""", [prot_id])
                         if triggered is not None:
                             status_alg = triggered.get('algoStatus')
-                            log(f"PROT_FILL: {sym} {triggered_kind} HIT @ ${triggered.get('triggerPrice', 0)} (status={status_alg})")
+                            _prot_fill_px = float(triggered.get('triggerPrice', 0) or 0)
+                            log(f"PROT_FILL: {sym} {triggered_kind} HIT @ ${_prot_fill_px} (status={status_alg})")
                             # SEC26.B-3 + B-4: closed-trade journal write (canonical TradeJournal).
+                            # G14: slippage kaydı sig_row verisiyle birlikte (gerçek qty + side).
                             try:
                                 sig_row = con.execute("""
                                     SELECT signal_id, ts, symbol, side, strategy, fill_price, fill_qty, sl_price
@@ -407,6 +409,33 @@ def position_check():
                                     exit_p = float(triggered.get('triggerPrice', 0) or 0)
                                     close_reason = triggered_kind.lower()  # 'tp' | 'sl'
                                     now_close = datetime.now(timezone.utc)
+                                    # G14: TP/SL fill slippage kaydı (sig_row verisiyle)
+                                    try:
+                                        from price_action.execution.slippage_tracker import SlippageTracker as _ST_prot
+                                        _st_prot = _ST_prot()
+                                        _prot_qty = float(qty or 0.0)
+                                        _prot_notional = _prot_qty * _prot_fill_px
+                                        _prot_fee_bps = 4.0  # algo order = maker
+                                        _prot_fee_usdt = _prot_notional * _prot_fee_bps / 10_000
+                                        _st_prot.record_fill(
+                                            fill_id=f"prot_{prot_id}_{triggered_kind.lower()}",
+                                            ts=now_close,
+                                            symbol=str(sym_sig),
+                                            strategy=f"{str(strat or '')}_{triggered_kind.lower()}",
+                                            side=str(side_sig).lower(),
+                                            expected_price=_prot_fill_px,
+                                            realized_price=_prot_fill_px,
+                                            quantity=_prot_qty,
+                                            fee_usdt=_prot_fee_usdt,
+                                            is_maker=True,
+                                            order_type="algo_stop_market",
+                                            mode=os.environ.get("PA_RUN_MODE", "paper"),
+                                            exchange_order_id=str(triggered.get('algoId', '')),
+                                            fill_type=triggered_kind.lower(),  # 'tp'|'sl' — Batch C/D koordinasyon
+                                            tf="15m",
+                                        )
+                                    except Exception as _st_prot_err:
+                                        log(f"  PROT_SLIP_RECORD_ERR prot_id={prot_id}: {str(_st_prot_err)[:100]}")
                                     # Canonical writer (SEC26.B-4) — idempotent, hesaplı pnl + R.
                                     try:
                                         from price_action.execution.trade_journal import TradeJournal
@@ -504,10 +533,18 @@ def position_check():
                         _pyr_pos_obj = _pp
                         break
                 if not _intended_sl or _intended_sl <= 0:
-                    if _cur_sl is None:
+                    # G22: pyramid kaydı yok → exchange'deki mevcut SL emrini intended_sl olarak kullan.
+                    # Restart sonrası _pyramid_positions boş; borsadaki SL zaten yerleştirilmiş →
+                    # onu taban al. Bu yeterli: trailing, ratchet ve TP2 hesabı çalışmaya devam eder.
+                    # NOT: _calc_entry da borsa entry'ye düşer (aşağıdaki fallback ile uyumlu).
+                    if _cur_sl is not None and _cur_sl > 0:
+                        _intended_sl = _cur_sl
+                        log(f"  PROT_WATCHDOG_G22: {_sym_algo} pyramid kaydı yok — "
+                            f"exchange SL ${_cur_sl} intended_sl olarak kullanılıyor")
+                    else:
                         log(f"  PROT_WATCHDOG_ALARM: {_sym_algo} SL YOK + "
                             f"pyramid kaydı yok — manuel müdahale gerek")
-                    continue
+                        continue
                 # R/TP hesabı için leg-1 entry; yoksa borsa entry'ye düş
                 _calc_entry = _pyr_entry if (_pyr_entry and _pyr_entry > 0) else _entry
                 # Seçenek-D BE-protect: pyramid leg-2+ FILLED ise SL tabanı entry.
@@ -901,14 +938,67 @@ def run_15m_mode(once: bool = False) -> None:
                             else:
                                 setup_leverage(_ex_submit, sig["symbol"], _lev)
                                 _order_side = "buy" if sig["side"] == "long" else "sell"
-                                _order = _ex_submit.create_market_order(sig["symbol"], _order_side, _qty)
+
+                                # G20: Deterministik fingerprint → idempotency guard
+                                # Sinyal parmak izi: symbol + side + strategy + bar_close_ts
+                                # Format: PA_{fp[:16]} (Binance max 36 char → 19 char, güvenli)
+                                import hashlib as _hashlib
+                                _fp_src = (
+                                    f"{sig['symbol']}|{sig.get('side','')}|"
+                                    f"{sig.get('strategy','')}|"
+                                    f"{str(sig.get('bar_close_ts') or sig.get('ts',''))}"
+                                )
+                                _fp = _hashlib.sha256(_fp_src.encode()).hexdigest()[:16]
+                                _coid = f"PA_{_fp}"  # max 19 char (< 36 limit)
+
+                                from price_action.execution.idempotency import IdempotencyStore as _IdemStore
+                                _idem = _IdemStore()
+                                if _idem.is_seen(_fp):
+                                    log(f"  15M_IDEM_SKIP: {sig['symbol']} {sig.get('strategy','')} "
+                                        f"fp={_fp} — zaten gönderildi (restart/duplicate scan)")
+                                    continue
+
+                                _idem.mark_submitted(_fp, symbol=sig["symbol"], side=_order_side)
+                                _order = _ex_submit.create_market_order(
+                                    sig["symbol"], _order_side, _qty,
+                                    params={"newClientOrderId": _coid},
+                                )
                                 _avg_px = float(_order.get("average", _cur_px))
                                 _fill_qty = float(_order.get("filled", _qty))
                                 _sig_id = _uuid.uuid4().hex[:16]
+                                _idem.mark_filled(_fp, str(_order.get("id", "")), _avg_px, _fill_qty)
 
                                 log(f"  15M_FILL: [{sig['side'].upper()}] {sig['symbol']} "
                                     f"{sig.get('strategy','')} qty={_fill_qty:.4f} "
-                                    f"px=${_avg_px:.4f} lev={_lev}x id={_order.get('id','?')}")
+                                    f"px=${_avg_px:.4f} lev={_lev}x id={_order.get('id','?')} "
+                                    f"coid={_coid}")
+
+                                # G14: Entry fill slippage kaydı
+                                try:
+                                    from price_action.execution.slippage_tracker import SlippageTracker as _ST
+                                    _st = _ST()
+                                    _entry_notional = _fill_qty * _avg_px
+                                    _entry_fee_bps = 8.0  # market taker
+                                    _entry_fee_usdt = _entry_notional * _entry_fee_bps / 10_000
+                                    _st.record_fill(
+                                        fill_id=f"entry_{_sig_id}",
+                                        ts=datetime.now(timezone.utc),
+                                        symbol=sig["symbol"],
+                                        strategy=sig.get("strategy", ""),
+                                        side=sig["side"],
+                                        expected_price=_cur_px,
+                                        realized_price=_avg_px,
+                                        quantity=_fill_qty,
+                                        fee_usdt=_entry_fee_usdt,
+                                        is_maker=False,
+                                        order_type="market",
+                                        mode=os.environ.get("PA_RUN_MODE", "paper"),
+                                        exchange_order_id=str(_order.get("id", "")),
+                                        client_order_id=_coid,
+                                        tf="15m",
+                                    )
+                                except Exception as _st_err:
+                                    log(f"    15M_SLIP_ENTRY_ERR: {str(_st_err)[:100]}")
 
                                 # A2: futures_signals INSERT (1d daemon parity) — prot_check + TradeJournal akışı
                                 # bu kayıtlar olmadan tetiklenemiyordu (Signal Chief + Analyst convergence).
@@ -1070,6 +1160,28 @@ def run_15m_mode(once: bool = False) -> None:
                         position_monitor_duration_seconds.observe(pos_monitor_elapsed)
                     except Exception:
                         pass
+
+                # ------ G19: DDBreaker standalone tick (bar-close, sinyal-bağımsız) ------
+                # Breaker sadece evaluate() sırasında güncelleniyordu → sinyal gelmediğinde
+                # (düşük volatilite saatleri) DD breaker sessizce geç tetikleniyordu.
+                # Çözüm: her bar-close'da hesap durumunu breaker'a bildir.
+                try:
+                    from scripts.futures_trade_daily import get_futures_exchange, fetch_futures_state
+                    from scripts.lib.risk_integration import build_futures_account_state, load_risk_officer
+                    _g19_risk_yaml = ROOT / "configs" / "risk_phoenix_scalp_15m_c2v5_final.yaml"
+                    _g19_state_path = ROOT / "logs" / "risk" / "futures_breaker_state_15m_phoenix.json"
+                    _g19_ro = load_risk_officer(
+                        yaml_path=_g19_risk_yaml,
+                        breaker_state_path=_g19_state_path,
+                    )
+                    _g19_ex = get_futures_exchange()
+                    _g19_state = fetch_futures_state(_g19_ex)
+                    _g19_acct = build_futures_account_state(_g19_state, journal_path=JOURNAL)
+                    _g19_snap = _g19_ro.breaker.update_from_account(_g19_acct)
+                    if any(_g19_snap.values()):
+                        log(f"15M_BREAKER_TICK: triggered={_g19_snap}")
+                except Exception as _g19_err:
+                    log(f"15M_BREAKER_TICK_ERR: {str(_g19_err)[:120]}")
 
                 # ------ DMS HEARTBEAT ------
                 if dms_15m is not None:
