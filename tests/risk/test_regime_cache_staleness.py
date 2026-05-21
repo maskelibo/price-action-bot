@@ -8,11 +8,12 @@ from price_action.risk.breaker import DDBreaker
 from price_action.risk.regime_filter import CacheFreshnessConfig, RegimeCacheStatus
 from price_action.risk.sizing import AccountState, RiskOfficer
 
-_NOW = datetime.now(timezone.utc)
-
 def _make_parquet(tmp_path, age_hours, ts_date=None):
-    fetched_at = _NOW - timedelta(hours=age_hours)
-    ts_date = ts_date or ((_NOW - timedelta(days=1)).date())
+    # canlı now() — modül-seviyesi sabit (frozen _NOW) suite içinde 42s kayma
+    # yaratıp grace-boundary testlerini flaky yapıyordu.
+    _now = datetime.now(timezone.utc)
+    fetched_at = _now - timedelta(hours=age_hours)
+    ts_date = ts_date or ((_now - timedelta(days=1)).date())
     df = pd.DataFrame([{
         "ts": ts_date, "fetched_at": fetched_at,
         "atr_pct_30d": 4.0, "return_30d": 5.0, "return_30d_abs_pct": 5.0,
