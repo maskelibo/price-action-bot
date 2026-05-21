@@ -204,24 +204,34 @@ def test_threshold_4_also_triggers(tmp_path, breaker_config):
 
 
 def test_cool_down_expires_after_pause_days(tmp_path, breaker_config):
-    """5 gün sonra cool-down auto-clear, trigger=False."""
+    """DEADLOCK FIX (2026-05-21): cool-down dolunca counter HALEN eşikteyse
+    yeniden tetiklenMEZ — consec_consumed watermark eski streak'i tüketmiştir.
+    (Eski bug: aynı streak sonsuza dek yeniden tetikliyordu; bot halt'ta
+    kazanç alamadığı için kalıcı kilit.)"""
     breaker = DDBreaker(breaker_config, state_path=tmp_path / "br.json")
-    # T0: tetikle (counter=3)
+    # T0: tetikle (counter=3) → consec_consumed=3 olur
     breaker.update(_acct(10_000, consec=3), now=T0)
     assert breaker.state.triggered_consecutive is True
-    # T0 + 5g + 1h sonra check: counter halen 3 olsa bile cool-down expired -> clear
+    assert breaker.state.consec_consumed == 3
+    # T0 + 5g + 1h: cool-down expired, counter HALEN 3 (yeni kayıp yok).
+    # effective = 3 - 3 = 0 < eşik → trigger=False (deadlock kırıldı).
     future = T0 + timedelta(days=5, hours=1)
-    # Aşağıdaki update'te counter HALEN 3 — lab.py'de counter reset edildiği için bu durum
-    # gerçekçi değil ama defensive: cool-down expiry önce check edilir, sonra threshold.
-    # Counter halen >= max_consec ise YENI cool-down başlar (ardışık streak devam ediyor).
     snap = breaker.update(_acct(10_000, consec=3), now=future)
-    # Yeni cool-down başladı (eski expired, yeni tetiklendi) — bu lab.py mantığı:
-    # counter halen eşik üstündeyse yeni streak baştan başlamış demektir.
-    # Beklenti: trigger=True, ama YENI bir until timestamp'i set olmuş (~future + 5g).
+    assert snap["consecutive"] is False, "halt servis edildi — yeniden tetiklenmemeli"
+    assert breaker.state.blocked_consecutive_until == ""
+
+
+def test_new_losses_after_cooldown_retrigger(tmp_path, breaker_config):
+    """Halt servis edildikten SONRA N YENİ kayıp → yeniden tetiklenir
+    (lab.py parity: fresh streak). consec_consumed watermark üstüne sayar."""
+    breaker = DDBreaker(breaker_config, state_path=tmp_path / "br.json")
+    breaker.update(_acct(10_000, consec=3), now=T0)               # tetik, consumed=3
+    future = T0 + timedelta(days=5, hours=1)
+    breaker.update(_acct(10_000, consec=3), now=future)           # expired → serbest
+    assert breaker.state.triggered_consecutive is False
+    # 3 YENİ kayıp (counter 6) → effective = 6 - 3 = 3 >= eşik → re-trigger
+    snap = breaker.update(_acct(10_000, consec=6), now=future + timedelta(hours=1))
     assert snap["consecutive"] is True
-    from datetime import datetime as _dt
-    new_expiry = _dt.fromisoformat(breaker.state.blocked_consecutive_until)
-    assert new_expiry > T0 + timedelta(days=5)
 
 
 def test_cool_down_expires_and_counter_dropped(tmp_path, breaker_config):

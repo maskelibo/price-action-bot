@@ -45,6 +45,10 @@ class BreakerState:
     weekly_pnl: float = 0.0
     monthly_pnl: float = 0.0
     consecutive_losses: int = 0
+    # Deadlock fix (2026-05-21): trigger anında "tüketilmiş" ardışık-kayıp
+    # sayısı. effective = consecutive_losses - consec_consumed. Halt servis
+    # edildikten sonra eski streak yeniden tetiklemesin → N YENİ kayıp gerekir.
+    consec_consumed: int = 0
     daily_anchor_equity: float = 0.0
     weekly_anchor_equity: float = 0.0
     monthly_anchor_equity: float = 0.0
@@ -348,10 +352,20 @@ class DDBreaker:
                 self.state.monthly_anchor_equity > 0
                 and -self.state.monthly_pnl / self.state.monthly_anchor_equity >= self.monthly_pct
             )
-            # SEC26.B-3: Consecutive-loss cool-down semantik (lab.py parity).
-            # Lab.py: counter >= N -> cool_until = now + pause_days, counter reset.
-            # Burada: cool-down aktif iken trigger=True; süre dolunca auto-clear.
-            # Counter source: account_state.consecutive_losses (journal query).
+            # SEC26.B-3 + DEADLOCK FIX (2026-05-21): consec_consumed watermark.
+            # Lab.py'de counter trigger'da 0'a resetlenir; live counter journal'dan
+            # her tick yeniden türetildiği için reset edilemiyordu → DEADLOCK:
+            # halt servis edilse bile eski streak yeniden tetikliyordu, kazanç
+            # imkânsız (bot halt'ta) → sonsuz kilit. Çözüm: trigger anında
+            # consec_consumed = mevcut streak; etkili sayım = consecutive_losses
+            # - consec_consumed → halt sonrası N YENİ kayıp gerekir (lab.py
+            # parity). Win/streak-break → min() ile consumed aşağı iner.
+            self.state.consec_consumed = min(
+                self.state.consec_consumed, self.state.consecutive_losses
+            )
+            _effective_consec = (
+                self.state.consecutive_losses - self.state.consec_consumed
+            )
             cool_until_dt = _parse_iso(self.state.blocked_consecutive_until)
             if cool_until_dt is not None and now >= cool_until_dt:
                 # Cool-down süresi doldu -> auto-clear
@@ -361,8 +375,9 @@ class DDBreaker:
             if cool_until_dt is not None:
                 # Cool-down halen aktif (now < expiry)
                 self.state.triggered_consecutive = True
-            elif self.state.consecutive_losses >= self.max_consec:
-                # Yeni tetikleme: cool-down başlat
+            elif _effective_consec >= self.max_consec:
+                # Yeni tetikleme: streak'i tüket (consumed) + cool-down başlat
+                self.state.consec_consumed = self.state.consecutive_losses
                 self.state.blocked_consecutive_until = _fmt_iso(
                     now + timedelta(days=self.consec_pause_days)
                 )
