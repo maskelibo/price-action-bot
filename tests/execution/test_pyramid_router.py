@@ -528,6 +528,120 @@ def test_scenario5_post_only_slippage_exceeded_raises():
     idem.mark_rejected.assert_called_once()
 
 
+def test_scenario5_slip_exceeded_telemetry_recorded():
+    """SlippageExceededError → record_fill REJECTED kaydı yapılmalı (telemetri kör kalmasın)."""
+    from price_action.execution.post_only_router import SlippageExceededError
+
+    ex = MagicMock()
+    idem = MagicMock()
+    idem.is_seen.return_value = False
+    slip = MagicMock()
+
+    pos = _make_position()
+    router = PyramidRouter(
+        exchange=ex,
+        idempotency_store=idem,
+        slippage_tracker=slip,
+        post_only_enabled=True,
+        fallback_seconds=1,
+        slippage_limit_bps=25.0,
+        mode="paper",
+    )
+
+    with patch(
+        "price_action.execution.pyramid_router.place_post_only_with_fallback",
+        side_effect=SlippageExceededError(46.0, 25.0, symbol="BTC/USDT"),
+    ):
+        with pytest.raises(SlippageExceededError):
+            router.on_position_check(pos, TRIG_LEG2, TS)
+
+    # Telemetri: record_fill çağrıldı
+    slip.record_fill.assert_called_once()
+    kw = slip.record_fill.call_args.kwargs
+    # REJECTED kaydı: is_maker=False, notes'ta slip değer var
+    assert kw["is_maker"] is False
+    assert "REJECTED" in kw["notes"]
+    assert "46.0bps" in kw["notes"]
+    assert kw["order_type"] == "slip_exceeded_reverse_close"
+
+
+def test_post_only_fill_is_maker_true():
+    """post_only_filled method → is_maker=True ile slippage kaydedilmeli."""
+    mock_order = {
+        "id": "PO_MAKER_123",
+        "status": "closed",
+        "average": TRIG_LEG2,
+        "filled": 0.005,
+    }
+
+    ex = MagicMock()
+    idem = MagicMock()
+    idem.is_seen.return_value = False
+    slip = MagicMock()
+    slip.record_fill.return_value = 0.0
+
+    pos = _make_position()
+    router = PyramidRouter(
+        exchange=ex,
+        idempotency_store=idem,
+        slippage_tracker=slip,
+        post_only_enabled=True,
+        fallback_seconds=1,
+        slippage_limit_bps=25.0,
+        mode="paper",
+    )
+
+    with patch(
+        "price_action.execution.pyramid_router.place_post_only_with_fallback",
+        return_value=(mock_order, "post_only_filled"),
+    ):
+        router.on_position_check(pos, TRIG_LEG2, TS)
+
+    slip.record_fill.assert_called_once()
+    kw = slip.record_fill.call_args.kwargs
+    assert kw["is_maker"] is True
+    assert kw["order_type"] == "post_only_filled"
+
+
+def test_market_fallback_is_maker_false():
+    """market_fallback method → is_maker=False ile slippage kaydedilmeli."""
+    market_fill_px = TRIG_LEG2 + 10.0  # ~1.5bps, limit altı
+    mock_order = {
+        "id": "MK_FALL_456",
+        "status": "closed",
+        "average": market_fill_px,
+        "filled": 0.005,
+    }
+
+    ex = MagicMock()
+    idem = MagicMock()
+    idem.is_seen.return_value = False
+    slip = MagicMock()
+    slip.record_fill.return_value = 0.0
+
+    pos = _make_position()
+    router = PyramidRouter(
+        exchange=ex,
+        idempotency_store=idem,
+        slippage_tracker=slip,
+        post_only_enabled=True,
+        fallback_seconds=1,
+        slippage_limit_bps=25.0,
+        mode="paper",
+    )
+
+    with patch(
+        "price_action.execution.pyramid_router.place_post_only_with_fallback",
+        return_value=(mock_order, "market_fallback"),
+    ):
+        router.on_position_check(pos, TRIG_LEG2, TS)
+
+    slip.record_fill.assert_called_once()
+    kw = slip.record_fill.call_args.kwargs
+    assert kw["is_maker"] is False
+    assert kw["order_type"] == "market_fallback"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Idempotency: restart sırasında double-submit yok
 # ─────────────────────────────────────────────────────────────────────────────

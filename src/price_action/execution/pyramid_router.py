@@ -310,6 +310,36 @@ class PyramidRouter:
                     leg_num, slip_err.slippage_bps, self.slippage_limit_bps,
                     position.parent_position_id,
                 )
+                # Telemetri: reverse-close edilen leg'i kaydet (is_maker=False, market)
+                # _record_slippage'ı buradan doğrudan çağıramayız — fill_qty/fill_px yok.
+                # SlippageTracker'a REJECTED kaydı yazarak kör kalmamasını sağla.
+                try:
+                    _rej_fill_id = f"pyr_rej_{uuid.uuid4().hex[:12]}"
+                    self.slippage.record_fill(
+                        fill_id=_rej_fill_id,
+                        ts=ts,
+                        symbol=position.symbol,
+                        strategy=f"pyramid_leg{leg_num}_rejected",
+                        side=position.side.lower(),
+                        expected_price=trigger_price,
+                        realized_price=trigger_price,  # bilinmiyor; beklenen fiyat
+                        quantity=size,
+                        fee_usdt=0.0,
+                        is_maker=False,
+                        order_type="slip_exceeded_reverse_close",
+                        mode=self.mode,
+                        exchange_order_id="",
+                        client_order_id=client_order_id,
+                        notes=(
+                            f"pyramid leg-{leg_num} REJECTED "
+                            f"slip={slip_err.slippage_bps:.1f}bps>"
+                            f"{self.slippage_limit_bps:.1f}bps "
+                            f"pos={position.parent_position_id}"
+                        ),
+                        tf="15m",
+                    )
+                except Exception as _tel_err:
+                    log.error("PyramidRouter: slip_exceeded telemetry FAIL: %s", _tel_err)
                 raise
         else:
             # Market order (testnet / post_only_enabled=False)

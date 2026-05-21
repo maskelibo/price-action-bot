@@ -226,6 +226,9 @@ def _get_pyramid_router(exchange):
         _gr_po_enabled = bool(_gr_exec.get("post_only_limit_enabled", False))
         _gr_po_timeout = int(_gr_exec.get("post_only_fallback_seconds", 30))
         _gr_slip_limit = float(_gr_exec.get("slippage_limit_bps", 25.0))
+        # pyramid_slippage_limit_bps: entry slippage_limit_bps'den ayrı,
+        # pyramid leg market-fallback için daha geniş tolerans (default 50bps).
+        _gr_pyr_slip = float(_gr_exec.get("pyramid_slippage_limit_bps", 50.0))
         from price_action.execution.pyramid_router import PyramidRouter
         from price_action.execution.idempotency import IdempotencyStore
         from price_action.execution.slippage_tracker import SlippageTracker
@@ -235,10 +238,10 @@ def _get_pyramid_router(exchange):
             slippage_tracker=SlippageTracker(),
             post_only_enabled=_gr_po_enabled,
             fallback_seconds=_gr_po_timeout,
-            slippage_limit_bps=_gr_slip_limit,
+            slippage_limit_bps=_gr_pyr_slip,
             mode=os.environ.get("PA_RUN_MODE", "paper"),
         )
-        log(f"PYRAMID_ROUTER: başlatıldı (post_only={_gr_po_enabled}, slip_limit={_gr_slip_limit}bps)")
+        log(f"PYRAMID_ROUTER: başlatıldı (post_only={_gr_po_enabled}, slip_limit={_gr_pyr_slip}bps)")
     except Exception as exc:
         log(f"PYRAMID_ROUTER_INIT_FAIL: {exc} — pyramid devre dışı")
         _pyramid_router_instance = None
@@ -786,6 +789,8 @@ def run_15m_mode(once: bool = False) -> None:
         _pr_po_enabled = bool(_pr_exec.get("post_only_limit_enabled", False))
         _pr_po_timeout = int(_pr_exec.get("post_only_fallback_seconds", 30))
         _pr_slip_limit = float(_pr_exec.get("slippage_limit_bps", 25.0))
+        # pyramid_slippage_limit_bps: pyramid leg için ayrı market-fallback cap (default 50bps)
+        _pr_pyr_slip = float(_pr_exec.get("pyramid_slippage_limit_bps", 50.0))
         from price_action.execution.pyramid_router import PyramidRouter
         from price_action.execution.idempotency import IdempotencyStore
         from price_action.execution.slippage_tracker import SlippageTracker
@@ -795,11 +800,11 @@ def run_15m_mode(once: bool = False) -> None:
             slippage_tracker=SlippageTracker(),
             post_only_enabled=_pr_po_enabled,
             fallback_seconds=_pr_po_timeout,
-            slippage_limit_bps=_pr_slip_limit,
+            slippage_limit_bps=_pr_pyr_slip,
             mode=os.environ.get("PA_RUN_MODE", "paper"),
         )
         log(f"15M_PYRAMID: PyramidRouter başlatıldı (SEC54.3, post_only={_pr_po_enabled}, "
-            f"timeout={_pr_po_timeout}s, slip={_pr_slip_limit}bps)")
+            f"timeout={_pr_po_timeout}s, slip={_pr_pyr_slip}bps)")
     except Exception as e:
         log(f"15M_PYRAMID_WARN: {e} — pyramid hook atlanıyor")
 

@@ -99,7 +99,12 @@ execution:
   # Consuming code: futures_daemon.py 15m entry path + PyramidRouter init.
   post_only_limit_enabled: true
   post_only_fallback_seconds: 30
-  slippage_limit_bps: 25
+  slippage_limit_bps: 25         # entry leg market-fallback slippage cap
+  # Pyramid leg market-fallback cap ayrı tutulur: trigger noktasında spread
+  # genişleyebilir (fiyat geri çekilip tetik sınırında döndüğünde), 25bps entry
+  # için mantıklı ama pyramid için çok sıkı → gereksiz reverse-close kaybı.
+  # 50bps: pozisyon R boyutunun ~%0.5'i, kabul edilebilir (max 3 leg × 50bps = 150bps/yıl).
+  pyramid_slippage_limit_bps: 50
 
 position_sizing:
   method: confidence_dynamic
