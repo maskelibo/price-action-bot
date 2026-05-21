@@ -215,6 +215,17 @@ def _get_pyramid_router(exchange):
     if _pyramid_router_instance is not None:
         return _pyramid_router_instance
     try:
+        import yaml as _yaml_gr
+        _gr_yaml_path = ROOT / "configs" / "risk_phoenix_scalp_15m_c2v5_final.yaml"
+        try:
+            with open(_gr_yaml_path, "r", encoding="utf-8") as _gr_f:
+                _gr_cfg = _yaml_gr.safe_load(_gr_f) or {}
+        except Exception:
+            _gr_cfg = {}
+        _gr_exec = _gr_cfg.get("execution", {})
+        _gr_po_enabled = bool(_gr_exec.get("post_only_limit_enabled", False))
+        _gr_po_timeout = int(_gr_exec.get("post_only_fallback_seconds", 30))
+        _gr_slip_limit = float(_gr_exec.get("slippage_limit_bps", 25.0))
         from price_action.execution.pyramid_router import PyramidRouter
         from price_action.execution.idempotency import IdempotencyStore
         from price_action.execution.slippage_tracker import SlippageTracker
@@ -222,12 +233,12 @@ def _get_pyramid_router(exchange):
             exchange=exchange,
             idempotency_store=IdempotencyStore(),
             slippage_tracker=SlippageTracker(),
-            post_only_enabled=False,  # SEC54.4'te post-only aktif edilir (paper fill_rate ≥%60 sonrası)
-            fallback_seconds=30,
-            slippage_limit_bps=25.0,
+            post_only_enabled=_gr_po_enabled,
+            fallback_seconds=_gr_po_timeout,
+            slippage_limit_bps=_gr_slip_limit,
             mode=os.environ.get("PA_RUN_MODE", "paper"),
         )
-        log("PYRAMID_ROUTER: başlatıldı (post_only=False, slip_limit=25bps)")
+        log(f"PYRAMID_ROUTER: başlatıldı (post_only={_gr_po_enabled}, slip_limit={_gr_slip_limit}bps)")
     except Exception as exc:
         log(f"PYRAMID_ROUTER_INIT_FAIL: {exc} — pyramid devre dışı")
         _pyramid_router_instance = None
@@ -764,8 +775,17 @@ def run_15m_mode(once: bool = False) -> None:
         _metrics_ok = False
 
     # Pyramid router — SEC54.3 (P-04/P-05 fix: build_position_from_signal + pop on close)
+    # Post-only flag 15m YAML'den okunur (2026-05-21: paper fill rate %87.5 → enabled)
     _pyramid_router_15m = None
     try:
+        import yaml as _yaml_pr
+        _pr_yaml_path = ROOT / "configs" / "risk_phoenix_scalp_15m_c2v5_final.yaml"
+        with open(_pr_yaml_path, "r", encoding="utf-8") as _pr_f:
+            _pr_cfg = _yaml_pr.safe_load(_pr_f) or {}
+        _pr_exec = _pr_cfg.get("execution", {})
+        _pr_po_enabled = bool(_pr_exec.get("post_only_limit_enabled", False))
+        _pr_po_timeout = int(_pr_exec.get("post_only_fallback_seconds", 30))
+        _pr_slip_limit = float(_pr_exec.get("slippage_limit_bps", 25.0))
         from price_action.execution.pyramid_router import PyramidRouter
         from price_action.execution.idempotency import IdempotencyStore
         from price_action.execution.slippage_tracker import SlippageTracker
@@ -773,12 +793,13 @@ def run_15m_mode(once: bool = False) -> None:
             exchange=None,   # başlangıçta None; exchange signal submit sonrası set edilir
             idempotency_store=IdempotencyStore(),
             slippage_tracker=SlippageTracker(),
-            post_only_enabled=False,  # smoke: market order (post_only paper test sonrası açılır)
-            fallback_seconds=30,
-            slippage_limit_bps=25.0,
+            post_only_enabled=_pr_po_enabled,
+            fallback_seconds=_pr_po_timeout,
+            slippage_limit_bps=_pr_slip_limit,
             mode=os.environ.get("PA_RUN_MODE", "paper"),
         )
-        log("15M_PYRAMID: PyramidRouter başlatıldı (SEC54.3, post_only=False smoke)")
+        log(f"15M_PYRAMID: PyramidRouter başlatıldı (SEC54.3, post_only={_pr_po_enabled}, "
+            f"timeout={_pr_po_timeout}s, slip={_pr_slip_limit}bps)")
     except Exception as e:
         log(f"15M_PYRAMID_WARN: {e} — pyramid hook atlanıyor")
 
@@ -959,26 +980,74 @@ def run_15m_mode(once: bool = False) -> None:
                                     continue
 
                                 _idem.mark_submitted(_fp, symbol=sig["symbol"], side=_order_side)
-                                _order = _ex_submit.create_market_order(
-                                    sig["symbol"], _order_side, _qty,
-                                    params={"newClientOrderId": _coid},
+
+                                # ── POST-ONLY ENTRY PATH (2026-05-21) ──────────────────────────
+                                # Config-gated: post_only_limit_enabled (default False → backward-compat)
+                                # 1d pattern (futures_trade_daily.py:331-343) birebir izlendi.
+                                # Idempotency: _coid her iki yolda da geçilir.
+                                # SlippageExceededError: yakala, logla, o sinyali skip et, devam et.
+                                _15m_po_enabled = bool(
+                                    _risk_cfg.get("execution", {}).get("post_only_limit_enabled", False)
                                 )
-                                _avg_px = float(_order.get("average", _cur_px))
-                                _fill_qty = float(_order.get("filled", _qty))
+                                _15m_po_timeout = int(
+                                    _risk_cfg.get("execution", {}).get("post_only_fallback_seconds", 30)
+                                )
+                                _15m_slip_limit = float(
+                                    _risk_cfg.get("execution", {}).get("slippage_limit_bps", 25.0)
+                                )
+                                _fill_method = "market_only"
+                                try:
+                                    if _15m_po_enabled:
+                                        from price_action.execution.post_only_router import (
+                                            place_post_only_with_fallback as _po_place,
+                                            SlippageExceededError as _SlipErr,
+                                        )
+                                        _order, _fill_method = _po_place(
+                                            _ex_submit,
+                                            symbol=sig["symbol"],
+                                            side=_order_side,
+                                            qty=_qty,
+                                            target_price=_cur_px,
+                                            fallback_after_sec=_15m_po_timeout,
+                                            slippage_limit_bps=_15m_slip_limit,
+                                            client_order_id=_coid,
+                                        )
+                                        log(f"  15M_PO_ENTRY: {sig['symbol']} method={_fill_method} "
+                                            f"coid={_coid}")
+                                    else:
+                                        _order = _ex_submit.create_market_order(
+                                            sig["symbol"], _order_side, _qty,
+                                            params={"newClientOrderId": _coid},
+                                        )
+                                        _fill_method = "market_only"
+                                except Exception as _entry_exc:
+                                    # SlippageExceededError veya başka hata — sinyali skip et
+                                    _exc_name = type(_entry_exc).__name__
+                                    if "SlippageExceeded" in _exc_name:
+                                        log(f"  15M_SLIP_EXCEEDED: {sig['symbol']} {_entry_exc} — sinyal atlandı")
+                                    else:
+                                        log(f"  15M_ENTRY_ERR: {sig['symbol']} {_exc_name}: {str(_entry_exc)[:120]}")
+                                    _idem.mark_filled(_fp, "", 0.0, 0.0)  # idem kaydet (tekrar deneme engel)
+                                    continue  # bu sinyali atla, daemon devam et
+
+                                _avg_px = float(_order.get("average") or _order.get("price") or _cur_px)
+                                _fill_qty = float(_order.get("filled") or _qty)
                                 _sig_id = _uuid.uuid4().hex[:16]
                                 _idem.mark_filled(_fp, str(_order.get("id", "")), _avg_px, _fill_qty)
 
                                 log(f"  15M_FILL: [{sig['side'].upper()}] {sig['symbol']} "
                                     f"{sig.get('strategy','')} qty={_fill_qty:.4f} "
                                     f"px=${_avg_px:.4f} lev={_lev}x id={_order.get('id','?')} "
-                                    f"coid={_coid}")
+                                    f"coid={_coid} method={_fill_method}")
 
-                                # G14: Entry fill slippage kaydı
+                                # G14: Entry fill slippage kaydı — maker/taker fee method'a göre
                                 try:
                                     from price_action.execution.slippage_tracker import SlippageTracker as _ST
                                     _st = _ST()
                                     _entry_notional = _fill_qty * _avg_px
-                                    _entry_fee_bps = 8.0  # market taker
+                                    # post_only_filled → maker rebate (~4bps), market_fallback → taker (~8bps)
+                                    _is_maker = (_fill_method == "post_only_filled")
+                                    _entry_fee_bps = 4.0 if _is_maker else 8.0
                                     _entry_fee_usdt = _entry_notional * _entry_fee_bps / 10_000
                                     _st.record_fill(
                                         fill_id=f"entry_{_sig_id}",
@@ -990,8 +1059,8 @@ def run_15m_mode(once: bool = False) -> None:
                                         realized_price=_avg_px,
                                         quantity=_fill_qty,
                                         fee_usdt=_entry_fee_usdt,
-                                        is_maker=False,
-                                        order_type="market",
+                                        is_maker=_is_maker,
+                                        order_type=("limit" if _is_maker else "market"),
                                         mode=os.environ.get("PA_RUN_MODE", "paper"),
                                         exchange_order_id=str(_order.get("id", "")),
                                         client_order_id=_coid,

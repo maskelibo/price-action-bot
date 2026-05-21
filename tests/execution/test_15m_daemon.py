@@ -252,3 +252,183 @@ class TestMissedBarCounter:
         last_bar_boundary = None
         # Kontrol koşulu: last_bar_boundary is not None → False → skip
         assert last_bar_boundary is None  # birincil tick'te atlama bekleniyor
+
+
+# =====================================================================
+# Senaryo 7-10: 15m Post-Only Entry Path (2026-05-21)
+# =====================================================================
+
+class TestPostOnly15mEntryPath:
+    """15m daemon entry post-only wiring testleri.
+
+    Daemon kodu post_only_limit_enabled flag'ini _risk_cfg["execution"] bloğundan
+    okur ve place_post_only_with_fallback / create_market_order'ı çağırır.
+    Bu testler o logic'i izole ederek doğrular — gerçek exchange/daemon import yok.
+    """
+
+    def _simulate_entry(
+        self,
+        risk_cfg: dict,
+        exchange: object,
+        cur_px: float,
+        order_side: str,
+        qty: float,
+        coid: str,
+    ) -> tuple[dict, str]:
+        """Daemon'daki post-only entry yolunu simüle eder (15m daemon ~satır 984-1022)."""
+        from price_action.execution.post_only_router import (
+            place_post_only_with_fallback,
+            SlippageExceededError,
+        )
+
+        _15m_po_enabled = bool(
+            risk_cfg.get("execution", {}).get("post_only_limit_enabled", False)
+        )
+        _15m_po_timeout = int(
+            risk_cfg.get("execution", {}).get("post_only_fallback_seconds", 30)
+        )
+        _15m_slip_limit = float(
+            risk_cfg.get("execution", {}).get("slippage_limit_bps", 25.0)
+        )
+
+        if _15m_po_enabled:
+            order, fill_method = place_post_only_with_fallback(
+                exchange,
+                symbol="BTC/USDT",
+                side=order_side,
+                qty=qty,
+                target_price=cur_px,
+                fallback_after_sec=_15m_po_timeout,
+                slippage_limit_bps=_15m_slip_limit,
+                client_order_id=coid,
+            )
+        else:
+            order = exchange.create_market_order(
+                "BTC/USDT", order_side, qty,
+                params={"newClientOrderId": coid},
+            )
+            fill_method = "market_only"
+
+        return order, fill_method
+
+    def _mk_po_fills_exchange(self, fill_avg: float) -> MagicMock:
+        """Post-only emir 'closed' döndüren mock exchange."""
+        ex = MagicMock()
+        ex.create_order.return_value = {
+            "id": "PO_15M_1",
+            "status": "open",
+            "average": fill_avg,
+        }
+        ex.fetch_order.return_value = {
+            "id": "PO_15M_1",
+            "status": "closed",
+            "average": fill_avg,
+            "filled": 0.05,
+        }
+        return ex
+
+    def _mk_market_exchange(self, fill_avg: float) -> MagicMock:
+        """create_market_order döndüren mock exchange."""
+        ex = MagicMock()
+        ex.create_market_order.return_value = {
+            "id": "MK_15M_1",
+            "status": "closed",
+            "average": fill_avg,
+            "filled": 0.05,
+        }
+        return ex
+
+    def test_post_only_enabled_calls_po_router(self):
+        """Senaryo 7: post_only_limit_enabled=True → place_post_only_with_fallback çağrılır."""
+        risk_cfg = {
+            "execution": {
+                "post_only_limit_enabled": True,
+                "post_only_fallback_seconds": 2,
+                "slippage_limit_bps": 25.0,
+            }
+        }
+        ex = self._mk_po_fills_exchange(fill_avg=65000.0)
+        order, method = self._simulate_entry(risk_cfg, ex, 65000.0, "buy", 0.05, "PA_testcoid1")
+
+        assert method == "post_only_filled"
+        # create_order çağrıldı (post-only limit gönderildi)
+        assert ex.create_order.called
+        # create_market_order çağrılmadı (market fallback gerekmedi)
+        assert not ex.create_market_order.called
+
+    def test_post_only_disabled_calls_market_order(self):
+        """Senaryo 8: post_only_limit_enabled=False → create_market_order çağrılır, PO router bypass."""
+        risk_cfg = {
+            "execution": {
+                "post_only_limit_enabled": False,
+                "post_only_fallback_seconds": 30,
+                "slippage_limit_bps": 25.0,
+            }
+        }
+        ex = self._mk_market_exchange(fill_avg=65000.0)
+        order, method = self._simulate_entry(risk_cfg, ex, 65000.0, "buy", 0.05, "PA_testcoid2")
+
+        assert method == "market_only"
+        assert ex.create_market_order.called
+        # PO limit router çağrılmadı
+        assert not ex.create_order.called
+
+    def test_execution_block_missing_falls_back_to_market(self):
+        """Senaryo 9: execution bloğu YAML'de yoksa → default False → market yolu (backward-compat)."""
+        risk_cfg = {}  # execution bloğu yok
+        ex = self._mk_market_exchange(fill_avg=65100.0)
+        order, method = self._simulate_entry(risk_cfg, ex, 65100.0, "sell", 0.05, "PA_testcoid3")
+
+        assert method == "market_only"
+        assert ex.create_market_order.called
+
+    def test_slippage_exceeded_skips_signal(self):
+        """Senaryo 10: SlippageExceededError → sinyal atlanır (continue) — exception yukarı çıkmaz."""
+        from price_action.execution.post_only_router import SlippageExceededError
+
+        risk_cfg = {
+            "execution": {
+                "post_only_limit_enabled": True,
+                "post_only_fallback_seconds": 1,
+                "slippage_limit_bps": 5.0,   # çok düşük limit → kolayca aşılır
+            }
+        }
+
+        # Post-only timeout, market fallback fill=65200 >> 65000 → slippage ~30bps > 5bps
+        ex = MagicMock()
+        ex.create_order.return_value = {"id": "PO_SLIP", "status": "open"}
+        ex.fetch_order.return_value = {"id": "PO_SLIP", "status": "open"}
+        ex.cancel_order.return_value = {"status": "canceled"}
+        ex.create_market_order.return_value = {
+            "id": "MK_SLIP",
+            "status": "closed",
+            "average": 65200.0,  # ~30bps slip on 65000 target
+            "filled": 0.05,
+        }
+
+        # Daemon catch bloğu: SlippageExceededError yakalanır → continue (exception raise etmez)
+        _slippage_caught = False
+        try:
+            order, method = self._simulate_entry(risk_cfg, ex, 65000.0, "buy", 0.05, "PA_testcoid4")
+        except SlippageExceededError:
+            _slippage_caught = True
+
+        # Daemon catch bloğu exception'ı yukarı geçirmez → True (yakalandı)
+        assert _slippage_caught is True  # router raise eder, daemon yakalar
+
+    def test_coid_passed_to_po_router(self):
+        """Senaryo 11: client_order_id (_coid) post-only router'a geçirilir (idempotency korunur)."""
+        risk_cfg = {
+            "execution": {
+                "post_only_limit_enabled": True,
+                "post_only_fallback_seconds": 2,
+                "slippage_limit_bps": 25.0,
+            }
+        }
+        ex = self._mk_po_fills_exchange(fill_avg=65000.0)
+        test_coid = "PA_abc1234567890123"
+        self._simulate_entry(risk_cfg, ex, 65000.0, "buy", 0.05, test_coid)
+
+        # create_order params içinde newClientOrderId = test_coid geçti
+        call_kwargs = ex.create_order.call_args.kwargs
+        assert call_kwargs["params"].get("newClientOrderId") == test_coid

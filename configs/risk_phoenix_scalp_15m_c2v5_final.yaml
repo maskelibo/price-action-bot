@@ -94,6 +94,12 @@ defaults:
 # =============================================================================
 execution:
   fee_bps_per_trade: 15.0   # round-trip (entry+exit), Binance USDM taker ~7.5bps/leg
+  # POST-ONLY MAKER — 2026-05-21 karar (viability raporu: pool-R taker ~0, maker +110-164K sim)
+  # Fill rate ölçüldü: %87.5 (break-even %2.6). post_only_limit_enabled: true = AÇIK.
+  # Consuming code: futures_daemon.py 15m entry path + PyramidRouter init.
+  post_only_limit_enabled: true
+  post_only_fallback_seconds: 30
+  slippage_limit_bps: 25
 
 position_sizing:
   method: confidence_dynamic
