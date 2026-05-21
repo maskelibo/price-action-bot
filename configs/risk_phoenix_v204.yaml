@@ -227,6 +227,13 @@ liquidity_gate:
   min_book_depth_usdt: 100_000      # ±%1 derinlik tavanı
 
 execution:
+  # FEE PARITY FIX (2026-05-22): bu blokta fee_bps_per_trade YOKTU -> lab.py:475
+  # raw["execution"].get("fee_bps_per_trade", 0.0) = 0.0 -> backtest zero-fee idealize.
+  # "+%302/yil" rakaminin koku buydu. Lab 1d honest re-baseline (2026-05-22):
+  # fee=15bps (Binance USDM taker ~7.5bps/leg round-trip) -> honest +%276/yil,
+  # geometrik aylik +%11.67, gate 4/4 PASS. 1d genis SL (median %9.5) sayesinde
+  # fee'ye 15m'in ~7x dayanikli. (Slippage 1d icin ~10-20bps ayri kalem.)
+  fee_bps_per_trade: 15.0           # round-trip (entry+exit), taker worst-case
   order_type_default: post_only_limit
   fallback_to_market_after_sec: 30
   max_slippage_bps: 25              # 25 bps üstü → reject
