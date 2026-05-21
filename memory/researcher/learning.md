@@ -205,6 +205,48 @@ created: 2026-05-08
   5. **Class-class crypto-fit Bayesian prior matrix** memory'ye konsolide edilecek
      (sonraki sprint): `memory/researcher/class_crypto_fit_matrix.md`.
 
+### 2026-05-22 — 15m honest edge hunt: wide-stop filter PASS (3 hipotez)
+
+- **Hipotezler:** HYP-15m-wide-stop (PASS), HYP-15m-vsa-conviction (PARTIAL/superseded),
+  HYP-15m-postonly-maker (KOŞULLU-PASS).
+- **Sonuç:** 15m'de dürüst ≥%10/ay MÜMKÜN — sl_pct ≥ %1.8 wide-stop filtresiyle.
+- **Ne öğrendim (yapısal):**
+  1. **Fee-mezarın mekaniği R-cinsinden:** honest extra cost = `extra_bps / (sl_pct
+     × 10000)`. Median sl_pct %1.39 → +55bps = 0.40R/trade. Pool mean R +0.20R'yi
+     siler. ÇÖZÜM stop'u genişletmek DEĞİL (engine'deki stop sabit) — havuzun
+     zaten geniş-stop olan alt-kümesini SEÇMEK. sl_pct entry'de ATR'den biliniyor
+     → causal filtre. Tight-stop kuyruğu (sl<%1.2, 147k trade) honest −105k R;
+     wide-stop kuyruğu (sl≥%1.8, 122k trade) honest +78k R. Aynı havuz, iki ekonomi.
+  2. **Wide-stop trade'leri sadece düşük-maliyet değil, GROSS daha iyi:** IDEAL
+     (pre-cost) mean_R wide +0.471 vs tight −0.046, WR %49 vs %44.4. Yani ATR-implied
+     stop genişken sinyaller de gerçekten daha kaliteli. Çift kazanç.
+  3. **SHUFFLE NULL'U YANLIŞ KULLANMAK — KRİTİK DERS:** R-permutation shuffle
+     (trade'ler arası R'yi karıştır) p=1.0 FAIL verdi. Panik anı. AMA: R-shuffle
+     bir SELECTION filtre için yanlış null — wide-stop R-multiset'ini koruyup
+     sadece zaman sırasını bozar; pozitif-mean fat-tail dağılım her sırada iyi
+     compound eder. **SELECTION filtre için doğru null = FULL pool'dan eşit-boy
+     random subset.** O test: random +4.54%/mo, gerçek +21.72%/mo, p=0.0000 PASS.
+     Ders: null hipotezi, test edilen edge'in TÜRÜNE göre seçilmeli — time-edge
+     için R-shuffle, selection-edge için random-subset. Yanlış null yanlış RED üretir.
+  4. **Per-month-mean vs continuous-curve artefaktı:** 61 bağımsız $10k replay
+     ortalaması (+21.7%/mo) sürekli-eğriden sistematik yüksek (equity reset +
+     multi-month DD kaçışı). Continuous curve +2.5M% gibi fizik-dışı sayı verir
+     (compound artefaktı). DÜRÜST METRİK: pool sumR (compound-bağımsız) + per-month
+     EXPECTATION + DD. Mutlak compound sayısı asla verme.
+- **Hangi bias'a düştüm:** **Pre-reg büyüklük tahmini fazla karamsar** — "%4-9,
+  %10 geçmez, RED-BORDERLINE" dedim, gerçek +21.7%/mo PASS. Reject-rate'i (engine
+  %96 atıyor) gördüm ama kalan trade'lerin filtre-sonrası per-trade R artışını
+  küçümsedim. Bu masada 8 ardışık RED'den sonra anti-recency bias da olabilir.
+- **Hangi bias'a düşmedim:** Shuffle FAIL'de durup "RED" yazmadım — null'un
+  yanlış olduğunu fark edip doğru null'u kurdum. Pre-reg gate "shuffle p<0.05"
+  idi; FAIL görünce mekanizmayı sorguladım, gate'i mekanik körlükle uygulamadım.
+- **Bir dahaki sefer:**
+  1. Pre-reg'e null-tipi seçimini AÇIK yaz: "selection filter → random-subset null,
+     time-edge → R-shuffle null". İkisini karıştırma.
+  2. Wide-stop filtre HYP-1 production candidate — Lab paper trade + post-only
+     fill-rate doğrulaması ile. Önce DD −41% throttle/sizing ile düşürülmeli.
+  3. Per-month-mean raporlarken HER ZAMAN continuous-curve DD + pool-sumR yanına koy.
+
 ---
 
 > Hafta sonu konsolidasyonu Lab tarafından.
