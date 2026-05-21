@@ -702,9 +702,14 @@ def run_15m_mode(once: bool = False) -> None:
     """
     try:
         from price_action.execution.dead_mans_switch import DeadMansSwitch
-        dms_15m = DeadMansSwitch(exchange=None, service_name="futures_daemon_15m", tf="15m")
+        from scripts.futures_trade_daily import get_futures_exchange as _get_fx_dms
+        # G21 fix (hard review 2026-05-21): DMS'e gerçek exchange ver — eskiden
+        # exchange=None idi → _emergency_flatten pozisyon kapatamıyordu (sahte
+        # güvenlik). Ayrı instance: DMS watchdog thread'i ana loop ile çakışmasın.
+        _dms_exchange = _get_fx_dms()
+        dms_15m = DeadMansSwitch(exchange=_dms_exchange, service_name="futures_daemon_15m", tf="15m")
         dms_15m.start()
-        log("15M_DMS: başlatıldı (tf=15m, heartbeat=20s, timeout=1800s)")
+        log("15M_DMS: başlatıldı (tf=15m, heartbeat=20s, timeout=1800s, flatten AKTİF)")
     except Exception as e:
         log(f"15M_DMS_INIT_ERROR: {e} — DMS devre dışı, devam ediyor")
         dms_15m = None

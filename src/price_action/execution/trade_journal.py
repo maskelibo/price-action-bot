@@ -141,11 +141,15 @@ class TradeJournal:
 
         No-clip: realized_pnl çok büyük olsa bile clip etmiyoruz.
         """
-        # UTC normalize
-        if ts_open.tzinfo is None:
-            ts_open = ts_open.replace(tzinfo=timezone.utc)
-        if ts_close.tzinfo is None:
-            ts_close = ts_close.replace(tzinfo=timezone.utc)
+        # UTC normalize — G7 fix (hard review 2026-05-21):
+        # futures_trades_closed.ts_* kolonları tz-NAIVE TIMESTAMP. tz-aware
+        # datetime insert edilince DuckDB connector yerel saate (UTC+3) çevirip
+        # naive yazıyordu → +3h kayma. Çözüm: aware ise UTC'ye çevir + tzinfo
+        # strip; naive ise UTC varsay (caller sözleşmesi), dokunma.
+        if ts_open.tzinfo is not None:
+            ts_open = ts_open.astimezone(timezone.utc).replace(tzinfo=None)
+        if ts_close.tzinfo is not None:
+            ts_close = ts_close.astimezone(timezone.utc).replace(tzinfo=None)
 
         side = side.lower()  # type: ignore[assignment]
         realized_pnl = _compute_realized_pnl(entry_price, exit_price, qty, side)
@@ -203,10 +207,12 @@ class TradeJournal:
 
         Boş aralık veya tablo yokken 0.0.
         """
-        if start_utc.tzinfo is None:
-            start_utc = start_utc.replace(tzinfo=timezone.utc)
-        if end_utc.tzinfo is None:
-            end_utc = end_utc.replace(tzinfo=timezone.utc)
+        # G7 fix (hard review 2026-05-21): ts_close kolonu naive-UTC; sorgu
+        # parametreleri de naive-UTC olmalı — tz-aware ise yerel saate kayar.
+        if start_utc.tzinfo is not None:
+            start_utc = start_utc.astimezone(timezone.utc).replace(tzinfo=None)
+        if end_utc.tzinfo is not None:
+            end_utc = end_utc.astimezone(timezone.utc).replace(tzinfo=None)
         con = duckdb.connect(self.db_path, read_only=True)
         try:
             row = con.execute(
