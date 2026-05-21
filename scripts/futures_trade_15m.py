@@ -85,7 +85,9 @@ def _get_parallel_workers() -> int:
 _BOT_NAME = os.environ.get("PA_BOT_NAME", "phoenix").lower()
 if _BOT_NAME == "phoenix":
     JOURNAL = ROOT / "data" / "futures_journal_15m_phoenix.duckdb"
-    RISK_YAML = ROOT / "configs" / "risk_phoenix_v204.yaml"
+    # G4 fix (hard review 2026-05-21): 15m bot 15m config kullanmalı —
+    # eskiden risk_phoenix_v204.yaml (1d config) yükleniyordu.
+    RISK_YAML = ROOT / "configs" / "risk_phoenix_scalp_15m_c2v5_final.yaml"
     BREAKER_STATE = ROOT / "logs" / "risk" / "futures_breaker_state_15m_phoenix.json"
 else:
     JOURNAL = ROOT / "data" / "futures_journal_15m.duckdb"
@@ -529,7 +531,9 @@ def run_15m(dry_run: bool = False) -> None:
     account = build_futures_account_state(state, journal_path=JOURNAL)
 
     # Cooldown filter
-    cooldown_days = int(
+    # G3 fix (hard review 2026-05-21): float — int() cast 0.010 günü (15dk) 0'a
+    # yuvarlayıp cooldown'u tamamen bypass ediyordu; lab.py float semantiği.
+    cooldown_days = float(
         risk_cfg.get("strategy_portfolio", {}).get("same_symbol_side_cooldown_days", 1)
     )
     if cooldown_days > 0:
@@ -555,7 +559,7 @@ def run_15m(dry_run: bool = False) -> None:
             ticker = exchange.fetch_ticker(sym)
             cur_px = ticker["last"]
 
-            signal_obj = build_signal_from_scan(s, venue="binance")
+            signal_obj = build_signal_from_scan(s, venue="binance", timeframe="15m")
             decision = risk_officer.evaluate(
                 signal_obj, account,
                 market_price=cur_px,

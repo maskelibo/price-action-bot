@@ -81,7 +81,7 @@ def load_risk_officer(
 # Signal builder
 # =====================================================================
 
-def build_signal_from_scan(s: dict, *, venue: str = "binance") -> Signal:
+def build_signal_from_scan(s: dict, *, venue: str = "binance", timeframe: str = "1d") -> Signal:
     """scan_signals()'tan dönen dict → Pydantic Signal contract.
 
     scan_signals çıktısı:
@@ -110,7 +110,7 @@ def build_signal_from_scan(s: dict, *, venue: str = "binance") -> Signal:
         ts=ts,
         venue=venue,
         symbol=s["symbol"],
-        timeframe="1d",
+        timeframe=timeframe,
         direction=s["side"],
         pattern_id=s.get("strategy", "unknown"),
         confluence_score=float(s.get("confluence", 0)),

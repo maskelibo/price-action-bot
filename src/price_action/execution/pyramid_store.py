@@ -43,7 +43,7 @@ from price_action.execution.pyramid_router import (
 
 log = logging.getLogger(__name__)
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
 DEFAULT_DB = ROOT / "data" / "pyramid_store.duckdb"
 
 _DDL_POSITIONS = """

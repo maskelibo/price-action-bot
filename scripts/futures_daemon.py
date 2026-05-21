@@ -875,7 +875,7 @@ def run_15m_mode(once: bool = False) -> None:
                         _returns_df = _shared_returns_df
                         _ticker = _ex_submit.fetch_ticker(sig["symbol"])
                         _cur_px = float(_ticker["last"])
-                        _signal_obj = build_signal_from_scan(sig, venue="binance")
+                        _signal_obj = build_signal_from_scan(sig, venue="binance", timeframe="15m")
                         _decision = _risk_officer.evaluate(
                             _signal_obj, _account,
                             market_price=_cur_px,

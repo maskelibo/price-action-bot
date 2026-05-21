@@ -38,7 +38,7 @@ import duckdb
 
 from price_action.execution.heartbeat_watchdog import HeartbeatWatchdog
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
 DEFAULT_DB = ROOT / "data" / "idempotency.duckdb"
 KILL_SWITCH_PATH = ROOT / "logs" / "kill_switch.json"
 
