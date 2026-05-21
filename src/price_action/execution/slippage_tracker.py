@@ -34,7 +34,7 @@ from typing import Any
 
 import duckdb
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
 DEFAULT_DB = ROOT / "data" / "execution_fills.duckdb"
 LOG_DIR = ROOT / "logs" / "execution"
 

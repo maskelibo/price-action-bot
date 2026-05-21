@@ -142,7 +142,7 @@ def _load_4h_data(symbol: str, venue: str = "binance") -> pd.DataFrame | None:
     try:
         import duckdb
         from pathlib import Path
-        db_path = Path(__file__).resolve().parents[4] / "data" / "market.duckdb"
+        db_path = Path(__file__).resolve().parents[3] / "data" / "market.duckdb"  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı, 4h MTF sessizce ölüydü)
         if not db_path.exists():
             return None
         con = duckdb.connect(str(db_path), read_only=True)

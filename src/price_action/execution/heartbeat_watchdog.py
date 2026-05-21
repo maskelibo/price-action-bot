@@ -38,7 +38,7 @@ class HeartbeatWatchdog:
         if heartbeat_file:
             self._heartbeat_file = Path(heartbeat_file)
         else:
-            root = Path(__file__).resolve().parents[4]
+            root = Path(__file__).resolve().parents[3]  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
             self._heartbeat_file = root / "data" / f"dms_heartbeat_{service_name}.txt"
 
         # Ensure parent dir exists
