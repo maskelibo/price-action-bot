@@ -766,6 +766,19 @@ def run_15m_mode(once: bool = False) -> None:
     Stale signal guard: >30 dk → REJECT (DQ-02)
     Pyramid hook: SEC54.3 pyramid_router.on_position_check (graceful if not yet present)
     """
+    # WIRE-widestop fix (2026-05-22): 15m daemon journal-tablo init.
+    # run_15m_mode init_futures_journal()'i HİÇ çağırmıyordu → taze
+    # futures_journal.duckdb'de futures_protection_orders / futures_signals vb.
+    # tablolar yoktu (PROT_CHECK ERROR + ilk pozisyonda INSERT patlardı). 1d yolu
+    # (_init_dead_mans_switch) bunu yapıyor; 15m yolu atlamıştı. CREATE TABLE IF
+    # NOT EXISTS → idempotent, mevcut DB'ye zarar vermez.
+    try:
+        from scripts.futures_trade_daily import init_futures_journal
+        init_futures_journal()
+        log("15M_JOURNAL_INIT: futures_journal tabloları hazır")
+    except Exception as _ji_err:
+        log(f"15M_JOURNAL_INIT_ERR: {_ji_err} — journal tabloları eksik kalabilir")
+
     try:
         from price_action.execution.dead_mans_switch import DeadMansSwitch
         from scripts.futures_trade_daily import get_futures_exchange as _get_fx_dms
