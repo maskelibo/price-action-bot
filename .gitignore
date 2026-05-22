@@ -18,9 +18,12 @@ venv/
 *.env
 
 # Data & artifacts
-data/
-!data/.gitkeep
-!data/README.md
+# NOTE: leading slash anchors to repo root. Unanchored `data/` also matched
+# the SOURCE package src/price_action/data/ and silently excluded it from git
+# (broke `from price_action.data.store import OHLCVStore`). Keep the slash.
+/data/
+!/data/.gitkeep
+!/data/README.md
 artifacts/
 reports/*
 !reports/PRODUCTION_BENCHMARK.md
