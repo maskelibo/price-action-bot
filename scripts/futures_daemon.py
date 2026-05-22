@@ -62,6 +62,21 @@ LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 LAST_SCAN_STATE.parent.mkdir(parents=True, exist_ok=True)
 
 
+# WIRE-widestop (2026-05-22): 15m risk config path — env-overridable.
+# Default = c2v5 final (live behavior UNCHANGED). To run the wide-stop deploy
+# candidate in paper/shadow without any code change:
+#   PA_15M_CONFIG=configs/risk_phoenix_scalp_15m_widestop.yaml \
+#       python scripts/futures_daemon.py --timeframe 15m
+# Rollback = unset PA_15M_CONFIG. See DEPLOY_widestop_15m.md.
+def _risk_config_15m() -> Path:
+    """Resolve the active 15m risk config (PA_15M_CONFIG override or c2v5)."""
+    _override = os.environ.get("PA_15M_CONFIG", "").strip()
+    if _override:
+        _p = Path(_override)
+        return _p if _p.is_absolute() else (ROOT / _p)
+    return ROOT / "configs" / "risk_phoenix_scalp_15m_c2v5_final.yaml"
+
+
 def _load_last_scan_date() -> date | None:
     """Restart'a dayanıklı: son başarılı DAILY_SCAN tarihini oku."""
     if not LAST_SCAN_STATE.exists():
@@ -216,7 +231,7 @@ def _get_pyramid_router(exchange):
         return _pyramid_router_instance
     try:
         import yaml as _yaml_gr
-        _gr_yaml_path = ROOT / "configs" / "risk_phoenix_scalp_15m_c2v5_final.yaml"
+        _gr_yaml_path = _risk_config_15m()
         try:
             with open(_gr_yaml_path, "r", encoding="utf-8") as _gr_f:
                 _gr_cfg = _yaml_gr.safe_load(_gr_f) or {}
@@ -782,7 +797,7 @@ def run_15m_mode(once: bool = False) -> None:
     _pyramid_router_15m = None
     try:
         import yaml as _yaml_pr
-        _pr_yaml_path = ROOT / "configs" / "risk_phoenix_scalp_15m_c2v5_final.yaml"
+        _pr_yaml_path = _risk_config_15m()
         with open(_pr_yaml_path, "r", encoding="utf-8") as _pr_f:
             _pr_cfg = _yaml_pr.safe_load(_pr_f) or {}
         _pr_exec = _pr_cfg.get("execution", {})
@@ -807,6 +822,26 @@ def run_15m_mode(once: bool = False) -> None:
             f"timeout={_pr_po_timeout}s, slip={_pr_pyr_slip}bps)")
     except Exception as e:
         log(f"15M_PYRAMID_WARN: {e} — pyramid hook atlanıyor")
+
+    # WIRE-widestop (2026-05-22): 15m wide-stop deploy filter threshold.
+    # Reject signals whose entry sl_pct = |entry - sl| / entry < sl_pct_min.
+    # Read once at startup from the active 15m config's execution block.
+    # Default 0.0 = OFF → no signal is rejected → byte-identical to pre-WIRE
+    # behavior. Deploy value (0.025) lives in the wide-stop config; activate
+    # via PA_15M_CONFIG. See DEPLOY_widestop_15m.md.
+    _sl_pct_min_15m = 0.0
+    try:
+        import yaml as _yaml_sl
+        with open(_risk_config_15m(), "r", encoding="utf-8") as _sl_f:
+            _sl_cfg_raw = _yaml_sl.safe_load(_sl_f) or {}
+        _sl_pct_min_15m = float(
+            (_sl_cfg_raw.get("execution", {}) or {}).get("sl_pct_min", 0.0)
+        )
+    except Exception as _sl_err:
+        log(f"15M_WIDESTOP_CFG_WARN: {_sl_err} — sl_pct_min=0.0 (filtre kapalı)")
+    if _sl_pct_min_15m > 0.0:
+        log(f"15M_WIDESTOP: sl_pct_min={_sl_pct_min_15m:.4f} AKTİF — "
+            f"dar-stop sinyaller REJECT edilecek")
 
     # SEC58-L2: startup'ta DB'den aktif pyramid pozisyonlarını yükle (restart recovery)
     _pyramid_store_load_on_startup()
@@ -907,6 +942,24 @@ def run_15m_mode(once: bool = False) -> None:
                     except Exception as age_err:
                         log(f"  15M_STALE_CHECK_ERR: {age_err}")
 
+                    # WIRE-widestop (2026-05-22): wide-stop deploy filter.
+                    # Reject narrow-stop signals — entry sl_pct < threshold.
+                    # sl_pct is known here from the scan (entry_price + sl_price,
+                    # both ATR-derived at bar close → causal, no look-ahead).
+                    # _sl_pct_min_15m=0.0 (default) → this block never rejects.
+                    # See DEPLOY_widestop_15m.md.
+                    if _sl_pct_min_15m > 0.0:
+                        _ws_entry = float(sig.get("entry_price") or 0.0)
+                        _ws_sl = float(sig.get("sl_price") or 0.0)
+                        _ws_sl_pct = (
+                            abs(_ws_entry - _ws_sl) / _ws_entry
+                            if _ws_entry > 0 else 0.0
+                        )
+                        if _ws_sl_pct < _sl_pct_min_15m:
+                            log(f"  15M_REJECT_WIDESTOP: {sig.get('symbol','?')} "
+                                f"sl_pct={_ws_sl_pct:.4f} < {_sl_pct_min_15m:.4f}")
+                            continue
+
                     order_start = datetime.now(timezone.utc)
                     try:
                         from scripts.futures_trade_daily import (
@@ -925,7 +978,7 @@ def run_15m_mode(once: bool = False) -> None:
 
                         _ex_submit = get_futures_exchange()
                         _state_submit = fetch_futures_state(_ex_submit)
-                        _risk_yaml_path = ROOT / "configs" / "risk_phoenix_scalp_15m_c2v5_final.yaml"
+                        _risk_yaml_path = _risk_config_15m()
                         _breaker_state_path = ROOT / "logs" / "risk" / "futures_breaker_state_15m_phoenix.json"
                         _breaker_state_path.parent.mkdir(parents=True, exist_ok=True)
                         _risk_officer = load_risk_officer(
@@ -1242,7 +1295,7 @@ def run_15m_mode(once: bool = False) -> None:
                 try:
                     from scripts.futures_trade_daily import get_futures_exchange, fetch_futures_state
                     from scripts.lib.risk_integration import build_futures_account_state, load_risk_officer
-                    _g19_risk_yaml = ROOT / "configs" / "risk_phoenix_scalp_15m_c2v5_final.yaml"
+                    _g19_risk_yaml = _risk_config_15m()
                     _g19_state_path = ROOT / "logs" / "risk" / "futures_breaker_state_15m_phoenix.json"
                     _g19_ro = load_risk_officer(
                         yaml_path=_g19_risk_yaml,

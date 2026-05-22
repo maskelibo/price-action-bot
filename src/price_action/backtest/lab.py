@@ -325,6 +325,14 @@ class ProductionConfig:
     # where sl_pct = |entry - sl| / entry (stored on open_pos at entry time).
     fee_bps_per_trade: float = 0.0
 
+    # WIRE-widestop (2026-05-22): 15m wide-stop deploy filter.
+    # Reject input trades whose entry sl_pct = |entry - initial_sl| / entry is
+    # below this threshold. sl_pct is known at entry from ATR → causal, no
+    # look-ahead. Default 0.0 = OFF → filter block skipped → byte-identical to
+    # all prior replays. YAML: execution.sl_pct_min. Deploy value 0.025
+    # (see DEPLOY_widestop_15m.md).
+    sl_pct_min: float = 0.0
+
     # SEC21: per-strategy-class slot allocation
     # Default OFF (backwards compat — pure FIFO at cfg.max_concurrent).
     # When True: lookup strategy class via taxonomy, enforce per-class max + min_reserved.
@@ -479,6 +487,10 @@ class ProductionConfig:
             tp2_R=float(
                 (raw.get("take_profit", {}) or {}).get("tp2_R", 1.5)
             ),
+            # WIRE-widestop: sl_pct_min from execution block (default 0.0 = OFF)
+            sl_pct_min=float(
+                (raw.get("execution", {}) or {}).get("sl_pct_min", 0.0)
+            ),
         )
 
     def with_overrides(self, **kw: Any) -> ProductionConfig:
@@ -615,6 +627,22 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None,
         cfg = ProductionConfig.from_yaml()
     if not trades:
         return None
+
+    # WIRE-widestop (2026-05-22): causal sl_pct_min filter — reject narrow-stop
+    # trades whose entry sl_pct < threshold. sl_pct = |entry - initial_sl| /
+    # entry, known at entry from ATR (no look-ahead). cfg.sl_pct_min=0.0
+    # (default) → block skipped → byte-identical to all prior replays. Applied
+    # before conf-percentile normalisation so the rank pool matches an external
+    # pre-filter (parity with scripts/lab_15m_widestop_dd_opt.py).
+    if cfg.sl_pct_min > 0.0:
+        trades = [
+            t for t in trades
+            if t["entry_price"] > 0
+            and abs(t["initial_sl"] - t["entry_price"]) / t["entry_price"]
+            >= cfg.sl_pct_min
+        ]
+        if not trades:
+            return None
 
     # v0.9.8: optional conf_pct percentile rank (rolling 180g)
     if cfg.use_conf_percentile:
