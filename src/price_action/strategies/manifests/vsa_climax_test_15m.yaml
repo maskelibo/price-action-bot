@@ -54,7 +54,13 @@ signals:
       weight: 2.0
       params:
         spread_atr_mult: 1.5          # degismedi
-        vol_sma_mult: 3.0             # 1d=2.5; 15m daha sik yuksek vol → esik arttirildi
+        # AMPLIFY (2026-05-23): 3.0 -> 2.0. Pre-reg + 5y train/OOS test (HEM
+        # train HEM OOS iyileşme, overfit imzasi yok). OOS aylık +19.30 (vs
+        # baseline +16.76), DD -16.36% (baseline -17.10), neg 0/19 ay, 6/6 yıl
+        # tüm metriklerde geçti. Yıllık compound +%486 (baseline +%302). Pool
+        # rebuild detayları: data/sec53_15m_pool_v11.pkl üzerinden honest +55bps
+        # taker. Detay: hafızada price-action-bot.md (VSA amplify entry).
+        vol_sma_mult: 2.0             # was 3.0 — AMPLIFY (test PASS)
         close_pos_min: 0.50           # degismedi
         min_low_bars: 5               # degismedi; 5-bar local min
         wait_min: 4                   # 1d=3bar(3gun) → 15m=4bar(1h)
@@ -69,7 +75,7 @@ signals:
       weight: 2.0
       params:
         spread_atr_mult: 1.5
-        vol_sma_mult: 3.0
+        vol_sma_mult: 2.0             # was 3.0 — AMPLIFY (see long pattern note above)
         close_pos_max: 0.50
         max_high_bars: 5
         wait_min: 4

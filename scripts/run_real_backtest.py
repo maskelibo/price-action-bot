@@ -97,7 +97,9 @@ def _make_manifest():
 
 def _load_symbol_ohlcv(symbol: str, tf: str = "1d", venue: str = "binance") -> pd.DataFrame:
     import duckdb
-    con = duckdb.connect(str(ROOT / "data" / "market.duckdb"), read_only=True)
+    from price_action.settings import get_settings
+    # Respect DUCKDB_PATH env override (pydantic settings); falls back to data/market.duckdb.
+    con = duckdb.connect(str(get_settings().duckdb_path), read_only=True)
     df = con.execute(
         "SELECT ts, open, high, low, close, volume FROM ohlcv "
         "WHERE venue=? AND symbol=? AND timeframe=? ORDER BY ts",
