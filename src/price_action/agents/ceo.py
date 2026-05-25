@@ -253,12 +253,17 @@ class CEOAgent(LLMAgentBase):
     def _collect_inbox_refs(self, *, limit: int = 5) -> list[Path]:
         """Inbox'tan recipient=ceo olan son N doc'un ref_path'lerini topla.
 
+        M1 FIX: ref_path validation — Path.resolve() ile traversal saldırılarına
+        karşı koruma. `../../../etc/passwd` gibi yolları reddet.
+
         Atomik değil — concurrent yazma sırasında bazı satırlar kaybolabilir,
         ama append-only formatta okuma genelde tutarlı.
         """
         inbox = self.settings.memory_dir / "protocol" / "inbox.jsonl"
         if not inbox.exists():
             return []
+        # M1: izin verilen kök dizin (repo root) — tüm ref_path'ler bunun altında olmalı
+        allowed_root = self.settings.reports_dir.parent.resolve()
         refs: list[Path] = []
         try:
             lines = inbox.read_text(encoding="utf-8").strip().split("\n")
@@ -276,11 +281,21 @@ class CEOAgent(LLMAgentBase):
                 # Bana yönelik veya broadcast (all) ve henüz ack'lenmemiş
                 if recipient in (self.name, "all") and not ack_at:
                     ref = msg.get("ref_path", "")
-                    if ref:
-                        # ref_path repo-root relative
-                        full = self.settings.reports_dir.parent / ref
-                        if full.exists():
-                            refs.append(full)
+                    if not ref:
+                        continue
+                    # M1 FIX: Path traversal validation
+                    try:
+                        candidate = (allowed_root / ref).resolve()
+                        # candidate allowed_root altında mı?
+                        candidate.relative_to(allowed_root)
+                    except (ValueError, OSError):
+                        logger.warning(
+                            "ceo.inbox_ref_path_traversal",
+                            extra={"ref_path": ref[:200], "sender": msg.get("sender", "?")},
+                        )
+                        continue
+                    if candidate.exists():
+                        refs.append(candidate)
                 if len(refs) >= limit:
                     break
         except Exception as exc:
@@ -291,12 +306,12 @@ class CEOAgent(LLMAgentBase):
     # Faz 3.4 — Conflict detection (aynı doc'a zıt critique'ler)
     # ------------------------------------------------------------------
 
-    def _check_conflicts(self) -> list[dict[str, Any]]:
+    def _check_conflicts(self, *, since_days: int = 7) -> list[dict[str, Any]]:
         """Aynı `depends_on`'a yönelik zıt critique + endorse var mı tara.
 
-        `reports/risk/` dizininde RiskOfficer'in yazdığı critique/endorse
-        doc'larını inceler; aynı original doc_id için bir tarafta critique
-        diğer tarafta endorse varsa CONFLICT.
+        H2 FIX: `since_days` cutoff (mtime bazlı) eklendi. Eskiden tüm
+        `reports/risk/` dizinini parse ediyordu — 6 ay sonra 200+ doc her
+        brief'te yaml parse + IO. Şimdi son 7 günle sınırlı.
 
         Returns
         -------
@@ -311,10 +326,15 @@ class CEOAgent(LLMAgentBase):
         endorses: dict[str, list[Path]] = {}
 
         import yaml
+        from datetime import datetime as _dt, timezone as _tz
         FRONTMATTER_RE = __import__("re").compile(r"^---\n(.*?)\n---\n", __import__("re").DOTALL)
+        cutoff_ts = _dt.now(_tz.utc).timestamp() - since_days * 86400
 
         for p in risk_dir.glob("*.md"):
             try:
+                # H2: mtime cutoff — eski dosyaları atla
+                if p.stat().st_mtime < cutoff_ts:
+                    continue
                 content = p.read_text(encoding="utf-8")
                 m = FRONTMATTER_RE.match(content)
                 if not m:
@@ -355,16 +375,9 @@ class CEOAgent(LLMAgentBase):
     def update_active_state(self) -> Path | None:
         """`memory/shared/active_state.md` ledger'ını yenile.
 
-        Yapılan iş:
-        - Researcher hipotez dizinini tara, son 30g açık olanları topla
-        - Lab drift alarm dosyalarını tara (son 7g)
-        - Inbox'tan open critique'leri filtrele
-        - `last_updated` timestamp'i güncelle
-
-        DİKKAT: yapı sabit, sadece veri kısımları yenilenir. Manuel düzenlenmiş
-        bölümler (Pending Principal Decisions gibi) korunur — bu metot
-        ledger'ı tamamen yeniden yazmak yerine **tarama bulgularını note olarak
-        ekler**. Faz 4'te tam re-write'a geçilebilir.
+        M3 FIX: regex replacement → proper YAML parse + serialize.
+        Eskiden `re.sub` ile `^last_updated:` arıyordu; YAML structure değişirse
+        kırılırdı. Şimdi yaml.safe_load(frontmatter) → dict update → yaml.dump.
 
         Returns
         -------
@@ -376,30 +389,33 @@ class CEOAgent(LLMAgentBase):
             logger.warning("ceo.active_state_missing", extra={"path": str(ledger)})
             return None
 
-        # Sadece last_updated timestamp'i güncelle (Faz 1: minimal invasiveness)
         try:
+            import yaml
             content = ledger.read_text(encoding="utf-8")
+
+            # Frontmatter parse — proper YAML
+            fm_re = __import__("re").compile(r"^---\n(.*?)\n---\n", __import__("re").DOTALL)
+            m = fm_re.match(content)
+            if not m:
+                logger.warning("ceo.active_state_no_frontmatter")
+                return None
+
+            try:
+                fm_dict = yaml.safe_load(m.group(1)) or {}
+            except yaml.YAMLError as exc:
+                logger.warning("ceo.active_state_yaml_parse_fail", extra={"err": str(exc)[:200]})
+                return None
+
+            # Update fields
             new_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            fm_dict["last_updated"] = new_ts
+            fm_dict["updated_by"] = "ceo"
 
-            # last_updated alanını YAML frontmatter içinde değiştir
-            import re
-            updated = re.sub(
-                r"^last_updated:\s*[^\n]+$",
-                f"last_updated: {new_ts}",
-                content,
-                count=1,
-                flags=re.MULTILINE,
-            )
-            # updated_by alanını ceo'ya çek
-            updated = re.sub(
-                r"^updated_by:\s*[^\n]+$",
-                f"updated_by: ceo",
-                updated,
-                count=1,
-                flags=re.MULTILINE,
-            )
+            # Serialize back — sort_keys=False yapı sırasını korur
+            new_fm = yaml.safe_dump(fm_dict, default_flow_style=False, sort_keys=False)
+            new_content = "---\n" + new_fm + "---\n" + content[m.end():]
 
-            ledger.write_text(updated, encoding="utf-8")
+            ledger.write_text(new_content, encoding="utf-8")
             logger.info("ceo.active_state_updated", extra={"ts": new_ts})
             return ledger
         except Exception as exc:

@@ -171,21 +171,26 @@ class ResearcherAgent(LLMAgentBase):
     def _drift_in_cooldown(self, drift_doc_id: str, symbol: str, strategy: str) -> tuple[bool, str]:
         """Cooldown kontrolü.
 
-        - Aynı drift_doc_id için max 3 hipotez
-        - Aynı (symbol, strategy) Lab REJECT sonrası 7 gün cooldown
+        - Rule 1: Aynı drift_doc_id için max 3 hipotez
+        - Rule 2: Aynı (symbol, strategy) Lab REJECT sonrası 7 gün cooldown
+        - Rule 3 (H6 FIX): Aynı (symbol, strategy) için **haftalık 1 hipotez**
+          Eskiden cooldown sadece drift_doc_id bazlıydı — Lab her hafta yeni
+          drift_alert üretirse her hafta yeni doc_id → cooldown sıfırlanıyordu.
+          4 hafta aynı symbol drift = 12 hipotez. Şimdi global haftalık cap.
         """
         # Rule 1: drift_doc_id sayım
         n = self._drift_response_count(drift_doc_id)
         if n >= 3:
             return True, f"max_3_responses_reached (current={n})"
 
-        # Rule 2: 7g cooldown — son rejected hypothesis var mı?
         hdir = self._hypotheses_dir()
-        cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+
+        # Rule 2: 7g cooldown — son rejected hypothesis var mı?
+        cutoff_7d = datetime.now(timezone.utc) - timedelta(days=7)
         for h in hdir.glob("*.md"):
             try:
                 mtime = datetime.fromtimestamp(h.stat().st_mtime, tz=timezone.utc)
-                if mtime < cutoff:
+                if mtime < cutoff_7d:
                     continue
                 content = h.read_text(encoding="utf-8")[:3000]
                 if symbol in content and strategy in content and "REJECTED" in content.upper():
@@ -193,6 +198,25 @@ class ResearcherAgent(LLMAgentBase):
                     return True, f"recent_reject_within_7d (symbol={symbol}, strategy={strategy}, days_ago={days_ago})"
             except Exception:
                 continue
+
+        # Rule 3 (H6 FIX): aynı (symbol, strategy) için son 7g'de ZATEN hypothesis varsa skip
+        # Bu Lab'in haftalık drift_alert üretiminin sonsuz hipotez patlamasını engeller.
+        # tags veya body'de symbol+strategy match
+        recent_count_same_pair = 0
+        for h in hdir.glob("*.md"):
+            try:
+                mtime = datetime.fromtimestamp(h.stat().st_mtime, tz=timezone.utc)
+                if mtime < cutoff_7d:
+                    continue
+                content = h.read_text(encoding="utf-8")[:5000]
+                # tags'da hem symbol hem strategy varsa eşleştir
+                if symbol.lower() in content.lower() and strategy.lower() in content.lower():
+                    recent_count_same_pair += 1
+            except Exception:
+                continue
+
+        if recent_count_same_pair >= 1:
+            return True, f"weekly_pair_limit (symbol={symbol}, strategy={strategy}, count={recent_count_same_pair})"
 
         return False, "ok"
 

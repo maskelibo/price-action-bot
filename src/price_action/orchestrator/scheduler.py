@@ -259,6 +259,130 @@ async def _job_scan_drift_alerts() -> None:
 # Faz 4.2 — Token budget report
 # ----------------------------------------------------------------------
 
+async def _job_hourly_token_check() -> None:
+    """Saatlik token budget kontrol — H3 FIX.
+
+    Eskiden token kontrolü Pazar haftalık — bir agent Pazartesi blow up etse
+    6 gün sessizlik. Şimdi her saat kontrol; daily limit aşımı CRIT push.
+    """
+    try:
+        from price_action.ops.token_budget import (
+            check_budget,
+            get_token_stats,
+            load_budget_config,
+        )
+
+        stats = get_token_stats(window_hours=24)
+        config = load_budget_config()
+        alerts = check_budget(stats, config)
+        if not alerts:
+            return
+
+        crit_alerts = [a for a in alerts if a.get("level") == "CRIT"]
+        warn_alerts = [a for a in alerts if a.get("level") == "WARN"]
+
+        if crit_alerts:
+            agents_over = ", ".join(f"{a['agent']} ({a['pct']}%)" for a in crit_alerts)
+            _push_critical_safe(
+                f"🚨 Daily token budget AŞILDI: {agents_over}",
+                source="ops_engineer",
+            )
+            logger.error(
+                "scheduler.token_crit",
+                extra={"alerts": crit_alerts},
+            )
+        elif warn_alerts:
+            # WARN: kısa Telegram mesaj, throttle ile
+            agents_warn = ", ".join(f"{a['agent']} ({a['pct']}%)" for a in warn_alerts)
+            try:
+                from .notifications import should_push
+                from price_action.notifications.telegram import send_telegram
+                if should_push():
+                    send_telegram(
+                        f"⚠️ Token budget %80+ — {agents_warn}",
+                        level="WARNING",
+                    )
+            except Exception:
+                pass
+            logger.warning(
+                "scheduler.token_warn",
+                extra={"alerts": warn_alerts},
+            )
+    except Exception as exc:
+        logger.warning("scheduler.hourly_token_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_health_check() -> None:
+    """H4 FIX: Saatlik sistem sağlık kontrolü.
+
+    - futures_daemon process var mı? (PID kontrolü)
+    - logs/futures_daemon.log son 30dk'da update edildi mi?
+    - Inbox.jsonl > 1MB mı? (rotation gerekebilir)
+    - logs/ disk > 1GB mı?
+
+    Bir sorun varsa Telegram WARN push.
+    """
+    try:
+        import os
+        import subprocess
+        from datetime import datetime as _dt, timezone as _tz
+
+        from price_action.settings import get_settings as _gs
+
+        s = _gs()
+        issues: list[str] = []
+
+        # 1. futures_daemon process check (ps aux | grep)
+        try:
+            out = subprocess.run(
+                ["pgrep", "-f", "futures_daemon"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if out.returncode != 0:
+                issues.append("futures_daemon process YOK")
+        except Exception:
+            pass
+
+        # 2. futures_daemon.log freshness
+        flog = s.reports_dir.parent / "logs" / "futures_daemon.log"
+        if flog.exists():
+            age_min = (_dt.now().timestamp() - flog.stat().st_mtime) / 60
+            if age_min > 30:
+                issues.append(f"futures_daemon.log {int(age_min)}dk eski (>30dk)")
+
+        # 3. Inbox boyut
+        inbox = s.memory_dir / "protocol" / "inbox.jsonl"
+        if inbox.exists():
+            size_mb = inbox.stat().st_size / 1024 / 1024
+            if size_mb > 1.0:
+                issues.append(f"inbox.jsonl {size_mb:.1f}MB (>1MB) — consolidation yaklaşıyor")
+
+        # 4. logs disk
+        logs_dir = s.reports_dir.parent / "logs"
+        if logs_dir.exists():
+            try:
+                out = subprocess.run(["du", "-sm", str(logs_dir)], capture_output=True, text=True, timeout=10)
+                if out.stdout:
+                    mb = int(out.stdout.split()[0])
+                    if mb > 1024:
+                        issues.append(f"logs/ {mb}MB (>1GB) — rotation gecikmiş")
+            except Exception:
+                pass
+
+        if issues:
+            _push_critical_safe(
+                "🏥 Health check uyarısı: " + "; ".join(issues),
+                source="ops_engineer",
+            )
+            logger.warning("scheduler.health_issues", extra={"issues": issues})
+        else:
+            logger.info("scheduler.health_ok")
+    except Exception as exc:
+        logger.warning("scheduler.health_check_fail", extra={"err": str(exc)[:200]})
+
+
 async def _job_weekly_token_report() -> None:
     """OpsAgent haftalık token usage raporu (Pazar 05:00 UTC).
 
@@ -420,6 +544,8 @@ def _push_latest_safe(
 JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     # (id, kind, expr, func)
     ("ingest_data", "cron", "0 * * * *", _job_ingest_data),  # saatlik :00
+    ("hourly_token_check", "cron", "7 * * * *", _job_hourly_token_check),  # H3 saatlik :07
+    ("health_check", "cron", "30 * * * *", _job_health_check),  # H4 saatlik :30
     ("daily_research", "cron", "0 2 * * *", _job_daily_research),
     ("signal_scan", "cron", "5 0 * * *", _job_signal_scan),
     ("execute_orders", "cron", "10 0 * * *", _job_execute_orders),
@@ -437,6 +563,17 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
 
 
 def _add_cron(scheduler: Any, expr: str, func: Any, job_id: str) -> None:
+    """Cron job ekle.
+
+    M7 FIX: explicit `max_instances=1` (varsayılan zaten 1 ama dokümante et)
+    + `coalesce=True` — birden fazla misfire varsa tek run'da birleştir
+    (kuyruğu önle).
+
+    Job-spesifik karakteristikler:
+    - daily_research: ~40s (RAG embedding load) — uzun olsa da single
+    - daily_kpi + daily_brief: ~3s
+    - weekly_tournament: değişken (challenger count'a göre)
+    """
     parts = expr.split()
     if len(parts) != 5:
         raise ValueError(f"Geçersiz cron expr: {expr}")
@@ -452,6 +589,8 @@ def _add_cron(scheduler: Any, expr: str, func: Any, job_id: str) -> None:
         id=job_id,
         replace_existing=True,
         misfire_grace_time=3600,
+        max_instances=1,   # M7: explicit — overlap engelle
+        coalesce=True,     # M7: birden fazla misfire → tek run
     )
 
 

@@ -99,6 +99,7 @@ def push_report(
     max_chars: int = _DEFAULT_MAX_CHARS,
     env_var: str = "PA_CEO_PUSH_TELEGRAM",
     parse_mode: str | None = "Markdown",
+    alert_type: str | None = None,
 ) -> bool:
     """Markdown raporu Telegram'a gönder; uzun ise chunk'lara böl.
 
@@ -149,8 +150,29 @@ def push_report(
     full = body if not caption else f"**{caption}**\n\n{body}"
     chunks = _chunk_text(full, max_chars)
     sent_any = False
+
+    # H5 FIX: TelegramThrottle entegrasyonu — spam koruma (5dk window default)
+    # alert_type belirtilirse throttle key olarak kullan; yoksa path-stem.
+    use_throttle = alert_type is not None or (caption is not None)
+    throttle = None
+    if use_throttle:
+        try:
+            from price_action.ops.telegram_throttle import get_telegram_throttle
+            throttle = get_telegram_throttle()
+        except Exception as exc:
+            logger.warning(
+                "notifications.throttle_init_fail",
+                extra={"err": str(exc)[:200]},
+            )
+            throttle = None
+
+    effective_alert = alert_type or (caption or Path(path).stem)[:40]
+
     for chunk in chunks:
-        ok = send_telegram(chunk, level=level, parse_mode=parse_mode)
+        if throttle:
+            ok = throttle.send_throttled(effective_alert, chunk, level=level)
+        else:
+            ok = send_telegram(chunk, level=level, parse_mode=parse_mode)
         sent_any = sent_any or ok
     logger.info(
         "notifications.push_done",
@@ -159,6 +181,8 @@ def push_report(
             "chunks": len(chunks),
             "sent_any": sent_any,
             "total_chars": len(full),
+            "throttled": use_throttle,
+            "alert_type": effective_alert,
         },
     )
     return sent_any

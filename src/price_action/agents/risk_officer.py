@@ -145,47 +145,102 @@ class RiskOfficerAgent(LLMAgentBase):
     def _deterministic_gate_check(self, fm: dict[str, Any], body: str) -> dict[str, Any]:
         """12-madde risk gate'i (özet) — deterministik ön-kontrol.
 
-        Bu LLM çağrısından ÖNCE çalışır; gate violation varsa LLM atlanır
-        ve direkt REJECT critique yazılır.
-        """
-        flags: list[str] = []
+        H1 FIX (Faz 4 hardening): keyword mention'lar artık `info_flags`
+        (sadece bilgi). `risk_flags` SADECE **somut sayısal aşımlarda** set
+        edilir. Eskiden her trading doc'unun "risk" geçtiği için
+        is_high_risk=True flag'leniyordu → auto-critique seli. Şimdi:
+        - Leverage > 5x → flag
+        - risk_pct > 0.02 → flag
+        - concentration_pct > 0.20 → flag
+        - daily_dd > 0.05 → flag
+        - max_concurrent > 3 → flag
 
-        # 1. Body içinde risk parameter referansı arıyoruz
-        risk_keywords = (
+        Auto-critique yolu KAPATILDI — her zaman LLM-driven review.
+        LLM tail analysis yokluğunu da değerlendirsin.
+        """
+        info_flags: list[str] = []  # Sadece bilgi, alarm değil
+        risk_flags: list[str] = []  # Somut numerical violation
+
+        body_lower = body.lower()
+
+        # 1. INFO: hangi risk parametreleri menzilde (alarm değil)
+        info_keywords = (
             "risk_pct", "leverage", "concentration", "max_position", "drawdown",
             "stop_loss", "tp_r", "kelly", "correlation",
         )
-        for kw in risk_keywords:
-            if kw in body.lower():
-                flags.append(f"references_{kw}")
+        for kw in info_keywords:
+            if kw in body_lower:
+                info_flags.append(f"references_{kw}")
 
-        # 2. Yüksek risk göstergeleri (sayısal)
-        # %X risk veya leverage Nx pattern arama
-        leverage_matches = re.findall(r"leverage[:\s]+(\d+)x?", body, re.IGNORECASE)
+        # 2. RISK: yalnızca somut numerical aşımlar
+        # 2a. Leverage > 5x
+        leverage_matches = re.findall(r"leverage[:\s=]+(\d+(?:\.\d+)?)\s*x?", body, re.IGNORECASE)
         if leverage_matches:
-            max_lev = max(int(x) for x in leverage_matches)
-            if max_lev > 5:
-                flags.append(f"high_leverage_{max_lev}x")
+            try:
+                max_lev = max(float(x) for x in leverage_matches)
+                if max_lev > 5:
+                    risk_flags.append(f"high_leverage_{max_lev}x")
+            except ValueError:
+                pass
 
-        risk_pct_matches = re.findall(r"risk_pct[:\s]+([\d.]+)", body, re.IGNORECASE)
+        # 2b. risk_pct > 0.02 (single trade %2'den yüksek)
+        risk_pct_matches = re.findall(r"risk_pct[:\s=]+(\d+\.\d+)", body, re.IGNORECASE)
         if risk_pct_matches:
-            max_risk = max(float(x) for x in risk_pct_matches)
-            if max_risk > 0.02:  # %2 tek trade
-                flags.append(f"high_risk_pct_{max_risk}")
+            try:
+                max_risk = max(float(x) for x in risk_pct_matches)
+                if max_risk > 0.02:
+                    risk_flags.append(f"high_risk_pct_{max_risk}")
+            except ValueError:
+                pass
+
+        # 2c. concentration > 20% (single symbol cap absolute)
+        conc_matches = re.findall(r"concentration[a-z_]*[:\s=]+(\d+\.\d+)", body, re.IGNORECASE)
+        if conc_matches:
+            try:
+                max_conc = max(float(x) for x in conc_matches)
+                if max_conc > 0.20:
+                    risk_flags.append(f"concentration_breach_{max_conc}")
+            except ValueError:
+                pass
+
+        # 2d. daily_dd / weekly_dd >5% (deploy parametre değişikliği önerisinde)
+        dd_matches = re.findall(r"(?:daily|weekly)_dd[:\s=]+(\d+\.\d+)", body, re.IGNORECASE)
+        if dd_matches:
+            try:
+                max_dd = max(float(x) for x in dd_matches)
+                if max_dd > 0.05:
+                    risk_flags.append(f"dd_relaxation_{max_dd}")
+            except ValueError:
+                pass
+
+        # 2e. max_concurrent_positions > 3 (current cap)
+        mc_matches = re.findall(r"max_concurrent[a-z_]*[:\s=]+(\d+)", body, re.IGNORECASE)
+        if mc_matches:
+            try:
+                max_mc = max(int(x) for x in mc_matches)
+                if max_mc > 3:
+                    risk_flags.append(f"concurrent_relaxation_{max_mc}")
+            except ValueError:
+                pass
 
         # 3. Tail event ve stress test referansı VAR mı?
-        tail_keywords = ("stress", "tail", "worst-month", "fat-tail", "black swan", "2022-05", "2022-11", "flash crash")
-        has_tail_analysis = any(kw in body.lower() for kw in tail_keywords)
+        tail_keywords = ("stress", "tail", "worst-month", "worst_month", "fat-tail",
+                         "fat_tail", "black swan", "2022-05", "2022-11",
+                         "flash crash", "luna", "ftx")
+        has_tail_analysis = any(kw in body_lower for kw in tail_keywords)
 
         # 4. Status başka birinin onayını isteyip istemediği
         review_required = bool(fm.get("requested_review_from"))
 
         return {
-            "flags": flags,
+            "info_flags": info_flags,       # bilgi — alarm değil
+            "risk_flags": risk_flags,       # somut numerical aşım
             "has_tail_analysis": has_tail_analysis,
             "review_required": review_required,
             "doc_type": fm.get("doc_type"),
-            "is_high_risk": any(f.startswith("high_") for f in flags),
+            # is_high_risk SADECE somut numerical violation varsa.
+            # Eski "references_X" flag'lerine bakmıyor (H1 false-positive fix).
+            "is_high_risk": len(risk_flags) > 0,
         }
 
     async def review_doc(self, doc_path: Path | str) -> Path | None:
@@ -218,8 +273,12 @@ class RiskOfficerAgent(LLMAgentBase):
             extra={"doc_id": original_doc_id, "gate": gate},
         )
 
-        # Yüksek risk + tail analysis yoksa → direkt critique (LLM atla)
-        if gate["is_high_risk"] and not gate["has_tail_analysis"]:
+        # H1 FIX: Auto-critique yolu KALDIRILDI. Eskiden her "risk" kelime geçen
+        # doc'a auto-critique basılıyordu (false positive seli). Şimdi LLM her
+        # zaman karar verir; deterministic gate bulguları LLM prompt'una input.
+        # Sadece **somut numerical aşım** + tail analysis yokluğu durumunda
+        # auto-critique tetiklenir (gerçekten tehlikeli durum).
+        if gate["risk_flags"] and not gate["has_tail_analysis"]:
             crit_body = self._build_auto_critique(original_doc_id, gate)
             critique_path = self.write_protocol_doc(
                 doc_type="critique",
@@ -230,12 +289,16 @@ class RiskOfficerAgent(LLMAgentBase):
                 confidence="high",
                 depends_on=[original_doc_id],
                 requested_review_from=["ceo"],
-                tags=["critique", "auto_reject", "high_risk"],
+                tags=["critique", "auto_reject", "numerical_breach"],
             )
             self._ack_in_inbox(original_doc_id)
-            logger.info(
-                "risk_officer.auto_critique",
-                extra={"original": original_doc_id, "critique": str(critique_path)},
+            logger.warning(
+                "risk_officer.auto_critique_numerical_breach",
+                extra={
+                    "original": original_doc_id,
+                    "risk_flags": gate["risk_flags"],
+                    "critique": str(critique_path),
+                },
             )
             return critique_path
 
