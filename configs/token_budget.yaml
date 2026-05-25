@@ -18,7 +18,7 @@ daily_limits:
 
   # En kritik düşünme (Opus 4.7 kalıyor)
   ceo: 250000             # 80k → 250k (sabah brief büyüdü + arbitrate)
-  researcher: 500000      # 200k → 500k (5-batch + drift response + light hipotez)
+  researcher: 1500000     # 500k → 1.5M (Faz 13: gün içi 5 pulse + 5-batch + drift response + spike buffer)
   adversary_engineer: 250000  # 80k → 250k (stress test büyük doc)
 
   # Sonnet'e geçenler (Faz 13 planı, daha fazla token tolere)
@@ -42,7 +42,7 @@ daily_limits:
 
 # Haftalık tüm-agent toplam limiti
 # Sum of dailies × 7 ≈ 19M, biraz buffer ile:
-weekly_limit_total: 25000000  # 8M → 25M
+weekly_limit_total: 35000000  # 8M → 25M → 35M (Researcher 1.5M/gün'e çıktı)
 
 # Alarm seviyeleri (sıkı tut, erken uyarı)
 alert_threshold_pct: 75
