@@ -1,0 +1,62 @@
+# Market Scout — Aylık feasibility study rotation takvimi (Faz 11)
+#
+# Her ay 1 pazar feasibility study yapılır (ayın 5'i 08:00 UTC).
+# `starting_month` rotation'ın hangi slot'tan başlayacağını belirler.
+# Verdict ağırlıkları + eşikleri ortaktır (5-boyutlu skor).
+#
+# NOT: Mevcut deployment SADECE crypto (Binance USDM futures, 10 sembol).
+# Bu YAML scout'un AY-BAŞINA hangi pazarı inceleyeceğini söyler — deploy ETMEZ.
+
+rotation:
+  - month: 1     # Ocak — Faz 11 başlangıç pazarı
+    market: forex_majors
+    symbols: ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD"]
+    data_source_hint: "Dukascopy historical (free CSV), Oanda live API, ccxt forex destek sınırlı"
+    notes: "Overnight rollover (carry cost) + weekend gap + 24/5 (no weekend trade). Spread = 0.5-1.5 bps majors."
+
+  - month: 2
+    market: bist_xu100
+    symbols: ["XU100", "XU030", "GARAN", "AKBNK", "ISCTR"]
+    data_source_hint: "Borsa Istanbul resmi API, Matriks IQ, ForeksTrader, TradingView export"
+    notes: "T+2 settlement, short sınırlı (sadece BIST30 + özel onay), vergi (sermaye kazancı + FAVÖK), TL volatility transmission."
+
+  - month: 3
+    market: bybit_perp
+    symbols: ["BTC/USDT:USDT", "ETH/USDT:USDT"]
+    data_source_hint: "Bybit V5 API (ccxt destekli), funding rate snapshot 8h"
+    notes: "Cross-exchange arbitrage potansiyeli (Binance ile fee + funding farkı). Taker 0.06%, maker -0.01%."
+
+  - month: 4
+    market: okx_perp
+    symbols: ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
+    data_source_hint: "OKX V5 API (ccxt), yield products (earn) ek katman"
+    notes: "Likidite Binance'in ~%30'u, funding rate dağılımı Binance'a benzer ama tail farklı."
+
+  - month: 5
+    market: binance_spot
+    symbols: ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "ADA/USDT"]
+    data_source_hint: "Mevcut ccxt binance instance (re-use)"
+    notes: "Sadece long, leverage yok, funding rate yok — daha temiz fee/risk ama upside sınırlı (no short + no leverage)."
+
+# Rotation başlangıç ayı (1..5 arası; eğer current_month > rotation length ise modulo)
+starting_month: 1
+
+# 5-boyutlu feasibility ağırlıkları (toplam = 1.00)
+feasibility_weights:
+  data_availability: 0.25
+  strategy_adaptability: 0.30
+  risk_model_complexity: 0.20    # inverse: 1.0 = düşük complexity
+  regulatory_burden: 0.15        # inverse: 1.0 = düşük burden
+  edge_potential: 0.10
+
+# Verdict eşikleri (weighted total üzerinden)
+verdict_thresholds:
+  GO: 0.75       # >= 0.75 → GO
+  DEFER: 0.50    # 0.50..0.74 → DEFER
+  # < 0.50 → NO_GO
+
+# Cooldown politikası (gün)
+cooldowns:
+  no_go_revisit_days: 365     # NO-GO verilen pazar 12 ay kilitli
+  defer_revisit_days: 90      # DEFER 90 gün sonra tekrar
+  arb_scan_per_pair_days: 7   # Aynı (exchange_A, exchange_B) için 7g

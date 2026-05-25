@@ -11,25 +11,34 @@
 # - Faz 5+ kalibrasyon: ilk 2 hafta gözlemden sonra revize edilir
 
 daily_limits:
-  ceo: 50000           # 1 daily brief + opsiyonel haftalık + arbitrate (Opus)
-  researcher: 100000   # daily hipotez taraması + drift response (Opus)
-  lab_scientist: 80000 # haftalık tournament + drift detect + RAG (Opus, çoğu gün 0)
-  analyst: 60000       # daily KPI + whatif (Opus)
-  risk_officer: 40000  # saatlik inbox review batch (Sonnet)
-  ops_engineer: 20000  # incident summary + token report (Haiku — ucuz)
-  data_engineer: 5000  # opsiyonel commentary (Sonnet, çoğu gün 0)
+  # Mevcut 7 LLM agent (Faz 0-5)
+  ceo: 80000              # 50k → 80k (Faz 6+ weekly + monthly genişler)
+  researcher: 200000      # 100k → 200k (Faz 12 5-batch hipotez)
+  lab_scientist: 150000   # 80k → 150k (param sweep + TF expansion)
+  analyst: 80000          # 60k → 80k (per-bot card)
+  risk_officer: 60000     # 40k → 60k (adversarial review)
+  ops_engineer: 30000     # 20k → 30k
+  data_engineer: 10000    # 5k → 10k
 
-  # Deterministic — LLM use yok (config sıfır)
+  # Faz 6, 9, 11 yeni agent'lar
+  bot_monitor: 50000      # Haiku (saatlik + günlük) — ucuz
+  adversary_engineer: 80000  # Opus (günlük + haftalık)
+  market_scout: 40000     # Opus aylık burst (çoğu gün 0)
+
+  # Faz 8 yeni agent (sıradaki)
+  strategy_curator: 60000 # Opus haftalık + Sonnet günlük
+
+  # Deterministic — LLM use yok
   portfolio_manager: 0
   signal_chief: 0
   execution_chief: 0
 
-# Haftalık tüm-agent toplam limiti (Max Pro 5-saatlik pencere kombinasyonu)
-weekly_limit_total: 3000000  # 3M token / hafta
+# Haftalık tüm-agent toplam limiti
+weekly_limit_total: 8000000  # 3M → 8M (Faz 6+)
 
 # Alarm seviyeleri
-alert_threshold_pct: 80   # %80'a ulaşılırsa WARN
-crit_threshold_pct: 100   # %100 = CRIT push
+alert_threshold_pct: 75   # 80 → 75 (erken uyarı)
+crit_threshold_pct: 95    # 100 → 95
 
 # Future Faz 5: per-model breakdown
 # model_pricing_override:

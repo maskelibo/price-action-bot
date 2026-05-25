@@ -10,20 +10,26 @@ Kullanım:
 """
 from __future__ import annotations
 
+from .adversary_engineer import AdversaryEngineerAgent
 from .analyst import AnalystAgent
 from .base import LLMAgentBase, LLMResponse
+from .bot_monitor import BotMonitorAgent
 from .ceo import CEOAgent
 from .lab_scientist import LabScientistAgent
+from .market_scout import MarketScoutAgent
 from .ops_engineer import OpsAgent
 from .researcher import ResearcherAgent
 from .risk_officer import RiskOfficerAgent
 
 __all__ = [
+    "AdversaryEngineerAgent",
     "AnalystAgent",
+    "BotMonitorAgent",
     "CEOAgent",
     "LLMAgentBase",
     "LLMResponse",
     "LabScientistAgent",
+    "MarketScoutAgent",
     "OpsAgent",
     "ResearcherAgent",
     "RiskOfficerAgent",

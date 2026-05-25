@@ -1,0 +1,22 @@
+# Faz 7 — Saatlik chunk processor config
+#
+# chunk_size: saat başına işlenecek cell sayısı
+# strategies_in_rotation: stratejiler sırayla işlenir; her stratejide
+#   80 cell tamamlandığında sıradakine geçer
+# chunk_state_file: kalınan yeri kaydeden JSON (strategy + cell offset)
+
+chunk_size: 5
+
+strategies_in_rotation:
+  - vsa_climax_test
+  - brooks_failed_breakout
+  - anchored_vwap_reversal
+
+chunk_state_file: data/state/param_sweep_chunks.json
+
+# Çıktılar
+chunks_dir: reports/param_sweep/chunks
+weekly_summary_dir: reports/param_sweep/weekly
+
+# Haftalık summarize için kaç günlük chunk birleştirilsin
+weekly_lookback_days: 7

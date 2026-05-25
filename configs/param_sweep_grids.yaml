@@ -1,0 +1,33 @@
+# Faz 7 — Parameter Sweep Grids
+#
+# default_grid: tüm stratejiler için temel grid (5 × 4 × 4 = 80 cell)
+# per_strategy: strateji başına pool seçimi + sl_pct_min override + drop list
+# regime_split: bull/bear/range bölünme parametreleri
+
+default_grid:
+  sl_multiplier: [1.0, 1.25, 1.5, 1.75, 2.0]
+  tp_r: [1.0, 1.2, 1.5, 2.0]
+  risk_pct: [0.003, 0.005, 0.007, 0.010]
+
+per_strategy:
+  vsa_climax_test:
+    pool: data/sec53_5m_pool_v11_vm20.pkl
+    sl_pct_min: 0.030   # P1c W1 base
+    drop_strategies: [engulfing_continuation]
+
+  brooks_failed_breakout:
+    pool: data/sec53_15m_pool_v11.pkl
+    sl_pct_min: 0.025
+
+  anchored_vwap_reversal:
+    pool: data/sec53_5m_pool_v11_vm20.pkl
+    sl_pct_min: 0.025
+
+  engulfing_continuation:
+    pool: data/sec53_15m_pool_v11.pkl
+    sl_pct_min: 0.025
+
+regime_split:
+  enabled: true
+  bull_ema_period: 200
+  range_atr_pct_threshold: 0.015

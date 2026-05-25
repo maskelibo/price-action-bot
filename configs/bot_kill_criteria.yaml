@@ -1,0 +1,41 @@
+# Bot kill criteria — Bot Monitor reads this hourly to decide WARN / PAUSE.
+#
+# `auto_pause: false` by default — Bot Monitor only writes recommendation docs.
+# Principal manually pauses by stopping the daemon or editing this file to
+# tighten/loosen thresholds.
+#
+# Per-bot block:
+#   journal             — DuckDB path holding futures_trades_closed table
+#   kill_thresholds:
+#     cum_loss_7d_pct   — last 7d cumulative realized loss as fraction of starting equity
+#     cum_loss_14d_pct  — same window, 14d
+#     max_drawdown_pct  — rolling 30d max drawdown threshold
+#     consecutive_losses— ardışık kapanmış loss trade sayısı
+#
+# Defaults block:
+#   warn_first          — true → ilk eşik aşımında WARN doc, PAUSE öneri 24h sonra
+#   warn_hold_hours     — WARN ile PAUSE öneri arasındaki minimum süre (saat)
+#   auto_pause          — false → asla otomatik pause (sadece öneri)
+#   alert_channel       — telegram | slack | email (downstream notifier okur)
+
+bots:
+  futures15m:
+    journal: data/futures_journal.duckdb
+    kill_thresholds:
+      cum_loss_7d_pct: 0.10
+      cum_loss_14d_pct: 0.15
+      max_drawdown_pct: 0.25
+      consecutive_losses: 7
+  futures5m:
+    journal: data/futures_journal_5m.duckdb
+    kill_thresholds:
+      cum_loss_7d_pct: 0.08
+      cum_loss_14d_pct: 0.12
+      max_drawdown_pct: 0.20
+      consecutive_losses: 5
+
+defaults:
+  warn_first: true
+  warn_hold_hours: 24
+  auto_pause: false   # Sadece öneri, Principal manuel onay
+  alert_channel: telegram

@@ -440,6 +440,101 @@ async def _job_weekly_token_report() -> None:
 # Faz 4.4 — Weekly consolidation
 # ----------------------------------------------------------------------
 
+async def _job_bot_health_check() -> None:
+    """Faz 6: Bot Monitor saatlik snapshot — her bot için equity + DD + halt."""
+    try:
+        from price_action.agents import BotMonitorAgent
+        bm = BotMonitorAgent()
+        await bm.hourly_snapshot()
+    except Exception as exc:
+        logger.warning("scheduler.bot_health_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_bot_daily_cards() -> None:
+    """Faz 6: Bot Monitor günlük report cards — per-bot performance brief."""
+    try:
+        from price_action.agents import BotMonitorAgent
+        bm = BotMonitorAgent()
+        path = await bm.daily_report_cards()
+        _push_report_safe(path, level="INFO", caption="Bot Daily Cards")
+    except Exception as exc:
+        logger.warning("scheduler.bot_cards_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_kill_criteria_eval() -> None:
+    """Faz 6: Bot Monitor kill criteria — 7g/14g loss eşik kontrolü."""
+    try:
+        from price_action.agents import BotMonitorAgent
+        bm = BotMonitorAgent()
+        await bm.evaluate_kill_criteria()
+    except Exception as exc:
+        logger.warning("scheduler.kill_criteria_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_param_sweep_chunk() -> None:
+    """Faz 7: Param sweep saatlik chunk processor (5 cell/saat)."""
+    try:
+        import asyncio
+        await asyncio.to_thread(_run_param_sweep_chunk_sync)
+    except Exception as exc:
+        logger.warning("scheduler.param_sweep_chunk_fail", extra={"err": str(exc)[:200]})
+
+
+def _run_param_sweep_chunk_sync() -> None:
+    """Sync helper — scripts/param_sweep_chunk_processor.py'i import et."""
+    try:
+        from scripts.param_sweep_chunk_processor import process_next_chunk
+        process_next_chunk()
+    except ImportError:
+        logger.warning("scheduler.param_sweep_import_fail")
+
+
+async def _job_adversary_daily_stress() -> None:
+    """Faz 9: Adversary Engineer günlük stress test (1 bot/gün rotation)."""
+    try:
+        from price_action.agents import AdversaryEngineerAgent
+        # Rotation: gün × bot index modulo
+        from datetime import datetime as _dt, timezone as _tz
+        bots = ["futures15m", "futures5m"]
+        bot_id = bots[_dt.now(_tz.utc).day % len(bots)]
+        ae = AdversaryEngineerAgent()
+        path = await ae.daily_stress_test(bot_id)
+        # CRIT verdict varsa push
+        try:
+            content = path.read_text(encoding="utf-8")[:3000]
+            if "CRIT" in content or "FAILED" in content:
+                _push_critical_safe(
+                    f"Adversary stress test CRIT — bot={bot_id}",
+                    source="adversary_engineer",
+                )
+        except Exception:
+            pass
+    except Exception as exc:
+        logger.warning("scheduler.adversary_daily_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_adversary_weekly_red_team() -> None:
+    """Faz 9: Adversary Engineer haftalık red team raporu (tüm bot'lar)."""
+    try:
+        from price_action.agents import AdversaryEngineerAgent
+        ae = AdversaryEngineerAgent()
+        path = await ae.weekly_red_team_report(["futures15m", "futures5m"])
+        _push_report_safe(path, level="INFO", caption="Weekly Red Team Report")
+    except Exception as exc:
+        logger.warning("scheduler.adversary_weekly_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_monthly_market_scout() -> None:
+    """Faz 11: Market Scout aylık feasibility study (ayın 5'i)."""
+    try:
+        from price_action.agents import MarketScoutAgent
+        ms = MarketScoutAgent()
+        path = await ms.monthly_feasibility_study(target_market=None)  # auto-rotation
+        _push_report_safe(path, level="INFO", caption="Market Scout Feasibility")
+    except Exception as exc:
+        logger.warning("scheduler.market_scout_fail", extra={"err": str(exc)[:200]})
+
+
 async def _job_weekly_consolidation() -> None:
     """Tüm agent'ların weekly_consolidation çağrısı + inbox archive (Pazar 05:30 UTC)."""
     try:
@@ -544,20 +639,30 @@ def _push_latest_safe(
 JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     # (id, kind, expr, func)
     ("ingest_data", "cron", "0 * * * *", _job_ingest_data),  # saatlik :00
-    ("hourly_token_check", "cron", "7 * * * *", _job_hourly_token_check),  # H3 saatlik :07
-    ("health_check", "cron", "30 * * * *", _job_health_check),  # H4 saatlik :30
+    ("hourly_token_check", "cron", "7 * * * *", _job_hourly_token_check),  # H3 :07
+    ("review_inbox", "cron", "15 * * * *", _job_review_inbox),  # Faz 2.3 :15
+    ("bot_health_check", "cron", "20 * * * *", _job_bot_health_check),  # Faz 6 :20
+    ("health_check", "cron", "30 * * * *", _job_health_check),  # H4 :30
+    ("param_sweep_chunk", "cron", "35 * * * *", _job_param_sweep_chunk),  # Faz 7 :35
+    ("scan_drift_alerts", "cron", "45 * * * *", _job_scan_drift_alerts),  # Faz 3.1 :45
+    # Günlük
     ("daily_research", "cron", "0 2 * * *", _job_daily_research),
+    ("adversary_daily_stress", "cron", "0 4 * * *", _job_adversary_daily_stress),  # Faz 9
     ("signal_scan", "cron", "5 0 * * *", _job_signal_scan),
     ("execute_orders", "cron", "10 0 * * *", _job_execute_orders),
+    ("bot_daily_cards", "cron", "0 22 * * *", _job_bot_daily_cards),  # Faz 6
     ("daily_kpi", "cron", "0 23 * * *", _job_daily_kpi),
     ("daily_whatif", "cron", "30 23 * * *", _job_daily_whatif),  # Faz 2.3
-    ("review_inbox", "cron", "15 * * * *", _job_review_inbox),  # Faz 2.3 saatlik
-    ("scan_drift_alerts", "cron", "45 * * * *", _job_scan_drift_alerts),  # Faz 3.1 her saat
+    ("kill_criteria_eval", "cron", "45 23 * * *", _job_kill_criteria_eval),  # Faz 6
+    # Haftalık
     ("weekly_lab_tournament", "cron", "0 3 * * sun", _job_weekly_tournament),
     ("weekly_drift", "cron", "30 3 * * sun", _job_weekly_drift),
+    ("adversary_weekly_red_team", "cron", "30 4 * * sun", _job_adversary_weekly_red_team),  # Faz 9
     ("weekly_rag_refresh", "cron", "0 4 * * sun", _job_weekly_rag_refresh),
     ("weekly_token_report", "cron", "0 5 * * sun", _job_weekly_token_report),  # Faz 4.2
     ("weekly_consolidation", "cron", "30 5 * * sun", _job_weekly_consolidation),  # Faz 4.4
+    # Aylık
+    ("monthly_market_scout", "cron", "0 8 5 * *", _job_monthly_market_scout),  # Faz 11
     ("monthly_review", "cron", "0 6 28-31 * *", _job_monthly_review),
 )
 
