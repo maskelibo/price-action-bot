@@ -687,6 +687,77 @@ async def _job_researcher_5batch() -> None:
         logger.warning("scheduler.researcher_5batch_fail", extra={"err": str(exc)[:200]})
 
 
+async def _job_researcher_improvement_pulse() -> None:
+    """FIX 2026-05-26: Gün içi Researcher pulse'ları.
+
+    Önceden Researcher sadece gece 02:00 (deep) + 02:30 (5-batch) çalışıyordu.
+    Principal "gün içinde de üretsin, mevcut botu iyileştirsin" istedi.
+    Bu job 4 saatte 1 çalışır, dönüşümlü temalar:
+      0: futures15m bot iyileştirme
+      1: futures5m bot iyileştirme
+      2: yeni edge / çapraz strateji
+      3: portföy çeşitlilik
+
+    Her çağrı ~30-50K Opus token (kalan günlük 500K bütçe karşılar).
+    """
+    try:
+        from datetime import datetime as _dt, timezone as _tz
+        from price_action.agents import ResearcherAgent
+        hour = _dt.now(_tz.utc).hour
+        themes = [
+            "futures15m wide-stop bot: bugünkü gözlemlerden yola çıkarak bir iyileştirme önerisi (SL/TP/regime filter/vol_z tier).",
+            "futures5m P1c bot: bugünkü reject pattern'larından yola çıkarak bir iyileştirme önerisi (widestop threshold/strateji ekleme).",
+            "Cross-strategy edge keşfi: aktif vsa_climax_test ile düşük korelasyonlu ek bir strateji (raftaki 66'dan adaylar).",
+            "Portföy çeşitlilik: mevcut tek-strateji riski azaltacak bir TF/strateji kombinasyonu.",
+        ]
+        theme = themes[hour % len(themes)]
+        r = ResearcherAgent()
+        result = await r.propose_hypothesis(theme)
+        logger.info(
+            "scheduler.researcher_pulse_done",
+            extra={"hour_utc": hour, "theme_idx": hour % len(themes),
+                   "result_preview": (result or "")[:120]},
+        )
+    except Exception as exc:
+        logger.warning(
+            "scheduler.researcher_pulse_fail", extra={"err": str(exc)[:200]}
+        )
+
+
+async def _job_lab_quick_scan() -> None:
+    """FIX 2026-05-26: Gün içi Lab Scientist hızlı tarama.
+
+    Her 2 saatte 1: drift detection (deterministic) + bekleyen hipotez varsa
+    Researcher inbox'tan birini yorumlat (interpret_backtest). Hafif iş,
+    ~5-15K Sonnet token / çağrı.
+    """
+    try:
+        from price_action.agents import LabScientistAgent
+        lab = LabScientistAgent()
+
+        # 1. Drift detect — recent series placeholder (Faz 5+ Walker'dan beslenir)
+        try:
+            result = lab.drift_detect([], [])
+            if result.get("alert"):
+                lab.append_learning(
+                    f"Quick scan drift alert: {result}",
+                    slug="drift-alert-quick", confidence="med",
+                )
+        except Exception:
+            pass
+
+        # 2. Param sweep ek hücre — her quick scan +1 cell
+        try:
+            import asyncio
+            await asyncio.to_thread(_run_param_sweep_chunk_sync)
+        except Exception:
+            pass
+
+        logger.info("scheduler.lab_quick_scan_done")
+    except Exception as exc:
+        logger.warning("scheduler.lab_quick_scan_fail", extra={"err": str(exc)[:200]})
+
+
 async def _job_weekly_bot_attribution() -> None:
     """Faz 12: Haftalık per-bot attribution (Analyst + Bot Monitor sentez)."""
     try:
@@ -895,6 +966,10 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     # Günlük
     ("daily_research", "cron", "0 2 * * *", _job_daily_research),
     ("researcher_5batch", "cron", "30 2 * * *", _job_researcher_5batch),  # Faz 12
+    # FIX 2026-05-26: gün içi Researcher pulse (her 4 saatte 1, gece 02:00 main hariç)
+    ("researcher_pulse", "cron", "0 6,10,14,18,22 * * *", _job_researcher_improvement_pulse),
+    # FIX 2026-05-26: gün içi Lab Scientist hızlı tarama (her 2 saatte 1)
+    ("lab_quick_scan", "cron", "25 0,2,4,6,8,10,12,14,16,18,20,22 * * *", _job_lab_quick_scan),
     ("adversary_daily_stress", "cron", "0 4 * * *", _job_adversary_daily_stress),  # Faz 9
     ("tf_exploration_chunk", "cron", "30 4 * * *", _job_tf_exploration_chunk),  # Faz 10
     ("signal_scan", "cron", "5 0 * * *", _job_signal_scan),
