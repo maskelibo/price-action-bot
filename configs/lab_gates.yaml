@@ -1,0 +1,36 @@
+# Lab Scientist promotion gates — Cleanup 5.
+#
+# Faz 4 öncesi: tournament gate eşikleri lab_scientist.py'da hardcoded.
+# Principal değiştirmek isterse code edit + redeploy gerekiyordu.
+# Şimdi: config-driven, Principal yaml düzenleyip launchd reload.
+
+# Tournament terfi gate'leri (HER 4 zorunlu)
+promotion_gates:
+  effect_size_min_pct: 0.15           # %15 default; daha sert: 0.20
+  dsr_p_value_max: 0.05               # %5 default; daha sert: 0.01
+  maxdd_excess_max: 0.05              # +%5 absolute
+  regime_coverage_min: 2              # 2/3 default; sert: 3/3
+
+# Drift detection threshold (KS + Welch + Levene)
+drift_detection:
+  alpha: 0.01                          # %1 default
+  min_sample_size: 30                  # her seri için minimum n
+
+# Pre-registration sample size
+preregistration:
+  min_walk_forward_window_days: 90    # 3 ay minimum WF dilim
+  min_oos_trades: 30
+  required_robustness_tests:
+    - walk_forward
+    - in_out_of_sample_consistency
+    - param_perturbation
+    - symbol_out_cv
+    - regime_split
+    - stress_periods
+    - shuffle_baseline
+    - multiple_testing_correction
+
+# What-if filter cost alert thresholds (Analyst)
+whatif_alerts:
+  filter_loss_pct_warn: 5
+  filter_loss_pct_crit: 15

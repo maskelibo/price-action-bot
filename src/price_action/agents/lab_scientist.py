@@ -43,6 +43,22 @@ class LabScientistAgent(LLMAgentBase):
         p.mkdir(parents=True, exist_ok=True)
         return p
 
+    def _load_gates_config(self) -> dict[str, Any]:
+        """Cleanup 5: configs/lab_gates.yaml → promotion_gates section.
+
+        Eksikse default değerler döner (hardcoded backwards compat).
+        """
+        try:
+            import yaml
+            cfg_path = self.settings.reports_dir.parent / "configs" / "lab_gates.yaml"
+            if not cfg_path.exists():
+                return {}
+            data = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+            return data.get("promotion_gates", {})
+        except Exception as exc:
+            logger.warning("lab.gates_config_fail", extra={"err": str(exc)[:200]})
+            return {}
+
     @staticmethod
     def _import_scipy() -> Any:
         try:
@@ -187,6 +203,12 @@ class LabScientistAgent(LLMAgentBase):
                 "oos_maxdd": 0.0,
                 "n_trials": 0,
             }
+        # Cleanup 5: gates config'den oku (hardcoded → configs/lab_gates.yaml)
+        gates = self._load_gates_config()
+        effect_min = float(gates.get("effect_size_min_pct", 0.15))
+        dsr_max = float(gates.get("dsr_p_value_max", 0.05))
+        maxdd_excess = float(gates.get("maxdd_excess_max", 0.05))
+
         rows: list[dict[str, Any]] = []
         c_returns = list(champion.get("oos_returns", []) or [])
         c_sharpe = float(champion.get("oos_sharpe", 0))
@@ -203,9 +225,9 @@ class LabScientistAgent(LLMAgentBase):
                 (float(ch.get("oos_sharpe", 0)) - c_sharpe) / max(abs(c_sharpe), 1e-9)
             )
             promote = (
-                effect >= 0.15
-                and dsr.get("p", 1.0) < 0.05
-                and float(ch.get("oos_maxdd", 1)) <= float(champion.get("oos_maxdd", 1)) + 0.05
+                effect >= effect_min
+                and dsr.get("p", 1.0) < dsr_max
+                and float(ch.get("oos_maxdd", 1)) <= float(champion.get("oos_maxdd", 1)) + maxdd_excess
             )
             rows.append(
                 {

@@ -363,23 +363,64 @@ class RiskOfficerAgent(LLMAgentBase):
             "kayıp bütçesi %15'in altında kalıyorsa critique geri çekilir."
         )
 
-    async def review_all_pending(self, *, max_items: int = 5) -> list[Path]:
+    async def review_all_pending(
+        self,
+        *,
+        max_items: int = 5,
+        max_input_tokens: int = 25_000,
+    ) -> list[Path]:
         """Inbox'taki bekleyen tüm doc'ları sıralı review et.
 
-        Batch size: 5 (Sonnet, hafif). Token aşımına karşı koruma.
+        Cleanup 2: per-job token cap eklendi. Batch size 5 (Sonnet, hafif)
+        ama input token toplamı ``max_input_tokens`` aşarsa kalanları
+        sıradaki saate ertele. Telegram CRIT push: token cap reached.
+
+        Sonnet pricing ~3.0/15.0 USD per 1M token → 25K input ≈ $0.075/saat.
+        24 saat = $1.80/gün → aylık ~$54 worst-case. Kabul edilebilir.
+
+        max_items + max_input_tokens conjunction: ikisinden hangisi önce
+        gelirse o keser.
         """
         pending = self._scan_inbox(max_items=max_items)
         if not pending:
             logger.info("risk_officer.inbox_empty")
             return []
 
-        logger.info("risk_officer.batch_review_start", extra={"n": len(pending)})
+        logger.info(
+            "risk_officer.batch_review_start",
+            extra={"n": len(pending), "max_input_tokens": max_input_tokens},
+        )
         results: list[Path] = []
+        cumulative_input_chars = 0  # rough proxy: 1 token ≈ 4 char
+        capped = False
         for msg in pending:
+            # Cleanup 2: cap check ÖNCE — doc okuyup tokenize etmeden önce
+            est_tokens = cumulative_input_chars // 4
+            if est_tokens >= max_input_tokens:
+                capped = True
+                logger.warning(
+                    "risk_officer.token_cap_reached",
+                    extra={
+                        "processed": len(results),
+                        "skipped": len(pending) - len(results),
+                        "est_tokens": est_tokens,
+                        "cap": max_input_tokens,
+                    },
+                )
+                break
+
             ref_path = msg.get("ref_path", "")
             if not ref_path:
                 continue
             full = self.settings.reports_dir.parent / ref_path
+
+            # Doc boyutunu ölç (LLM call'dan önce)
+            try:
+                doc_size = full.stat().st_size if full.exists() else 0
+                cumulative_input_chars += doc_size
+            except OSError:
+                pass
+
             try:
                 out = await self.review_doc(full)
                 if out:
@@ -389,5 +430,13 @@ class RiskOfficerAgent(LLMAgentBase):
                     "risk_officer.review_fail",
                     extra={"doc_id": msg.get("doc_id"), "err": str(exc)[:200]},
                 )
-        logger.info("risk_officer.batch_review_done", extra={"n_processed": len(results)})
+
+        logger.info(
+            "risk_officer.batch_review_done",
+            extra={
+                "n_processed": len(results),
+                "est_input_tokens": cumulative_input_chars // 4,
+                "capped": capped,
+            },
+        )
         return results

@@ -88,11 +88,19 @@ class ResearcherAgent(LLMAgentBase):
         return text
 
     def pre_register(self, hypothesis_md: str, slug: str | None = None) -> Path:
-        """Hipotezi `memory/researcher/hypotheses/YYYY-MM-DD-<slug>.md`'ye yaz.
+        """Hipotezi pre-register et — protokol-uyumlu doc.
 
-        Bu fonksiyon LLM çağırmaz — sadece dosya yazımı + commit metadata.
+        Cleanup 3: eski Faz <1.5 format (`type: hypothesis`) deprecate edildi.
+        Şimdi `write_protocol_doc()` (Faz 1.5) kullanıyoruz — frontmatter
+        spec'i `memory/shared/protocol.md` §1'e uyumlu, inbox.jsonl satır
+        yazımı otomatik (lab_scientist + risk_officer review queue).
+
+        Eski `type: hypothesis` field artık üretilmez; mevcut 6 migrated
+        doc okuma compatibility (`scripts/migrate_hypotheses.py` ile dual
+        format) korunur.
+
+        Bu fonksiyon LLM çağırmaz — sadece dosya yazımı + frontmatter.
         """
-        when = date.today()
         if not slug:
             # İlk H1/H2 başlığı slug olarak al
             for line in hypothesis_md.splitlines():
@@ -101,17 +109,22 @@ class ResearcherAgent(LLMAgentBase):
                     slug = _slug(line.lstrip("#").strip())
                     break
         slug = slug or _slug(hypothesis_md[:60])
-        path = self._hypotheses_dir() / f"{when.isoformat()}-{slug}.md"
-        header = (
-            f"---\n"
-            f"agent: researcher\n"
-            f"type: hypothesis\n"
-            f"date: {when.isoformat()}\n"
-            f"slug: {slug}\n"
-            f"status: pre_registered\n"
-            f"---\n\n"
+
+        # Cleanup 3 FIX: write_protocol_doc kullan (Faz 1.5 unified path)
+        # - frontmatter doc_type: hypothesis (yeni list_recent_docs ile uyumlu)
+        # - target_dir: memory/researcher/hypotheses/ (eski lokasyon korunur)
+        # - requested_review_from: [lab_scientist, risk_officer] (Faz 3 auto-trigger)
+        path = self.write_protocol_doc(
+            doc_type="hypothesis",
+            body=hypothesis_md.strip(),
+            slug=slug,
+            target_dir=self._hypotheses_dir(),
+            status="PROPOSED",
+            confidence="med",
+            requested_review_from=["lab_scientist", "risk_officer"],
+            tags=["hypothesis", "pre_register"],
         )
-        path.write_text(header + hypothesis_md.strip() + "\n", encoding="utf-8")
+
         logger.info(
             "researcher.pre_registered", extra={"path": str(path), "slug": slug}
         )

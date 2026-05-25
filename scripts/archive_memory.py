@@ -30,12 +30,20 @@ ROOT = HERE.parent
 MEMORY = ROOT / "memory"
 ARCHIVE_ROOT = MEMORY / "archive"
 
-# Bu dizinler taranır
+# Bu dizinler taranır (memory/ altında relative path)
 GROWING_DIRS = [
     "researcher/hypotheses",
     # Geleceğe yönelik (Faz 5+ eklenebilir):
     # "researcher/runtime",
     # "lab_scientist/runtime",
+]
+
+# Cleanup 4: reports/ altındaki growing dizinler (review/critique/endorse)
+# Bunlar memory değil reports — ayrı archive root.
+REPORTS_GROWING_DIRS = [
+    "risk",       # Risk Officer critique + endorse
+    "analytics",  # whatif raporları
+    "lab",        # tournament + drift_alert + rag_refresh
 ]
 
 
@@ -97,11 +105,50 @@ def main() -> int:
     print()
 
     total_archived = 0
+    print("== Memory growing dirs ==")
     for rel_dir in GROWING_DIRS:
-        print(f"-- {rel_dir} --")
+        print(f"-- memory/{rel_dir} --")
         result = archive_dir(rel_dir, days=args.days, dry_run=args.dry_run)
         total_archived += result["n_archived"]
         print(f"  → {result['n_archived']} dosya")
+
+    # Cleanup 4: reports/ altındaki critique/endorse/whatif/lab arşivi
+    print()
+    print("== Reports growing dirs ==")
+    for rel_dir in REPORTS_GROWING_DIRS:
+        # reports/<rel_dir> için ayrı archive root (memory/archive değil)
+        src_dir = ROOT / "reports" / rel_dir
+        if not src_dir.exists():
+            continue
+
+        n = 0
+        cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
+        cutoff_ts = cutoff.timestamp()
+        for f in src_dir.iterdir():
+            if not f.is_file():
+                continue
+            try:
+                mtime = f.stat().st_mtime
+                if mtime >= cutoff_ts:
+                    continue
+                file_dt = datetime.fromtimestamp(mtime, tz=timezone.utc)
+                quarter = _quarter_label(file_dt)
+                target_dir = ROOT / "reports" / "archive" / quarter / rel_dir
+                target = target_dir / f.name
+                if args.dry_run:
+                    print(f"  [DRY] reports/{rel_dir}/{f.name} → reports/archive/{quarter}/{rel_dir}/")
+                else:
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    if target.exists():
+                        f.unlink()
+                    else:
+                        shutil.move(str(f), str(target))
+                    print(f"  archived: {f.name} → reports/archive/{quarter}/{rel_dir}/")
+                n += 1
+            except Exception as e:
+                print(f"  ✗ {f.name} — ERROR: {e}")
+        print(f"-- reports/{rel_dir} → {n} dosya")
+        total_archived += n
 
     print()
     print(f"=== ÖZET: {total_archived} dosya archived ===")
