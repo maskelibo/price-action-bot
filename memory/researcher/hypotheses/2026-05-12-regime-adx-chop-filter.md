@@ -7,6 +7,8 @@ researcher: researcher_agent
 related_strategy: TOP_10_OVERLAY
 parent_benchmark: v0.9.2 production (yearly +57%, DD -65%)
 overlay_type: regime_filter
+doc_type: hypothesis
+agent_id: researcher
 ---
 
 # HYP-REGIME-001 — Trend Quality Gate: ADX(14) + Bollinger Bandwidth Percentile (Chop Suppressor)

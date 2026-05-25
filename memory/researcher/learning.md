@@ -264,3 +264,31 @@ Tekrar eden episode (x5): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed k
 Tekrar eden episode (x5): propose_hypothesis seed=Günlük tarama: yeni RAG ekleri ışığında price action edg
 
 ---
+
+### 2026-05-25 — recurring-20260525-090608 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x6): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Günlük tarama: yeni R
+
+---
+
+### 2026-05-25 — recurring-20260525-090608 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x6): propose_hypothesis seed=Günlük tarama: yeni RAG ekleri ışığında price action edg
+
+---
+
+### 2026-05-25 — recurring-20260525-090853 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Günlük tarama: yeni R
+
+---
+
+### 2026-05-25 — recurring-20260525-090853 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): propose_hypothesis seed=Günlük tarama: yeni RAG ekleri ışığında price action edg
+
+---

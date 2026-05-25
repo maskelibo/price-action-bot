@@ -59,3 +59,17 @@ Bu dilimlerde yıkıcı kayıp yoksa OK.
 Haftalık episodic tag dağılımı: llm_call:6, hypothesis:5
 
 ---
+
+### 2026-05-25 — weekly-tag-snapshot-20260525 (med)
+- tags: consolidation
+
+Haftalık episodic tag dağılımı: llm_call:7, hypothesis:6
+
+---
+
+### 2026-05-25 — weekly-tag-snapshot-20260525 (med)
+- tags: consolidation
+
+Haftalık episodic tag dağılımı: llm_call:8, hypothesis:7
+
+---

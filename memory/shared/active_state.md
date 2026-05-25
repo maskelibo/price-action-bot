@@ -2,13 +2,16 @@
 doc_id: active-state-current
 doc_type: protocol
 agent_id: ceo
-created_at: 2026-05-25T00:00:00Z
+created_at: 2026-05-25 00:00:00+00:00
 status: ACTIVE
 confidence: high
-last_updated: 2026-05-25T01:24:25Z
+last_updated: '2026-05-25T09:09:09Z'
 updated_by: ceo
 depends_on: []
-tags: [active_state, ledger, single_source_of_truth]
+tags:
+- active_state
+- ledger
+- single_source_of_truth
 ---
 
 # Active State Ledger — Şirketin Anlık Durumu

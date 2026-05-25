@@ -7,6 +7,8 @@ researcher: researcher_agent
 related_strategy: TOP_10_OVERLAY
 parent_benchmark: v0.9.2 production (yearly +57%, DD -65%)
 overlay_type: vol_regime_filter
+doc_type: hypothesis
+agent_id: researcher
 ---
 
 # HYP-REGIME-002 — Realized Volatility Percentile Gate (Vol-Adjusted Risk Sizing)

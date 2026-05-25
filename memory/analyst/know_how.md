@@ -62,3 +62,17 @@ Her büyük rapor 3 rejim için ayrı tablolar.
 Haftalık episodic tag dağılımı: llm_call:8
 
 ---
+
+### 2026-05-25 — weekly-tag-snapshot-20260525 (med)
+- tags: consolidation
+
+Haftalık episodic tag dağılımı: llm_call:10
+
+---
+
+### 2026-05-25 — weekly-tag-snapshot-20260525 (med)
+- tags: consolidation
+
+Haftalık episodic tag dağılımı: llm_call:12
+
+---

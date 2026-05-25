@@ -6,6 +6,8 @@ date: 2026-05-08
 researcher: researcher_agent
 related_strategy: donchian_breakout
 decorrelation_target: engulfing_continuation
+doc_type: hypothesis
+agent_id: researcher
 ---
 
 # Hipotez H-005: Donchian Channel Breakout + Bollinger Squeeze Volatility Expansion

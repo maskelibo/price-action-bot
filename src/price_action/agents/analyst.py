@@ -228,6 +228,9 @@ class AnalystAgent(LLMAgentBase):
         risk_usd = capital * risk_pct
 
         # ccxt fetch — son 60 saat OHLCV
+        # M5 TODO (Faz 5+): 50+ symbol ölçeklenirken Binance rate limit (1200 weight/dk).
+        # Çözüm: OHLCV cache (data/market.duckdb'ye Analyst yazma yetkisi, ya da
+        # data_engineer ingest_data hook). Şimdilik 10 symbol için ccxt direct OK.
         try:
             import ccxt  # type: ignore[import-not-found]
             ex = ccxt.binance({
