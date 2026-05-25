@@ -67,6 +67,10 @@ class CEOAgent(LLMAgentBase):
         Faz 1.4: brief üretmeden ÖNCE `update_active_state()` çağrılır ki
         ledger taze olsun (inbox doc'lar, open hypotheses, drift alerts
         güncel). Brief prompt'una protokol farkındalığı eklenir.
+
+        Faz 3.4: brief'ten ÖNCE `_check_conflicts()` çağrılır; aynı doc_id'ye
+        yönelik zıt critique'ler varsa otomatik `arbitrate()` tetiklenir.
+        Çıktı brief'in "Decisions Made" section'ına dahil edilir.
         """
         when = when or date.today()
         # Faz 1.4: ledger refresh
@@ -74,6 +78,16 @@ class CEOAgent(LLMAgentBase):
             self.update_active_state()
         except Exception as exc:
             logger.warning("ceo.update_active_state_fail", extra={"err": str(exc)[:200]})
+
+        # Faz 3.4: conflict scan + arbitrate
+        arbitrate_outputs: list[str] = []
+        try:
+            conflicts = self._check_conflicts()
+            for conflict in conflicts[:3]:  # max 3 arbitrate per brief
+                out = await self.arbitrate(conflict)
+                arbitrate_outputs.append(f"- {conflict.get('topic', '?')}: {out[:200]}")
+        except Exception as exc:
+            logger.warning("ceo.conflict_scan_fail", extra={"err": str(exc)[:200]})
 
         prompt = (
             "SOP-1 Günlük Morning Brief üret. Önce dünkü Analytics raporlarını, "
@@ -272,6 +286,67 @@ class CEOAgent(LLMAgentBase):
         except Exception as exc:
             logger.warning("ceo.inbox_parse_fail", extra={"err": str(exc)[:200]})
         return refs
+
+    # ------------------------------------------------------------------
+    # Faz 3.4 — Conflict detection (aynı doc'a zıt critique'ler)
+    # ------------------------------------------------------------------
+
+    def _check_conflicts(self) -> list[dict[str, Any]]:
+        """Aynı `depends_on`'a yönelik zıt critique + endorse var mı tara.
+
+        `reports/risk/` dizininde RiskOfficer'in yazdığı critique/endorse
+        doc'larını inceler; aynı original doc_id için bir tarafta critique
+        diğer tarafta endorse varsa CONFLICT.
+
+        Returns
+        -------
+        list[dict]
+            Her conflict için ``{topic, original_doc_id, critique_path, endorse_path}``.
+        """
+        risk_dir = self.settings.reports_dir / "risk"
+        if not risk_dir.exists():
+            return []
+
+        critiques: dict[str, list[Path]] = {}
+        endorses: dict[str, list[Path]] = {}
+
+        import yaml
+        FRONTMATTER_RE = __import__("re").compile(r"^---\n(.*?)\n---\n", __import__("re").DOTALL)
+
+        for p in risk_dir.glob("*.md"):
+            try:
+                content = p.read_text(encoding="utf-8")
+                m = FRONTMATTER_RE.match(content)
+                if not m:
+                    continue
+                fm = yaml.safe_load(m.group(1)) or {}
+                doc_type = fm.get("doc_type")
+                depends_on = fm.get("depends_on", []) or []
+                if doc_type == "critique":
+                    for dep in depends_on:
+                        critiques.setdefault(dep, []).append(p)
+                elif doc_type == "endorse":
+                    for dep in depends_on:
+                        endorses.setdefault(dep, []).append(p)
+            except Exception:
+                continue
+
+        # Conflict: same doc_id has both critique and endorse
+        conflicts: list[dict[str, Any]] = []
+        for orig_id in critiques:
+            if orig_id in endorses:
+                conflicts.append({
+                    "topic": f"critique_vs_endorse_{orig_id}",
+                    "original_doc_id": orig_id,
+                    "critique_paths": [str(p) for p in critiques[orig_id]],
+                    "endorse_paths": [str(p) for p in endorses[orig_id]],
+                })
+        if conflicts:
+            logger.info(
+                "ceo.conflicts_detected",
+                extra={"n": len(conflicts), "topics": [c["topic"] for c in conflicts]},
+            )
+        return conflicts
 
     # ------------------------------------------------------------------
     # Faz 1.4 — Active State Ledger update (sadece CEO yazar)

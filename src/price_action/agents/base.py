@@ -598,6 +598,11 @@ class LLMAgentBase(abc.ABC):
         ts_iso = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
         if slug is None:
             slug = doc_type
+        # Sanitize slug: slash, space, special chars → tire (filesystem safe)
+        import re as _re
+        slug = _re.sub(r"[^a-zA-Z0-9._-]+", "-", slug).strip("-").lower()
+        if not slug:
+            slug = doc_type
         doc_id = f"{self.name}-{ts_compact}-{slug}"
 
         # Frontmatter

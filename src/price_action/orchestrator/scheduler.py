@@ -237,6 +237,24 @@ async def _job_review_inbox() -> None:
         logger.warning("scheduler.inbox_review_fail", extra={"err": str(exc)[:200]})
 
 
+async def _job_scan_drift_alerts() -> None:
+    """Researcher drift response — her 30dk (HH:45).
+
+    inbox.jsonl'i tara, recipient=researcher + topic=drift_alert + ack_at=null
+    olanları işle. Cooldown logic ResearcherAgent içinde (max 3 hipotez/drift,
+    7g reject sonrası bekleme).
+    """
+    try:
+        from price_action.agents import ResearcherAgent
+
+        r = ResearcherAgent()
+        results = await r.respond_to_pending_drifts(max_items=3)
+        if results:
+            logger.info("scheduler.drift_responses_written", extra={"n": len(results)})
+    except Exception as exc:
+        logger.warning("scheduler.drift_scan_fail", extra={"err": str(exc)[:200]})
+
+
 # ----------------------------------------------------------------------
 # Faz 1.2 — Push helper'ları (sessiz fail; scheduler düşmesin)
 # ----------------------------------------------------------------------
@@ -297,6 +315,7 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("daily_kpi", "cron", "0 23 * * *", _job_daily_kpi),
     ("daily_whatif", "cron", "30 23 * * *", _job_daily_whatif),  # Faz 2.3
     ("review_inbox", "cron", "15 * * * *", _job_review_inbox),  # Faz 2.3 saatlik
+    ("scan_drift_alerts", "cron", "45 * * * *", _job_scan_drift_alerts),  # Faz 3.1 her 30dk arası
     ("weekly_lab_tournament", "cron", "0 3 * * sun", _job_weekly_tournament),
     ("weekly_drift", "cron", "30 3 * * sun", _job_weekly_drift),
     ("weekly_rag_refresh", "cron", "0 4 * * sun", _job_weekly_rag_refresh),
