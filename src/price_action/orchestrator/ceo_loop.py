@@ -97,7 +97,8 @@ def _push_if_enabled(path: Any, *, caption: str | None = None) -> None:
 
         if not should_push():
             return
-        push_report(path, level="INFO", caption=caption, parse_mode="Markdown")
+        # FIX 2026-05-25: parse_mode=None — Markdown breaks on _ in captions/paths
+        push_report(path, level="INFO", caption=caption, parse_mode=None)
     except Exception as exc:
         # Telegram push'un hata vermesi rapor üretimini DURDURMAMALI.
         logger.warning(

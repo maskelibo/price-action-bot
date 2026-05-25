@@ -11,22 +11,29 @@
 # - Faz 5+ kalibrasyon: ilk 2 hafta gözlemden sonra revize edilir
 
 daily_limits:
-  # Mevcut 7 LLM agent (Faz 0-5)
-  ceo: 80000              # 50k → 80k (Faz 6+ weekly + monthly genişler)
-  researcher: 200000      # 100k → 200k (Faz 12 5-batch hipotez)
-  lab_scientist: 150000   # 80k → 150k (param sweep + TF expansion)
-  analyst: 80000          # 60k → 80k (per-bot card)
-  risk_officer: 60000     # 40k → 60k (adversarial review)
-  ops_engineer: 30000     # 20k → 30k
-  data_engineer: 10000    # 5k → 10k
+  # REVIZE 2026-05-25: Risk Officer üretimde 60K limit aşmış (98K/60K = %164).
+  # Sebep: review_doc full body okuyor, lifecycle/feasibility raporları 30K+ token.
+  # Politika değişikliği: limitleri 3x buffer ile artır + Sonnet'e geçen agent'lara
+  # daha fazla pay (5x ucuz olduğu için aynı dolar maliyette 5x token alır).
 
-  # Faz 6, 9, 11 yeni agent'lar
-  bot_monitor: 50000      # Haiku (saatlik + günlük) — ucuz
-  adversary_engineer: 80000  # Opus (günlük + haftalık)
-  market_scout: 40000     # Opus aylık burst (çoğu gün 0)
+  # En kritik düşünme (Opus 4.7 kalıyor)
+  ceo: 250000             # 80k → 250k (sabah brief büyüdü + arbitrate)
+  researcher: 500000      # 200k → 500k (5-batch + drift response + light hipotez)
+  adversary_engineer: 250000  # 80k → 250k (stress test büyük doc)
 
-  # Faz 8 yeni agent (sıradaki)
-  strategy_curator: 60000 # Opus haftalık + Sonnet günlük
+  # Sonnet'e geçenler (Faz 13 planı, daha fazla token tolere)
+  lab_scientist: 400000   # 150k → 400k (param sweep × 3 frekans + TF)
+  analyst: 250000         # 80k → 250k (per-bot card + whatif daily)
+  market_scout: 150000    # 40k → 150k (aylık burst yüksek ama günlük 0)
+  strategy_curator: 200000 # 60k → 200k (haftalık review + 4-saatte 1 corr)
+
+  # Reviewer/operasyon (üretimde gözlenen)
+  risk_officer: 250000    # 60k → 250k (98K kullanım kanıtladı — 4x buffer)
+  ops_engineer: 100000    # 30k → 100k (Haiku ucuz, sık çalışsın)
+  data_engineer: 30000    # 10k → 30k
+
+  # Faz 6 — Bot Monitor (Haiku, 15dk frekans → 4x daha sık)
+  bot_monitor: 200000     # 50k → 200k (Haiku 5x ucuz, sıklık 4x → net 5x bütçe)
 
   # Deterministic — LLM use yok
   portfolio_manager: 0
@@ -34,11 +41,18 @@ daily_limits:
   execution_chief: 0
 
 # Haftalık tüm-agent toplam limiti
-weekly_limit_total: 8000000  # 3M → 8M (Faz 6+)
+# Sum of dailies × 7 ≈ 19M, biraz buffer ile:
+weekly_limit_total: 25000000  # 8M → 25M
 
-# Alarm seviyeleri
-alert_threshold_pct: 75   # 80 → 75 (erken uyarı)
-crit_threshold_pct: 95    # 100 → 95
+# Alarm seviyeleri (sıkı tut, erken uyarı)
+alert_threshold_pct: 75
+crit_threshold_pct: 95
+
+# Notlar:
+# - Max Pro paketi içinde bu rakamlar referans (gerçek fatura Anthropic dashboard)
+# - Sonnet 4.6 = $3/$15 (input/output per 1M), Opus 4.7 = $5/$25 — Sonnet 5x ucuz
+# - Haiku 4.5 = $1/$5 — en ucuz, bot_monitor için ideal
+# - Limit aşımı → push_critical CRIT alarm + 24 saat içinde revize
 
 # Future Faz 5: per-model breakdown
 # model_pricing_override:

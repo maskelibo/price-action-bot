@@ -722,7 +722,9 @@ def _push_report_safe(path: Any, *, level: str = "INFO", caption: str | None = N
 
         if not should_push():
             return
-        push_report(path, level=level, caption=caption, parse_mode="Markdown")
+        # FIX 2026-05-25: parse_mode=None — file paths/captions often contain _
+        # which breaks Markdown parser. Plain text is safer for system reports.
+        push_report(path, level=level, caption=caption, parse_mode=None)
     except Exception as exc:
         logger.warning("scheduler.push_fail", extra={"path": str(path), "err": str(exc)[:200]})
 
@@ -750,7 +752,7 @@ def _push_latest_safe(
             return
         s = get_settings()
         d = s.reports_dir / subdir
-        push_report_if_recent(d, pattern, level=level, caption=caption, parse_mode="Markdown")
+        push_report_if_recent(d, pattern, level=level, caption=caption, parse_mode=None)
     except Exception as exc:
         logger.warning(
             "scheduler.push_latest_fail",

@@ -98,7 +98,7 @@ def push_report(
     caption: str | None = None,
     max_chars: int = _DEFAULT_MAX_CHARS,
     env_var: str = "PA_CEO_PUSH_TELEGRAM",
-    parse_mode: str | None = "Markdown",
+    parse_mode: str | None = None,  # FIX 2026-05-25: None safer — file names with _ or *
     alert_type: str | None = None,
 ) -> bool:
     """Markdown raporu Telegram'a gönder; uzun ise chunk'lara böl.
@@ -228,7 +228,9 @@ def push_critical(
         return False
 
     full = f"[{source or 'system'}] {message}" if source else message
-    return send_critical(full, parse_mode="Markdown")
+    # FIX 2026-05-25: parse_mode=None — source often contains _ (e.g. risk_officer)
+    # which breaks Markdown parser. CRIT alerts must always deliver.
+    return send_critical(full, parse_mode=None)
 
 
 # ----------------------------------------------------------------------
