@@ -44,6 +44,9 @@ export PA_LLM_USE_CLI="true"
 export PA_RUN_MODE="${PA_RUN_MODE:-paper}"
 export PA_CEO_PUSH_TELEGRAM="true"
 export TZ="UTC"
+# CEO morning brief büyük context (~25k token) → Opus call 3-4dk sürebilir.
+# Default 180sn timeout retry zincirine girer → 9dk boşa. 300sn (5dk) güvenli.
+export PA_CLI_TIMEOUT_S="${PA_CLI_TIMEOUT_S:-300}"
 
 # 4b) PA_LLM_USE_CLI=true iken Claude CLI subscription auth kullanmalı.
 # Eğer ANTHROPIC_API_KEY set ise CLI onu kullanmaya çalışır; invalid/expired
