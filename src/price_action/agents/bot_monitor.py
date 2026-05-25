@@ -587,13 +587,116 @@ class BotMonitorAgent(LLMAgentBase):
         return False
 
     # ------------------------------------------------------------------
+    # Daemon log analizi (FIX 2026-05-26: actionable daily cards için)
+    # ------------------------------------------------------------------
+
+    def analyze_daemon_log(
+        self,
+        log_path: Path | None,
+        *,
+        window_hours: int = 24,
+    ) -> dict[str, Any]:
+        """Daemon log'unu parse et: sinyal akışı + reject breakdown + sağlık.
+
+        Returns dict:
+            scans: int
+            signals_total: int
+            rejects_widestop: int   (tasarım gereği, sorun değil)
+            rejects_tech: dict[str, int]  (regime_cache_stale gibi)
+            accepts: int
+            avg_latency_s: float
+            errors: int  (hata satırları)
+            last_signal_ts: str | None
+            last_accept_ts: str | None
+        """
+        out: dict[str, Any] = {
+            "scans": 0, "signals_total": 0, "rejects_widestop": 0,
+            "rejects_tech": {}, "accepts": 0, "avg_latency_s": 0.0,
+            "errors": 0, "last_signal_ts": None, "last_accept_ts": None,
+        }
+        if not log_path or not log_path.exists():
+            return out
+
+        try:
+            with log_path.open("r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()[-5000:]  # son ~5000 satır yeter
+            latencies: list[float] = []
+            for line in lines:
+                # Timestamp filter (HH:MM string compare)
+                m_ts = re.match(r"^\[(\d{2}:\d{2}:\d{2})\]", line)
+                if not m_ts:
+                    continue
+                ts_str = m_ts.group(1)
+                # SCAN — yeni bar taraması
+                m_scan = re.search(r"(\d+)M_SCAN: (\d+) sinyal, latency=([\d.]+)s", line)
+                if m_scan:
+                    out["scans"] += 1
+                    n_sig = int(m_scan.group(2))
+                    out["signals_total"] += n_sig
+                    if n_sig > 0:
+                        out["last_signal_ts"] = ts_str
+                    latencies.append(float(m_scan.group(3)))
+                    continue
+                # REJECT
+                if "REJECT_WIDESTOP" in line:
+                    out["rejects_widestop"] += 1
+                    continue
+                m_rej = re.search(r"REJECT_RISK.*reason=(\S+)", line)
+                if m_rej:
+                    reason = m_rej.group(1)
+                    out["rejects_tech"][reason] = out["rejects_tech"].get(reason, 0) + 1
+                    continue
+                # ACCEPT / POS_OPEN
+                if "ACCEPT" in line or "POS_OPEN" in line or "ORDER_SUBMIT" in line:
+                    out["accepts"] += 1
+                    out["last_accept_ts"] = ts_str
+                    continue
+                # Hata satırları
+                if " ERROR" in line or " WARN " in line.upper() or "FAIL" in line:
+                    out["errors"] += 1
+            if latencies:
+                out["avg_latency_s"] = round(sum(latencies) / len(latencies), 2)
+        except Exception as exc:
+            logger.warning(
+                "bot_monitor.daemon_log_parse_fail",
+                extra={"path": str(log_path), "err": str(exc)[:200]},
+            )
+        return out
+
+    @staticmethod
+    def _verdict_from_flow(
+        flow: dict[str, Any], trades_24h: int, hours_since_last_trade: float | None
+    ) -> tuple[str, str]:
+        """Sinyal akışı + trade'lerden 'normal'/'abnormal' verdict + sebep."""
+        tech_rejects = sum(flow.get("rejects_tech", {}).values())
+        total_rejects = tech_rejects + flow.get("rejects_widestop", 0)
+        signals = flow.get("signals_total", 0)
+        scans = flow.get("scans", 0)
+
+        if trades_24h > 0:
+            return "NORMAL", f"{trades_24h} trade kapatıldı son 24h"
+        if scans == 0:
+            return "ANOMALI", "Daemon hiç tarama yapmamış (log boş veya bot down)"
+        if signals == 0:
+            return "NORMAL_SAKİN", "Piyasada hiç sinyal yok (sakin koşul)"
+        if tech_rejects > 0 and signals > 0:
+            top = max(flow["rejects_tech"].items(), key=lambda x: x[1])
+            if top[1] / max(total_rejects, 1) >= 0.5:
+                return "ANOMALI", f"Teknik reject baskın: {top[0]} ({top[1]}/{total_rejects})"
+        if flow.get("rejects_widestop", 0) >= signals * 0.8:
+            return "NORMAL_FILTRE", f"Sinyaller widestop filtreyi geçmedi ({flow['rejects_widestop']}/{signals}) - tasarım gereği"
+        return "İZLE", f"{signals} sinyal, {total_rejects} reject, 0 trade"
+
+    # ------------------------------------------------------------------
     # SOP-2: Daily Report Cards
     # ------------------------------------------------------------------
 
     async def daily_report_cards(self) -> Path | None:
-        """Günlük per-bot card. Haiku ile bot başına 3-satır özet.
+        """Günlük per-bot card. Haiku ile bot başına özet.
 
-        Telegram chunked output: her bot ayrı section, ilk satır 280-char özet.
+        FIX 2026-05-26: 0-trade durumunda da actionable rapor.
+        Eklendi: sinyal akışı, reject breakdown, daemon sağlığı,
+        blind-spot alerts, verdict + action items.
         """
         cfg = self._load_config()
         bots = cfg.get("bots") or {}
@@ -643,53 +746,137 @@ class BotMonitorAgent(LLMAgentBase):
                 )[:10]
             ]
 
+            # FIX 2026-05-26: Daemon log analizi (signal flow + reject pattern)
+            log_path = self._resolve_log_path(bot_name)
+            flow = self.analyze_daemon_log(log_path, window_hours=24)
+
+            # Blind-spot alerts (mevcut detect_blind_spots'tan)
+            last_trade = trades_24h[-1] if trades_24h else (trades_7d[-1] if trades_7d else None)
+            blind_alerts = self.detect_blind_spots(
+                bot_name, trades=trades_7d, last_trade=last_trade,
+                now=now, log_path=log_path,
+            )
+            hours_since_trade = None
+            if last_trade and last_trade.get("ts_close"):
+                try:
+                    hours_since_trade = (now - self._to_utc(last_trade["ts_close"])).total_seconds() / 3600.0
+                except Exception:
+                    pass
+            verdict, verdict_reason = self._verdict_from_flow(flow, n_24h, hours_since_trade)
+
             sections.append(f"## {bot_name}")
+            sections.append(f"**Verdict: {verdict}** — {verdict_reason}")
+            sections.append("")
+            sections.append("### Trade Performansı (24h / 7g)")
             sections.append(
                 f"- 24h: trades={n_24h}, P&L=${pnl_24h:.2f}, win={wr_24h*100:.1f}%, avg_R={avg_r_24h:.2f}"
             )
-            sections.append(f"- 7g rolling: P&L=${pnl_7d:.2f}, MaxDD=%{dd_7d*100:.2f}, n_trades={len(trades_7d)}")
+            sections.append(
+                f"- 7g rolling: P&L=${pnl_7d:.2f}, MaxDD=%{dd_7d*100:.2f}, n_trades={len(trades_7d)}"
+            )
+            if hours_since_trade is not None:
+                sections.append(f"- Son trade: {hours_since_trade:.1f}h önce")
+            elif last_trade is None:
+                sections.append("- Son trade: 7g+ yok")
+
+            # YENİ: Sinyal akışı
+            sections.append("")
+            sections.append("### Sinyal Akışı (son 24h, log'dan)")
+            sections.append(
+                f"- Tarama sayısı: {flow['scans']}  |  "
+                f"Tespit edilen sinyal: {flow['signals_total']}  |  "
+                f"Kabul: {flow['accepts']}"
+            )
+            sections.append(
+                f"- Widestop reject (tasarım): {flow['rejects_widestop']}  |  "
+                f"Teknik reject: {sum(flow['rejects_tech'].values())}"
+            )
+            if flow["rejects_tech"]:
+                top_reasons = sorted(
+                    flow["rejects_tech"].items(), key=lambda x: -x[1]
+                )[:3]
+                sections.append("- En sık teknik reject sebepleri:")
+                for reason, count in top_reasons:
+                    sections.append(f"  - `{reason}`: {count} kez")
+            if flow["last_signal_ts"]:
+                sections.append(f"- Son sinyal saati: {flow['last_signal_ts']} UTC")
+
+            # YENİ: Daemon sağlığı
+            sections.append("")
+            sections.append("### Daemon Sağlığı")
+            sections.append(
+                f"- Ortalama tarama latency: {flow['avg_latency_s']}s  |  "
+                f"Log'daki hata/uyarı: {flow['errors']}"
+            )
+
+            # YENİ: Blind-spot alerts
+            if blind_alerts:
+                sections.append("")
+                sections.append("### ⚠️ Blind-Spot Tespitleri")
+                for a in blind_alerts:
+                    icon = "🚨" if a["severity"] == "crit" else "⚠️"
+                    sections.append(f"- {icon} [{a['severity'].upper()}] {a['message']}")
+
             if top_winner:
+                sections.append("")
                 sections.append(
-                    f"- Top winner (24h): {top_winner.get('sym')} / "
+                    f"- 🏆 Top winner (24h): {top_winner.get('sym')} / "
                     f"{top_winner.get('strategy')} / ${float(top_winner.get('realized_pnl_usdt',0) or 0):.2f}"
                 )
             if top_loser:
                 sections.append(
-                    f"- Top loser (24h): {top_loser.get('sym')} / "
+                    f"- 📉 Top loser (24h): {top_loser.get('sym')} / "
                     f"{top_loser.get('strategy')} / ${float(top_loser.get('realized_pnl_usdt',0) or 0):.2f}"
                 )
             if attr_lines:
                 sections.append("- Attribution (7g, top-10):")
                 sections.extend(attr_lines)
-            else:
-                sections.append("- Attribution: (no trades in 7d)")
 
             per_bot_summary_inputs.append({
                 "bot": bot_name,
+                "verdict": verdict,
+                "verdict_reason": verdict_reason,
                 "pnl_24h": pnl_24h,
                 "pnl_7d": pnl_7d,
                 "wr_24h": wr_24h,
                 "n_24h": n_24h,
                 "dd_7d": dd_7d,
+                "hours_since_trade": hours_since_trade,
+                "scans_24h": flow["scans"],
+                "signals_24h": flow["signals_total"],
+                "rejects_widestop": flow["rejects_widestop"],
+                "rejects_tech_total": sum(flow["rejects_tech"].values()),
+                "top_tech_reject": (
+                    max(flow["rejects_tech"].items(), key=lambda x: x[1])[0]
+                    if flow["rejects_tech"] else None
+                ),
+                "blind_spot_alerts": [a["message"] for a in blind_alerts],
             })
             sections.append("")
 
-        # Haiku özet: bot başına 3 satır
+        # FIX 2026-05-26: Haiku actionable özet (verdict + action items)
         if per_bot_summary_inputs:
             prompt = (
-                "Sen Bot Monitor'sın. Her bot için tam 3 satır özet üret. "
-                "Format: '<bot>: 24h <±%>, 7g <±%>, win <%>, <comment>'. "
-                "Comment kısa (5-8 kelime). Sayılar verilen input'tan. "
-                "Hiçbir hipotez/anlatı yok, sadece sayı + 1 nitel etiket "
-                "(örn. 'no halt', 'in drawdown', 'low activity').\n\n"
-                f"INPUT:\n{json.dumps(per_bot_summary_inputs, indent=2)}"
+                "Sen Bot Monitor'sın. Principal Telegram'da hızlıca okuyacak. "
+                "Aşağıdaki verilere bakıp HER bot için şu yapıyı üret:\n\n"
+                "**<bot>**: <tek-cümle durum özeti (verdict + en kritik metrik)>\n"
+                "  - Nedeni: <neden bu verdict — log'dan/verilerden çıkarım>\n"
+                "  - Aksiyon: <Principal ne yapsın — yapacak yoksa 'aksiyon gerek yok'>\n\n"
+                "Kurallar:\n"
+                "- Verdict 'NORMAL' / 'NORMAL_SAKİN' / 'NORMAL_FILTRE' ise aksiyon = 'aksiyon gerek yok'\n"
+                "- Verdict 'ANOMALI' ise aksiyon SPESIFIK ve KISA (örn. 'regime cache cron kontrolü')\n"
+                "- 0 trade görürsen 'neden 0' diye düşün: scans=0 mı, signals=0 mı, tech reject mi, widestop mu\n"
+                "- Sayı uydurma, sadece input'ta olanı kullan\n"
+                "- Max 5 satır/bot, Türkçe\n\n"
+                f"INPUT:\n{json.dumps(per_bot_summary_inputs, indent=2, default=str)}"
             )
             try:
-                summary_text = await self.run(prompt, max_tokens=512, temperature=0.1)
+                summary_text = await self.run(prompt, max_tokens=1024, temperature=0.2)
             except Exception as exc:
                 logger.warning("bot_monitor.summary_fail", extra={"err": str(exc)[:200]})
                 summary_text = "(LLM summary unavailable)"
-            sections.append("## LLM özet (Haiku)\n")
+            sections.append("## 📋 Özet ve Aksiyon (Haiku)")
+            sections.append("")
             sections.append(summary_text)
             sections.append("")
 
