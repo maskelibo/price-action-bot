@@ -106,6 +106,27 @@ class MarketScoutAgent(LLMAgentBase):
         idx = (m - starting_month) % len(rotation)
         return rotation[idx]
 
+    def select_market_for_week(
+        self,
+        *,
+        target_date: date | None = None,
+        calendar: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """FIX 2026-05-26: haftalık rotation (aylık yerine).
+
+        Aylık rotation 5 pazar/yıl × ~2.4 = çok yavaş. Haftalık rotation:
+        ISO hafta numarası modulo rotation uzunluğu → 5 haftada tüm pazarları
+        gez. ~10× hızlı kapsama.
+        """
+        cal = calendar or self.load_calendar()
+        rotation: list[dict[str, Any]] = cal.get("rotation") or []
+        if not rotation:
+            return None
+        d = target_date or date.today()
+        iso_week = d.isocalendar()[1]
+        idx = (iso_week - 1) % len(rotation)
+        return rotation[idx]
+
     def find_market_entry(
         self, market_name: str, *, calendar: dict[str, Any] | None = None
     ) -> dict[str, Any] | None:

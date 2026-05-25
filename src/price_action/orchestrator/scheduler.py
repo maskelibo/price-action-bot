@@ -521,34 +521,80 @@ async def _job_regime_features_refresh() -> None:
 
 
 def _run_param_sweep_chunk_sync() -> None:
-    """Sync helper — scripts/param_sweep_chunk_processor.py'i import et."""
+    """Sync helper — scripts/param_sweep_chunk_processor.py'i import et.
+
+    FIX 2026-05-26: önceki versiyon `process_next_chunk` çağırıyordu, oysa
+    fonksiyon adı `process_chunk(chunks_cfg, grids_cfg, chunks_dir)`.
+    Configleri main()'in yaptığı gibi yükle ve doğru imzayla çağır.
+    """
     try:
-        from scripts.param_sweep_chunk_processor import process_next_chunk
-        process_next_chunk()
-    except ImportError:
-        logger.warning("scheduler.param_sweep_import_fail")
+        import yaml
+        from pathlib import Path
+        from scripts.param_sweep_chunk_processor import process_chunk
+        chunks_yaml = Path("configs/param_sweep_chunks.yaml")
+        grids_yaml = Path("configs/param_sweep_grids.yaml")
+        if not chunks_yaml.exists() or not grids_yaml.exists():
+            logger.warning(
+                "scheduler.param_sweep_config_missing",
+                extra={"chunks": str(chunks_yaml), "grids": str(grids_yaml)},
+            )
+            return
+        chunks_cfg = yaml.safe_load(chunks_yaml.read_text()) or {}
+        grids_cfg = yaml.safe_load(grids_yaml.read_text()) or {}
+        chunks_dir = Path(chunks_cfg.get("chunks_dir", "reports/param_sweep/chunks"))
+        chunks_dir.mkdir(parents=True, exist_ok=True)
+        result = process_chunk(chunks_cfg, grids_cfg, chunks_dir)
+        logger.info(
+            "scheduler.param_sweep_chunk_done",
+            extra={
+                "strategy": result.get("strategy"),
+                "cells_processed": result.get("cells_processed"),
+                "offset_after": result.get("offset_after"),
+            },
+        )
+    except ImportError as exc:
+        logger.warning("scheduler.param_sweep_import_fail", extra={"err": str(exc)[:200]})
+    except Exception as exc:
+        logger.warning("scheduler.param_sweep_run_fail", extra={"err": str(exc)[:200]})
 
 
 async def _job_adversary_daily_stress() -> None:
-    """Faz 9: Adversary Engineer günlük stress test (1 bot/gün rotation)."""
+    """Faz 9: Adversary Engineer günlük stress test.
+
+    FIX 2026-05-26: önceden gün modulo ile 1 bot/gün rotation vardı
+    (day%2==0 → futures15m, day%2==1 → futures5m). Bu Principal'in
+    "futures15m hiç test edilmiyor" şikayetine sebep oldu çünkü
+    aktif gün rotation'a denk gelmediğinde günlerce sıra atlıyordu.
+    Yeni davranış: her gece HER iki bot için stress test (paralel).
+    Token bütçesi artırıldı (Faz 4.2 revize 2026-05-25), karşılayabilir.
+    """
     try:
+        import asyncio
         from price_action.agents import AdversaryEngineerAgent
-        # Rotation: gün × bot index modulo
-        from datetime import datetime as _dt, timezone as _tz
-        bots = ["futures15m", "futures5m"]
-        bot_id = bots[_dt.now(_tz.utc).day % len(bots)]
         ae = AdversaryEngineerAgent()
-        path = await ae.daily_stress_test(bot_id)
-        # CRIT verdict varsa push
-        try:
-            content = path.read_text(encoding="utf-8")[:3000]
-            if "CRIT" in content or "FAILED" in content:
-                _push_critical_safe(
-                    f"Adversary stress test CRIT — bot={bot_id}",
-                    source="adversary_engineer",
+        bots = ["futures15m", "futures5m"]
+        # Paralel çalıştır (bağımsız işler, agent re-entrant)
+        results = await asyncio.gather(
+            *[ae.daily_stress_test(b) for b in bots],
+            return_exceptions=True,
+        )
+        for bot_id, result in zip(bots, results):
+            if isinstance(result, Exception):
+                logger.warning(
+                    "scheduler.adversary_per_bot_fail",
+                    extra={"bot": bot_id, "err": str(result)[:200]},
                 )
-        except Exception:
-            pass
+                continue
+            # CRIT verdict varsa push
+            try:
+                content = result.read_text(encoding="utf-8")[:3000]
+                if "CRIT" in content or "FAILED" in content:
+                    _push_critical_safe(
+                        f"Adversary stress test CRIT — bot={bot_id}",
+                        source="adversary_engineer",
+                    )
+            except Exception:
+                pass
     except Exception as exc:
         logger.warning("scheduler.adversary_daily_fail", extra={"err": str(exc)[:200]})
 
@@ -565,7 +611,11 @@ async def _job_adversary_weekly_red_team() -> None:
 
 
 async def _job_monthly_market_scout() -> None:
-    """Faz 11: Market Scout aylık feasibility study (ayın 5'i)."""
+    """Faz 11: Market Scout aylık feasibility study (ayın 5'i).
+
+    Aylık tetik korundu — derin bir 5-boyutlu çalışma.
+    Haftalık hızlı tarama için ``_job_weekly_market_scout`` ayrı.
+    """
     try:
         from price_action.agents import MarketScoutAgent
         ms = MarketScoutAgent()
@@ -573,6 +623,33 @@ async def _job_monthly_market_scout() -> None:
         _push_report_safe(path, level="INFO", caption="Market Scout Feasibility")
     except Exception as exc:
         logger.warning("scheduler.market_scout_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_weekly_market_scout() -> None:
+    """FIX 2026-05-26: Haftalık market scout (5 haftada tüm rotation).
+
+    Aylık tetik 5 ayda 1 tam tur dönüyor (yavaş kapsama). Bu haftalık
+    iş ISO hafta modulo ile her hafta sıradaki pazara bakar — 5 haftada
+    tüm rotation taranır. select_market_for_week() kullanır.
+    """
+    try:
+        from price_action.agents import MarketScoutAgent
+        ms = MarketScoutAgent()
+        cal = ms.load_calendar()
+        slot = ms.select_market_for_week(calendar=cal)
+        if slot is None:
+            logger.warning("scheduler.weekly_market_scout_no_slot")
+            return
+        market_name = str(slot.get("market", "unknown"))
+        path = await ms.monthly_feasibility_study(target_market=market_name)
+        _push_report_safe(
+            path, level="INFO",
+            caption=f"Weekly Market Scout — {market_name}",
+        )
+    except Exception as exc:
+        logger.warning(
+            "scheduler.weekly_market_scout_fail", extra={"err": str(exc)[:200]}
+        )
 
 
 async def _job_curator_daily_correlation() -> None:
@@ -839,6 +916,8 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("weekly_principal_queue", "cron", "30 8 * * sun", _job_weekly_principal_queue),  # Faz 12
     # Aylık
     ("monthly_market_scout", "cron", "0 8 5 * *", _job_monthly_market_scout),  # Faz 11
+    # FIX 2026-05-26: haftalık market scout (5 haftada full rotation kapsama)
+    ("weekly_market_scout", "cron", "0 9 * * mon", _job_weekly_market_scout),  # Pzt 09:00 UTC
     ("monthly_review", "cron", "0 6 28-31 * *", _job_monthly_review),
     ("monthly_strategy_portfolio", "cron", "0 9 28-31 * *", _job_monthly_strategy_portfolio_review),  # Faz 12
 )
