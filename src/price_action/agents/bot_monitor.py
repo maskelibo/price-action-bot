@@ -301,6 +301,165 @@ class BotMonitorAgent(LLMAgentBase):
         return out
 
     # ------------------------------------------------------------------
+    # Blind-spot detector (FIX 2026-05-25)
+    # ------------------------------------------------------------------
+    # Problem: previous hourly_snapshot only reported equity/DD/last_trade
+    # as informational. It did NOT flag "bot has 0 trades in N days" or
+    # "all rejects are the same technical reason" — so the Principal had
+    # to manually notice 3 days of zero activity.
+    #
+    # detect_blind_spots() returns a list of alert dicts. hourly_snapshot
+    # calls it and pushes CRITICAL Telegram if any alert is high-severity.
+    # Alerts have shape:
+    #   {bot, severity, kind, message, evidence}
+    # severity ∈ "info" | "warn" | "crit"
+    # kind ∈ "stale_no_trades" | "uniform_tech_reject" | "heartbeat_dead"
+    # ------------------------------------------------------------------
+
+    def detect_blind_spots(
+        self,
+        bot_name: str,
+        *,
+        trades: list[dict[str, Any]],
+        last_trade: dict[str, Any] | None,
+        now: datetime,
+        no_trade_warn_hours: int = 24,
+        no_trade_crit_hours: int = 72,
+        log_path: Path | None = None,
+        reject_window_minutes: int = 60,
+        uniform_reject_threshold: float = 0.90,
+    ) -> list[dict[str, Any]]:
+        """Bot için kör nokta tespiti.
+
+        İki kontrol:
+        1. Stale no-trade: son trade kapanışı > N saat önce ise WARN/CRIT.
+        2. Uniform tech reject: son N dakikadaki reject'lerin %X'i aynı
+           TEKNİK sebep ise (widestop hariç — o tasarım gereği) → CRIT.
+
+        Returns:
+            Tespit edilen alert listesi (boş ise sorun yok).
+        """
+        alerts: list[dict[str, Any]] = []
+
+        # ---- Check 1: stale no-trade ---------------------------------
+        if last_trade is None:
+            # 30 günde 0 trade
+            alerts.append({
+                "bot": bot_name,
+                "severity": "warn",
+                "kind": "stale_no_trades",
+                "message": f"{bot_name}: son 30 günde HİÇ trade yok.",
+                "evidence": {"n_trades_30d": 0},
+            })
+        else:
+            ts_close = last_trade.get("ts_close")
+            if ts_close:
+                try:
+                    last_close = self._to_utc(ts_close)
+                    hours_since = (now - last_close).total_seconds() / 3600.0
+                    if hours_since >= no_trade_crit_hours:
+                        alerts.append({
+                            "bot": bot_name,
+                            "severity": "crit",
+                            "kind": "stale_no_trades",
+                            "message": (
+                                f"{bot_name}: {hours_since:.1f} saattir hiç trade yok "
+                                f"(eşik CRIT={no_trade_crit_hours}h). "
+                                f"Reject pattern'ı kontrol et."
+                            ),
+                            "evidence": {"hours_since_last_trade": round(hours_since, 1)},
+                        })
+                    elif hours_since >= no_trade_warn_hours:
+                        alerts.append({
+                            "bot": bot_name,
+                            "severity": "warn",
+                            "kind": "stale_no_trades",
+                            "message": (
+                                f"{bot_name}: {hours_since:.1f} saattir trade yok "
+                                f"(eşik WARN={no_trade_warn_hours}h)."
+                            ),
+                            "evidence": {"hours_since_last_trade": round(hours_since, 1)},
+                        })
+                except Exception:
+                    pass  # ts parse hatası — sessiz geç
+
+        # ---- Check 2: uniform tech reject ----------------------------
+        # Daemon log'unu (varsa) tarayıp son N dakikadaki REJECT pattern'ını
+        # analiz et. "WIDESTOP" tasarım gereği — sayılmaz. Diğer her şey
+        # (regime_cache_stale, import_fail, vb.) TEKNİK bug indikatörü.
+        if log_path and log_path.exists():
+            try:
+                cutoff_clock = (now - timedelta(minutes=reject_window_minutes)).strftime("%H:%M")
+                # Log format: [HH:MM:SS] 15M_REJECT_RISK: SYM strat reason=X
+                rejects: dict[str, int] = {}
+                total_rejects = 0
+                widestop_count = 0
+                # Read tail efficiently
+                with log_path.open("r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()[-2000:]
+                for line in lines:
+                    if "REJECT" not in line:
+                        continue
+                    # Time gate (HH:MM string compare — yeterince doğru)
+                    m = re.match(r"^\[(\d{2}:\d{2}):\d{2}\]", line)
+                    if not m or m.group(1) < cutoff_clock:
+                        continue
+                    if "REJECT_WIDESTOP" in line:
+                        widestop_count += 1
+                        continue  # tasarım gereği, atla
+                    # reason=X parse
+                    rm = re.search(r"reason=(\S+)", line)
+                    reason = rm.group(1) if rm else "unknown"
+                    rejects[reason] = rejects.get(reason, 0) + 1
+                    total_rejects += 1
+
+                if total_rejects >= 3:  # anlamlı örneklem
+                    top_reason, top_count = max(rejects.items(), key=lambda x: x[1])
+                    ratio = top_count / total_rejects
+                    if ratio >= uniform_reject_threshold:
+                        alerts.append({
+                            "bot": bot_name,
+                            "severity": "crit",
+                            "kind": "uniform_tech_reject",
+                            "message": (
+                                f"{bot_name}: son {reject_window_minutes}dk içinde "
+                                f"{total_rejects} non-widestop reject'in %{ratio*100:.0f}'i "
+                                f"`{top_reason}` (teknik bug muhtemel)."
+                            ),
+                            "evidence": {
+                                "reason": top_reason,
+                                "count": top_count,
+                                "total_non_widestop_rejects": total_rejects,
+                                "widestop_rejects": widestop_count,
+                            },
+                        })
+            except Exception as exc:
+                logger.warning(
+                    "bot_monitor.blind_spot_log_parse_fail",
+                    extra={"bot": bot_name, "err": str(exc)[:200]},
+                )
+
+        return alerts
+
+    @staticmethod
+    def _resolve_log_path(bot_name: str) -> Path | None:
+        """Bot adından launchd stderr log path'i türet."""
+        try:
+            from price_action.settings import get_settings
+            s = get_settings()
+            candidates = [
+                s.reports_dir.parent / "logs" / "launchd" / f"{bot_name}.stderr.log",
+                s.reports_dir.parent / "logs" / "launchd" / f"{bot_name}.stdout.log",
+                s.reports_dir.parent / "logs" / f"futures_daemon{'_5m' if '5m' in bot_name else ''}.log",
+            ]
+            for p in candidates:
+                if p.exists():
+                    return p
+        except Exception:
+            pass
+        return None
+
+    # ------------------------------------------------------------------
     # SOP-1: Hourly Snapshot
     # ------------------------------------------------------------------
 
@@ -317,6 +476,7 @@ class BotMonitorAgent(LLMAgentBase):
 
         lines: list[str] = [f"# Bot Snapshot — {now.strftime('%Y-%m-%d %H:00 UTC')}", ""]
         active_bots: list[str] = []
+        all_alerts: list[dict[str, Any]] = []  # FIX 2026-05-25 blind-spot
 
         for bot_name, bot_cfg in bots.items():
             journal = self._resolve_journal_path(bot_cfg.get("journal", ""))
@@ -335,6 +495,17 @@ class BotMonitorAgent(LLMAgentBase):
             last_trade = trades[-1] if trades else None
             heartbeat_ok = self._heartbeat_check(bot_name)
 
+            # FIX 2026-05-25: blind-spot detection
+            log_path = self._resolve_log_path(bot_name)
+            bot_alerts = self.detect_blind_spots(
+                bot_name,
+                trades=trades,
+                last_trade=last_trade,
+                now=now,
+                log_path=log_path,
+            )
+            all_alerts.extend(bot_alerts)
+
             lines.append(f"## {bot_name}")
             lines.append(f"- Journal: `{journal}` — {'OK' if ok else 'MISSING'}")
             lines.append(f"- Trades (30d): {len(trades)}")
@@ -350,8 +521,27 @@ class BotMonitorAgent(LLMAgentBase):
             else:
                 lines.append("- Last trade: (none in 30d)")
             lines.append(f"- Heartbeat: {'OK' if heartbeat_ok else 'STALE/MISSING'}")
+            if bot_alerts:
+                lines.append(f"- ⚠️ Blind-spot alerts: {len(bot_alerts)}")
+                for a in bot_alerts:
+                    lines.append(f"  - [{a['severity'].upper()}] {a['kind']}: {a['message']}")
             lines.append("")
             active_bots.append(bot_name)
+
+        # FIX 2026-05-25: CRIT alerts'i Telegram'a push'la (parse_mode=None artık güvenli)
+        crit_alerts = [a for a in all_alerts if a["severity"] == "crit"]
+        if crit_alerts:
+            try:
+                from price_action.orchestrator.notifications import push_critical
+                msg = f"BOT BLIND-SPOT — {len(crit_alerts)} CRIT alert(s):\n" + "\n".join(
+                    f"- {a['message']}" for a in crit_alerts
+                )
+                push_critical(msg, source="bot_monitor")
+            except Exception as exc:
+                logger.warning(
+                    "bot_monitor.blind_spot_push_fail",
+                    extra={"err": str(exc)[:200], "n_crit": len(crit_alerts)},
+                )
 
         body = "\n".join(lines)
         slug = f"snapshot-{now.strftime('%Y-%m-%d-%H')}"

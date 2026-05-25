@@ -78,7 +78,24 @@ def _compute_features(
             else:
                 btc_df = raw
         except Exception as exc2:
-            print(f"[ERROR] Cannot load BTC OHLCV data: {exc2}")
+            print(f"[WARN] Pickle cache load failed ({exc2}), trying ccxt direct fetch...")
+
+    # FIX 2026-05-25: ccxt direct fetch fallback (bypasses DuckDB lock conflicts
+    # when futures15m daemon holds write-lock, and works when pickle cache absent)
+    if btc_df is None:
+        try:
+            import ccxt
+            ex = ccxt.binance({"enableRateLimit": True})
+            # Fetch ~120 daily bars (covers all lookback windows: 90d, 30d, 60d, 14d)
+            ohlcv = ex.fetch_ohlcv("BTC/USDT", "1d", limit=150)
+            btc_df = pd.DataFrame(
+                ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"]
+            )
+            btc_df.index = pd.to_datetime(btc_df["timestamp"], unit="ms", utc=True)
+            btc_df = btc_df.drop(columns=["timestamp"])
+            print(f"[ccxt] Fetched {len(btc_df)} daily BTC bars from Binance")
+        except Exception as exc3:
+            print(f"[ERROR] All BTC OHLCV sources failed (ccxt: {exc3})")
             return 1
 
     if btc_df is None or btc_df.empty:
