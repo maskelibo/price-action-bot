@@ -1,0 +1,89 @@
+# Adversarial stress test periods + kill-probe thresholds.
+#
+# Faz 9 — Adversary Engineer (Red Team).
+# Bu dosya:
+#   1. Tarihsel crash periodları (her bot her gün replay edilir)
+#   2. Stress test PASS/FAIL eşikleri
+#   3. Pre-deploy kill-probe gate'leri (overfit/cherry-pick detection)
+#
+# Principal değiştirebilir; agent okur ve uygular.
+# Eklemek istenen yeni period için: id, name, start, end, description, severity.
+
+stress_periods:
+  covid_2020_03:
+    name: "COVID Crash"
+    start: "2020-03-08"
+    end: "2020-03-23"
+    description: "BTC -50%, equity panic, global risk-off; liquidity dry-up tüm major exchange'lerde"
+    severity: extreme
+
+  luna_2022_05:
+    name: "LUNA Collapse"
+    start: "2022-05-07"
+    end: "2022-05-15"
+    description: "UST depeg, LUNA $80 -> $0; algorithmic stablecoin death spiral; on-chain liquidity reflexive collapse"
+    severity: extreme
+
+  ftx_2022_11:
+    name: "FTX Collapse"
+    start: "2022-11-06"
+    end: "2022-11-15"
+    description: "FTX/Alameda contagion; BTC -25%; exchange withdrawal runs; perp basis & funding shocks; alt korelasyon 0.95'e fırladı"
+    severity: extreme
+
+  btc_ath_2024_03:
+    name: "BTC ATH 2024"
+    start: "2024-03-10"
+    end: "2024-03-20"
+    description: "BTC $73K ATH ardından leverage flush; perp funding %0.1/8h; cascading liquidations"
+    severity: high
+
+  yen_carry_2024_08:
+    name: "Yen Carry Unwind"
+    start: "2024-08-04"
+    end: "2024-08-08"
+    description: "JPY +12% in 3 days; global carry unwind; Asian session forced sells; crypto -%20"
+    severity: high
+
+# PASS/FAIL eşikleri — daily_stress_test bu eşiklere göre verdict üretir.
+# Aşılan eşikler critique tetikler; geçmek deploy/promote izni anlamına gelmez,
+# sadece "stress'i tolere edebilir" sinyalidir.
+adversarial_thresholds:
+  max_drawdown_pct_per_period: 0.20      # Bir periodda DD > 20% -> CRIT critique
+  max_consecutive_losses: 5               # Period içinde 5+ ardıl loss -> critique
+  min_recovery_days_acceptable: 30        # Period sonrası recovery > 30 gün -> critique
+  min_n_trades_per_period: 3              # < 3 trade -> "out-of-sample, anlamsız" flag
+  min_win_rate_per_period: 0.20           # < %20 WR -> strateji periyot için patolojik
+
+# Pre-deploy kill-probe gate'leri (SOP-3).
+# Lab tournament terfi adayı veya CEO deploy önerisi geldiğinde evaluate_promotion_candidate
+# bu eşikleri kontrol eder. Herhangi biri fail -> critique BLOCKED.
+pre_deploy_kill_probes:
+  in_oos_sharpe_spread_max_pct: 0.30      # IS Sharpe - OOS Sharpe / IS > 30% -> overfit
+  min_unique_trades: 100                  # n < 100 -> sample too small
+  max_param_extremeness_pct: 0.20         # En iyi grid cell'i ucundan %20 inside olmalı
+  min_regime_pass_count: 2                # 3 rejimin (bull/bear/range) min 2'sinde +Sharpe
+  max_param_count_per_trade: 0.10         # parametre sayısı / n_trades < 10% (k/n rule)
+
+# Black Swan Readiness Score katsayıları (weekly_red_team_report).
+# Toplam puan 0-100. < 60 CRIT, 60-80 MED, > 80 OK.
+readiness_scoring:
+  per_period_pass_points: 20              # 5 period x 20 = 100 max
+  fast_recovery_bonus: 5                  # Recovery <= 30 gün
+  kill_probe_baseline: 10                 # Pre-deploy kill probe geçilmişse
+  concave_curve_penalty: -10              # Equity curve concave (accelerating loss)
+  critical_threshold: 60                  # < 60 = CRIT
+  medium_threshold: 80                    # 60-80 = MED, > 80 = OK
+
+# Synthetic adversarial scenario varsayılan parametreleri.
+# scripts/adversarial_data_gen.py default'ları; CLI override edebilir.
+synthetic_defaults:
+  flash_crash:
+    drop_pct: 0.15                         # %15 drop
+    recovery_bars: 20                      # V-recovery 20 bar içinde
+  weekend_gap:
+    gap_pct: 0.05                          # %5 gap (yönü random)
+  volume_spike:
+    vol_multiplier: 10                     # 10x normal volume
+    n_bars: 3                              # 3 bar boyunca
+    range_explosion_x: 3                   # range 3x genişler

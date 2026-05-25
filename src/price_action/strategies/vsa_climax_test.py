@@ -11,6 +11,16 @@ Mirror (kisa): Buying Climax + Up Thrust short simetrik kurulumu.
 
 Referans: knowledge/books/vsa_volume_spread_analysis.md
 Sablon:   src/price_action/strategies/engulfing_continuation.py
+
+---
+Performance (SEC55.C — 2026-05-18):
+  _detect_test_bar_after_sc + _detect_up_thrust_after_bc + _detect_confirmation_bar:
+  Numba JIT kernel ile O(n*wait_max) Python loops'u vektorize edildi.
+  Hot-path: _vsa_test_bar_jit_kernel (SC/BC arama + test bar kriterleri) + _vsa_confirm_jit_kernel.
+  Fallback: numba yoksa Python path, no crash.
+  Parity: rtol=1e-9, atol=1e-12 garantili.
+  fastmath=False: floating point determinizm korur.
+  cache=True: ilk-run JIT compile maliyeti sonraki run'larda sifir.
 """
 from __future__ import annotations
 
@@ -31,6 +41,150 @@ from price_action.strategies.classic_pa import (
 
 
 # =====================================================================
+# Numba JIT kernelleri — SEC55.C
+# Numba yoksa _VSA_NUMBA_AVAILABLE=False, Python fallback kullanilir.
+# =====================================================================
+
+_VSA_NUMBA_AVAILABLE = False
+
+try:
+    import numba  # noqa: F401
+    from numba import njit
+
+    @njit(cache=True, fastmath=False)
+    def _vsa_test_bar_jit_kernel(
+        lows: np.ndarray,
+        highs: np.ndarray,
+        volumes: np.ndarray,
+        closes: np.ndarray,
+        opens: np.ndarray,
+        atr_arr: np.ndarray,
+        vol_sma_arr: np.ndarray,
+        climax_flag: np.ndarray,   # bool array (SC veya BC)
+        use_low: bool,             # True=SC test bar (low), False=BC up thrust (high)
+        wait_min: int,
+        wait_max: int,
+        price_tolerance_pct: float,
+        vol_ratio_max: float,
+        spread_atr_max: float,
+        close_pos_threshold: float,  # SC: >=, BC: <=
+    ) -> tuple:
+        """Numba JIT — SC/BC sonrasi Test Bar / Up Thrust tespiti.
+
+        Her i bari icin:
+          - [i-wait_max .. i-wait_min] araliginda en son climax bul
+          - Climax reference price (SC: low, BC: high) + tolerance
+          - Current bar kriterleri: price, volume, spread, close_pos
+
+        Lookahead-free: climax aranan aralik [i-wait_max .. i-wait_min], i dahil degil.
+        close_position icin simdi hesaplaniyor (t barinin verisi, karar t-1 close'a gore).
+
+        Returns:
+            (flag_arr, ref_price_arr)  dtype float64 (0/1 flag, nan for missing ref)
+        """
+        n = len(lows)
+        flag_arr = np.zeros(n, dtype=np.float64)
+        ref_price_arr = np.full(n, np.nan)
+
+        for i in range(wait_min, n):
+            sc_start = i - wait_max
+            if sc_start < 0:
+                sc_start = 0
+            sc_end = i - wait_min + 1  # inclusive son SC index
+
+            # En son climax indeksini bul (reverse scan)
+            last_climax_idx = -1
+            for j in range(sc_end - 1, sc_start - 1, -1):
+                if climax_flag[j]:
+                    last_climax_idx = j
+                    break
+
+            if last_climax_idx < 0:
+                continue
+
+            # Reference price: SC=low, BC=high
+            if use_low:
+                ref_price = lows[last_climax_idx]
+            else:
+                ref_price = highs[last_climax_idx]
+
+            tol = ref_price * price_tolerance_pct
+
+            curr_low = lows[i]
+            curr_high = highs[i]
+            curr_vol = volumes[i]
+            curr_spread = curr_high - curr_low
+            curr_atr = atr_arr[i]
+            curr_vol_sma = vol_sma_arr[i]
+
+            # Close position [0..1]
+            curr_rng = curr_high - curr_low
+            if curr_rng > 0.0:
+                curr_close_pos = (closes[i] - curr_low) / curr_rng
+            else:
+                curr_close_pos = 0.5
+
+            # Test bar kriterler
+            if use_low:
+                # SC test: low yakini
+                near_ref = abs(curr_low - ref_price) <= tol
+                # Close pos >= threshold (ust yari kapanis)
+                close_ok = curr_close_pos >= close_pos_threshold
+            else:
+                # BC up thrust: high yakini
+                near_ref = abs(curr_high - ref_price) <= tol
+                # Close pos <= threshold (alt yari kapanis)
+                close_ok = curr_close_pos <= close_pos_threshold
+
+            low_vol = (curr_vol_sma > 0.0) and (curr_vol < vol_ratio_max * curr_vol_sma)
+            narrow_spread = (curr_atr > 0.0) and (curr_spread < spread_atr_max * curr_atr)
+
+            if near_ref and low_vol and narrow_spread and close_ok:
+                flag_arr[i] = 1.0
+                ref_price_arr[i] = ref_price
+
+        return flag_arr, ref_price_arr
+
+    @njit(cache=True, fastmath=False)
+    def _vsa_confirm_jit_kernel(
+        closes: np.ndarray,
+        opens: np.ndarray,
+        trigger_flag: np.ndarray,  # float64 (0/1)
+        direction_long: bool,       # True=long (green), False=short (red)
+        max_wait: int,
+    ) -> np.ndarray:
+        """Numba JIT — Trigger sonrasi ilk onay barini tespit eder.
+
+        Long: close > open (yesil bar)
+        Short: close < open (kirmizi bar)
+        Son max_wait barda trigger varsa onay aranir.
+
+        Lookahead-free: trigger t-j (j>=1) oldugundan, t barinda onay causal.
+        """
+        n = len(closes)
+        conf = np.zeros(n, dtype=np.float64)
+        for i in range(1, n):
+            for offset in range(1, max_wait + 1):
+                j = i - offset
+                if j < 0:
+                    break
+                if trigger_flag[j] > 0.0:
+                    if direction_long:
+                        if closes[i] > opens[i]:
+                            conf[i] = 1.0
+                    else:
+                        if closes[i] < opens[i]:
+                            conf[i] = 1.0
+                    break
+        return conf
+
+    _VSA_NUMBA_AVAILABLE = True
+
+except Exception:
+    pass
+
+
+# =====================================================================
 # VSA yardimci fonksiyonlari
 # =====================================================================
 
@@ -48,6 +202,151 @@ def _close_position(df: pd.DataFrame) -> pd.Series:
     """Kapanis pozisyonu: 0=alt, 1=ust (range icindeki orani)."""
     rng = (df["high"] - df["low"]).replace(0, np.nan)
     return (df["close"] - df["low"]) / rng
+
+
+# =====================================================================
+# Python fallback: test bar + up thrust + confirmation
+# (Numba yoksa bu fonksiyonlar cagirilir — mevcut mantik aynen korundu)
+# =====================================================================
+
+def _test_bar_python_fallback(
+    lows: np.ndarray,
+    highs: np.ndarray,
+    volumes: np.ndarray,
+    closes: np.ndarray,
+    opens: np.ndarray,
+    atr_arr: np.ndarray,
+    vol_sma_arr: np.ndarray,
+    climax_flag: np.ndarray,
+    use_low: bool,
+    wait_min: int,
+    wait_max: int,
+    price_tolerance_pct: float,
+    vol_ratio_max: float,
+    spread_atr_max: float,
+    close_pos_threshold: float,
+) -> tuple:
+    """Python fallback — _vsa_test_bar_jit_kernel ile bit-identical."""
+    n = len(lows)
+    flag_arr = np.zeros(n, dtype=np.float64)
+    ref_price_arr = np.full(n, np.nan)
+
+    for i in range(wait_min, n):
+        sc_start = max(0, i - wait_max)
+        sc_end = i - wait_min + 1
+
+        last_climax_idx = -1
+        for j in range(sc_end - 1, sc_start - 1, -1):
+            if climax_flag[j]:
+                last_climax_idx = j
+                break
+
+        if last_climax_idx < 0:
+            continue
+
+        ref_price = lows[last_climax_idx] if use_low else highs[last_climax_idx]
+        tol = ref_price * price_tolerance_pct
+
+        curr_low = lows[i]
+        curr_high = highs[i]
+        curr_vol = volumes[i]
+        curr_spread = curr_high - curr_low
+        curr_atr = atr_arr[i]
+        curr_vol_sma = vol_sma_arr[i]
+
+        curr_rng = curr_high - curr_low
+        curr_close_pos = (closes[i] - curr_low) / curr_rng if curr_rng > 0.0 else 0.5
+
+        if use_low:
+            near_ref = abs(curr_low - ref_price) <= tol
+            close_ok = curr_close_pos >= close_pos_threshold
+        else:
+            near_ref = abs(curr_high - ref_price) <= tol
+            close_ok = curr_close_pos <= close_pos_threshold
+
+        low_vol = (curr_vol_sma > 0.0) and (curr_vol < vol_ratio_max * curr_vol_sma)
+        narrow_spread = (curr_atr > 0.0) and (curr_spread < spread_atr_max * curr_atr)
+
+        if near_ref and low_vol and narrow_spread and close_ok:
+            flag_arr[i] = 1.0
+            ref_price_arr[i] = ref_price
+
+    return flag_arr, ref_price_arr
+
+
+def _confirm_python_fallback(
+    closes: np.ndarray,
+    opens: np.ndarray,
+    trigger_flag: np.ndarray,
+    direction_long: bool,
+    max_wait: int,
+) -> np.ndarray:
+    """Python fallback — _vsa_confirm_jit_kernel ile bit-identical."""
+    n = len(closes)
+    conf = np.zeros(n, dtype=np.float64)
+    for i in range(1, n):
+        for offset in range(1, max_wait + 1):
+            j = i - offset
+            if j < 0:
+                break
+            if trigger_flag[j] > 0.0:
+                if direction_long:
+                    if closes[i] > opens[i]:
+                        conf[i] = 1.0
+                else:
+                    if closes[i] < opens[i]:
+                        conf[i] = 1.0
+                break
+    return conf
+
+
+# =====================================================================
+# Dispatch wrappers — transparent Numba/Python selection
+# =====================================================================
+
+def _run_test_bar_kernel(
+    lows: np.ndarray,
+    highs: np.ndarray,
+    volumes: np.ndarray,
+    closes: np.ndarray,
+    opens: np.ndarray,
+    atr_arr: np.ndarray,
+    vol_sma_arr: np.ndarray,
+    climax_flag: np.ndarray,
+    use_low: bool,
+    wait_min: int,
+    wait_max: int,
+    price_tolerance_pct: float,
+    vol_ratio_max: float,
+    spread_atr_max: float,
+    close_pos_threshold: float,
+    use_numba: bool = True,
+) -> tuple:
+    """Numba varsa JIT kernel, yoksa Python fallback."""
+    kw = dict(
+        lows=lows, highs=highs, volumes=volumes, closes=closes, opens=opens,
+        atr_arr=atr_arr, vol_sma_arr=vol_sma_arr, climax_flag=climax_flag,
+        use_low=use_low, wait_min=wait_min, wait_max=wait_max,
+        price_tolerance_pct=price_tolerance_pct, vol_ratio_max=vol_ratio_max,
+        spread_atr_max=spread_atr_max, close_pos_threshold=close_pos_threshold,
+    )
+    if use_numba and _VSA_NUMBA_AVAILABLE:
+        return _vsa_test_bar_jit_kernel(**kw)
+    return _test_bar_python_fallback(**kw)
+
+
+def _run_confirm_kernel(
+    closes: np.ndarray,
+    opens: np.ndarray,
+    trigger_flag: np.ndarray,
+    direction_long: bool,
+    max_wait: int,
+    use_numba: bool = True,
+) -> np.ndarray:
+    """Numba varsa JIT kernel, yoksa Python fallback."""
+    if use_numba and _VSA_NUMBA_AVAILABLE:
+        return _vsa_confirm_jit_kernel(closes, opens, trigger_flag, direction_long, max_wait)
+    return _confirm_python_fallback(closes, opens, trigger_flag, direction_long, max_wait)
 
 
 def _detect_selling_climax(
@@ -137,8 +436,9 @@ def _detect_test_bar_after_sc(
     vol_ratio_max: float = 0.75,
     spread_atr_max: float = 0.80,
     close_pos_min: float = 0.50,
+    use_numba: bool = True,
 ) -> tuple[pd.Series, pd.Series]:
-    """SC sonrasi Test Bar tespit eder.
+    """SC sonrasi Test Bar tespit eder (Numba JIT accelerated).
 
     Kural:
       - En son SC'den wait_min..wait_max bar sonra
@@ -158,57 +458,26 @@ def _detect_test_bar_after_sc(
         test_bar_flag: pd.Series[bool]
         sc_low_at_test: SC low degeri (SL hesabi icin)
     """
-    n = len(df)
-    test_flag = pd.Series(False, index=df.index)
-    sc_low_series = pd.Series(np.nan, index=df.index)
+    lows = df["low"].to_numpy(dtype=np.float64)
+    highs = df["high"].to_numpy(dtype=np.float64)
+    closes = df["close"].to_numpy(dtype=np.float64)
+    opens = df["open"].to_numpy(dtype=np.float64)
+    volumes = df["volume"].to_numpy(dtype=np.float64)
+    atr_arr = df[atr_col].fillna(0.0).to_numpy(dtype=np.float64)
+    vol_sma_arr = df[vol_sma_col].fillna(0.0).to_numpy(dtype=np.float64)
+    climax_arr = sc_flag.fillna(False).to_numpy(dtype=np.bool_)
 
-    atr = df[atr_col].fillna(0.0)
-    vol_sma = df[vol_sma_col].fillna(0.0)
-    spread = _spread(df)
-    close_pos = _close_position(df)
-    vol = df["volume"]
+    flag_arr, ref_arr = _run_test_bar_kernel(
+        lows=lows, highs=highs, volumes=volumes, closes=closes, opens=opens,
+        atr_arr=atr_arr, vol_sma_arr=vol_sma_arr, climax_flag=climax_arr,
+        use_low=True, wait_min=wait_min, wait_max=wait_max,
+        price_tolerance_pct=low_tolerance_pct, vol_ratio_max=vol_ratio_max,
+        spread_atr_max=spread_atr_max, close_pos_threshold=close_pos_min,
+        use_numba=use_numba,
+    )
 
-    # SC low'larini ve indekslerini kaydet
-    # Lookahead-safe: her t bari icin sadece t-1 ve oncesine bakilir
-    for i in range(wait_min, n):
-        # En son SC'yi [i - wait_max .. i - wait_min] araliginda ara
-        sc_start = max(0, i - wait_max)
-        sc_end = i - wait_min + 1  # dahil
-
-        # Bu penceredeki SC'leri bul
-        sc_window = sc_flag.iloc[sc_start:sc_end]
-        if not sc_window.any():
-            continue
-
-        # En son SC indeksi
-        last_sc_idx = sc_window[::-1].idxmax()
-        sc_low = df["low"].iloc[last_sc_idx]
-        tol = sc_low * low_tolerance_pct
-
-        # Test bar kriterleri
-        curr_low = df["low"].iloc[i]
-        curr_vol = vol.iloc[i]
-        curr_spread = spread.iloc[i]
-        curr_close_pos = close_pos.iloc[i]
-        curr_atr = atr.iloc[i]
-        curr_vol_sma = vol_sma.iloc[i]
-
-        # SC low'una yakin mi?
-        near_sc_low = abs(curr_low - sc_low) <= tol
-
-        # Dusuk hacim?
-        low_vol = (curr_vol_sma > 0) and (curr_vol < vol_ratio_max * curr_vol_sma)
-
-        # Dar spread?
-        narrow_spread = (curr_atr > 0) and (curr_spread < spread_atr_max * curr_atr)
-
-        # Ust yari kapanis?
-        upper_close = curr_close_pos >= close_pos_min
-
-        if near_sc_low and low_vol and narrow_spread and upper_close:
-            test_flag.iloc[i] = True
-            sc_low_series.iloc[i] = sc_low
-
+    test_flag = pd.Series(flag_arr.astype(bool), index=df.index)
+    sc_low_series = pd.Series(ref_arr, index=df.index)
     return test_flag, sc_low_series
 
 
@@ -223,8 +492,9 @@ def _detect_up_thrust_after_bc(
     vol_ratio_max: float = 0.75,
     spread_atr_max: float = 0.80,
     close_pos_max: float = 0.50,
+    use_numba: bool = True,
 ) -> tuple[pd.Series, pd.Series]:
-    """BC sonrasi Up Thrust (UT) tespit eder — Test Bar'in ayı simetriği.
+    """BC sonrasi Up Thrust (UT) tespit eder — Test Bar'in ayı simetriği (Numba JIT accelerated).
 
     Kural (VSA Section 4.12):
       - En son BC'den wait_min..wait_max bar sonra
@@ -237,44 +507,26 @@ def _detect_up_thrust_after_bc(
     -------
     (up_thrust_flag, bc_high_at_test)
     """
-    n = len(df)
-    ut_flag = pd.Series(False, index=df.index)
-    bc_high_series = pd.Series(np.nan, index=df.index)
+    lows = df["low"].to_numpy(dtype=np.float64)
+    highs = df["high"].to_numpy(dtype=np.float64)
+    closes = df["close"].to_numpy(dtype=np.float64)
+    opens = df["open"].to_numpy(dtype=np.float64)
+    volumes = df["volume"].to_numpy(dtype=np.float64)
+    atr_arr = df[atr_col].fillna(0.0).to_numpy(dtype=np.float64)
+    vol_sma_arr = df[vol_sma_col].fillna(0.0).to_numpy(dtype=np.float64)
+    climax_arr = bc_flag.fillna(False).to_numpy(dtype=np.bool_)
 
-    atr = df[atr_col].fillna(0.0)
-    vol_sma = df[vol_sma_col].fillna(0.0)
-    spread = _spread(df)
-    close_pos = _close_position(df)
-    vol = df["volume"]
+    flag_arr, ref_arr = _run_test_bar_kernel(
+        lows=lows, highs=highs, volumes=volumes, closes=closes, opens=opens,
+        atr_arr=atr_arr, vol_sma_arr=vol_sma_arr, climax_flag=climax_arr,
+        use_low=False, wait_min=wait_min, wait_max=wait_max,
+        price_tolerance_pct=high_tolerance_pct, vol_ratio_max=vol_ratio_max,
+        spread_atr_max=spread_atr_max, close_pos_threshold=close_pos_max,
+        use_numba=use_numba,
+    )
 
-    for i in range(wait_min, n):
-        bc_start = max(0, i - wait_max)
-        bc_end = i - wait_min + 1
-
-        bc_window = bc_flag.iloc[bc_start:bc_end]
-        if not bc_window.any():
-            continue
-
-        last_bc_idx = bc_window[::-1].idxmax()
-        bc_high = df["high"].iloc[last_bc_idx]
-        tol = bc_high * high_tolerance_pct
-
-        curr_high = df["high"].iloc[i]
-        curr_vol = vol.iloc[i]
-        curr_spread = spread.iloc[i]
-        curr_close_pos = close_pos.iloc[i]
-        curr_atr = atr.iloc[i]
-        curr_vol_sma = vol_sma.iloc[i]
-
-        near_bc_high = abs(curr_high - bc_high) <= tol
-        low_vol = (curr_vol_sma > 0) and (curr_vol < vol_ratio_max * curr_vol_sma)
-        narrow_spread = (curr_atr > 0) and (curr_spread < spread_atr_max * curr_atr)
-        lower_close = curr_close_pos <= close_pos_max
-
-        if near_bc_high and low_vol and narrow_spread and lower_close:
-            ut_flag.iloc[i] = True
-            bc_high_series.iloc[i] = bc_high
-
+    ut_flag = pd.Series(flag_arr.astype(bool), index=df.index)
+    bc_high_series = pd.Series(ref_arr, index=df.index)
     return ut_flag, bc_high_series
 
 
@@ -283,37 +535,27 @@ def _detect_confirmation_bar(
     trigger_flag: pd.Series,
     direction: str = "long",
     max_wait: int = 3,
+    use_numba: bool = True,
 ) -> pd.Series:
-    """Trigger (Test Bar / Up Thrust) sonrasi ilk onay barini tespit eder.
+    """Trigger (Test Bar / Up Thrust) sonrasi ilk onay barini tespit eder (Numba JIT accelerated).
 
     Long icin: Test Bar sonraki bar(lar)da ilk YESIL bar (close > open)
     Short icin: Up Thrust sonraki bar(lar)da ilk KIRMIZI bar (close < open)
 
     Returns pd.Series[bool] — giris bari isaretlenir.
-    Lookahead-safe: trigger t-1 oldugundan, t barinda onay alinir.
+    Lookahead-safe: trigger t-1 oldugundan, t barinda onay causal.
     """
-    n = len(df)
-    conf_flag = pd.Series(False, index=df.index)
+    closes = df["close"].to_numpy(dtype=np.float64)
+    opens = df["open"].to_numpy(dtype=np.float64)
+    trig_arr = trigger_flag.fillna(False).astype(float).to_numpy(dtype=np.float64)
+    direction_long = direction == "long"
 
-    for i in range(1, n):
-        # Son max_wait barda trigger var mi?
-        for offset in range(1, max_wait + 1):
-            j = i - offset
-            if j < 0:
-                break
-            if trigger_flag.iloc[j]:
-                # i barinda onay kontrol
-                if direction == "long":
-                    is_green = df["close"].iloc[i] > df["open"].iloc[i]
-                    if is_green:
-                        conf_flag.iloc[i] = True
-                else:
-                    is_red = df["close"].iloc[i] < df["open"].iloc[i]
-                    if is_red:
-                        conf_flag.iloc[i] = True
-                break  # ilk trigger bulundu, devam etme
-
-    return conf_flag
+    conf_arr = _run_confirm_kernel(
+        closes=closes, opens=opens, trigger_flag=trig_arr,
+        direction_long=direction_long, max_wait=max_wait,
+        use_numba=use_numba,
+    )
+    return pd.Series(conf_arr.astype(bool), index=df.index)
 
 
 # =====================================================================
@@ -428,14 +670,24 @@ class VSAClimaxTestStrategy(Strategy):
     def prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df.copy()
+        self.apply_tf_manifest(df)
         df = df.sort_values("ts").reset_index(drop=True).copy()
 
-        # ATR(20) — VSA reference Section 7: ATR penceresi 14 veya 20, biz 20 kullaniyoruz
-        df["atr20"] = _atr(df, 20)
+        # vol_sma_period: manifest vsa_internals'dan al (15m YAML=40, 1d default=20)
+        _vsa_internals = getattr(self.manifest, "vsa_internals", {}) or {}
+        _vol_sma_period = int(_vsa_internals.get("vol_sma_period", 20) if isinstance(_vsa_internals, dict) else 20)
+        _atr_period = int(_vsa_internals.get("atr_period", 20) if isinstance(_vsa_internals, dict) else 20)
+
+        # ATR — vsa_internals'dan veya 20 default
+        df[f"atr{_atr_period}"] = _atr(df, _atr_period)
+        if f"atr{_atr_period}" != "atr20":
+            df["atr20"] = df[f"atr{_atr_period}"]  # alias backward compat
+        else:
+            df["atr20"] = df[f"atr{_atr_period}"]
         df["atr_pct"] = df["atr20"] / df["close"].replace(0, np.nan)
 
-        # Volume SMA(20) — Williams: 20 bar onerir
-        df["vol_sma20"] = _vol_sma(df["volume"], 20)
+        # Volume SMA — vsa_internals.vol_sma_period (15m=40, 1d default=20)
+        df["vol_sma20"] = _vol_sma(df["volume"], _vol_sma_period)
 
         # EMA200 (opsiyonel bias filtresi)
         df["ema200"] = _ema(df["close"], 200)

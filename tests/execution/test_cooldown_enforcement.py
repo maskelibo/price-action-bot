@@ -198,3 +198,121 @@ def test_different_strategy_same_sym_side_still_rejected():
         f"Lab.py semantigi: farkli strategy ayni (sym,side) cooldown kapsar. "
         f"Ama {len(result)} sinyal gecti"
     )
+
+
+# ── SEC58.M1: Tiebreak — aynı (sym, side, ts) multiple sinyal ──────────────────
+
+def test_tiebreak_same_sym_side_ts_multiple_strategies():
+    """Aynı (symbol, side, ts) → farklı strategy.
+
+    SEC58.M1 tiebreak: strategy'leri alphabetical sort.
+    - brooks_failed_breakout < engulfing_continuation (alfabetik)
+    - brooks first accept, engulfing reject (deterministic)
+    """
+    ts = datetime.now(timezone.utc)
+
+    signals = [
+        {
+            "symbol": "BTC/USDT", "side": "long", "ts": ts,
+            "strategy": "engulfing_continuation"
+        },
+        {
+            "symbol": "BTC/USDT", "side": "long", "ts": ts,
+            "strategy": "brooks_failed_breakout"
+        },
+    ]
+
+    # Boş journal → hiçbiri cooldown'da değil
+    journal = _make_journal([])
+
+    result = filter_signals_by_cooldown(signals, COOLDOWN_DAYS, journal, "futures_signals")
+
+    # Tiebreak: alphabetically sorted, first accepted, rest rejected
+    # brooks_failed_breakout < engulfing_continuation
+    assert len(result) == 1, f"Expected 1 signal after tiebreak, got {len(result)}"
+    assert result[0]["strategy"] == "brooks_failed_breakout", (
+        f"Expected brooks_failed_breakout (first alphabetically), "
+        f"got {result[0]['strategy']}"
+    )
+
+
+def test_tiebreak_deterministic_order():
+    """Tiebreak sorting deterministik: liste sırası değişse de aynı sonuç.
+
+    Aynı sinyalleri farklı sırada geçince de brooks_failed_breakout seçilmeli.
+    """
+    ts = datetime.now(timezone.utc)
+
+    # Ters sırada geçelim
+    signals = [
+        {
+            "symbol": "ETH/USDT", "side": "short", "ts": ts,
+            "strategy": "pin_bar_round_numbers"
+        },
+        {
+            "symbol": "ETH/USDT", "side": "short", "ts": ts,
+            "strategy": "anchored_vwap_reversal"
+        },
+    ]
+
+    journal = _make_journal([])
+    result = filter_signals_by_cooldown(signals, COOLDOWN_DAYS, journal, "futures_signals")
+
+    # Tiebreak: alphabetically sorted
+    # anchored_vwap_reversal < pin_bar_round_numbers
+    assert len(result) == 1
+    assert result[0]["strategy"] == "anchored_vwap_reversal", (
+        f"Expected anchored_vwap_reversal (first alphabetically), "
+        f"got {result[0]['strategy']}"
+    )
+
+
+def test_tiebreak_cooldown_all_rejected():
+    """Aynı (sym, side, ts) grup cooldown'da → hepsi reject.
+
+    Senaryo: 1 gün önce BTC/USDT long fill. Cooldown=3 gün.
+    Bugün aynı (sym, side, ts) iki sinyal (farklı strategy).
+    Tiebreak'ten sonra birinci seçilse de cooldown yüzünden hepsi reject.
+    """
+    fill_ts = datetime.now(timezone.utc) - timedelta(days=1)
+    journal = _make_journal([{"symbol": "SOL/USDT", "side": "long", "ts": fill_ts}])
+
+    ts = datetime.now(timezone.utc)
+    signals = [
+        {"symbol": "SOL/USDT", "side": "long", "ts": ts, "strategy": "engulfing_continuation"},
+        {"symbol": "SOL/USDT", "side": "long", "ts": ts, "strategy": "brooks_h2_l2"},
+    ]
+
+    result = filter_signals_by_cooldown(signals, COOLDOWN_DAYS, journal, "futures_signals")
+
+    # Cooldown yüzünden ikisi de reject
+    assert len(result) == 0, (
+        f"Both signals should be rejected (cooldown), but {len(result)} passed"
+    )
+
+
+def test_tiebreak_mixed_cooldown_and_non_cooldown():
+    """Farklı (sym, side) karışımı: kimi cooldown, kimi değil.
+
+    SEC58.M1: Cooldown tiebreak dan bağımsız olarak çalışır.
+    """
+    fill_ts = datetime.now(timezone.utc) - timedelta(days=1)
+    journal = _make_journal([
+        {"symbol": "BTC/USDT", "side": "long", "ts": fill_ts}
+    ])
+
+    ts_now = datetime.now(timezone.utc)
+    signals = [
+        # BTC/USDT long — cooldown'da
+        {"symbol": "BTC/USDT", "side": "long", "ts": ts_now, "strategy": "engulfing_continuation"},
+        {"symbol": "BTC/USDT", "side": "long", "ts": ts_now, "strategy": "brooks_h2_l2"},
+        # ETH/USDT short — cooldown dışında
+        {"symbol": "ETH/USDT", "side": "short", "ts": ts_now, "strategy": "pin_bar_round_numbers"},
+    ]
+
+    result = filter_signals_by_cooldown(signals, COOLDOWN_DAYS, journal, "futures_signals")
+
+    # BTC'nin ikisi de reject, ETH accept
+    assert len(result) == 1
+    assert result[0]["symbol"] == "ETH/USDT"
+    assert result[0]["side"] == "short"

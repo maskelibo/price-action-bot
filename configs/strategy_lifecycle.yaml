@@ -1,0 +1,50 @@
+# =============================================================================
+# STRATEGY LIFECYCLE CONFIG — Faz 8 (Strategy Curator)
+# =============================================================================
+# Bu config Strategy Curator agent'ının decay/retire/onboard kararları için
+# threshold ve cool-down değerlerini tutar.
+#
+# Consuming code: src/price_action/agents/strategy_curator.py
+#   - StrategyCuratorAgent._load_lifecycle_config()
+#   - weekly_lifecycle_review() / daily_correlation_update() / calc_marginal_sharpe()
+#
+# DESIGN NOTES:
+# - "Strategies are like plants" — sera yönetimi metaforu (strategy_curator.md).
+# - Conservative threshold'lar: yanlış-pozitif retire alpha kaybı pahalıdır.
+# - Cool-down (12 hafta) Pareto'ya yapışma anti-pattern'ini engeller.
+# - Library scan: src/price_action/strategies/ glob (40+ modül).
+# =============================================================================
+
+alpha_decay:
+  rolling_window_days: 90              # Rolling Sharpe slope penceresi
+  sharpe_slope_threshold: -0.001       # /gün; daha negatifse retirement aday
+  min_sample_size: 30                  # n_trades altı → INSUFFICIENT_DATA verdict
+
+retirement_criteria:
+  rolling_sharpe_min: 0.5              # 90g Sharpe altı → retirement aday
+  alpha_decay_active: true             # slope negatif kalıyor (3 hafta üst üste)
+  cooldown_weeks_after_retire: 12      # Tekrar onboard için min süre (Pareto anti-pattern)
+
+onboarding_criteria:
+  min_lab_tournament_pass: 1           # En az 1 Lab tournament'ı geçmiş olmalı
+  min_oos_trades: 30                   # OOS sample size yeterliliği
+  min_marginal_sharpe_pct: 0.05        # Net Sharpe katkısı +%5
+  max_correlation_to_book: 0.7         # Mevcut book ile max pairwise corr
+
+probation_criteria:
+  weeks_on_probation: 4                # 4 hafta gözlem
+  min_trades_during_probation: 10      # Probation'da minimum trade
+  exit_to_active_if: "marginal_sharpe_positive AND no_alpha_decay"
+  exit_to_retire_if: "marginal_sharpe_negative OR alpha_decay_active"
+
+diversity_targets:
+  min_entropy_normalized: 0.6          # Shannon entropy / log(n_strategies)
+  max_pairwise_correlation: 0.8        # Pairwise corr eşiği (warning line)
+
+# Strateji library tarama path
+library_path: src/price_action/strategies/   # 40+ modül burada
+
+# Hangi config'lerden aktif strateji listesi okur
+active_configs:
+  - configs/risk_phoenix_scalp_15m_widestop.yaml
+  - configs/risk_phoenix_scalp_5m_p1c.yaml

@@ -1,0 +1,59 @@
+---
+doc_id: analyst-"{{yyyymmddTHHMMSS}}"-whatif-w"{{WW}}"
+doc_type: whatif
+agent_id: analyst
+created_at: "{{iso8601_utc}}"
+status: PROPOSED
+confidence: med
+depends_on: []
+blocks: []
+requested_review_from: [risk_officer, researcher]
+tags: [whatif, counterfactual, weekly]
+---
+
+# What-If Analysis — Week {{WW}}
+
+## Setup
+- Window: {{date_range_last_7d}}
+- Universe: {{symbols}}
+- Capital base: ${{X}}
+- Risk/trade assumed: {{Y}}%
+- TP rule: {{1.2R | config-based}}
+- Holding cap: {{8 bars / 2h | config-based}}
+
+## Filter / Halt Stats (last 7d)
+| Filter | Rejected count | Symbols affected |
+|---|---|---|
+| WIDESTOP (sl_pct ≥ X) | N | ... |
+| Risk Officer 12-gate | N | ... |
+| Portfolio concentration | N | ... |
+| Daily DD halt | N (X gün) | ... |
+| Weekly DD halt | N (X hafta) | ... |
+
+## Counterfactual PnL (filtre olmasaydı)
+| Senaryo | Trades opened | Realized PnL | Unrealized PnL | Total | % of capital |
+|---|---|---|---|---|---|
+| Hepsi LONG | N | $X | $Y | $Z | X% |
+| Hepsi SHORT | N | $X | $Y | $Z | X% |
+| 50/50 karışım (side unknown) | N | $X | $Y | $Z | X% |
+
+**Honest caveat:** Yön (long/short) log'da yok → side assumption varsayıldı. Strateji tipi reversal ise gerçek davranış muhtemelen SHORT senaryosuna yakın.
+
+## Filter cost ranking
+1. **{{filter_name}}** — kayıp: ${{X}} ({{Y%}}) — bu hafta en pahalı
+2. ...
+
+## Pattern (önceki haftalarla karşılaştırma)
+- Bu hafta filter cost vs son 4 hafta avg: ...
+- Anomaly mı yoksa trend mi: ...
+
+## Aksiyon Önerisi
+- **Acil:** {{boş veya specific aksiyon}}
+- **Researcher'a:** Filter X bu hafta -$Y, alternatif rejim filtresi araştırılsın mı?
+- **Risk Officer'a:** Bu pattern stresli rejimi temsil ediyor mu, gate gevşetme önerilebilir mi?
+
+## Caveats
+- Sample size: n={{N}} (≥30 ise güvenilir; altında ise indikatif)
+- Side unknown → ±%X belirsizlik aralığı
+- Slippage + fee dahil edilmedi → gerçek PnL %5-10 daha kötü
+- OHLCV pencere dışı kalan sinyal: {{N}} (eksik veri)

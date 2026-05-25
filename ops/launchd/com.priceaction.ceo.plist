@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.priceaction.ceo</string>
+
+  <!--
+    pa-ceo orchestrator daemon — CEO daily/weekly brief üretimi ve scheduler.
+
+    Wrapper script (run_ceo.sh) çağrılır:
+    - .env'den TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID + ANTHROPIC_API_KEY okur
+    - PATH'i node/python tooling için set eder
+    - claude binary'i dinamik bulur (nvm path resilient)
+    - Sonra `python -m price_action.orchestrator.ceo_loop --mode daily --telegram` exec
+
+    Mac mini boot olunca otomatik başlar. Herhangi exit (graceful veya crash)
+    sonrası 60sn aralıkla restart edilir (KeepAlive: true — unconditional).
+
+    C1 fix: KeepAlive dict yerine boolean true → graceful exit'te de restart.
+    C2 fix: PATH wrapper içinde set ediliyor + PA_CLAUDE_CLI dinamik bulunuyor.
+    C3 fix: .env wrapper içinde source ediliyor → Telegram + API key auto.
+
+    Detay: ops/launchd/README.md
+  -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/peyman/price-action-bot/ops/launchd/run_ceo.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/peyman/price-action-bot</string>
+
+  <!-- Boot anında ve load anında çalıştır -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- UNCONDITIONAL restart — graceful exit veya crash, hepsinde restart.
+       C1 fix: önceki dict version sadece Crashed=true'da restart ediyordu;
+       APScheduler graceful shutdown silent ölü daemon yaratıyordu. -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Crash storm engelle: en az 60sn aralık (Faz 4 hardening) -->
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+
+  <!-- 30 saniye SIGTERM grace period (graceful shutdown için) -->
+  <key>ExitTimeOut</key>
+  <integer>30</integer>
+
+  <!-- Loglar -->
+  <key>StandardOutPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/ceo.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/ceo.stderr.log</string>
+
+  <!-- Low priority — diğer trading process'lerin önüne geçmesin -->
+  <key>Nice</key>
+  <integer>5</integer>
+
+  <!-- File descriptor limit (LLM streaming + multi-agent için Faz 4 ↑) -->
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>8192</integer>
+  </dict>
+  <key>HardResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>16384</integer>
+  </dict>
+
+  <!-- Sadece kullanıcı login olduğunda çalıştır (system-wide /Library yerine
+       /Users/peyman/Library/LaunchAgents'a koyulur — user agent) -->
+  <key>LimitLoadToSessionType</key>
+  <array>
+    <string>Aqua</string>
+  </array>
+</dict>
+</plist>

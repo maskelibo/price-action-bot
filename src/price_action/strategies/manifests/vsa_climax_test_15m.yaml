@@ -1,0 +1,159 @@
+# vsa_climax_test — 15m TF manifest override
+# Kaynak: SEC-SCALP-S5 / Signal Chief 2026-05-17
+#
+# Kalibrasyon mantigi:
+#   1d ref → 15m esiti (1d = 96 × 15m)
+#
+#   atr_period=20bar  → vol_sma=20bar → 1d'de 20 gun. 15m'de 20bar = 5h.
+#     Williams VSA 20-bar SMA vol referansidir. 15m'de 5h ok kisa.
+#     Compromise: 40bar = 10h (1.5 trading seans) hacim normalizasyonu icin.
+#
+#   spread_atr_mult=1.5  → Climax bar spread > 1.5 × ATR. 1d ile ayni (oransal).
+#     15m'de ATR kucuk ama oran tutarli. Degismedi.
+#
+#   vol_sma_mult=2.5  → Climax volume > 2.5 × SMA. 1d ile ayni.
+#     15m'de retail'e ozgu spike'lar daha sik 2.5x asabilir.
+#     Esigi biraz artir: 3.0 — daha seçici, daha guclu climax.
+#
+#   wait_min=3, wait_max=15  → SC'den TB'ye bekleme suresi (bar sayisi).
+#     1d'de 3-15 gun. 15m'de 3bar = 45 dak, 15bar = 3.75h.
+#     15m'de Wyckoff "test" daha hizli gerceklesir: wait_min=4bar(1h), wait_max=24bar(6h).
+#     NOT: 15m'de Phase A → test tipik 2-6h suresi.
+#
+#   low_tolerance_pct=0.03  → Test bar SC low'una %3 yakin olmali.
+#     1d'de %3 BTC = ~$2000. 15m'de %3 ayni oran ama farkli hiz.
+#     15m'de price action daha hassas: %2'ye indir (daha katı test gereksinimi).
+#
+#   vol_ratio_max=0.75  → Test bar vol < 0.75 × SMA. Degismedi.
+#     15m'de dusuk hacimli geri test ayni oran ile gecerli.
+#
+#   confirmation bar max_wait=3  → Test Bar'dan sonra 3 bar icinde yesil bar.
+#     1d'de 3 gun. 15m'de 3bar = 45 dak. Genislet: 5bar = 75 dak.
+#
+#   primary_R=3.0  → VSA climax/test yuksek TP hedef (buyuk move beklentisi).
+#     15m'de 3.0R buyuk; 2.0R ile fee'yi karsilayan gercekci hedef.
+#     Ancak VSA yapilari 15m'de de buyuk impuls uretebilir.
+#     Compromise: 2.5R — hem gercekci hem ambisyonlu.
+#
+# NOT: risk_per_trade tanimsiz — risk_phoenix_scalp_15m.yaml override eder.
+# UYARI: VSA climax nadir event — 15m'de gunluk sinyal sayisi dusuk olabilir.
+
+name: vsa_climax_test
+version: "1.0.0-15m"
+description: "VSA Selling Climax + Test Bar (Wyckoff Phase A) — 15m intraday. SEC-SCALP-S5."
+
+trend_filter:
+  type: ema
+  period: 200
+  required: false         # VSA climax trend'e karsi da calisir (Phase A kapitulasyon)
+
+signals:
+  patterns:
+    - id: vsa_sc_test_long
+      enabled: true
+      weight: 2.0
+      params:
+        spread_atr_mult: 1.5          # degismedi
+        # AMPLIFY (2026-05-23): 3.0 -> 2.0. Pre-reg + 5y train/OOS test (HEM
+        # train HEM OOS iyileşme, overfit imzasi yok). OOS aylık +19.30 (vs
+        # baseline +16.76), DD -16.36% (baseline -17.10), neg 0/19 ay, 6/6 yıl
+        # tüm metriklerde geçti. Yıllık compound +%486 (baseline +%302). Pool
+        # rebuild detayları: data/sec53_15m_pool_v11.pkl üzerinden honest +55bps
+        # taker. Detay: hafızada price-action-bot.md (VSA amplify entry).
+        vol_sma_mult: 2.0             # was 3.0 — AMPLIFY (test PASS)
+        close_pos_min: 0.50           # degismedi
+        min_low_bars: 5               # degismedi; 5-bar local min
+        wait_min: 4                   # 1d=3bar(3gun) → 15m=4bar(1h)
+        wait_max: 24                  # 1d=15bar(15gun) → 15m=24bar(6h)
+        low_tolerance_pct: 0.02       # 1d=0.03(3%); 15m'de daha katı: 2%
+        vol_ratio_max: 0.75           # degismedi
+        spread_atr_max: 0.80          # degismedi
+        close_pos_min_tb: 0.50        # Test bar icin ayni
+
+    - id: vsa_bc_thrust_short
+      enabled: true
+      weight: 2.0
+      params:
+        spread_atr_mult: 1.5
+        vol_sma_mult: 2.0             # was 3.0 — AMPLIFY (see long pattern note above)
+        close_pos_max: 0.50
+        max_high_bars: 5
+        wait_min: 4
+        wait_max: 24
+        high_tolerance_pct: 0.02      # 1d=0.03; 15m'de daha katı
+        vol_ratio_max: 0.75
+        spread_atr_max: 0.80
+
+  structure:
+    swing:
+      fractal_n: 2
+    support_resistance:
+      lookback_bars: 192              # 1d=120bar → 15m=192bar(48h)
+      cluster_atr_multiplier: 0.35
+      min_touches: 2
+      max_age_bars: 192
+    require_proximity_to_sr_atr: 0.0
+
+  filters:
+    atr_min_pct: 0.002                # 1d=0.003; 15m kucuk ATR%
+    volume_zscore_min: 0.0            # Climax zaten vol_sma_mult filtresi var
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.5
+    bonus_if_at_sr: 0.0
+
+risk:
+  stop_loss:
+    method: sc_low_atr
+    atr_buffer: 1.0                   # degismedi; SC low - 1 ATR
+  take_profit:
+    method: r_multiple
+    primary_R: 2.5                    # 1d=3.0; 15m'de 2.5R gerçekci/ambisyonlu denge
+  position_sizing:
+    method: fixed_fractional
+    risk_per_trade: 0.02              # Phase 3 override
+
+# ATR/VSA icin ayr bir alan — kod vsa_climax icin atr20 kullanir
+# 15m manifest icin atr_period degistirme ihtiyaci:
+vsa_internals:
+  atr_period: 20                      # kod atr20 kullanir; 20 × 15m = 5h; OK
+  vol_sma_period: 40                  # 1d=20bar(20gun) → 15m=40bar(10h=1.5 seans)
+  confirmation_max_wait: 5            # 1d=3bar → 15m=5bar(75dak)
+
+backtest:
+  warmup_bars: 200                    # vol_sma + ATR + wait_max; 200 × 15m = 50h
+  fees:
+    taker: 0.00040
+    maker: -0.00010
+  slippage_bps: 7.5
+  initial_capital_usdt: 10000.0
+
+# TF-spesifik notlar:
+#
+# VSA 15m'de sinyal sikligi sorunu:
+#   Wyckoff climax + test iki asamali — 1d'de 2-4 haftada bir olusabilir.
+#   15m'de 2-3 gunluk periyotta birden fazla SC + test olusabilir (likid markette).
+#   Beklenen: 15m'de gunluk 1-3 sinyal (1d'deki aylik 2-5 ile karsilastir).
+#
+# vol_sma_mult 2.5→3.0:
+#   15m bar'larda 2.5x vol spike cok sik olusur (micro news, pump/dump).
+#   3.0x ile gercek "climactic" event filtrele. Ablation: 2.5 vs 3.0 vs 4.0.
+#
+# wait_max 15→24 (6h):
+#   Test Bar olusmak icin 15m'de 24bar = 6h makul sure.
+#   1d'de 15 gun cok uzun. 15m'de 6h = 1 trading gunu yeterli.
+#
+# low_tolerance_pct 3%→2%:
+#   15m'de test bar daha hassas SC low'una yakin olmali.
+#   %2 tolerans ile kaliteli test secilir. Ablation: 1% vs 2% vs 3%.
+#
+# vsa_internals blogu:
+#   vol_sma_period=40 manifest'e eklendi ama KOD BUNU OKUMAZ (hardcoded 20).
+#   Phase 4 strategy refactor: manifest-driven vol_sma_period.
+#
+# Phase 3 eylem:
+#   1. vol_sma_period 20→40 kod seviyesinde guncelle
+#   2. confirmation_max_wait 3→5 kod seviyesinde guncelle
+#   3. vol_sma_mult ablation: 2.5 / 3.0 / 4.0
+#   4. Sinyal sayisi takip: gunluk 15m VSA climax ~ kac event?

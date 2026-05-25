@@ -1,0 +1,56 @@
+---
+doc_id: "{{agent_id}}-{{yyyymmddTHHMMSS}}-postmortem-{{type}}-{{ref}}"
+doc_type: postmortem
+agent_id: "{{agent_id}}"
+created_at: "{{iso8601_utc}}"
+status: PROPOSED
+confidence: high
+depends_on: ["{{related_trade_or_incident_id}}"]
+blocks: []
+requested_review_from: []
+tags: ["postmortem", "{{trade_or_incident}}", "{{strategy_or_service}}"]
+---
+
+# Post-Mortem: {{trade_id | incident_id}}
+
+## Header
+- Tip: {{trade_loss | trade_outlier_win | service_incident | data_anomaly}}
+- Detay: {{symbol/strategy | service/duration}}
+- P&L / impact: {{$X | uptime_loss}}
+- Kategori (analyst trade): {{wrong_pattern | wrong_timing | wrong_size | regime_change | data_glitch | unlucky}}
+
+## Timeline (chronological)
+| Time (UTC) | Event | Source |
+|---|---|---|
+| T-Xh | ... | ... |
+| T | INCIDENT | ... |
+| T+Y | mitigation | ... |
+| T+Z | resolution | ... |
+
+## Contributing Factors (NOT root cause — blameless)
+1. ...
+2. ...
+3. ...
+
+## What went well
+- ...
+
+## What didn't go well
+- ...
+
+## Where we got lucky (Allspaw)
+- ...
+
+## Corrective Actions
+| Action | Owner | Priority | ETA |
+|---|---|---|---|
+| ... | <agent> | P0/P1/P2 | YYYY-MM-DD |
+
+## Items Observed (not necessarily to fix)
+- ...
+
+## Tekrar etme riski
+**Düşük / Orta / Yüksek** — gerekçe.
+
+## Lessons (memory/shared/lessons/'a kandidat)
+- ...

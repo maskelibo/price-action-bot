@@ -1,0 +1,204 @@
+﻿# PHOENIX-SCALP 1m RISK PRESET -- v1.0 DRAFT (2026-05-16)
+# Durum: R&D TASLAK -- Principal sign-off ZORUNLU (live degil)
+# Master plan: reports/ceo/2026-05-16_phoenix_scalp_v1_master_plan.md s4.4
+#
+# FEE FIZIGI (master plan s2.1):
+#   1m avg hold ~6dk -> ~200,000 trade/yil
+#   Taker 12-20 bps x 200,000 = %2,400-4,000 yillik fee erosyon
+#   Post-only maker ~4 bps x 200,000 = %800 -- IMKANSIZ
+#   -> risk_per_trade %0.5 + vol_z >= 2.0 + ATR%ile >= 75 filtresi ZORUNLU
+#   -> frekans 10-50x duser -> ~5k-20k trade/yil -> %40-160 maker fee
+#
+# 1m OZEL (master plan s1.3 + s4.5):
+#   - Post-only MANDATORY, taker fallback YOK
+#   - Slippage gate 10 bps
+#   - Mikro-rejim filtresi strateji manifest layerda zorunlu
+#   - Order size <= 1-dk hacmin %0.3
+#
+# KIL KRITERI: maker fill rate <%50 -> KILL. Compute >168h -> KILL. Return <0 -> KILL.
+
+defaults:
+  account_currency: USDT
+  preset_name: phoenix_scalp_1m
+  bot_name: PHOENIX-SCALP-1m
+  timeframe: 1m
+  sim_only: true
+
+position_sizing:
+  method: confidence_dynamic
+  # DIFF vs 5m: %1 -> %0.5 (master plan tablosu)
+  # Vol filtresi ile trade sayisi ~10-50x dusmeli.
+  risk_per_trade: 0.005
+  backtest_risk_pct: 0.005
+  confidence_risk_tiers:
+    - {min: 0.00, max: 0.32, risk_pct: 0.001}
+    - {min: 0.32, max: 0.42, risk_pct: 0.002}
+    - {min: 0.42, max: 0.52, risk_pct: 0.003}
+    - {min: 0.52, max: 0.58, risk_pct: 0.004}
+    - {min: 0.58, max: 1.01, risk_pct: 0.005}
+  # DIFF vs 5m: 0.10 -> 0.08 (1m Kelly varyans maksimum)
+  kelly_cap: 0.08
+  min_quantity_usdt: 2
+  size_rounding: exchange_step
+  # DIFF vs 5m: 0.25 -> 0.20 (master plan tablosu)
+  max_notional_pct_equity: 0.20
+
+stop_loss:
+  method: atr
+  atr_period: 14
+  # DIFF vs 5m: 1.2 -> 1.0 (1m noise fazla; wide SL fee eater)
+  atr_multiplier: 1.0
+  structural_buffer_pct: 0.001
+  trailing:
+    enabled: true
+    method: atr_chandelier
+    atr_period: 14
+    multiplier: 1.0
+    activate_after_R: 0.5
+
+take_profit:
+  method: r_multiple
+  # DIFF vs 5m: 1.0R -> 0.8R (1m cok hizli kar al)
+  primary_R: 0.8
+  partial_close_at_R: 0.5
+  runner_trail: true
+
+vol_target:
+  # 1m zorunlu -- spike anlarda pozisyon sifirlanmali
+  enabled: true
+  # DIFF vs 5m: %0.5 -> %0.2 (1m bar vol cok kucuk)
+  target_atr_pct: 0.002
+  min_factor: 0.10
+  max_factor: 1.20
+
+leverage:
+  enabled: true
+  # DIFF vs 5m: 3 -> 2 (master plan tablosu; 1m vol x lev = likit risk)
+  max_leverage_per_symbol: 2
+  max_portfolio_notional_x_equity: 2
+  # DIFF vs 5m: 0.5 -> 0.6 (1m daha genis likidite buffer)
+  margin_safety_ratio: 0.6
+  confidence_tiers:
+    - {min: 0.00, max: 0.50, leverage: 1}
+    - {min: 0.50, max: 1.01, leverage: 2}
+
+drawdown_breakers:
+  # DIFF vs 5m: %2 -> %1.5 (master plan tablosu)
+  # 1m'de 1440 bar/gun; %1.5 daily ~= 3 ardasik full-risk trades
+  # (risk %0.5 x lev 2 = %1 max single hit)
+  daily_loss_pct: 0.015
+  # DIFF vs 5m: %6 -> %5
+  weekly_loss_pct: 0.05
+  monthly_loss_pct: 0.99
+  monthly_halt_days: 1
+  daily_halt_days: 1
+  weekly_halt_days: 1
+  # DIFF vs 5m: long %8 -> %6, short %3 -> %2
+  monthly_loss_pct_long: 0.06
+  monthly_loss_pct_short: 0.02
+  # DIFF vs 5m: 8 -> 12 (1m cok fazla sample; 12 kayip ~1-2 saat)
+  consecutive_losses: 12
+  # KOD UYARI (KRITIK): breaker.py satir 128 int(0.25) = 0.
+  # timedelta(days=0) -> cool-down CALISMAZ.
+  # Bu preset live'a GIREMEZ breaker.py fix olmadan.
+  # Zorunlu degisiklik: self.consec_pause_days = float(cfg.get(..., 5))
+  # Sprint: SEC-SCALP-B1
+  consecutive_loss_pause_days: 0.25
+  reset:
+    daily: 00:00 UTC
+    weekly: Monday 00:00 UTC
+    monthly: 1st 00:00 UTC
+
+correlation_gate:
+  # 1m return serisi noise-dominated; correlation Phase 4'te revize edilmeli.
+  enabled: true
+  max_pairwise_corr: 0.7
+  reduction_factor: 0.5
+  hard_block_at: 0.9
+
+concentration_limits:
+  # DIFF vs 5m: 20 -> 24 (master plan tablosu)
+  max_open_positions: 24
+  max_per_category_pct: 0.25
+  max_per_symbol_pct: 0.15
+  backtest_apply_concentration_gate: true
+
+regime_filter:
+  # BTC capitulation halt -- 1d OHLCV bazli calendar (TF bagimsiz).
+  # 1m mikro-rejim (master plan s2.4): ATR%/EMA200 anlamsiz.
+  # Gercek 1m micro-regime strateji manifest layerda implement edilmeli.
+  # Bu YAML 1d calendar kullanir (conservative fallback).
+  btc_capitulation_halt_enabled: true
+  atr_pct_threshold: 6.0
+  ema200_streak_days: 10
+  dd_90d_threshold_pct: -25.0
+  resume_atr_threshold: 4.0
+  resume_streak_days: 5
+
+alt_data:
+  fng_short_skip_enabled: true
+  fng_short_skip_threshold: 20
+  funding_filter_enabled: false
+
+strategy_portfolio:
+  enabled: true
+  symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - ADA/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - DOT/USDT
+    - DOGE/USDT
+    - XRP/USDT
+  # PLACEHOLDER -- 1m lookahead audit sonrasi aktif edilir.
+  # Phoenix swing stratejileri 1m'de buyuk ihtimalle edge uretmez;
+  # microstructure-specific strategies gerekli (master plan s4.3 HYP-scalp-03).
+  strategies: []
+  same_symbol_side_cooldown_days: 0.001
+  max_concurrent_positions: 24
+  pyramid_enabled: false
+  # DIFF vs 5m: 0.30 -> 0.35 (1m gurultu maksimum)
+  signal_confidence_min: 0.35
+  expected_annual_return: 0.00
+  expected_max_dd: 0.30
+
+exit_engine:
+  multi_target: true
+  partial_close_1R: 0.60
+  partial_close_2R: 0.30
+  runner_pct: 0.10
+  break_even_after_1R: true
+  lock_1R_after_2R: true
+  runner_trail_atr: 0.3
+
+liquidity_gate:
+  # 1m alt-coin book cok sig; %0.3 conservative
+  max_order_to_minute_volume: 0.003
+  min_book_depth_usdt: 20000
+
+execution:
+  order_type_default: post_only_limit
+  # DIFF vs 5m: 8s -> 5s (master plan tablosu; 1m bar = 60s)
+  fallback_to_market_after_sec: 5
+  # DIFF vs 5m: 12 bps -> 10 bps (master plan tablosu)
+  max_slippage_bps: 10
+  partial_fill_timeout_sec: 8
+  # 1m MANDATORY post-only + NO taker fallback (maker-only mode)
+  post_only_limit_enabled: true
+  post_only_fallback_seconds: 5
+  slippage_limit_bps: 10
+
+emergency:
+  kill_switch_keyword: HALT_TRADING
+  flatten_all_on_breaker: false
+  require_human_to_resume: true
+
+# DIFF vs 5m: $300 -> $200 (master plan tablosu)
+live_capital_cap:
+  enabled: true
+  max_equity_usdt: 200.0
+  cap_expires_at: '2026-06-16'
+  warn_threshold_pct: 0.80

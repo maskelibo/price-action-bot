@@ -1,0 +1,84 @@
+# engulfing_continuation — 1h TF manifest override
+# Kaynak: Lab Scientist, SEC-S6 1h pivot feasibility, 2026-05-17
+#
+# Kalibrasyon: 15m → 1h
+#   pullback_window:  15m=20bar(5h) → 1h=5bar(5h)
+#   ema50:            50 × 1h = 50h (2 gun) — gunluk seans trend filter
+#   body_ratio_min:   15m=0.55 → 1h=0.58 (1h daha az gurultu, daha sıkı body)
+#   pullback_touch:   15m=0.4 ATR → 1h=0.4 ATR
+#   lookback_bars (S/R): 15m=96(24h) → 1h=24bar(24h)
+#   atr_min_pct:      15m=0.003 → 1h=0.004
+#   primary_R:        15m=1.5 → 1h=1.8
+#   swing_lookback:   15m=15bar(225dk) → 1h=4bar(240dk)
+#   kaufman_er:       15m=14(3.5h) → 1h=14bar(14h)
+#   rolling_sharpe:   15m=60bar(15h) → 1h=15bar(15h)
+
+name: engulfing_continuation
+version: "1.0.0-1h"
+description: "Engulfing bar after EMA pullback — 1h intraday. SEC-S6."
+
+trend_filter:
+  type: ema
+  period: 50              # 50 × 1h = 50h (gun trend bias)
+  required: true
+
+signals:
+  patterns:
+    - id: bullish_engulfing_cont
+      enabled: true
+      weight: 1.5
+      params:
+        body_ratio_min: 0.58
+        pullback_window: 5
+        pullback_touch_atr: 0.4
+
+    - id: bearish_engulfing_cont
+      enabled: true
+      weight: 1.5
+      params:
+        body_ratio_min: 0.58
+        pullback_window: 5
+        pullback_touch_atr: 0.4
+
+  structure:
+    swing:
+      fractal_n: 2
+    support_resistance:
+      lookback_bars: 24                # 15m=96(24h) → 1h=24bar(24h)
+      cluster_atr_multiplier: 0.40
+      min_touches: 2
+      max_age_bars: 24
+    require_proximity_to_sr_atr: 0.5
+
+  filters:
+    atr_min_pct: 0.004
+    volume_zscore_min: 0.5
+    kaufman_er_period: 14              # 14 × 1h = 14h
+    kaufman_er_min: 0.15
+    always_in_required: false
+    bear_regime_size_factor: 0.5
+    rolling_sharpe_period: 15          # 15 × 1h = 15h
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.5
+    bonus_if_at_sr: 0.5
+
+risk:
+  stop_loss:
+    method: structural
+    swing_lookback: 4                  # 15m=15bar(225dk) → 1h=4bar(240dk)
+  take_profit:
+    method: r_multiple
+    primary_R: 1.8                     # 15m=1.5 → 1h=1.8
+  position_sizing:
+    method: fixed_fractional
+    risk_per_trade: 0.02
+
+backtest:
+  warmup_bars: 250                     # ema200 = 200bar + buffer; 250 × 1h = 250h ≈ 10gun
+  fees:
+    taker: 0.00040
+    maker: -0.00010
+  slippage_bps: 6.5
+  initial_capital_usdt: 10000.0

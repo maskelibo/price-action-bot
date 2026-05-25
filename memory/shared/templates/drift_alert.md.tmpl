@@ -1,0 +1,52 @@
+---
+doc_id: "lab-{{yyyymmddTHHMMSS}}-drift-{{symbol}}-{{strategy}}"
+doc_type: drift_alert
+agent_id: lab_scientist
+created_at: "{{iso8601_utc}}"
+status: PROPOSED
+confidence: "{{low|med|high}}"
+depends_on: []
+blocks: []
+requested_review_from: [researcher]
+tags: ["drift", "{{strategy_id}}", "{{symbol}}"]
+---
+
+# Drift Alert — {{strategy_id}} on {{symbol}}
+
+## Detection
+- Detected at: {{iso8601_utc}}
+- Test window: live last 30g vs backtest equivalent bootstrap (n=1000)
+- Strategy: {{strategy_id}}
+- Symbol scope: {{single | universe}}
+
+## Statistical Tests
+| Test | p-value | Threshold | Status |
+|---|---|---|---|
+| Kolmogorov-Smirnov | 0.0XX | < 0.01 | PASS/FAIL |
+| Welch's t-test (returns) | 0.0XX | < 0.01 | PASS/FAIL |
+| Levene (variance) | 0.0XX | < 0.01 | PASS/FAIL |
+
+**Conjunction (3/3 fail) → drift confirmed.**
+**Disjunction (1+ fail) → investigate, not alarm.**
+
+## Effect Size
+- Live mean return: {{X}} bps/day
+- Backtest mean return: {{Y}} bps/day
+- Delta: {{Z}} bps/day
+- Cohen's d: {{d_value}}
+
+## Sebep Hipotezleri (Researcher'a teslim)
+1. **Veri kalitesi:** {{check_link to data_engineer audit}}
+2. **Slippage erosion:** {{check_link to execution_chief slippage report}}
+3. **Regime change:** {{which regime model says}}
+4. **Edge erosion:** {{strategy maturity / arbitrage decay}}
+5. **Sample variance:** {{n_days < 30 ise — true alarm değil}}
+
+## Aksiyon Önerisi
+- Researcher: yeni hipotez yazıp Lab tournament'a sürmesi (Faz 3'te `respond_to_drift()` otomatik)
+- Risk Officer: position size geçici azaltma değerlendirmesi (Faz 3 sonrası)
+- CEO: brief'te değin (Faz 3'te otomatik context'e girer)
+
+## Cooldown
+- Bu drift_alert için max **3 hipotez yanıtı** (researcher cool-down)
+- Lab tournament reddi sonrası **7 gün** aynı strateji için yeni hipotez yok

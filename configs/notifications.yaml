@@ -1,0 +1,80 @@
+# Notifications policy — per channel push rules.
+#
+# Faz 2.4 — push behavior per doc_type.
+#
+# notifications.py helper bu yaml'ı okuyup conditional push/skip kararı verir.
+# Anahtar mantık: routine_logs sessiz, critical her zaman, koşullu hat:
+# (örn. whatif sadece filter_loss_pct >= 5 ise).
+#
+# Mevcut state: Faz 2.4 — config dosyası yazıldı, ama notifications.py'da
+# conditional logic Faz 4'te eklenecek. Şu an helper hep push'lar (default-true).
+
+channels:
+  morning_brief:
+    enabled: true
+    schedule: "23:05 UTC"  # daily_kpi'den 5dk sonra (brief hazır olur)
+    format: "markdown"
+    max_chars: 2800
+    description: "CEO daily morning brief — Telegram'a kopyalanabilir TL;DR + sections."
+
+  weekly_summary:
+    enabled: true
+    schedule: "Sun 06:00 UTC"
+    format: "markdown"
+    max_chars: 2800
+    description: "CEO weekly executive summary — Pazar sabah brief."
+
+  crisis:
+    enabled: true
+    level: CRIT
+    bypass_throttle: true  # CRIT için throttle bypass — anında gönder
+    description: "Kriz alarmı (DD breach, korelasyon stresi, exchange halt, flash crash)."
+
+  tournament:
+    enabled: true
+    condition: "promotion_candidate_found"  # Faz 4'te logic
+    description: "Lab tournament terfi adayı bulunduysa push."
+
+  drift:
+    enabled: true
+    level: WARNING
+    condition: "ks_p_value < 0.01 AND welch_p_value < 0.01"  # Faz 4'te logic
+    description: "Drift detection — sadece güçlü statistical signal varsa push."
+
+  whatif:
+    enabled: true
+    condition: "abs(filter_loss_pct) >= 5"  # Faz 4'te logic
+    description: "What-if counterfactual — sadece filter cost büyükse push (>=%5)."
+
+  routine_logs:
+    enabled: false  # Sessiz — sadece file'a yaz
+    description: "Routine debug/info logları (scheduler tick, health check vs.) — Telegram'a basma."
+
+  rag_refresh:
+    enabled: false
+    description: "RAG corpus refresh — sessiz başarı, sadece hata push."
+
+  incident:
+    enabled: true
+    level: WARNING
+    description: "Ops incident (alert SNR pozitif olanlar)."
+
+# Throttle settings (TelegramThrottle ops/telegram_throttle.py)
+throttle:
+  default_window_seconds: 600  # 10dk
+  per_channel_window:
+    crisis: 0  # CRIT throttle yok
+    morning_brief: 86400  # 24sa — günlük 1 brief
+    weekly_summary: 604800  # 7gün
+    drift: 14400  # 4sa — drift alarmı tekrarlanmasın
+    incident: 1800  # 30dk
+  max_digest_per_window: 5
+
+# Future Faz 4: per-recipient routing
+# routing:
+#   morning_brief:
+#     primary: TELEGRAM_CHAT_ID
+#     bcc: []
+#   crisis:
+#     primary: TELEGRAM_CHAT_ID
+#     escalation: PA_PRINCIPAL_PHONE  # Faz 5+

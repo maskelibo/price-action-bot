@@ -363,3 +363,228 @@ class TestIntegration:
             sent = throttle.flush_digest()
             assert sent == 1
             assert mock_send.call_count == 2
+
+
+class TestTFAdaptiveWindows:
+    """Tests for TF-aware throttle windows (SEC58 HIGH-4)."""
+
+    def setup_method(self) -> None:
+        reset_telegram_throttle()
+
+    def test_tf_window_map_complete(self) -> None:
+        """Verify TF window mappings."""
+        assert TelegramThrottle.TF_WINDOW_MAP == {
+            "1d": 3600,
+            "1h": 1800,
+            "15m": 600,
+            "5m": 300,
+            "1m": 180,
+        }
+
+    def test_init_with_timeframe_1d(self) -> None:
+        """Init with 1d TF → 3600s window."""
+        throttle = TelegramThrottle(timeframe="1d")
+        assert throttle.window_seconds == 3600
+        assert throttle.timeframe == "1d"
+
+    def test_init_with_timeframe_1h(self) -> None:
+        """Init with 1h TF → 1800s window."""
+        throttle = TelegramThrottle(timeframe="1h")
+        assert throttle.window_seconds == 1800
+        assert throttle.timeframe == "1h"
+
+    def test_init_with_timeframe_15m(self) -> None:
+        """Init with 15m TF → 600s window (default)."""
+        throttle = TelegramThrottle(timeframe="15m")
+        assert throttle.window_seconds == 600
+        assert throttle.timeframe == "15m"
+
+    def test_init_with_timeframe_5m(self) -> None:
+        """Init with 5m TF → 300s window."""
+        throttle = TelegramThrottle(timeframe="5m")
+        assert throttle.window_seconds == 300
+        assert throttle.timeframe == "5m"
+
+    def test_init_with_timeframe_1m(self) -> None:
+        """Init with 1m TF → 180s window."""
+        throttle = TelegramThrottle(timeframe="1m")
+        assert throttle.window_seconds == 180
+        assert throttle.timeframe == "1m"
+
+    def test_init_default_timeframe(self) -> None:
+        """Init without TF → defaults to 15m (600s)."""
+        throttle = TelegramThrottle()
+        assert throttle.timeframe == "15m"
+        assert throttle.window_seconds == 600
+
+    def test_init_explicit_window_overrides_tf(self) -> None:
+        """Explicit window_seconds overrides TF detection (backward compat)."""
+        throttle = TelegramThrottle(window_seconds=999, timeframe="1d")
+        assert throttle.window_seconds == 999
+        assert throttle.timeframe is None
+
+    def test_env_var_pa_telegram_throttle_tf(self) -> None:
+        """PA_TELEGRAM_THROTTLE_TF env var overrides timeframe param."""
+        with patch.dict(os.environ, {"PA_TELEGRAM_THROTTLE_TF": "1d"}):
+            throttle = TelegramThrottle(timeframe="15m")
+            assert throttle.window_seconds == 3600
+            assert throttle.timeframe == "1d"
+
+    def test_env_var_invalid_tf_fallback(self) -> None:
+        """Invalid TF in env var → falls back to default 600s."""
+        with patch.dict(os.environ, {"PA_TELEGRAM_THROTTLE_TF": "invalid"}):
+            throttle = TelegramThrottle()
+            # invalid TF not in map, so TF_WINDOW_MAP.get('invalid', 600) → 600
+            assert throttle.window_seconds == 600
+
+    def test_send_throttled_with_tf_explicit_1d_window(self) -> None:
+        """send_throttled_with_tf() with 1d TF → 3600s window."""
+        throttle = TelegramThrottle(timeframe="15m")
+
+        with patch("price_action.ops.telegram_throttle.send_telegram") as mock_send:
+            mock_send.return_value = True
+
+            # First alert (sent immediately)
+            result1 = throttle.send_throttled_with_tf(
+                "sl_alert", "SL hit", timeframe="1d", level="WARNING"
+            )
+            assert result1 is True
+            assert mock_send.call_count == 1
+
+            # Second alert same type, within 1d window (3600s) → buffered
+            result2 = throttle.send_throttled_with_tf(
+                "sl_alert", "Another SL", timeframe="1d", level="WARNING"
+            )
+            assert result2 is False
+            assert mock_send.call_count == 1
+
+    def test_send_throttled_with_tf_multiple_tfs_independent(self) -> None:
+        """Multiple TFs have independent throttle buckets."""
+        throttle = TelegramThrottle(timeframe="15m")
+
+        with patch("price_action.ops.telegram_throttle.send_telegram") as mock_send:
+            mock_send.return_value = True
+
+            # Send with 15m context
+            throttle.send_throttled_with_tf(
+                "sl_alert", "SL 15m", timeframe="15m"
+            )
+            assert mock_send.call_count == 1
+
+            # Send with 1d context (different bucket) → sent immediately
+            throttle.send_throttled_with_tf(
+                "sl_alert", "SL 1d", timeframe="1d"
+            )
+            assert mock_send.call_count == 2
+
+            # Another 15m (within window) → buffered
+            throttle.send_throttled_with_tf(
+                "sl_alert", "SL 15m again", timeframe="15m"
+            )
+            assert mock_send.call_count == 2
+
+    def test_send_throttled_with_tf_no_explicit_tf_uses_instance(self) -> None:
+        """send_throttled_with_tf() without TF param uses instance window."""
+        throttle = TelegramThrottle(timeframe="5m")
+
+        with patch("price_action.ops.telegram_throttle.send_telegram") as mock_send:
+            mock_send.return_value = True
+
+            # First alert
+            throttle.send_throttled_with_tf("alert_a", "Msg 1")
+            assert mock_send.call_count == 1
+
+            # Second alert within 5m window (300s) → buffered
+            throttle.send_throttled_with_tf("alert_a", "Msg 2")
+            assert mock_send.call_count == 1
+
+    def test_deprecated_send_throttled_scalp_delegates(self) -> None:
+        """send_throttled_scalp() delegates to send_throttled_with_tf()."""
+        throttle = TelegramThrottle(timeframe="15m")
+
+        with patch("price_action.ops.telegram_throttle.send_telegram") as mock_send:
+            mock_send.return_value = True
+
+            # Scalp API (deprecated) should work same as new API
+            result1 = throttle.send_throttled_scalp("5m", "scalp_alert", "Fast move")
+            assert result1 is True
+            assert mock_send.call_count == 1
+
+            # Second within 5m window (300s) → buffered
+            result2 = throttle.send_throttled_scalp("5m", "scalp_alert", "More moves")
+            assert result2 is False
+            assert mock_send.call_count == 1
+
+    def test_1d_daemon_slippage_spam_scenario(self) -> None:
+        """Realistic: 1d daemon with multiple SL hits → no spam."""
+        # Scenario: 1d bot hits SL on same position 3 times within 1 hour
+        # With 1d window (3600s), only first SL sends immediately
+        throttle = TelegramThrottle(timeframe="1d")
+
+        with patch("price_action.ops.telegram_throttle.send_telegram") as mock_send:
+            mock_send.return_value = True
+
+            # SL hit 1 (sent)
+            throttle.send_throttled_with_tf("sl_btc_long", "SL hit BTCUSDT long", timeframe="1d")
+            assert mock_send.call_count == 1
+
+            # 10 min later, SL hit again (within 1d window)
+            time.sleep(0.1)  # Small delay
+            throttle.send_throttled_with_tf("sl_btc_long", "SL hit again BTCUSDT long", timeframe="1d")
+            assert mock_send.call_count == 1  # Buffered
+
+            # 30 min later, SL hit 3x
+            throttle.send_throttled_with_tf("sl_btc_long", "SL hit 3x BTCUSDT long", timeframe="1d")
+            assert mock_send.call_count == 1  # Still buffered
+
+            # Digest at end of hour
+            sent = throttle.flush_digest()
+            assert sent == 1
+            assert mock_send.call_count == 2
+
+    def test_15m_daemon_scalp_scenario(self) -> None:
+        """Realistic: 15m scalp bot with 5 alerts per window."""
+        # Scenario: 15m daemon with slippage warnings every bar (600s window)
+        throttle = TelegramThrottle(timeframe="15m")
+
+        with patch("price_action.ops.telegram_throttle.send_telegram") as mock_send:
+            mock_send.return_value = True
+
+            # Alert 1 (sent)
+            throttle.send_throttled("scalp_slip", "Slip 15bps", level="WARNING")
+            assert mock_send.call_count == 1
+
+            # Alerts 2-5 within 600s (buffered)
+            throttle.send_throttled("scalp_slip", "Slip 12bps")
+            throttle.send_throttled("scalp_slip", "Slip 18bps")
+            throttle.send_throttled("scalp_slip", "Slip 9bps")
+            throttle.send_throttled("scalp_slip", "Slip 20bps")
+            assert mock_send.call_count == 1
+
+            # Digest
+            sent = throttle.flush_digest()
+            assert sent == 1
+            assert mock_send.call_count == 2
+
+    def test_get_telegram_throttle_tf_aware(self) -> None:
+        """Singleton get_telegram_throttle() respects TF param."""
+        reset_telegram_throttle()
+        throttle = get_telegram_throttle(timeframe="1d")
+        assert throttle.window_seconds == 3600
+        assert throttle.timeframe == "1d"
+
+    def test_get_telegram_throttle_env_override(self) -> None:
+        """Singleton reads PA_TELEGRAM_THROTTLE_TF env var."""
+        reset_telegram_throttle()
+        with patch.dict(os.environ, {"PA_TELEGRAM_THROTTLE_TF": "5m"}):
+            throttle = get_telegram_throttle(timeframe="1d")
+            # Env var should override param
+            assert throttle.window_seconds == 300
+            assert throttle.timeframe == "5m"
+
+    def test_backward_compat_explicit_window_seconds(self) -> None:
+        """Backward compat: explicit window_seconds bypasses TF logic."""
+        reset_telegram_throttle()
+        throttle = get_telegram_throttle(window_seconds=999)
+        assert throttle.window_seconds == 999
+        assert throttle.timeframe is None

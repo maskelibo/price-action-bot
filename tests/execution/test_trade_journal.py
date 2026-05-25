@@ -322,6 +322,52 @@ def test_concurrent_close_safe():
         _cleanup(db)
 
 
+# ── G8 fix: schema guarantee on record_close even after raw DB open ───────────
+
+def test_record_close_ensures_schema_even_with_preexisting_connection():
+    """G8 fix (hard review 2026-05-21): record_close _ensure_schema çağırır.
+
+    Senaryo: DB dosyası başka bir bağlantı (equity_snapshot, daemon init)
+    tarafından açılmış; futures_trades_closed tablosu YOK (sadece diğer
+    tablolar var). TradeJournal(db_path) + record_close → tablo yaratılır,
+    INSERT başarılı olur (INSERT sonrası SELECT ile doğrula).
+    """
+    db = _tmp_db()
+    try:
+        # Ham bağlantıyla sadece farklı bir tablo yarat (futures_trades_closed YOK)
+        con = duckdb.connect(str(db))
+        con.execute(
+            "CREATE TABLE futures_equity_snapshots (snap_id TEXT PRIMARY KEY, ts TIMESTAMP)"
+        )
+        con.commit()
+        con.close()
+
+        # TradeJournal init → _ensure_schema → futures_trades_closed yaratılır
+        tj = TradeJournal(db_path=str(db))
+        now = datetime.now(timezone.utc)
+
+        # record_close de iç _ensure_schema çağırır → çift güvence
+        ok = tj.record_close(
+            trade_id="g8_test",
+            ts_open=now - timedelta(hours=1),
+            ts_close=now,
+            sym="BTC/USDT", side="long", strategy="pin_bar",
+            entry_price=100.0, exit_price=105.0, qty=1.0,
+            sl_price=95.0, close_reason="tp",
+        )
+        assert ok is True
+
+        # Tablo var, satır yazılmış
+        con2 = duckdb.connect(str(db), read_only=True)
+        cnt = con2.execute(
+            "SELECT COUNT(*) FROM futures_trades_closed WHERE trade_id='g8_test'"
+        ).fetchone()[0]
+        con2.close()
+        assert cnt == 1, f"G8: tablo/satır yok (cnt={cnt})"
+    finally:
+        _cleanup(db)
+
+
 # ── Bonus: pure-function tests for compute helpers ─────────────────────────────
 
 def test_compute_realized_pnl_directional():

@@ -1,0 +1,124 @@
+# anchored_vwap_reversal — 15m TF manifest override
+# Kaynak: SEC-SCALP-S5 / Signal Chief 2026-05-17
+#
+# Kalibrasyon mantigi:
+#   1d ref → 15m esiti (1d = 96 × 15m)
+#
+#   avwap_swing_lookback=60bar  → 1d'de 60 gun. 15m'de 60bar = 15h.
+#     AVWAP icin anchor swing bulmak icin 1 trading gunu yeterli (96bar=24h).
+#     Daha kisa swing lookback = daha guncel anchor = 15m davranisina uygun.
+#
+#   poc_lookback=60bar  → 1d'de 60 gun. 15m'de 60bar = 15h.
+#     Volume Profile POC icin anlamli window: 96bar = 24h (1 gunluk profil).
+#     NOT: _volume_profile_poc O(n*lookback*n_buckets) — yuksek lookback = yavas.
+#     15m'de 96bar × 50 bucket × n_bar performansi kritik.
+#
+#   ema200=200bar (trend filter)  → 1d'de 200 gun (makro trend).
+#     15m'de 200bar = 50h (2 gun 2 saat). Bu "makro trend" semantigini kaybeder.
+#     15m'de AVWAP mean-reversion zaten kendi kendine bias saglar.
+#     Cozum: ema200 trend filter DISABLED (required: false) — ema50 yeterli.
+#
+#   poc_atr_tolerance=1.5  → 15m'de ATR kucuk, POC yakınlık eşigi ayni oran.
+#     Ancak 15m'de POC daha sik degisir; toleransi hafif genis tut.
+#     Degismedi: 1.5 × ATR14 15m'de de anlamli.
+#
+#   RSI esikleri (rsi_long_max=55, rsi_short_min=45):
+#     15m'de RSI daha cok sallar. Esikleri 5puan geniset.
+#     Long: <60, Short: >40. Fazla tetiklenmeyi volume filtresi dengeler.
+#
+#   SL atr_buffer=1.0  → 15m'de ATR kucuk, 1.0 ATR buffer oransal.
+#     Degismedi.
+#
+# NOT: risk_per_trade tanimsiz — risk_phoenix_scalp_15m.yaml override eder.
+
+name: anchored_vwap_reversal
+version: "1.0.0-15m"
+description: "Anchored VWAP + POC mean-reversion — 15m intraday parametreleri. SEC-SCALP-S5."
+
+trend_filter:
+  type: ema
+  period: 50              # 1d'de ema200 kullaniliyordu; 15m'de ema200=50h anlamsiz
+  required: false         # AVWAP crossover kendi basina bias saglar; ema filtresi gevset
+
+signals:
+  patterns:
+    - id: avwap_long_reversal
+      enabled: true
+      weight: 1.5
+      params:
+        poc_atr_tolerance: 1.5        # 1d ile ayni — oransal olarak gecerli
+        rsi_long_max: 60.0            # 1d=55; 15m daha gurultulu → 5puan genislet
+        avwap_swing_lookback: 96      # 1d=60bar(60gun) → 15m=96bar(24h=1g)
+        poc_lookback: 96              # 1d=60bar(60gun) → 15m=96bar(24h=1g)
+
+    - id: avwap_short_reversal
+      enabled: true
+      weight: 1.5
+      params:
+        poc_atr_tolerance: 1.5
+        rsi_short_min: 40.0           # 1d=45; 15m'de geniş tolerans
+        avwap_swing_lookback: 96
+        poc_lookback: 96
+
+  structure:
+    swing:
+      fractal_n: 2                    # 1d ile ayni
+    support_resistance:
+      lookback_bars: 192              # 1d=120bar → 15m=192bar(48h)
+      cluster_atr_multiplier: 0.35   # 1d=0.50; 15m daha kucuk ATR
+      min_touches: 2
+      max_age_bars: 192
+    require_proximity_to_sr_atr: 0.0
+
+  filters:
+    atr_min_pct: 0.002                # 1d=0.003; 15m ATR% kucuk
+    volume_zscore_min: 0.5            # 1d=0.0; 15m noise icin ekle
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.5
+    bonus_if_at_sr: 0.0
+
+risk:
+  stop_loss:
+    method: structural_atr
+    swing_lookback: 15                # 1d=10bar → 15m=15bar(225dak)
+    atr_buffer: 1.0                   # degismedi
+  take_profit:
+    method: r_multiple
+    primary_R: 1.5                    # 1d=2.0; 15m fee+slip ile 1.5R
+  position_sizing:
+    method: fixed_fractional
+    risk_per_trade: 0.02              # Phase 3 override
+
+backtest:
+  warmup_bars: 200                    # 96bar POC + AVWAP + buffer; 200 x 15m = 50h
+  fees:
+    taker: 0.00040
+    maker: -0.00010
+  slippage_bps: 7.5
+  initial_capital_usdt: 10000.0
+
+# TF-spesifik notlar:
+#
+# PERFORMANS UYARISI (kritik):
+#   _volume_profile_poc() ve _rolling_avwap_from_swing() ikisi de O(n*lookback)
+#   inner loop. 15m'de n=10000+ bar olabilir. poc_lookback=96 → O(960K) iterasyon.
+#   Phase 4 oncesi numba/vectorize refactor zorunlu (lookahead audit SOFT-FAIL NPOC-001
+#   ile paralel kategori — ancak bu strateji baska modul).
+#   Profil hedef: < 50ms / 1000 bar.
+#
+# RSI esikler 15m'de:
+#   15m RSI 14-bar = 14 × 15dak = 3.5 saat. Cok hizli sallar.
+#   rsi_long_max=60 / rsi_short_min=40: daha az false reject.
+#   Ablation: mean-reversion icin RSI filtresi kaldirilabilir (AVWAP crossover yeterli).
+#
+# ema200 15m'de DISABLED nedeni:
+#   1d'de 200 gun = uzun vadeli trend. 15m'de 200 bar = 50h = 2 gunluk sving.
+#   Bu "bias" olarak degerlendirildi; ancak ema50 bile 50 × 15m = 12.5h.
+#   Phase 4 ablation: ema filter ON vs OFF karsilastir.
+#
+# Phase 3 eylem:
+#   1. _volume_profile_poc profil — numba patch degerlendirmesi
+#   2. rsi esik ablation (55 vs 60 vs devre disi)
+#   3. vol_z_window kod duzeyinde 96bar'a guncelle (su an hardcoded 60)

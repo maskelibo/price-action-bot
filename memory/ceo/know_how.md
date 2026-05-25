@@ -66,3 +66,24 @@ created: 2026-05-08
 ---
 
 > Yeni playbook çıktığında alta ekle.
+
+### 2026-05-25 — weekly-tag-snapshot-20260525 (med)
+- tags: consolidation
+
+Haftalık episodic tag dağılımı: llm_call:10, brief:6, daily:6
+
+---
+
+### 2026-05-25 — weekly-tag-snapshot-20260525 (med)
+- tags: consolidation
+
+Haftalık episodic tag dağılımı: llm_call:12, brief:7, daily:7
+
+---
+
+### 2026-05-25 — weekly-tag-snapshot-20260525 (med)
+- tags: consolidation
+
+Haftalık episodic tag dağılımı: llm_call:14, brief:8, daily:8
+
+---

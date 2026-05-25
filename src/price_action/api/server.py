@@ -11,14 +11,16 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from price_action import __version__
 from price_action.api.auth import verify_token
-from price_action.api.dashboard import render_dashboard
 from price_action.logging_config import logger
 from price_action.settings import ensure_dirs, get_settings
+
+DASHBOARD_DIR = Path(__file__).resolve().parents[3] / "dashboard"
 
 # Global "halt" state — file-based, restart-safe
 _STATE_FILE_NAME = "kill_switch.json"
@@ -178,17 +180,13 @@ def create_app() -> FastAPI:
     def latest_analytics() -> str:
         return _latest_report("analytics")
 
-    # ----- /dashboard -----
-    @app.get("/dashboard", response_class=HTMLResponse)
-    def dashboard() -> str:
-        try:
-            from price_action.analytics.journal import Journal
-
-            j = Journal()
-            trades_df = j.query_trades(limit=200)
-        except Exception:
-            trades_df = None
-        return render_dashboard(trades_df=trades_df)
+    # ----- /dashboard (SPA, static) -----
+    if DASHBOARD_DIR.exists():
+        app.mount(
+            "/dashboard",
+            StaticFiles(directory=DASHBOARD_DIR, html=True),
+            name="dashboard",
+        )
 
     return app
 

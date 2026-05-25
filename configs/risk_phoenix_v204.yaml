@@ -4,8 +4,14 @@
 # Bot adı: PHOENIX (wyckoff fantasy alpha temizlendi, yükselen)
 # Versiyon: v2.0.4
 # Profil: Wyckoff_phase_d DISABLED (12/13 strateji aktif) - WYK-001 mitigation
-# 2026-05-15 bizim test: yillik +%200.3 / DD -%32.0 / r-adj 6.26 / WR %69.7
-# 13/13 pencere POZITIF, min +%93.4, max +%315.8
+# 2026-05-18 SEC54.2 canonical (AVWAP v1.1 pool, 8-pencere 3y+90d/90d step):
+#   yıllık +%302.4 / DD worst -%63.0 / r-adj 5.33 / WR %51.5 / 8/8 pozitif
+# Eski "+%200.3 / DD -%32 / r-adj 6.26 / WR %69.7" GEÇERSİZ:
+#   (a) risk_balanced.yaml ile üretilmiş, v204 değil
+#   (b) AVWAP v1.0 design bug pool (948/948 trade conf=0.0)
+#   (c) farklı pencere protokolü (60g step → 13 pencere vs 90g step → 8 pencere)
+# Detay: reports/analyst/2026-05-19_memory_baseline_forensic (SL-05 closure)
+#        + reports/lab/2026-05-19_sec54_2_1d_v204_pool_rebuild.md
 # Status: PAPER TRADE adayı — ATLAS ile paralel A/B test
 #
 # Atlas'tan TEK fark: strategies listesinde wyckoff_phase_d YOK
@@ -37,10 +43,12 @@ position_sizing:
   kelly_cap: 0.25
   min_quantity_usdt: 20
   size_rounding: exchange_step
-  # v0.9.2: Notional cap per equity — gunis SL trade'lerin asiri buyuk pozisyon yapmasini engeller.
+  # 2026-05-17: notional cap %30 -> %20 (concentration gate ile uyumlu)
+  # Önceki çelişki: sizer %30, gate %20 → her sinyal REJECT (live $5k testnet kanıtı).
+  # v0.9.2 baseline notu (KORUNDU): yillik %64 -> %97, DD -%75 -> -%59 — o sweep
+  # cap=0.30 ile yapildi; cap=0.20 ile effective risk per trade düşer (~5x).
   # Effect: tight SL = ayni notional, wide SL = capped notional (otomatik vol normalize).
-  # 5y backtest: yillik %64 -> %97 (+33pp), DD -%75 -> -%59 (+16pp). Bkz: v0.9.2 memo.
-  max_notional_pct_equity: 0.30
+  max_notional_pct_equity: 0.20
 
 stop_loss:
   method: atr                       # atr | structural | hybrid
@@ -57,9 +65,10 @@ stop_loss:
 take_profit:
   method: r_multiple                # r_multiple | atr | structural
   primary_R: 1.5                    # v1.2: 2.0 -> 1.5 (sec11b WIN: yıllık +%9.5, dispersiyon dar)
+  tp2_R: 2.0                        # SEC58.M3: TP2 R-multiple (v1.2: engine default 2.0 -> config)
   partial_close_at_R: 1.0           # 1R'da partial kapat (v1.0)
   runner_trail: true                # kalan trailing ile (engine default mult=1.0)
-  # NOT: engine.tp2_R default 2.0 — orchestrator BacktestEngine(tp2_R=1.5) ile çağırmalı.
+  # SEC58.M3: tp2_R YAML config'e taşındı (engine default 2.0 backward compat)
 
 # Volatility-targeted sizing — opsiyonel kayıp koruma katmanı.
 # Aktif olunca: yüksek-vol günlerde otomatik küçük pozisyon, düşük-vol günlerde büyük.
@@ -218,6 +227,13 @@ liquidity_gate:
   min_book_depth_usdt: 100_000      # ±%1 derinlik tavanı
 
 execution:
+  # FEE PARITY FIX (2026-05-22): bu blokta fee_bps_per_trade YOKTU -> lab.py:475
+  # raw["execution"].get("fee_bps_per_trade", 0.0) = 0.0 -> backtest zero-fee idealize.
+  # "+%302/yil" rakaminin koku buydu. Lab 1d honest re-baseline (2026-05-22):
+  # fee=15bps (Binance USDM taker ~7.5bps/leg round-trip) -> honest +%276/yil,
+  # geometrik aylik +%11.67, gate 4/4 PASS. 1d genis SL (median %9.5) sayesinde
+  # fee'ye 15m'in ~7x dayanikli. (Slippage 1d icin ~10-20bps ayri kalem.)
+  fee_bps_per_trade: 15.0           # round-trip (entry+exit), taker worst-case
   order_type_default: post_only_limit
   fallback_to_market_after_sec: 30
   max_slippage_bps: 25              # 25 bps üstü → reject

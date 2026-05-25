@@ -1,0 +1,178 @@
+# =============================================================================
+# PHOENIX-SCALP 1h RISK PRESET — SEC-S6 1h pivot feasibility (2026-05-17)
+# =============================================================================
+# Bot adı: PHOENIX-SCALP 1h
+# Durum: R&D TASLAK — Lab Scientist 1h pivot feasibility testi
+# Source: risk_phoenix_scalp_15m_pyramid_r3.yaml (15m R4 production candidate)
+#
+# 1h farkları (15m R4 → 1h):
+#   - Fee yükü ~%30 daha az (bar başına trade az; ~3,375 trade/yıl vs 13,500)
+#   - Bar genişliği 4x → cooldown daha etkili (SAME_SYMBOL_SIDE_COOLDOWN 0)
+#   - 1h vol < 15m vol < 5m vol → vol_target gevşek (target_atr%=0.018)
+#   - Consecutive loss daha yavaş birikir → eşik 5 → 4 (1d'ye yaklaş)
+#   - 1h ATR period 14bar = 14h (1d 14×24h = 14gün'ün ~%4'ü)
+#   - Halt OFF (15m R4 paterni: 1d-kalibre halt 15m'de over-reject)
+#   - Pyramid AÇIK (15m R4 +%150 katkı; 1h'de daha az tetik ama korunsun)
+# =============================================================================
+
+defaults:
+  account_currency: USDT
+  preset_name: phoenix_scalp_1h
+  bot_name: PHOENIX-SCALP-1h
+  timeframe: 1h
+  sim_only: true
+
+position_sizing:
+  method: confidence_dynamic
+  # 15m R4 ile aynı %3 (1h fee daha az, edge daha temiz olmalı)
+  risk_per_trade: 0.030
+  backtest_risk_pct: 0.030
+  confidence_risk_tiers:
+    - {min: 0.00, max: 0.32, risk_pct: 0.005}
+    - {min: 0.32, max: 0.42, risk_pct: 0.008}
+    - {min: 0.42, max: 0.52, risk_pct: 0.018}
+    - {min: 0.52, max: 0.58, risk_pct: 0.024}
+    - {min: 0.58, max: 1.01, risk_pct: 0.030}
+  kelly_cap: 0.15
+  min_quantity_usdt: 10
+  size_rounding: exchange_step
+  max_notional_pct_equity: 0.30
+
+stop_loss:
+  method: atr
+  atr_period: 14
+  # 15m R4 = 1.5; 1h'de ATR doğal genis → 1.5 yeterli
+  atr_multiplier: 1.5
+  structural_buffer_pct: 0.003
+  trailing:
+    enabled: true
+    method: atr_chandelier
+    atr_period: 14
+    multiplier: 2.0
+    activate_after_R: 1.0
+
+take_profit:
+  method: r_multiple
+  # 1h'de R hedef biraz daha büyük (uzun hold)
+  primary_R: 1.5
+  partial_close_at_R: 1.0
+  runner_trail: true
+
+vol_target:
+  enabled: true
+  # 1h ATR% ≈ 1.5-2.5% (15m: 0.5-1.5%, 1d: 3-6%)
+  target_atr_pct: 0.018
+  min_factor: 0.20
+  max_factor: 1.50
+
+leverage:
+  enabled: true
+  max_leverage_per_symbol: 3
+  max_portfolio_notional_x_equity: 3
+  margin_safety_ratio: 0.5
+  confidence_tiers:
+    - {min: 0.00, max: 0.32, leverage: 1}
+    - {min: 0.32, max: 0.52, leverage: 2}
+    - {min: 0.52, max: 1.01, leverage: 3}
+
+drawdown_breakers:
+  # 1h: daily_loss eşiği 15m ile aynı %3 (4x daha az trade, ama daha büyük R)
+  daily_loss_pct: 0.03
+  weekly_loss_pct: 0.08
+  monthly_loss_pct: 0.99
+  monthly_halt_days: 3
+  daily_halt_days: 1
+  weekly_halt_days: 2
+  monthly_loss_pct_long: 0.10
+  monthly_loss_pct_short: 0.04
+  # 15m R4 = 5; 1h daha yavaş loss accumulate → 4 (1d=3 ile arada)
+  consecutive_losses: 4
+  consecutive_loss_pause_days: 1.0
+  reset:
+    daily: 00:00 UTC
+    weekly: Monday 00:00 UTC
+    monthly: 1st 00:00 UTC
+
+correlation_gate:
+  enabled: true
+  max_pairwise_corr: 0.7
+  reduction_factor: 0.5
+  hard_block_at: 0.9
+
+concentration_limits:
+  # 15m R4 mc=20; 1h için 12 daha mantıklı (eş zamanlı fırsat az)
+  max_open_positions: 12
+  max_per_category_pct: 0.35
+  max_per_symbol_pct: 0.15
+  backtest_apply_concentration_gate: true
+
+# Regime filter — 15m R4 paterni: halt OFF (1d-kalibre halt scalp'i over-reject ediyor)
+regime_filter:
+  btc_capitulation_halt_enabled: false
+  atr_pct_threshold: 6.0
+  ema200_streak_days: 10
+  dd_90d_threshold_pct: -25.0
+  resume_atr_threshold: 4.0
+  resume_streak_days: 5
+
+alt_data:
+  fng_short_skip_enabled: true
+  fng_short_skip_threshold: 20
+  funding_filter_enabled: false
+
+strategy_portfolio:
+  enabled: true
+  symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - ADA/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - DOT/USDT
+    - DOGE/USDT
+    - XRP/USDT
+  strategies: []  # SEC-S6 backtest scriptte filtreleniyor
+  # 1h: 1 bar = 1h; cooldown = 0 (bar boundary doğal cooldown)
+  same_symbol_side_cooldown_days: 0
+  max_concurrent_positions: 12
+  pyramid_enabled: true
+  pyramid_triggers: [1.0, 2.0]
+  pyramid_sizes: [0.50, 0.30]
+  signal_confidence_min: 0.25
+  expected_annual_return: 0.80
+  expected_max_dd: 0.30
+
+exit_engine:
+  multi_target: true
+  partial_close_1R: 0.40
+  partial_close_2R: 0.30
+  runner_pct: 0.30
+  break_even_after_1R: true
+  lock_1R_after_2R: true
+  runner_trail_atr: 0.7
+
+liquidity_gate:
+  max_order_to_minute_volume: 0.005
+  min_book_depth_usdt: 50000
+
+execution:
+  order_type_default: post_only_limit
+  fallback_to_market_after_sec: 60      # 1h bar = 3600s; 60s timeout makul
+  max_slippage_bps: 15
+  partial_fill_timeout_sec: 90
+  post_only_limit_enabled: false        # paper test sonrası enable
+  post_only_fallback_seconds: 60
+  slippage_limit_bps: 15
+
+emergency:
+  kill_switch_keyword: HALT_TRADING
+  flatten_all_on_breaker: false
+  require_human_to_resume: true
+
+live_capital_cap:
+  enabled: true
+  max_equity_usdt: 500.0
+  cap_expires_at: '2026-06-17'
+  warn_threshold_pct: 0.80

@@ -67,6 +67,22 @@ def _lazy_build_btc_halt(regime_cfg: dict) -> dict | None:
         return None
 
 
+def _lazy_build_btc_atr_percentile_calendar(dd_cfg: dict) -> dict | None:
+    """SEC-S1 — BTC ATR% percentile calendar (regime-conditional daily_dd için).
+
+    `daily_loss_pct_regime_aware: true` iken çağrılır. Calendar[T] = T-1 BTC
+    ATR%(14)'ün son 252 günlük dağılımdaki persantili [0.0, 1.0].
+
+    Hata durumunda None döner (conservative: feature kapalı kalır).
+    """
+    try:
+        from price_action.backtest.regime import compute_btc_atr_pct_percentile_calendar
+        rolling_window = int(dd_cfg.get("regime_percentile_window", 252))
+        return compute_btc_atr_pct_percentile_calendar(period=14, rolling_window=rolling_window)
+    except Exception:
+        return None
+
+
 def _lazy_build_funding_filters(alt_cfg: dict) -> tuple[dict | None, dict | None]:
     """YAML alt_data block'undan calendar'lar uretir.
 
@@ -186,7 +202,10 @@ class ProductionConfig:
 
     # Concurrency / cool-downs
     max_concurrent: int = 8
-    same_symbol_side_cooldown_days: int = 3
+    # SEC-SCALP-P0 FIX (2026-05-17): int -> float. Scalp preset 0.010 (15dk) /
+    # 0.003 (5m) gibi sub-day cooldown'lar int cast ile 0'a düşüyordu (SEC-SCALP-B2
+    # hotfix yarım). 1d/4h cooldown=3 byte-identical replay tutar.
+    same_symbol_side_cooldown_days: float = 3.0
 
     # DD breakers
     daily_dd: float = 0.05
@@ -208,8 +227,24 @@ class ProductionConfig:
     pyramid_sizes: tuple = ()     # ör (0.50, 0.30)
 
     # Consecutive-loss cool-down (v0.9.1)
+    # SEC-SCALP-B2 (2026-05-17): float pause days — scalper 5m/1m preset'ler
+    # için sub-day pause (0.5g = 12h, 0.25g = 6h). Önceki int cast 0.5 → 0
+    # yaparak cool-down'u sessizce devre dışı bırakıyordu.
     consecutive_loss_n: int | None = 3
-    consecutive_loss_pause_days: int = 5
+    consecutive_loss_pause_days: float = 5.0
+
+    # SEC-S1: Regime-conditional daily DD threshold (BTC ATR% percentile).
+    # Default False -> mevcut davranış (daily_dd sabit). True -> dinamik eşik.
+    # Mantık: regime_percentile[T] hesaplanır (BTC ATR% T-1'in son 252g persantili).
+    #   percentile <= regime_percentile_low  -> threshold = daily_dd (normal rejim)
+    #   percentile >= regime_percentile_high -> threshold = daily_dd * daily_dd_volatile_multiplier
+    #   arası -> linear blend (cliff yok)
+    # Calendar (btc_atr_percentile_calendar) None ise -> sabit daily_dd (conservative).
+    daily_dd_regime_aware: bool = False
+    daily_dd_volatile_multiplier: float = 2.0    # volatile rejimde eşik x2
+    regime_percentile_low: float = 0.60          # altı = normal rejim
+    regime_percentile_high: float = 0.90         # üstü = full volatile
+    btc_atr_percentile_calendar: dict | None = None  # date -> float [0.0, 1.0]
 
     # Equity protection (v0.9 testleri)
     equity_protect_30: bool = False  # -%30 DD'de half risk
@@ -269,8 +304,34 @@ class ProductionConfig:
     vol_high_risk_pct: float = 0.03  # oynak gunlerde risk %3 (defensive)
     btc_atr_pct_calendar: dict | None = None  # date -> float ATR% (oran)
 
+    # SEC58.M3 — Take Profit configuration
+    # tp2_R: second target R-multiple (engine.BacktestEngine default: 1.5)
+    # Used in multi-target exit: TP1 @ 1.0R, TP2 @ tp2_R
+    tp2_R: float = 1.5
+
     # Initial capital
     initial_capital: float = 10_000.0
+
+    # SEC54.1 — Fee simulation (MS-01)
+    # fee_bps_per_trade: round-trip fee in basis points (entry + exit combined).
+    #   0.0  = default, backward-compat (zero-fee, all prior replays unchanged)
+    #   +8.0 = taker only worst-case (8 bps round-trip)
+    #   -4.0 = maker rebate best-case (net rebate on both legs)
+    #   +4.0 = 50% taker / 50% maker realistic blend
+    # Fee is applied per leg: base position always has 1 round-trip (2 legs).
+    # Pyramid add-leg: each triggered leg adds another full round-trip fee.
+    # R-normalised formula (per position on close):
+    #   fee_R = fee_bps_per_trade / (sl_pct * 10_000)
+    # where sl_pct = |entry - sl| / entry (stored on open_pos at entry time).
+    fee_bps_per_trade: float = 0.0
+
+    # WIRE-widestop (2026-05-22): 15m wide-stop deploy filter.
+    # Reject input trades whose entry sl_pct = |entry - initial_sl| / entry is
+    # below this threshold. sl_pct is known at entry from ATR → causal, no
+    # look-ahead. Default 0.0 = OFF → filter block skipped → byte-identical to
+    # all prior replays. YAML: execution.sl_pct_min. Deploy value 0.025
+    # (see DEPLOY_widestop_15m.md).
+    sl_pct_min: float = 0.0
 
     # SEC21: per-strategy-class slot allocation
     # Default OFF (backwards compat — pure FIFO at cfg.max_concurrent).
@@ -343,7 +404,8 @@ class ProductionConfig:
             conf_min=float(sp.get("signal_confidence_min", 0.20)),
             drop_strategies=frozenset(drop_list),
             max_concurrent=int(cl.get("max_open_positions", sp.get("max_concurrent_positions", 8))),
-            same_symbol_side_cooldown_days=int(sp.get("same_symbol_side_cooldown_days", 3)),
+            # SEC-SCALP-P0 FIX: int -> float (scalp 0.010 = 15dk sub-day cooldown)
+            same_symbol_side_cooldown_days=float(sp.get("same_symbol_side_cooldown_days", 3)),
             daily_dd=float(dd.get("daily_loss_pct", 0.05)),
             weekly_dd=float(dd.get("weekly_loss_pct", 0.10)),
             monthly_dd=float(dd.get("monthly_loss_pct", 0.15)),
@@ -368,7 +430,8 @@ class ProductionConfig:
                 if dd.get("consecutive_losses") not in (None, 0)
                 else None
             ),
-            consecutive_loss_pause_days=int(dd.get("consecutive_loss_pause_days", 5)),
+            # SEC-SCALP-B2: float cast — sub-day pause korunsun
+            consecutive_loss_pause_days=float(dd.get("consecutive_loss_pause_days", 5)),
             # v0.9.3: ileri risk gate'leri
             concentration_max_per_symbol_pct=(
                 float(cl["max_per_symbol_pct"])
@@ -406,6 +469,28 @@ class ProductionConfig:
             slot_taxonomy=sa_tax if sa_tax else None,
             slot_caps=sa_caps_final if sa_caps_final else None,
             slot_default_class=sa_default_class,
+            # SEC-S1: Regime-conditional daily DD
+            daily_dd_regime_aware=bool(dd.get("daily_loss_pct_regime_aware", False)),
+            daily_dd_volatile_multiplier=float(dd.get("daily_loss_pct_volatile_multiplier", 2.0)),
+            regime_percentile_low=float(dd.get("regime_percentile_low", 60)) / 100.0,
+            regime_percentile_high=float(dd.get("regime_percentile_high", 90)) / 100.0,
+            btc_atr_percentile_calendar=(
+                _lazy_build_btc_atr_percentile_calendar(dd)
+                if dd.get("daily_loss_pct_regime_aware", False)
+                else None
+            ),
+            # SEC54.1: fee_bps_per_trade from YAML execution block (default 0 = backward compat)
+            fee_bps_per_trade=float(
+                (raw.get("execution", {}) or {}).get("fee_bps_per_trade", 0.0)
+            ),
+            # SEC58.M3: tp2_R from YAML take_profit block (default 1.5 = engine default)
+            tp2_R=float(
+                (raw.get("take_profit", {}) or {}).get("tp2_R", 1.5)
+            ),
+            # WIRE-widestop: sl_pct_min from execution block (default 0.0 = OFF)
+            sl_pct_min=float(
+                (raw.get("execution", {}) or {}).get("sl_pct_min", 0.0)
+            ),
         )
 
     def with_overrides(self, **kw: Any) -> ProductionConfig:
@@ -464,11 +549,60 @@ class ReplayResult:
 
 
 # =====================================================================
+# SEC-S1 helpers
+# =====================================================================
+
+
+def _effective_daily_dd(cfg: ProductionConfig, trade_date: Any) -> float:
+    """Regime-conditional günlük DD eşiği hesapla.
+
+    `cfg.daily_dd_regime_aware=False` (default) → sabit `cfg.daily_dd` döner.
+    `True` → BTC ATR% persantile → linear blend:
+      - persantile <= regime_percentile_low  → cfg.daily_dd (normal)
+      - persantile >= regime_percentile_high → cfg.daily_dd * daily_dd_volatile_multiplier
+      - aralığı → linear interpolasyon (smooth, cliff yok)
+
+    Calendar eksikse (None veya tarih yok) → sabit daily_dd (conservative-on-missing).
+
+    Args:
+        cfg: ProductionConfig
+        trade_date: datetime.date (entry_ts.date())
+
+    Returns:
+        float — efektif daily DD eşiği (örn 0.03 veya 0.06)
+    """
+    if not cfg.daily_dd_regime_aware:
+        return cfg.daily_dd
+
+    cal = cfg.btc_atr_percentile_calendar
+    if cal is None:
+        return cfg.daily_dd
+
+    pct = cal.get(trade_date)
+    if pct is None:
+        return cfg.daily_dd  # conservative: veri yoksa sabit eşik
+
+    lo = cfg.regime_percentile_low    # 0.60
+    hi = cfg.regime_percentile_high   # 0.90
+    base = cfg.daily_dd
+    volatile = cfg.daily_dd * cfg.daily_dd_volatile_multiplier
+
+    if pct <= lo:
+        return base
+    if pct >= hi:
+        return volatile
+    # Linear blend (smooth transition)
+    blend = (pct - lo) / (hi - lo)
+    return base + blend * (volatile - base)
+
+
+# =====================================================================
 # Production Replay — canonical
 # =====================================================================
 
 
-def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -> ReplayResult | None:
+def production_replay(trades: list[dict], cfg: ProductionConfig | None = None,
+                      events_out: list | None = None) -> ReplayResult | None:
     """Canonical backtest replay.
 
     Args:
@@ -476,6 +610,15 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
                 Her dict: entry_ts, exit_ts, entry_price, initial_sl, R,
                           symbol, side, conf, strategy
         cfg: ProductionConfig. None ise risk.yaml'dan okur.
+        events_out: SEC54.6 (MS-01-event-log). Opsiyonel list — eger verilirse,
+                    her halt/pause TRIGGER olayinin {"type", "ts"} dict'i append edilir.
+                    Default None -> hicbir sey kayit edilmez (backward-compat,
+                    byte-identical replay). Olasi type'lar:
+                      "daily_halt", "weekly_halt", "monthly_halt",
+                      "monthly_long_halt", "monthly_short_halt",
+                      "consecutive_loss_pause"
+                    NOT: trigger sayilari (event olarak triggered) — blocked_until
+                    suresince kabul edilmeyen sonraki trade'ler ayri sayilmaz.
 
     Returns:
         ReplayResult or None (sinyal yok / filter sonrasi bos kaldi).
@@ -484,6 +627,22 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
         cfg = ProductionConfig.from_yaml()
     if not trades:
         return None
+
+    # WIRE-widestop (2026-05-22): causal sl_pct_min filter — reject narrow-stop
+    # trades whose entry sl_pct < threshold. sl_pct = |entry - initial_sl| /
+    # entry, known at entry from ATR (no look-ahead). cfg.sl_pct_min=0.0
+    # (default) → block skipped → byte-identical to all prior replays. Applied
+    # before conf-percentile normalisation so the rank pool matches an external
+    # pre-filter (parity with scripts/lab_15m_widestop_dd_opt.py).
+    if cfg.sl_pct_min > 0.0:
+        trades = [
+            t for t in trades
+            if t["entry_price"] > 0
+            and abs(t["initial_sl"] - t["entry_price"]) / t["entry_price"]
+            >= cfg.sl_pct_min
+        ]
+        if not trades:
+            return None
 
     # v0.9.8: optional conf_pct percentile rank (rolling 180g)
     if cfg.use_conf_percentile:
@@ -560,6 +719,21 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
                             bonus += float(sz) * max(0.0, R_use - float(trig))
                             slippage_erosion += SLIP_PER_EKPOS * float(sz)
                     R_use = R_use + bonus - slippage_erosion
+                # SEC54.1 — Fee deduction (MS-01)
+                # fee_bps_per_trade=0 → zero (backward-compat, no change to prior replays)
+                if cfg.fee_bps_per_trade != 0.0:
+                    _sl_pct = p.get("sl_pct", 0.0)
+                    if _sl_pct > 0:
+                        # Base round-trip fee (1 leg-open + 1 leg-close)
+                        base_fee_R = cfg.fee_bps_per_trade / (_sl_pct * 10_000.0)
+                        # Pyramid add-legs: each triggered leg = 1 extra round-trip
+                        pyramid_fee_R = 0.0
+                        if cfg.pyramid_enabled and cfg.pyramid_triggers and cfg.pyramid_sizes:
+                            peak_R_p2 = float(p.get("peak_R", p["R"]))
+                            for trig, sz in zip(cfg.pyramid_triggers, cfg.pyramid_sizes):
+                                if peak_R_p2 >= float(trig):
+                                    pyramid_fee_R += cfg.fee_bps_per_trade / (_sl_pct * 10_000.0) * float(sz)
+                        R_use = R_use - base_fee_R - pyramid_fee_R
                 pnl = p["risk"] * R_use
                 cash += p["margin"] + pnl
                 equity = cash + sum(q["margin"] for q in still)
@@ -576,6 +750,9 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
                     if cfg.consecutive_loss_n and consecutive_losses >= cfg.consecutive_loss_n:
                         cool_until = p["exit_ts"] + timedelta(days=cfg.consecutive_loss_pause_days)
                         consecutive_losses = 0
+                        if events_out is not None:
+                            events_out.append({"type": "consecutive_loss_pause",
+                                               "ts": p["exit_ts"]})
                 else:
                     consecutive_losses = 0
             else:
@@ -635,9 +812,12 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
                 continue
 
         # Same-symbol-side cool-down
+        # SEC-SCALP-P0 FIX (2026-05-17): seconds-based karşılaştırma — sub-day cooldown
+        # (0.010d=15dk, 0.003d=4.3dk) doğru enforce edilsin. Integer day cooldown'lar
+        # için bytewise identical: .days < N == total_seconds() < N*86400 (boundary aynı).
         key = (t["symbol"], t["side"])
         prev = last_entry.get(key)
-        if prev is not None and (t["entry_ts"] - prev).days < cfg.same_symbol_side_cooldown_days:
+        if prev is not None and (t["entry_ts"] - prev).total_seconds() < cfg.same_symbol_side_cooldown_days * 86400.0:
             continue
 
         # DD breakers
@@ -658,14 +838,22 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
             monthly_short_pnl = 0.0
         if blocked_until and t["entry_ts"] < blocked_until:
             continue
-        if (daily_anchor - equity) / max(daily_anchor, 1) >= cfg.daily_dd:
+        # SEC-S1: Regime-conditional daily DD threshold
+        _eff_daily_dd = _effective_daily_dd(cfg, cd)
+        if (daily_anchor - equity) / max(daily_anchor, 1) >= _eff_daily_dd:
             blocked_until = t["entry_ts"] + timedelta(days=cfg.daily_halt_days)
+            if events_out is not None:
+                events_out.append({"type": "daily_halt", "ts": t["entry_ts"]})
             continue
         if (weekly_anchor - equity) / max(weekly_anchor, 1) >= cfg.weekly_dd:
             blocked_until = t["entry_ts"] + timedelta(days=cfg.weekly_halt_days)
+            if events_out is not None:
+                events_out.append({"type": "weekly_halt", "ts": t["entry_ts"]})
             continue
         if (monthly_anchor - equity) / max(monthly_anchor, 1) >= cfg.monthly_dd:
             blocked_until = t["entry_ts"] + timedelta(days=cfg.monthly_halt_days)
+            if events_out is not None:
+                events_out.append({"type": "monthly_halt", "ts": t["entry_ts"]})
             continue
         # v1.5 SIDE-CONDITIONAL monthly_dd
         side_t = str(t.get("side", "")).lower()
@@ -676,6 +864,8 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
             long_loss_pct = -monthly_long_pnl / max(monthly_anchor, 1) if monthly_long_pnl < 0 else 0
             if long_loss_pct >= cfg.monthly_dd_long:
                 blocked_long_until = t["entry_ts"] + timedelta(days=cfg.monthly_halt_days)
+                if events_out is not None:
+                    events_out.append({"type": "monthly_long_halt", "ts": t["entry_ts"]})
                 continue
         if cfg.monthly_dd_short is not None and side_t == "short":
             if blocked_short_until and t["entry_ts"] < blocked_short_until:
@@ -683,6 +873,8 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
             short_loss_pct = -monthly_short_pnl / max(monthly_anchor, 1) if monthly_short_pnl < 0 else 0
             if short_loss_pct >= cfg.monthly_dd_short:
                 blocked_short_until = t["entry_ts"] + timedelta(days=cfg.monthly_halt_days)
+                if events_out is not None:
+                    events_out.append({"type": "monthly_short_halt", "ts": t["entry_ts"]})
                 continue
 
         if len(open_pos) >= cfg.max_concurrent:
@@ -845,6 +1037,7 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
             "side": t["side"],
             "strategy": t.get("strategy", ""),  # SEC21: needed for slot class lookup
             "peak_R": t.get("peak_R", t["R"]),  # SEC16 MFE-aware pyramid
+            "sl_pct": sl_pct,  # SEC54.1: fee normalisation
         })
 
     # Acik pozisyonlari kapat (v2.0.3 SEC16 fix)
@@ -860,6 +1053,18 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None) -
                     bonus += float(sz) * max(0.0, R_use - float(trig))
                     slippage_erosion += SLIP_PER_EKPOS * float(sz)
             R_use = R_use + bonus - slippage_erosion
+        # SEC54.1 — Fee deduction (MS-01) — same logic as close_due
+        if cfg.fee_bps_per_trade != 0.0:
+            _sl_pct = p.get("sl_pct", 0.0)
+            if _sl_pct > 0:
+                base_fee_R = cfg.fee_bps_per_trade / (_sl_pct * 10_000.0)
+                pyramid_fee_R = 0.0
+                if cfg.pyramid_enabled and cfg.pyramid_triggers and cfg.pyramid_sizes:
+                    peak_R_p2 = float(p.get("peak_R", p["R"]))
+                    for trig, sz in zip(cfg.pyramid_triggers, cfg.pyramid_sizes):
+                        if peak_R_p2 >= float(trig):
+                            pyramid_fee_R += cfg.fee_bps_per_trade / (_sl_pct * 10_000.0) * float(sz)
+                R_use = R_use - base_fee_R - pyramid_fee_R
         cash += p["margin"] + p["risk"] * R_use
         equity = cash
         Rs.append(R_use)

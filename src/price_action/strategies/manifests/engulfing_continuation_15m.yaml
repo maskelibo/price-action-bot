@@ -1,0 +1,107 @@
+# engulfing_continuation — 15m TF manifest override
+# Kaynak: reports/signal_chief/2026-05-17_phoenix_scalp_lookahead_audit.md §5.2
+# Yazar: Signal Chief, 2026-05-17
+#
+# Kalibrasyon mantigi:
+#   1d default → 15m esiti
+#   pullback_window=10bar → 10 gun (1d) vs 150dk (15m); 15m icin 20bar=5saat
+#   vol_z window=60bar → 60gun (1d) vs 15saat (15m); seans=1 gun ~ kabul edilebilir
+#   ema50=50bar → 50gun (1d) vs 12.5saat (15m); oturum/gunluk trend — MANTIKLI
+#   ema200=200bar → 200gun (1d) vs 50saat (15m); makro trend degil ama HTF bias
+#   swing_lookback=10bar → 10gun (1d) vs 150dk (15m); 15 bar=225dk uygun
+#   primary_R=2.0 → 15m'de fee/slip etkisi nedeniyle 1.5 tercih edilir
+#
+# NOT: risk_per_trade bu dosyada tanimsiz birakiliyor —
+#      risk_phoenix_scalp_15m.yaml'dan (Phase 3) override edilecek.
+
+name: engulfing_continuation
+version: "1.0.0-15m"
+description: "Engulfing bar after EMA pullback — 15m intraday parametreleri. Phase 2 skeleton."
+
+trend_filter:
+  type: ema
+  period: 50          # 50 x 15m = 12.5 saat — session/gunluk trend filtresi olarak makul
+  required: true      # 1d ile ayni; trend filtresi 15m'de de gerekli
+
+signals:
+  patterns:
+    - id: bullish_engulfing_cont
+      enabled: true
+      weight: 1.5
+      params:
+        body_ratio_min: 0.55        # 1d=0.60; 15m'de gurultu artisi nedeniyle 0.55
+        pullback_window: 20         # 1d=10bar(10gun) → 15m=20bar(5saat; yarım seans)
+        pullback_touch_atr: 0.4     # 1d=0.5; 15m ATR kucuk, tolerance hafif daralt
+
+    - id: bearish_engulfing_cont
+      enabled: true
+      weight: 1.5
+      params:
+        body_ratio_min: 0.55
+        pullback_window: 20
+        pullback_touch_atr: 0.4
+
+  structure:
+    swing:
+      fractal_n: 2                  # 1d ile ayni; 2-bar fractal 15m'de causal
+    support_resistance:
+      lookback_bars: 96             # 1d=120bar(4ay) → 15m=96bar(24saat=1trading gun)
+      cluster_atr_multiplier: 0.4   # 1d=0.5; 15m ATR kucuk, cluster tolerance azalt
+      min_touches: 2
+      max_age_bars: 96
+    require_proximity_to_sr_atr: 0.5
+
+  filters:
+    atr_min_pct: 0.003              # 1d=0.005; 15m ATR% daha kucuk → esik indir
+    volume_zscore_min: 0.5          # 1d=0.0; 15m'de hacim filtresi onemli (noise)
+    kaufman_er_period: 14           # 14 x 15m = 3.5 saat (mantikli)
+    kaufman_er_min: 0.15            # 1d=0.20; 15m daha gurultulu → gevset
+    always_in_required: false
+    bear_regime_size_factor: 0.5
+    # NOT: rolling_sharpe_period eklenmeli (15m'de 60bar=15saat, makul)
+    rolling_sharpe_period: 60       # 60 x 15m = 15 saat
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.5
+    bonus_if_at_sr: 0.5
+
+risk:
+  stop_loss:
+    method: structural
+    swing_lookback: 15              # 1d=10bar → 15m=15bar(225dk; ~2 US seansi saati)
+  take_profit:
+    method: r_multiple
+    primary_R: 1.5                  # 1d=2.0; 15m fee+slip ile 1.5R daha gercekci
+  position_sizing:
+    method: fixed_fractional
+    risk_per_trade: 0.02            # Phase 3'te risk_phoenix_scalp_15m.yaml override eder
+
+backtest:
+  warmup_bars: 300                  # ema200 icin 200bar + buffer; 300 x 15m = 75 saat
+  fees:
+    taker: 0.00040                  # Binance 15m taker mix: 8-12bps / 2 = ~4bps per leg
+    maker: -0.00010
+  slippage_bps: 7.5                 # 15m slippage est: 5-10bps orta
+  initial_capital_usdt: 10000.0
+
+# TF-spesifik aciklamalar ve gelecek sprint notlari:
+#
+# EMA200 semantigi:
+#   200 x 15m = 50 saat. Bu 1d'deki "200 gun makro trend" anlami tasimaz.
+#   Ancak 50 saatlik "swing trend" olarak yorumlanabilir (orta vadeli).
+#   Phase 4 backtestinde ema200'un 15m'de trend filter katkisi test edilmeli.
+#   Eger kayda deger duzeltme yoksa: ema200 kaldırilacak, ema50 yeterli.
+#
+# Vol z-score window:
+#   60 x 15m = 15 saat (~1 trading gunü). Gunluk hacim normalleştirmesi olarak
+#   mantikli. Kıyaslama: 1d'de 60 gun. Semantik farkli ama proxy calisiyor.
+#
+# Pullback window:
+#   20 x 15m = 5 saat. 1d'de 10 gun pullback. Anlamsal olarak "yarim seans
+#   icinde EMA'ya dokunma" — kabul edilebilir 15m kuralı.
+#
+# Oncelikli Phase 3 eylemleri:
+#   1. risk_phoenix_scalp_15m.yaml → risk_per_trade=0.02, daily_loss=0.03
+#   2. ema200 katkisini test et; eger flat → manifest'ten cikar
+#   3. volume_zscore_min=0.5 backtestte kalibre et (cok katiysa sinyaller azalir)

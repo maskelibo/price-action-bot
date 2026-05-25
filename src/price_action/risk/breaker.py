@@ -9,10 +9,18 @@ SEC26.B-1: Side-conditional monthly DD eklendi (backtest lab.py parity).
   - Side-bazlı realized PnL tracking (ay başından beri).
   - `check_side(side, ts)` ile long/short ayrı bloke edilir.
   - Backward-compat: side-cond key'leri yoksa combined-only davranış.
+
+SEC-S1: Regime-conditional daily DD (BTC ATR% percentile).
+  - `daily_loss_pct_regime_aware: false` (default) → sabit eşik (backward-compat).
+  - `true` → BTC ATR% persantil calendar'dan dinamik eşik (volatile rejimde gevşek).
+  - `_get_dynamic_daily_threshold(ts)` helper ile live'da da aynı mantık.
 """
 from __future__ import annotations
 
 import json
+import os
+import tempfile
+import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -37,6 +45,10 @@ class BreakerState:
     weekly_pnl: float = 0.0
     monthly_pnl: float = 0.0
     consecutive_losses: int = 0
+    # Deadlock fix (2026-05-21): trigger anında "tüketilmiş" ardışık-kayıp
+    # sayısı. effective = consecutive_losses - consec_consumed. Halt servis
+    # edildikten sonra eski streak yeniden tetiklemesin → N YENİ kayıp gerekir.
+    consec_consumed: int = 0
     daily_anchor_equity: float = 0.0
     weekly_anchor_equity: float = 0.0
     monthly_anchor_equity: float = 0.0
@@ -125,7 +137,19 @@ class DDBreaker:
         self.daily_halt_days = int(cfg.get("daily_halt_days", 1))
         self.weekly_halt_days = int(cfg.get("weekly_halt_days", 7))
         # SEC26.B-3: consecutive-loss cool-down period (lab.py parity, default 5g)
-        self.consec_pause_days = int(cfg.get("consecutive_loss_pause_days", 5))
+        # SEC-SCALP-B1: float cast — scalper preset'ler için sub-day pause
+        # (15m: 1.0g, 5m: 0.5g, 1m: 0.25g). int() casti 0.5/0.25'i 0'a yuvarlayarak
+        # cool-down'u sessizce devre dışı bırakıyordu (5m/1m live blocker).
+        self.consec_pause_days = float(cfg.get("consecutive_loss_pause_days", 5))
+        # SEC-S1: Regime-conditional daily DD (lab.py parity için live DDBreaker'da da)
+        self.daily_dd_regime_aware: bool = bool(cfg.get("daily_loss_pct_regime_aware", False))
+        self.daily_dd_volatile_multiplier: float = float(cfg.get("daily_loss_pct_volatile_multiplier", 2.0))
+        self.regime_percentile_low: float = float(cfg.get("regime_percentile_low", 60)) / 100.0
+        self.regime_percentile_high: float = float(cfg.get("regime_percentile_high", 90)) / 100.0
+        # Pre-built calendar (date -> float persantil [0.0, 1.0]). None → conservative no-op.
+        self._btc_atr_percentile_calendar: dict | None = None
+        if self.daily_dd_regime_aware:
+            self._btc_atr_percentile_calendar = self._load_atr_percentile_calendar(cfg)
 
         s = get_settings()
         self.state_path: Path = (
@@ -133,7 +157,64 @@ class DDBreaker:
         )
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.state = self._load()
+        self._lock = threading.RLock()  # SEC58 CRIT-3: concurrency guard
         self._log = logger.bind(component="dd_breaker")
+
+    # ----- SEC-S1: regime-conditional daily DD -----
+    @staticmethod
+    def _load_atr_percentile_calendar(cfg: dict) -> dict | None:
+        """BTC ATR% persantil calendar'ı lazy-load et.
+
+        Conservative: hata durumunda None döner (feature no-op olur).
+        Calendar: date -> float [0.0, 1.0].
+        """
+        try:
+            from price_action.backtest.regime import compute_btc_atr_pct_percentile_calendar
+            rolling_window = int(cfg.get("regime_percentile_window", 252))
+            return compute_btc_atr_pct_percentile_calendar(period=14, rolling_window=rolling_window)
+        except Exception as exc:  # pragma: no cover
+            logger.bind(err=str(exc)).warning("breaker.atr_percentile_calendar_load_fail")
+            return None
+
+    def _get_dynamic_daily_threshold(self, ts: datetime) -> float:
+        """Verilen timestamp için efektif günlük DD eşiğini hesapla (SEC-S1).
+
+        `daily_dd_regime_aware=False` → sabit `self.daily_pct`.
+        `True` → BTC ATR% persantili → linear blend:
+          pct <= percentile_low  → self.daily_pct (normal rejim)
+          pct >= percentile_high → self.daily_pct × volatile_multiplier
+          aralığı               → smooth linear blend
+        Calendar yoksa veya tarih bulunamazsa → sabit daily_pct (conservative).
+
+        Args:
+            ts: datetime (genellikle now veya trade entry time)
+
+        Returns:
+            float — efektif eşik (örn 0.03 normal, 0.06 volatile)
+        """
+        if not self.daily_dd_regime_aware:
+            return self.daily_pct
+
+        cal = self._btc_atr_percentile_calendar
+        if cal is None:
+            return self.daily_pct
+
+        d = ts.date() if isinstance(ts, datetime) else ts
+        pct = cal.get(d)
+        if pct is None:
+            return self.daily_pct  # conservative
+
+        lo = self.regime_percentile_low
+        hi = self.regime_percentile_high
+        base = self.daily_pct
+        volatile = self.daily_pct * self.daily_dd_volatile_multiplier
+
+        if pct <= lo:
+            return base
+        if pct >= hi:
+            return volatile
+        blend = (pct - lo) / (hi - lo)
+        return base + blend * (volatile - base)
 
     # ----- persistence -----
     def _load(self) -> BreakerState:
@@ -152,15 +233,32 @@ class DDBreaker:
             return BreakerState()
 
     def _save(self) -> None:
+        """Atomically persist state using tempfile + os.replace (SEC58 CRIT-3).
+
+        Writes to a sibling tempfile then renames — prevents partial/corrupt
+        JSON if the process is killed mid-write.  Called only from within the
+        _lock-protected update() / reset() paths, so no additional lock here.
+        """
         try:
-            with self.state_path.open("w", encoding="utf-8") as f:
-                json.dump(self.state.to_json(), f, default=str, indent=2)
+            dir_ = str(self.state_path.parent)
+            fd, tmp_path = tempfile.mkstemp(dir=dir_, suffix=".tmp", text=True)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(self.state.to_json(), f, default=str, indent=2)
+                os.replace(tmp_path, str(self.state_path))
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
         except Exception as exc:  # pragma: no cover
             logger.bind(err=str(exc)).error("breaker.save_fail")
 
     def reset(self) -> None:
-        self.state = BreakerState()
-        self._save()
+        with self._lock:  # SEC58 CRIT-3
+            self.state = BreakerState()
+            self._save()
 
     # ----- core -----
     def update(
@@ -180,149 +278,163 @@ class DDBreaker:
 
         `now` parametresi test/determinizm için injectable (default UTC now).
         """
-        equity = account_state.equity_usdt
-        now = now or datetime.now(timezone.utc)
-        # Anchor'ları başlat
-        if self.state.daily_anchor_equity == 0:
-            self.state.daily_anchor_equity = equity
-        if self.state.weekly_anchor_equity == 0:
-            self.state.weekly_anchor_equity = equity
-        if self.state.monthly_anchor_equity == 0:
-            self.state.monthly_anchor_equity = equity
+        with self._lock:  # SEC58 CRIT-3: transactional reset + save
+            equity = account_state.equity_usdt
+            now = now or datetime.now(timezone.utc)
+            # Anchor'ları başlat
+            if self.state.daily_anchor_equity == 0:
+                self.state.daily_anchor_equity = equity
+            if self.state.weekly_anchor_equity == 0:
+                self.state.weekly_anchor_equity = equity
+            if self.state.monthly_anchor_equity == 0:
+                self.state.monthly_anchor_equity = equity
 
-        # Reset kuralları (UTC)
-        today = now.date().isoformat()
-        if self.state.last_reset_daily != today:
-            self.state.last_reset_daily = today
-            self.state.daily_anchor_equity = equity
-            self.state.triggered_daily = False
-        # ISO week
-        iso_week = f"{now.isocalendar().year}-W{now.isocalendar().week:02d}"
-        if self.state.last_reset_weekly != iso_week:
-            self.state.last_reset_weekly = iso_week
-            self.state.weekly_anchor_equity = equity
-            self.state.triggered_weekly = False
-        ym = f"{now.year}-{now.month:02d}"
-        if self.state.last_reset_monthly != ym:
-            self.state.last_reset_monthly = ym
-            self.state.monthly_anchor_equity = equity
-            self.state.triggered_monthly = False
-            # SEC26.B-1: side-bazlı pnl ve trigger flag'leri ayda reset
-            self.state.monthly_pnl_long = 0.0
-            self.state.monthly_pnl_short = 0.0
-            self.state.triggered_monthly_long = False
-            self.state.triggered_monthly_short = False
-            # NOT: blocked_*_until ay başında otomatik resetlenmez — halt süresi
-            # ay sınırını geçebilir; sadece süre dolunca aktif olmaz.
+            # Reset kuralları (UTC)
+            today = now.date().isoformat()
+            if self.state.last_reset_daily != today:
+                self.state.last_reset_daily = today
+                self.state.daily_anchor_equity = equity
+                self.state.triggered_daily = False
+            # ISO week
+            iso_week = f"{now.isocalendar().year}-W{now.isocalendar().week:02d}"
+            if self.state.last_reset_weekly != iso_week:
+                self.state.last_reset_weekly = iso_week
+                self.state.weekly_anchor_equity = equity
+                self.state.triggered_weekly = False
+            ym = f"{now.year}-{now.month:02d}"
+            if self.state.last_reset_monthly != ym:
+                self.state.last_reset_monthly = ym
+                self.state.monthly_anchor_equity = equity
+                self.state.triggered_monthly = False
+                # SEC26.B-1: side-bazlı pnl ve trigger flag'leri ayda reset
+                self.state.monthly_pnl_long = 0.0
+                self.state.monthly_pnl_short = 0.0
+                self.state.triggered_monthly_long = False
+                self.state.triggered_monthly_short = False
+                # NOT: blocked_*_until ay başında otomatik resetlenmez — halt süresi
+                # ay sınırını geçebilir; sadece süre dolunca aktif olmaz.
 
-        # P&L hesapla (combined).
-        # SEC26.B-4: daily_pnl artık realized-only (futures_trades_closed SUM),
-        # equity-delta yerine. Açık pozisyon unrealized swings daily_pnl'i
-        # kirletmesin → DD breaker erken/yanlış tetiklenmesin.
-        # account_state.realized_pnl_today bu pencereyi taşır (build_*_account_state
-        # `realized_pnl_today_futures()` → TradeJournal.get_realized_pnl_today).
-        # Weekly/monthly hala equity-delta (kapsadığı pencere geniş, mark-to-market
-        # gürültüsü bir günlük etkisinin küçük katmanı; lab.py parity ile uyumlu).
-        self.state.daily_pnl = float(account_state.realized_pnl_today)
-        self.state.weekly_pnl = equity - self.state.weekly_anchor_equity
-        self.state.monthly_pnl = equity - self.state.monthly_anchor_equity
-        self.state.consecutive_losses = account_state.consecutive_losses
+            # P&L hesapla (combined).
+            # SEC26.B-4: daily_pnl artık realized-only (futures_trades_closed SUM),
+            # equity-delta yerine. Açık pozisyon unrealized swings daily_pnl'i
+            # kirletmesin → DD breaker erken/yanlış tetiklenmesin.
+            # account_state.realized_pnl_today bu pencereyi taşır (build_*_account_state
+            # `realized_pnl_today_futures()` → TradeJournal.get_realized_pnl_today).
+            # Weekly/monthly hala equity-delta (kapsadığı pencere geniş, mark-to-market
+            # gürültüsü bir günlük etkisinin küçük katmanı; lab.py parity ile uyumlu).
+            self.state.daily_pnl = float(account_state.realized_pnl_today)
+            self.state.weekly_pnl = equity - self.state.weekly_anchor_equity
+            self.state.monthly_pnl = equity - self.state.monthly_anchor_equity
+            self.state.consecutive_losses = account_state.consecutive_losses
 
-        # SEC26.B-1: side-bazlı realized PnL feed (closed trade event)
-        if side is not None and pnl_realized != 0.0:
-            side_l = side.lower()
-            if side_l == "long":
-                self.state.monthly_pnl_long += float(pnl_realized)
-            elif side_l == "short":
-                self.state.monthly_pnl_short += float(pnl_realized)
+            # SEC26.B-1: side-bazlı realized PnL feed (closed trade event)
+            if side is not None and pnl_realized != 0.0:
+                side_l = side.lower()
+                if side_l == "long":
+                    self.state.monthly_pnl_long += float(pnl_realized)
+                elif side_l == "short":
+                    self.state.monthly_pnl_short += float(pnl_realized)
 
-        # Tetikleyici kontrolleri
-        # Neden: risk.yaml drawdown_breakers — bu eşikler insan principal tarafından konur
-        # ve algoritma tarafından bypass edilemez.
-        self.state.triggered_daily = (
-            self.state.daily_anchor_equity > 0
-            and -self.state.daily_pnl / self.state.daily_anchor_equity >= self.daily_pct
-        )
-        self.state.triggered_weekly = (
-            self.state.weekly_anchor_equity > 0
-            and -self.state.weekly_pnl / self.state.weekly_anchor_equity >= self.weekly_pct
-        )
-        self.state.triggered_monthly = (
-            self.state.monthly_anchor_equity > 0
-            and -self.state.monthly_pnl / self.state.monthly_anchor_equity >= self.monthly_pct
-        )
-        # SEC26.B-3: Consecutive-loss cool-down semantik (lab.py parity).
-        # Lab.py: counter >= N -> cool_until = now + pause_days, counter reset.
-        # Burada: cool-down aktif iken trigger=True; süre dolunca auto-clear.
-        # Counter source: account_state.consecutive_losses (journal query).
-        cool_until_dt = _parse_iso(self.state.blocked_consecutive_until)
-        if cool_until_dt is not None and now >= cool_until_dt:
-            # Cool-down süresi doldu -> auto-clear
-            self.state.blocked_consecutive_until = ""
-            self.state.triggered_consecutive = False
-            cool_until_dt = None
-        if cool_until_dt is not None:
-            # Cool-down halen aktif (now < expiry)
-            self.state.triggered_consecutive = True
-        elif self.state.consecutive_losses >= self.max_consec:
-            # Yeni tetikleme: cool-down başlat
-            self.state.blocked_consecutive_until = _fmt_iso(
-                now + timedelta(days=self.consec_pause_days)
+            # Tetikleyici kontrolleri
+            # Neden: risk.yaml drawdown_breakers — bu eşikler insan principal tarafından konur
+            # ve algoritma tarafından bypass edilemez.
+            # SEC-S1: Regime-conditional daily DD (volatile rejimde gevşek eşik).
+            _eff_daily_pct = self._get_dynamic_daily_threshold(now)
+            self.state.triggered_daily = (
+                self.state.daily_anchor_equity > 0
+                and -self.state.daily_pnl / self.state.daily_anchor_equity >= _eff_daily_pct
             )
-            self.state.triggered_consecutive = True
-        else:
-            # Eşik altında ve cool-down yok -> idle
-            self.state.triggered_consecutive = False
-
-        # SEC26.B-1: side-cond eşik check
-        # lab.py mantığı: long_loss_pct = -monthly_long_pnl / monthly_anchor (if pnl<0).
-        if (
-            self.monthly_pct_long is not None
-            and self.state.monthly_anchor_equity > 0
-            and self.state.monthly_pnl_long < 0
-        ):
-            long_loss_pct = -self.state.monthly_pnl_long / self.state.monthly_anchor_equity
-            if long_loss_pct >= self.monthly_pct_long:
-                if not self.state.triggered_monthly_long:
-                    # İlk tetiklemede halt süresini ayarla
-                    self.state.blocked_long_until = _fmt_iso(
-                        now + timedelta(days=self.monthly_halt_days)
-                    )
-                self.state.triggered_monthly_long = True
-        if (
-            self.monthly_pct_short is not None
-            and self.state.monthly_anchor_equity > 0
-            and self.state.monthly_pnl_short < 0
-        ):
-            short_loss_pct = -self.state.monthly_pnl_short / self.state.monthly_anchor_equity
-            if short_loss_pct >= self.monthly_pct_short:
-                if not self.state.triggered_monthly_short:
-                    self.state.blocked_short_until = _fmt_iso(
-                        now + timedelta(days=self.monthly_halt_days)
-                    )
-                self.state.triggered_monthly_short = True
-
-        # Combined daily/weekly/monthly tetiklemeleri için blocked_combined_until
-        # (yumuşak yardımcı — RiskOfficer mevcut behavior'u snapshot any() ile zaten reject).
-        if self.state.triggered_daily:
-            self.state.blocked_combined_until = _fmt_iso(
-                now + timedelta(days=self.daily_halt_days)
+            self.state.triggered_weekly = (
+                self.state.weekly_anchor_equity > 0
+                and -self.state.weekly_pnl / self.state.weekly_anchor_equity >= self.weekly_pct
             )
-        elif self.state.triggered_weekly:
-            self.state.blocked_combined_until = _fmt_iso(
-                now + timedelta(days=self.weekly_halt_days)
+            self.state.triggered_monthly = (
+                self.state.monthly_anchor_equity > 0
+                and -self.state.monthly_pnl / self.state.monthly_anchor_equity >= self.monthly_pct
             )
-        elif self.state.triggered_monthly:
-            self.state.blocked_combined_until = _fmt_iso(
-                now + timedelta(days=self.monthly_halt_days)
+            # SEC26.B-3 + DEADLOCK FIX (2026-05-21): consec_consumed watermark.
+            # Lab.py'de counter trigger'da 0'a resetlenir; live counter journal'dan
+            # her tick yeniden türetildiği için reset edilemiyordu → DEADLOCK:
+            # halt servis edilse bile eski streak yeniden tetikliyordu, kazanç
+            # imkânsız (bot halt'ta) → sonsuz kilit. Çözüm: trigger anında
+            # consec_consumed = mevcut streak; etkili sayım = consecutive_losses
+            # - consec_consumed → halt sonrası N YENİ kayıp gerekir (lab.py
+            # parity). Win/streak-break → min() ile consumed aşağı iner.
+            self.state.consec_consumed = min(
+                self.state.consec_consumed, self.state.consecutive_losses
             )
+            _effective_consec = (
+                self.state.consecutive_losses - self.state.consec_consumed
+            )
+            cool_until_dt = _parse_iso(self.state.blocked_consecutive_until)
+            if cool_until_dt is not None and now >= cool_until_dt:
+                # Cool-down süresi doldu -> auto-clear
+                self.state.blocked_consecutive_until = ""
+                self.state.triggered_consecutive = False
+                cool_until_dt = None
+            if cool_until_dt is not None:
+                # Cool-down halen aktif (now < expiry)
+                self.state.triggered_consecutive = True
+            elif _effective_consec >= self.max_consec:
+                # Yeni tetikleme: streak'i tüket (consumed) + cool-down başlat
+                self.state.consec_consumed = self.state.consecutive_losses
+                self.state.blocked_consecutive_until = _fmt_iso(
+                    now + timedelta(days=self.consec_pause_days)
+                )
+                self.state.triggered_consecutive = True
+            else:
+                # Eşik altında ve cool-down yok -> idle
+                self.state.triggered_consecutive = False
 
-        self._save()
+            # SEC26.B-1: side-cond eşik check
+            # lab.py mantığı: long_loss_pct = -monthly_long_pnl / monthly_anchor (if pnl<0).
+            if (
+                self.monthly_pct_long is not None
+                and self.state.monthly_anchor_equity > 0
+                and self.state.monthly_pnl_long < 0
+            ):
+                long_loss_pct = -self.state.monthly_pnl_long / self.state.monthly_anchor_equity
+                if long_loss_pct >= self.monthly_pct_long:
+                    if not self.state.triggered_monthly_long:
+                        # İlk tetiklemede halt süresini ayarla
+                        self.state.blocked_long_until = _fmt_iso(
+                            now + timedelta(days=self.monthly_halt_days)
+                        )
+                    self.state.triggered_monthly_long = True
+            if (
+                self.monthly_pct_short is not None
+                and self.state.monthly_anchor_equity > 0
+                and self.state.monthly_pnl_short < 0
+            ):
+                short_loss_pct = -self.state.monthly_pnl_short / self.state.monthly_anchor_equity
+                if short_loss_pct >= self.monthly_pct_short:
+                    if not self.state.triggered_monthly_short:
+                        self.state.blocked_short_until = _fmt_iso(
+                            now + timedelta(days=self.monthly_halt_days)
+                        )
+                    self.state.triggered_monthly_short = True
 
-        # SEC26.C-2: Send throttled alarms for triggers
-        self._send_trigger_alarms()
+            # Combined daily/weekly/monthly tetiklemeleri için blocked_combined_until
+            # (yumuşak yardımcı — RiskOfficer mevcut behavior'u snapshot any() ile zaten reject).
+            if self.state.triggered_daily:
+                self.state.blocked_combined_until = _fmt_iso(
+                    now + timedelta(days=self.daily_halt_days)
+                )
+            elif self.state.triggered_weekly:
+                self.state.blocked_combined_until = _fmt_iso(
+                    now + timedelta(days=self.weekly_halt_days)
+                )
+            elif self.state.triggered_monthly:
+                self.state.blocked_combined_until = _fmt_iso(
+                    now + timedelta(days=self.monthly_halt_days)
+                )
 
-        return self.snapshot_dict()
+            self._save()
+
+            # SEC26.C-2: Send throttled alarms for triggers
+            self._send_trigger_alarms()
+
+            return self.snapshot_dict()
 
     def snapshot(self, account_state: AccountState) -> dict[str, bool]:
         return self.update(account_state)
@@ -418,6 +530,15 @@ class DDBreaker:
                 blocked_until=self.state.blocked_short_until,
             ).warning("breaker.monthly_short.triggered")
         return snap
+
+    # ----- G19: standalone loop helper -----
+    def update_from_account(self, account_state: "AccountState") -> dict[str, bool]:
+        """G19 — daemon 15m loop'undan sinyal-bağımsız tick çağrısı.
+
+        Sadece `update()` wrapper'ı; semantik farklılık yok.
+        Ayrı isim: çağıran kodda niyet açık olsun ("bu bir standalone tick").
+        """
+        return self.update(account_state)
 
     def _send_trigger_alarms(self) -> None:
         """Send throttled Telegram alarms for active triggers (SEC26.C-2)."""

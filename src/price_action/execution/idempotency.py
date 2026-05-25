@@ -23,7 +23,7 @@ from pathlib import Path
 
 import duckdb
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
 DEFAULT_DB = ROOT / "data" / "idempotency.duckdb"
 
 CLIENT_ID_PREFIX = "PA_"

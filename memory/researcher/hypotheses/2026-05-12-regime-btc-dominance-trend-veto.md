@@ -8,6 +8,8 @@ related_strategy: TOP_10_OVERLAY
 parent_benchmark: v0.9.2 production (yearly +57%, DD -65%)
 overlay_type: cross_asset_regime_filter
 parent_hypothesis: HYP-22 (2026-05-09 BTC dominance altrotation — focused on engulfing long only)
+doc_type: hypothesis
+agent_id: researcher
 ---
 
 # HYP-REGIME-003 — BTC Dominance Regime + BTC vs Alt Side Asymmetric Veto

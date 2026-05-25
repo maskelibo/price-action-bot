@@ -5,6 +5,8 @@ status: pre-registered
 date: 2026-05-08
 researcher: researcher_agent
 related_strategy: classic_pa
+doc_type: hypothesis
+agent_id: researcher
 ---
 
 # Hipotez H-001: Pin Bar @ S/R + Trend Filter Edge

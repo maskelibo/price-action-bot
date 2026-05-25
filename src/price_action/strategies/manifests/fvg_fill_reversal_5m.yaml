@@ -1,0 +1,66 @@
+# ARCHIVED: 5m KILL 2026-05-17 — pool mR ≈ -0.37 at 5y span, fee-structural fail. Keep for reference / future 15m TF calibration baseline.
+# fvg_fill_reversal — 5m TF manifest override
+# Kaynak: Signal Chief, SEC-SCALP-S7, 2026-05-17
+#
+# Kalibrasyon: 15m → 5m (x3)
+#   fill_window    : 15m=10bar(150dk) → 5m=30bar(150dk) [zaman koru]
+#   cooldown_bars  : 15m=10bar(150dk) → 5m=30bar(150dk)
+#   min_gap_atr    : 15m=0.25 → 5m=0.30 [5m'de kucuk FVG cok sik olusur]
+#   tp_r_multiple  : 15m=1.5 → 5m=1.2
+#   vol_z_min      : 15m=0.5 → 5m=0.8 [gurultulu 5m]
+#   atr_min_pct    : 15m=0.002 → 5m=0.001 [5m ATR% cok kucuk]
+#
+# FVG 5m'de en yuksek frekansi strateji:
+#   Her impuls hareketinde FVG olusur. min_gap=0.30 + cooldown=30bar ile kontrol.
+
+name: fvg_fill_reversal
+version: "1.0.0-5m"
+description: "FVG 3-bar imbalance fill + reclaim reversal — 5m intraday. SEC-SCALP-S7."
+
+trend_filter:
+  type: ema
+  period: 50
+  required: false
+
+signals:
+  patterns:
+    - id: fvg_bull_reclaim_long
+      enabled: true
+      weight: 2.0
+      params:
+        fill_window: 30                 # 15m=10bar(150dk) → 5m=30bar(150dk)
+        min_gap_atr: 0.30               # 15m=0.25 → 5m=0.30 [kucuk FVG filtrele]
+        sl_atr_mult: 0.5
+        tp_r_multiple: 1.2              # 15m=1.5 → 5m=1.2
+        cooldown_bars: 30               # 15m=10bar(150dk) → 5m=30bar(150dk)
+
+    - id: fvg_bear_reclaim_short
+      enabled: true
+      weight: 2.0
+      params:
+        fill_window: 30
+        min_gap_atr: 0.30
+        sl_atr_mult: 0.5
+        tp_r_multiple: 1.2
+        cooldown_bars: 30
+
+  filters:
+    atr_min_pct: 0.001                  # 15m=0.002 → 5m=0.001 [5m ATR cok kucuk]
+    volume_zscore_min: 0.8              # 15m=0.5 → 5m=0.8
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.5
+    bonus_if_at_sr: 0.0
+
+risk:
+  take_profit:
+    primary_R: 1.2                      # pattern-level ile tutarli
+
+backtest:
+  warmup_bars: 200                      # fill_window=30 + atr + buffer
+  fees:
+    taker: 0.00040
+    maker: -0.00010
+  slippage_bps: 8.0
+  initial_capital_usdt: 10000.0

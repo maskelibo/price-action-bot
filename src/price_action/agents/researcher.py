@@ -2,11 +2,16 @@
 
 Hipotez üretimi → pre-registration → backtest yorumu → terfi/red kararı.
 RAG'i çağırır; backtest tetikleyebilir (deterministik kod).
+
+Faz 3.1: respond_to_drift(drift_doc_path) — drift_alert dokümanını okur,
+RAG'den ilgili literatür çeker, hipotez kartı (DRAFT) üretir. Cooldown:
+aynı drift_alert için max 3 hipotez yanıtı; reject sonrası 7g bekleme.
 """
 from __future__ import annotations
 
+import json
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -82,12 +87,83 @@ class ResearcherAgent(LLMAgentBase):
         )
         return text
 
-    def pre_register(self, hypothesis_md: str, slug: str | None = None) -> Path:
-        """Hipotezi `memory/researcher/hypotheses/YYYY-MM-DD-<slug>.md`'ye yaz.
+    async def propose_5_batch(self, themes: list[str] | None = None) -> list[str]:
+        """Faz 12: 5 paralel hipotez üret — 5 farklı theme/yön.
 
-        Bu fonksiyon LLM çağırmaz — sadece dosya yazımı + commit metadata.
+        Default themes (haftalık rotation):
+        1. "Volatility regime sizing optimization"
+        2. "Cross-strategy correlation reduction"
+        3. "Funding rate alt-data filter"
+        4. "Time-of-day session bias"
+        5. "Multi-symbol confluence opportunities"
+
+        Args:
+            themes: Override list, default haftalık rotation
+        Returns:
+            List of generated hypothesis texts (5 adet, paralel yürütüldü)
         """
-        when = date.today()
+        import asyncio
+
+        if themes is None:
+            from datetime import datetime, timezone
+            # Haftalık rotation — gün × 5 ile farklı seed seti
+            day = datetime.now(timezone.utc).timetuple().tm_yday
+            theme_bank = [
+                "Volatility regime sizing optimization",
+                "Cross-strategy correlation reduction",
+                "Funding rate alt-data filter",
+                "Time-of-day session bias",
+                "Multi-symbol confluence opportunities",
+                "OI/volume divergence patterns",
+                "Liquidity grab + reversal setup",
+                "BTC dominance shift triggers",
+                "Weekend gap fill statistics",
+                "FOMC/CPI event pre-positioning",
+            ]
+            # 5 sliding theme
+            start = (day * 5) % len(theme_bank)
+            themes = [theme_bank[(start + i) % len(theme_bank)] for i in range(5)]
+
+        # Paralel yürütme
+        results = await asyncio.gather(
+            *[self.propose_hypothesis(theme) for theme in themes],
+            return_exceptions=True,
+        )
+
+        successful = []
+        for theme, result in zip(themes, results):
+            if isinstance(result, Exception):
+                logger.warning(
+                    "researcher.batch_item_fail",
+                    extra={"theme": theme, "err": str(result)[:200]},
+                )
+            else:
+                successful.append(result)
+                logger.info(
+                    "researcher.batch_item_ok",
+                    extra={"theme": theme, "len": len(result)},
+                )
+
+        logger.info(
+            "researcher.5batch_done",
+            extra={"n_themes": len(themes), "n_successful": len(successful)},
+        )
+        return successful
+
+    def pre_register(self, hypothesis_md: str, slug: str | None = None) -> Path:
+        """Hipotezi pre-register et — protokol-uyumlu doc.
+
+        Cleanup 3: eski Faz <1.5 format (`type: hypothesis`) deprecate edildi.
+        Şimdi `write_protocol_doc()` (Faz 1.5) kullanıyoruz — frontmatter
+        spec'i `memory/shared/protocol.md` §1'e uyumlu, inbox.jsonl satır
+        yazımı otomatik (lab_scientist + risk_officer review queue).
+
+        Eski `type: hypothesis` field artık üretilmez; mevcut 6 migrated
+        doc okuma compatibility (`scripts/migrate_hypotheses.py` ile dual
+        format) korunur.
+
+        Bu fonksiyon LLM çağırmaz — sadece dosya yazımı + frontmatter.
+        """
         if not slug:
             # İlk H1/H2 başlığı slug olarak al
             for line in hypothesis_md.splitlines():
@@ -96,17 +172,22 @@ class ResearcherAgent(LLMAgentBase):
                     slug = _slug(line.lstrip("#").strip())
                     break
         slug = slug or _slug(hypothesis_md[:60])
-        path = self._hypotheses_dir() / f"{when.isoformat()}-{slug}.md"
-        header = (
-            f"---\n"
-            f"agent: researcher\n"
-            f"type: hypothesis\n"
-            f"date: {when.isoformat()}\n"
-            f"slug: {slug}\n"
-            f"status: pre_registered\n"
-            f"---\n\n"
+
+        # Cleanup 3 FIX: write_protocol_doc kullan (Faz 1.5 unified path)
+        # - frontmatter doc_type: hypothesis (yeni list_recent_docs ile uyumlu)
+        # - target_dir: memory/researcher/hypotheses/ (eski lokasyon korunur)
+        # - requested_review_from: [lab_scientist, risk_officer] (Faz 3 auto-trigger)
+        path = self.write_protocol_doc(
+            doc_type="hypothesis",
+            body=hypothesis_md.strip(),
+            slug=slug,
+            target_dir=self._hypotheses_dir(),
+            status="PROPOSED",
+            confidence="med",
+            requested_review_from=["lab_scientist", "risk_officer"],
+            tags=["hypothesis", "pre_register"],
         )
-        path.write_text(header + hypothesis_md.strip() + "\n", encoding="utf-8")
+
         logger.info(
             "researcher.pre_registered", extra={"path": str(path), "slug": slug}
         )
@@ -125,6 +206,272 @@ class ResearcherAgent(LLMAgentBase):
             f"BACKTEST RESULT JSON: {result}"
         )
         return await self.run(prompt)
+
+    # ------------------------------------------------------------------
+    # Faz 3.1 — drift response
+    # ------------------------------------------------------------------
+
+    _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
+
+    def _parse_doc(self, path: Path) -> tuple[dict[str, Any], str]:
+        if not path.exists():
+            return {}, ""
+        try:
+            import yaml
+            content = path.read_text(encoding="utf-8")
+            m = self._FRONTMATTER_RE.match(content)
+            if not m:
+                return {}, content
+            fm = yaml.safe_load(m.group(1)) or {}
+            body = content[m.end():]
+            return fm, body
+        except Exception as exc:
+            logger.warning("researcher.parse_fail", extra={"path": str(path), "err": str(exc)[:200]})
+            return {}, ""
+
+    def _drift_response_count(self, drift_doc_id: str) -> int:
+        """Bu drift_doc_id için kaç hipotez kartı üretildi (cooldown)."""
+        hdir = self._hypotheses_dir()
+        if not hdir.exists():
+            return 0
+        count = 0
+        for h in hdir.glob("*.md"):
+            try:
+                content = h.read_text(encoding="utf-8")[:2000]
+                if drift_doc_id in content:
+                    count += 1
+            except Exception:
+                continue
+        return count
+
+    def _drift_in_cooldown(self, drift_doc_id: str, symbol: str, strategy: str) -> tuple[bool, str]:
+        """Cooldown kontrolü.
+
+        - Rule 1: Aynı drift_doc_id için max 3 hipotez
+        - Rule 2: Aynı (symbol, strategy) Lab REJECT sonrası 7 gün cooldown
+        - Rule 3 (H6 FIX): Aynı (symbol, strategy) için **haftalık 1 hipotez**
+          Eskiden cooldown sadece drift_doc_id bazlıydı — Lab her hafta yeni
+          drift_alert üretirse her hafta yeni doc_id → cooldown sıfırlanıyordu.
+          4 hafta aynı symbol drift = 12 hipotez. Şimdi global haftalık cap.
+        """
+        # Rule 1: drift_doc_id sayım
+        n = self._drift_response_count(drift_doc_id)
+        if n >= 3:
+            return True, f"max_3_responses_reached (current={n})"
+
+        hdir = self._hypotheses_dir()
+
+        # Rule 2: 7g cooldown — son rejected hypothesis var mı?
+        cutoff_7d = datetime.now(timezone.utc) - timedelta(days=7)
+        for h in hdir.glob("*.md"):
+            try:
+                mtime = datetime.fromtimestamp(h.stat().st_mtime, tz=timezone.utc)
+                if mtime < cutoff_7d:
+                    continue
+                content = h.read_text(encoding="utf-8")[:3000]
+                if symbol in content and strategy in content and "REJECTED" in content.upper():
+                    days_ago = (datetime.now(timezone.utc) - mtime).days
+                    return True, f"recent_reject_within_7d (symbol={symbol}, strategy={strategy}, days_ago={days_ago})"
+            except Exception:
+                continue
+
+        # Rule 3 (H6 FIX): aynı (symbol, strategy) için son 7g'de ZATEN hypothesis varsa skip
+        # Bu Lab'in haftalık drift_alert üretiminin sonsuz hipotez patlamasını engeller.
+        # tags veya body'de symbol+strategy match
+        recent_count_same_pair = 0
+        for h in hdir.glob("*.md"):
+            try:
+                mtime = datetime.fromtimestamp(h.stat().st_mtime, tz=timezone.utc)
+                if mtime < cutoff_7d:
+                    continue
+                content = h.read_text(encoding="utf-8")[:5000]
+                # tags'da hem symbol hem strategy varsa eşleştir
+                if symbol.lower() in content.lower() and strategy.lower() in content.lower():
+                    recent_count_same_pair += 1
+            except Exception:
+                continue
+
+        if recent_count_same_pair >= 1:
+            return True, f"weekly_pair_limit (symbol={symbol}, strategy={strategy}, count={recent_count_same_pair})"
+
+        return False, "ok"
+
+    async def respond_to_drift(self, drift_doc_path: Path | str) -> Path | None:
+        """Drift alert dokümanını oku, hipotez kartı taslağı üret.
+
+        Cooldown kontrolünden geçerse RAG (rejim-spesifik literatür) çekip
+        pre-registration formatında DRAFT hypothesis yazar.
+
+        Returns
+        -------
+        Path | None
+            Üretilen hipotez kartı, veya None (cooldown reddetti veya doc okunamadı).
+        """
+        drift_path = Path(drift_doc_path)
+        fm, body = self._parse_doc(drift_path)
+        if not fm or fm.get("doc_type") != "drift_alert":
+            logger.warning(
+                "researcher.invalid_drift_doc",
+                extra={"path": str(drift_path), "doc_type": fm.get("doc_type")},
+            )
+            return None
+
+        drift_doc_id = fm.get("doc_id", drift_path.stem)
+        tags = fm.get("tags", [])
+        # drift_alert tags: ["drift", strategy, symbol]
+        symbol = tags[2] if len(tags) >= 3 else "unknown"
+        strategy = tags[1] if len(tags) >= 2 else "unknown"
+
+        # Cooldown
+        in_cooldown, reason = self._drift_in_cooldown(drift_doc_id, symbol, strategy)
+        if in_cooldown:
+            logger.info(
+                "researcher.drift_cooldown",
+                extra={"drift_doc_id": drift_doc_id, "reason": reason},
+            )
+            return None
+
+        # RAG çek — rejim-spesifik literatür
+        try:
+            seed = f"drift detection in {strategy} for {symbol} — regime shift adaptation"
+            hits = retrieve_for_hypothesis(seed, k=8)
+        except Exception as exc:
+            logger.warning("researcher.rag_fail", extra={"err": str(exc)[:200]})
+            hits = []
+
+        rag_block = "\n\n".join(
+            f"[#{i+1} score={h.score:.3f} src={h.metadata.get('source_id', '?')}]\n{h.text[:500]}"
+            for i, h in enumerate(hits)
+        ) or "(RAG corpus boş veya hit yok)"
+
+        prompt = (
+            "Drift alert geldi. Yanıt olarak pre-registration formatında DRAFT "
+            "hipotez kartı üret. Falsifiable, sayısal, OOS testable.\n\n"
+            "DRIFT DOC FRONTMATTER:\n"
+            f"{json.dumps({k: v for k, v in fm.items() if k in ('doc_id', 'tags', 'created_at')}, default=str, indent=2)}\n\n"
+            "DRIFT DOC BODY (ilk 2000 char):\n"
+            f"{body[:2000]}\n\n"
+            "RAG REFERENCES (rejim shift literatür):\n"
+            f"{rag_block}\n\n"
+            "Görev: `memory/shared/templates/hypothesis.md.tmpl` body yapısında:\n"
+            "1. İddia (H1) — falsifiable\n"
+            "2. Null hipotez (H0)\n"
+            "3. Gerekçe (RAG ref)\n"
+            "4. Bağımsız değişkenler (grid)\n"
+            "5. Bağımlı değişkenler (metrikler)\n"
+            "6. Anti-overfit protokolü (8 madde)\n"
+            "7. Kabul kriteri (HARD gates)\n"
+            "8. Stop criteria\n"
+            "9. Önsel tahmin (Tetlock calibration)\n\n"
+            f"BİLGİ: Bu hipotez {drift_doc_id} drift'ine yanıttır. depends_on'a koy."
+        )
+        body_text = await self.run(prompt)
+
+        # write_protocol_doc kullan (Faz 1.5 helper)
+        hyp_path = self.write_protocol_doc(
+            doc_type="hypothesis",
+            body=body_text,
+            slug=f"drift-response-{symbol}-{strategy}",
+            target_dir=self._hypotheses_dir(),
+            status="DRAFT",
+            confidence="med",
+            depends_on=[drift_doc_id],
+            requested_review_from=["lab_scientist", "risk_officer"],
+            tags=["hypothesis", "drift_response", strategy, symbol],
+        )
+        logger.info(
+            "researcher.drift_response_written",
+            extra={"drift_doc_id": drift_doc_id, "hyp_path": str(hyp_path)},
+        )
+        return hyp_path
+
+    async def respond_to_pending_drifts(self, *, max_items: int = 3) -> list[Path]:
+        """Inbox'taki recipient=researcher, doc_type=drift_alert mesajları işle.
+
+        Scheduler `_job_scan_drift_alerts` her 30dk çağırır.
+        """
+        inbox = self.settings.memory_dir / "protocol" / "inbox.jsonl"
+        if not inbox.exists():
+            return []
+
+        results: list[Path] = []
+        try:
+            lines = inbox.read_text(encoding="utf-8").strip().split("\n")
+        except Exception as exc:
+            logger.warning("researcher.inbox_read_fail", extra={"err": str(exc)[:200]})
+            return []
+
+        for line in lines[-200:]:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if msg.get("recipient") != self.name:
+                continue
+            if msg.get("ack_at"):
+                continue
+            if msg.get("topic") != "drift_alert":
+                continue
+            ref_path = msg.get("ref_path", "")
+            if not ref_path:
+                continue
+            full = self.settings.reports_dir.parent / ref_path
+            try:
+                out = await self.respond_to_drift(full)
+                if out:
+                    results.append(out)
+                    # ack inbox
+                    self._ack_in_inbox(msg.get("doc_id", ""))
+            except Exception as exc:
+                logger.warning(
+                    "researcher.drift_response_fail",
+                    extra={"drift_doc_id": msg.get("doc_id"), "err": str(exc)[:200]},
+                )
+            if len(results) >= max_items:
+                break
+
+        return results
+
+    def _ack_in_inbox(self, doc_id: str) -> bool:
+        """Inbox satırına ack_at koy (atomik)."""
+        inbox = self.settings.memory_dir / "protocol" / "inbox.jsonl"
+        if not inbox.exists():
+            return False
+        try:
+            lines = inbox.read_text(encoding="utf-8").split("\n")
+        except Exception:
+            return False
+
+        ts_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        modified = False
+        new_lines: list[str] = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                new_lines.append(line)
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                new_lines.append(line)
+                continue
+            if (
+                msg.get("doc_id") == doc_id
+                and msg.get("recipient") == self.name
+                and not msg.get("ack_at")
+            ):
+                msg["ack_at"] = ts_iso
+                modified = True
+            new_lines.append(json.dumps(msg, ensure_ascii=False))
+
+        if modified:
+            tmp = inbox.with_suffix(inbox.suffix + ".tmp")
+            tmp.write_text("\n".join(new_lines), encoding="utf-8")
+            tmp.replace(inbox)
+        return modified
 
     async def decide_promotion(self, result: dict[str, Any]) -> dict[str, Any]:
         """SOP-4: terfi adayı / red kararı. Karar + ADR yazımı."""

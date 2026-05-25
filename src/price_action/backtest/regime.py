@@ -176,6 +176,55 @@ def build_all_chop_calendars(symbols: list[str]) -> dict[str, dict[date, str]]:
     return {sym: compute_per_symbol_chop(sym) for sym in symbols}
 
 
+def compute_btc_atr_pct_percentile_calendar(
+    period: int = 14,
+    rolling_window: int = 252,
+) -> dict[date, float]:
+    """SEC-S1: BTC ATR% rolling percentile calendar — regime-conditional daily_dd için.
+
+    Her gün için T-1 close-of-day ATR%(14) değerinin son `rolling_window` günlük
+    dağılımda hangi persantilde olduğunu hesaplar.
+
+    Causal: calendar[T] = ATR%[T-1]'in son rolling_window güne göre persantili.
+    Eşit değer tie-breaking: mid-rank (numpy default).
+
+    Returns:
+        dict[date -> float]  — değer [0.0, 1.0] arası (0.75 = %75 persantil)
+    """
+    df = _load_ohlcv("BTC/USDT", tf="1d")
+
+    # Wilder ATR(period)
+    h_l = df["high"] - df["low"]
+    h_c = (df["high"] - df["close"].shift()).abs()
+    l_c = (df["low"] - df["close"].shift()).abs()
+    tr = pd.concat([h_l, h_c, l_c], axis=1).max(axis=1)
+    df["atr"] = tr.ewm(alpha=1 / period, adjust=False).mean()
+    df["atr_pct"] = df["atr"] / df["close"]  # oran (0.04 = %4)
+
+    # Causal lag: T'de girilecek trade T-1 kapanış verisi bilir
+    df["atr_pct_lag1"] = df["atr_pct"].shift(1)
+
+    # Rolling persantil rank (min_periods=period to avoid sparse early data)
+    def _rank_pct(window: np.ndarray) -> float:
+        v = window[-1]
+        if np.isnan(v):
+            return float("nan")
+        return float(np.sum(window[:-1] <= v) / max(len(window) - 1, 1))
+
+    df["atr_pct_percentile"] = (
+        df["atr_pct_lag1"]
+        .rolling(window=rolling_window, min_periods=period)
+        .apply(_rank_pct, raw=True)
+    )
+
+    out: dict[date, float] = {}
+    for i in range(len(df)):
+        v = df["atr_pct_percentile"].iloc[i]
+        if pd.notna(v):
+            out[df["ts"].iloc[i].date()] = float(v)
+    return out
+
+
 def compute_btc_atr_pct_calendar(period: int = 14) -> dict[date, float]:
     """v1.6 sec15.4 — BTC ATR% calendar (vol-conditional adaptive risk icin).
 
@@ -215,4 +264,5 @@ __all__ = [
     "compute_per_symbol_chop",
     "build_all_chop_calendars",
     "compute_btc_atr_pct_calendar",
+    "compute_btc_atr_pct_percentile_calendar",
 ]

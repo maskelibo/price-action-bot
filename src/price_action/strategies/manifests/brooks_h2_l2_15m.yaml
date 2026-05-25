@@ -1,0 +1,122 @@
+# brooks_h2_l2 — 15m TF manifest override
+# Kaynak: SEC-SCALP-S5 / Signal Chief 2026-05-17
+#
+# Kalibrasyon mantigi:
+#   1d ref → 15m esiti (1d = 96 × 15m)
+#
+#   leg_min_bars=3  → Brooks'da 3 bar = 3 gun pullback, saglam bir bacak.
+#     15m'de 3bar = 45 dak. Bu cok kisa — noise ile karisir.
+#     Compromise: 5bar = 75dak (1.25h) — anlamli intraday bacak.
+#     NOT: cok uzatilirsa (>8) 15m'de H2/L2 olusumu nadir olur.
+#
+#   bounce_max_bars=3  → 1d'de 3 gun bounce (B ayagi).
+#     15m'de 3bar bounce = 45 dak. 5bar = 75dak kabul edilebilir.
+#
+#   max_lookback=25  → 1d'de 25 gun (1 ay). 15m'de 25bar = 6.25h.
+#     Tum ABC yapisini 1 trading seansi (6h) icinde aramak mantikli.
+#     Degismedi: 25bar yeterli, uzatmak noise arttirir.
+#
+#   trend_n_bars=10  → 10 barlik majority close trend teyidi.
+#     1d'de 10 gun. 15m'de 10bar = 150 dak (2.5h).
+#     15m'de kisa — 20bar = 300 dak (5h) daha kararlı trend sinifi.
+#
+#   kaufman_er_period=14  → 14 × 15m = 210 dak = 3.5h. Trend kalitesi olcuyor.
+#     15m'de daha kisa; kabul edilebilir (intraday efficiency ratio).
+#
+#   vol_z rolling=60bar → 15m'de 60bar = 15h. 96bar = 24h daha anlamli.
+#     Kod seviyesinde hardcoded; manifest'e notla.
+#
+# NOT: risk_per_trade tanimsiz — risk_phoenix_scalp_15m.yaml override eder.
+
+name: brooks_h2_l2
+version: "1.0.0-15m"
+description: "Brooks H2/L2 two-legged pullback continuation — 15m intraday parametreleri. SEC-SCALP-S5."
+
+trend_filter:
+  type: ema
+  period: 50              # 50 x 15m = 12.5h — session/gunluk trend filtresi
+  required: true          # H2/L2 trend-based; filtre zorunlu
+
+signals:
+  patterns:
+    - id: h2_long
+      enabled: true
+      weight: 2.0
+      params:
+        leg_min_bars: 5               # 1d=3bar(3gun) → 15m=5bar(75dak=1.25h)
+        bounce_max_bars: 5            # 1d=3bar → 15m=5bar(75dak); bounce az olamaz
+        max_lookback: 25              # 1d=25bar(1ay) → 15m=25bar(6.25h); 1 seans yeterli
+        sl_atr_buffer: 0.5            # degismedi; 0.5 ATR Leg C extreme altinda
+
+    - id: l2_short
+      enabled: true
+      weight: 2.0
+      params:
+        leg_min_bars: 5
+        bounce_max_bars: 5
+        max_lookback: 25
+        sl_atr_buffer: 0.5
+
+  structure:
+    swing:
+      fractal_n: 2
+    support_resistance:
+      lookback_bars: 192              # 1d=100bar → 15m=192bar(48h)
+      cluster_atr_multiplier: 0.35
+      min_touches: 2
+      max_age_bars: 192
+    require_proximity_to_sr_atr: 0.0
+
+  filters:
+    atr_min_pct: 0.002                # 1d=0.004; 15m ATR% kucuk
+    volume_zscore_min: 0.5            # 1d=0.0; ekle — noise azalt
+    kaufman_er_period: 14             # 14 × 15m = 3.5h; intraday ER makul
+    kaufman_er_min: 0.10              # 1d=0.15; 15m daha gurultulu → gevset
+    always_in_required: false         # degismedi
+    bear_regime_size_factor: 0.75     # degismedi
+    trend_n_bars: 20                  # 1d=10bar(10gun) → 15m=20bar(300dak=5h)
+    rolling_sharpe_period: 96         # 1d=60bar → 15m=96bar(24h)
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.0                    # 1d ile ayni; H2/L2 tek pattern yeterli
+    bonus_if_at_sr: 0.0
+
+risk:
+  stop_loss:
+    method: leg_c_extreme
+    atr_buffer: 0.5                   # degismedi
+  take_profit:
+    method: r_multiple
+    primary_R: 1.5                    # 1d=2.0; 15m fee+slip ile 1.5R
+  position_sizing:
+    method: fixed_fractional
+    risk_per_trade: 0.02              # Phase 3 override
+
+backtest:
+  warmup_bars: 200                    # ema200 + leg scan; 200 × 15m = 50h
+  fees:
+    taker: 0.00040
+    maker: -0.00010
+  slippage_bps: 7.5
+  initial_capital_usdt: 10000.0
+
+# TF-spesifik notlar:
+#
+# leg_min_bars 3→5 en kritik degisiklik:
+#   3-bar 15m bacak = 45 dak, cok kisa. 5-bar = 75 dak (1.25h) daha anlamli
+#   ABC yapisi olusturuyor. ANCAK: az sinyal riski. Phase 4 ablation zorunlu.
+#
+# _detect_h2_l2 vektorizasyon:
+#   Mevcut kod nested while loop (SOFT-FAIL kodla iliskili). 15m'de n=10000+
+#   barda performans kritikal. max_lookback=25 ile O(n*25) — numba kandidat.
+#   Profil: single-pass < 50ms / 1000 bar hedefi (mevcut kodla zor).
+#
+# trend_n_bars 10→20:
+#   _trend_direction rolling sum icin. 20 × 15m = 300 dak (5h).
+#   Daha kararlı trend siniflandirmasi. 10'da 15m noise fazla.
+#
+# Phase 3 eylem:
+#   1. _detect_h2_l2 profil; numba refactor degerlendir
+#   2. leg_min_bars ablation: 3 vs 5 vs 7
+#   3. vol_z_window kodda 60→96 guncelle

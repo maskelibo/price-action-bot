@@ -133,6 +133,13 @@ class TradeJournal:
         sl_price: float,
         close_reason: Literal["tp", "sl", "time", "force"] = "tp",
     ) -> bool:
+        # G8 fix (hard review 2026-05-21): _ensure_schema her record_close çağrısında
+        # da garanti edilir. Daemon farklı DB path ile (phoenix/atlas bot JOURNAL)
+        # ilk kez TradeJournal(db_path=JOURNAL) yaptığında __init__ schema'yı kurar;
+        # ama JOURNAL başka bağlantıyla açık/boş ise (örn. equity_snapshot DuckDB
+        # exclusive lock alırsa) schema kaçabilir. __init__ + record_close çift güvence.
+        # _ensure_schema CREATE TABLE IF NOT EXISTS → idempotent, perf yükü minimax.
+        self._ensure_schema()
         """Kapanan trade'i kaydet. Idempotent — aynı trade_id 2. kez çağrılırsa False.
 
         Returns:
@@ -141,11 +148,15 @@ class TradeJournal:
 
         No-clip: realized_pnl çok büyük olsa bile clip etmiyoruz.
         """
-        # UTC normalize
-        if ts_open.tzinfo is None:
-            ts_open = ts_open.replace(tzinfo=timezone.utc)
-        if ts_close.tzinfo is None:
-            ts_close = ts_close.replace(tzinfo=timezone.utc)
+        # UTC normalize — G7 fix (hard review 2026-05-21):
+        # futures_trades_closed.ts_* kolonları tz-NAIVE TIMESTAMP. tz-aware
+        # datetime insert edilince DuckDB connector yerel saate (UTC+3) çevirip
+        # naive yazıyordu → +3h kayma. Çözüm: aware ise UTC'ye çevir + tzinfo
+        # strip; naive ise UTC varsay (caller sözleşmesi), dokunma.
+        if ts_open.tzinfo is not None:
+            ts_open = ts_open.astimezone(timezone.utc).replace(tzinfo=None)
+        if ts_close.tzinfo is not None:
+            ts_close = ts_close.astimezone(timezone.utc).replace(tzinfo=None)
 
         side = side.lower()  # type: ignore[assignment]
         realized_pnl = _compute_realized_pnl(entry_price, exit_price, qty, side)
@@ -203,10 +214,12 @@ class TradeJournal:
 
         Boş aralık veya tablo yokken 0.0.
         """
-        if start_utc.tzinfo is None:
-            start_utc = start_utc.replace(tzinfo=timezone.utc)
-        if end_utc.tzinfo is None:
-            end_utc = end_utc.replace(tzinfo=timezone.utc)
+        # G7 fix (hard review 2026-05-21): ts_close kolonu naive-UTC; sorgu
+        # parametreleri de naive-UTC olmalı — tz-aware ise yerel saate kayar.
+        if start_utc.tzinfo is not None:
+            start_utc = start_utc.astimezone(timezone.utc).replace(tzinfo=None)
+        if end_utc.tzinfo is not None:
+            end_utc = end_utc.astimezone(timezone.utc).replace(tzinfo=None)
         con = duckdb.connect(self.db_path, read_only=True)
         try:
             row = con.execute(

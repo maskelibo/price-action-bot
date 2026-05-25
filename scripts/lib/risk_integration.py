@@ -15,6 +15,8 @@ Helpers:
 """
 from __future__ import annotations
 
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,6 +28,28 @@ import pandas as pd
 from price_action.contracts import Position, Signal
 from price_action.risk.breaker import DDBreaker
 from price_action.risk.sizing import AccountState, RiskOfficer
+
+# =====================================================================
+# M4 — returns_df TTL cache (SEC58 2026-05-18)
+# =====================================================================
+# build_returns_df() her tick yeniden hesaplıyordu (90g 1d log-return
+# matrix 15 dakikada değişmez). Burada per-arg TTL cache: 15 dk.
+#
+# Cache key: (tuple(sorted(symbols)), days, str(market_db), timeframe, venue)
+# TTL: _RETURNS_DF_TTL_SEC = 900  (15 dakika)
+# Thread-safe: tek _RLock (build sırasında diğer çağrılar bekler — sadece ilk
+#              sorgu pahalı, sonrası anında döner).
+# Invalidation: TTL aşımı VEYA manuel reset_returns_df_cache() (testler için).
+
+_RETURNS_DF_CACHE: dict[tuple, tuple[float, pd.DataFrame]] = {}
+_RETURNS_DF_LOCK = threading.RLock()
+_RETURNS_DF_TTL_SEC: float = 900.0  # 15 dakika
+
+
+def reset_returns_df_cache() -> None:
+    """Test fixture'larında kullanılır — cache'i boşalt."""
+    with _RETURNS_DF_LOCK:
+        _RETURNS_DF_CACHE.clear()
 
 
 # =====================================================================
@@ -57,7 +81,7 @@ def load_risk_officer(
 # Signal builder
 # =====================================================================
 
-def build_signal_from_scan(s: dict, *, venue: str = "binance") -> Signal:
+def build_signal_from_scan(s: dict, *, venue: str = "binance", timeframe: str = "1d") -> Signal:
     """scan_signals()'tan dönen dict → Pydantic Signal contract.
 
     scan_signals çıktısı:
@@ -86,7 +110,7 @@ def build_signal_from_scan(s: dict, *, venue: str = "binance") -> Signal:
         ts=ts,
         venue=venue,
         symbol=s["symbol"],
-        timeframe="1d",
+        timeframe=timeframe,
         direction=s["side"],
         pattern_id=s.get("strategy", "unknown"),
         confluence_score=float(s.get("confluence", 0)),
@@ -112,35 +136,75 @@ def build_returns_df(
     """Açık pozisyonlar + adayı için son N gün daily log-return matrix.
 
     Boş DataFrame dönerse correlation_gate konservatif (factor=1.0) davranır.
+
+    SEC58 CRIT-2 FIX (2026-05-18):
+    Eski implementasyon `duckdb.connect(read_only=True)` açıyordu. Windows'ta
+    DuckDB exclusive lock semantiği: daemon main thread market.duckdb'yi R/W
+    singleton (OHLCVStore pool) ile tuttuğu için aynı dosyaya farklı config
+    (read_only=True) ile ikinci connection açma girişimi →
+      "Connection Error: Can't open a connection to same database file
+       with a different configuration than existing connections"
+    8 sinyal silent reject (logs/futures_daemon.log 13:52-13:53 UTC).
+
+    Fix: OHLCVStore singleton pool üzerinden oku (path başına tek R/W
+    connection, RLock ile serialize). Tüm callerlar aynı pool paylaşır,
+    "farklı config" conflict ortadan kalkar. `market_db` parametresi
+    korunur (backward compat + test injection için).
+
+    SEC58-M4 TTL Cache (2026-05-18):
+    90g 1d log-return matrix 15 dakikada değişmez. Cache key:
+    (sorted symbols, days, db path, timeframe, venue). TTL=900s.
+    Thread-safe: _RETURNS_DF_LOCK RLock. Cache miss → DB sorgu → cache set.
     """
     if not symbols:
         return pd.DataFrame()
-    con = duckdb.connect(str(market_db), read_only=True)
-    try:
-        ph = ", ".join(["?"] * len(symbols))
-        rows = con.execute(
-            f"""
-            SELECT symbol, ts, close
-            FROM ohlcv
-            WHERE venue = ? AND timeframe = ? AND symbol IN ({ph})
-              AND ts >= now() - INTERVAL {int(days) + 5} DAY
-            ORDER BY symbol, ts
-            """,
-            [venue, timeframe, *symbols],
-        ).fetchall()
-    except Exception:
-        con.close()
-        return pd.DataFrame()
-    con.close()
-    if not rows:
-        return pd.DataFrame()
 
-    df = pd.DataFrame(rows, columns=["symbol", "ts", "close"])
-    df = df.pivot(index="ts", columns="symbol", values="close").sort_index()
-    if df.empty:
-        return df
-    rets = np.log(df / df.shift(1)).dropna(how="all")
-    return rets.tail(days)
+    # M4: TTL cache lookup
+    _cache_key = (tuple(sorted(symbols)), int(days), str(market_db), timeframe, venue)
+    with _RETURNS_DF_LOCK:
+        _hit = _RETURNS_DF_CACHE.get(_cache_key)
+        if _hit is not None:
+            _cached_at, _cached_df = _hit
+            if time.monotonic() - _cached_at < _RETURNS_DF_TTL_SEC:
+                return _cached_df.copy()
+            else:
+                # TTL aşıldı — eski kaydı temizle
+                del _RETURNS_DF_CACHE[_cache_key]
+
+        # OHLCVStore pool: path başına singleton R/W connection, RLock-guarded.
+        # read_only=False olduğu için daemon'ın mevcut bağlantısıyla çakışmaz.
+        try:
+            from price_action.data.store import OHLCVStore
+            store = OHLCVStore(duckdb_path=Path(market_db))
+            ph = ", ".join(["?"] * len(symbols))
+            with store._conn() as con:
+                rows = con.execute(
+                    f"""
+                    SELECT symbol, ts, close
+                    FROM ohlcv
+                    WHERE venue = ? AND timeframe = ? AND symbol IN ({ph})
+                      AND ts >= now() - INTERVAL {int(days) + 5} DAY
+                    ORDER BY symbol, ts
+                    """,
+                    [venue, timeframe, *symbols],
+                ).fetchall()
+        except Exception:
+            # OHLCVStore import fail veya query fail → konservatif davran
+            return pd.DataFrame()
+
+        if not rows:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(rows, columns=["symbol", "ts", "close"])
+        df = df.pivot(index="ts", columns="symbol", values="close").sort_index()
+        if df.empty:
+            return df
+        rets = np.log(df / df.shift(1)).dropna(how="all")
+        result = rets.tail(days)
+
+        # M4: cache'e yaz
+        _RETURNS_DF_CACHE[_cache_key] = (time.monotonic(), result.copy())
+        return result
 
 
 # =====================================================================
@@ -437,6 +501,7 @@ __all__ = [
     "load_risk_officer",
     "build_signal_from_scan",
     "build_returns_df",
+    "reset_returns_df_cache",
     "build_futures_account_state",
     "build_spot_account_state",
     "realized_pnl_today_futures",

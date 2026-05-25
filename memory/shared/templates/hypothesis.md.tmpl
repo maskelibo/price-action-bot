@@ -1,0 +1,66 @@
+---
+doc_id: researcher-"{{yyyymmddTHHMMSS}}"-"{{slug}}"
+doc_type: hypothesis
+agent_id: researcher
+created_at: "{{iso8601_utc}}"
+status: DRAFT
+confidence: "{{low|med|high}}"
+depends_on: "{{[list of related drift_alert / RAG references]}}"
+blocks: []
+requested_review_from: [lab_scientist, risk_officer]
+tags: [hypothesis, pre_registered]
+hash: "{{git_sha_when_written}}"
+---
+
+# Hipotez: HYP-{{YYYY-MM-DD}}-{{slug}}
+
+## 1. İddia (H1)
+> "X koşulunda Y sinyali Z istatistiksel anlamlılıkla pozitif edge sağlar."
+
+## 2. Null Hipotez (H0)
+> "X koşulu Y sinyalinin getirisi üzerinde anlamlı etki göstermez (random shuffle baseline'dan ayırt edilemez)."
+
+## 3. Gerekçe (literatür + RAG)
+- [Referans 1]: ...
+- [Referans 2]: ...
+
+## 4. Bağımsız Değişkenler (grid)
+- param_1: [...]
+- param_2: [...]
+
+## 5. Bağımlı Değişkenler (metrikler)
+- Annualized return
+- Sharpe (OOS)
+- MaxDD
+- Profit factor
+
+## 6. Anti-Overfit Protokolü (HEPSİ zorunlu)
+- [ ] Walk-forward (3y/6m, step 3m)
+- [ ] In/OOS Sharpe fark < %30
+- [ ] Param perturbation ±%10, 50 seed
+- [ ] Symbol-out CV
+- [ ] Regime split (bull/bear/range)
+- [ ] Stress periods (2022-05, 2022-11, 2024-03, 2024-08)
+- [ ] Shuffle baseline (p < 0.05)
+- [ ] Multiple testing correction (Bonferroni/BH)
+
+## 7. Kabul Kriteri (HARD gates)
+- OOS Sharpe ≥ X
+- DSR p-value < 0.05
+- MaxDD ≤ %Y
+- En az 2 rejimde pozitif
+
+## 8. Stop Criteria
+- In-sample Sharpe < 0.5 → terkedilir
+- Robustness ≥1 fail → terkedilir
+
+## 9. Önsel Tahmin (Tetlock calibration)
+- Geçme olasılığı: X% (60% gibi)
+- Predictive interval: [Sharpe X..Y]
+- Confidence: low/med/high
+
+---
+
+## SONUÇ — (grid run sonrası doldurulacak)
+
+Status: PENDING_BACKTEST → PASS / FAIL — gerekçe

@@ -1,0 +1,64 @@
+# ARCHIVED: 5m KILL 2026-05-17 — pool mR ≈ -0.37 at 5y span, fee-structural fail. Keep for reference / future 15m TF calibration baseline.
+# equal_highs_sweep — 5m TF manifest override
+# Kaynak: Signal Chief, SEC-SCALP-S7, 2026-05-17
+#
+# Kalibrasyon: 15m → 5m (x3)
+#   lookback_bars   : 15m=48bar(12h) → 5m=144bar(12h) [zaman koru]
+#   tolerance_atr   : 15m=0.20 → 5m=0.20 [ayni; oran bazli]
+#   reversal_window : 15m=5bar(75dk) → 5m=15bar(75dk)
+#   tp_r_multiple   : 15m=2.0 → 5m=1.8 [5m'de sweep target kucuk]
+#   vol_z_min       : 15m=0.5 → 5m=0.8 [gurultulu 5m]
+
+name: equal_highs_sweep
+version: "1.0.0-5m"
+description: "SMC Equal Highs/Lows sweep + reversal — 5m intraday. SEC-SCALP-S7."
+
+trend_filter:
+  type: ema
+  period: 50
+  required: false
+
+signals:
+  patterns:
+    - id: eqh_sweep_short
+      enabled: true
+      weight: 2.0
+      params:
+        lookback_bars: 144              # 15m=48bar(12h) → 5m=144bar(12h)
+        tolerance_atr: 0.20             # degismedi
+        fractal_n: 3                    # degismedi
+        reversal_window: 15             # 15m=5bar(75dk) → 5m=15bar(75dk)
+        sl_atr_mult: 0.5
+        tp_r_multiple: 1.8              # 15m=2.0 → 5m=1.8 [kucuk target]
+
+    - id: eql_sweep_long
+      enabled: true
+      weight: 2.0
+      params:
+        lookback_bars: 144
+        tolerance_atr: 0.20
+        fractal_n: 3
+        reversal_window: 15
+        sl_atr_mult: 0.5
+        tp_r_multiple: 1.8
+
+  filters:
+    atr_min_pct: 0.001
+    volume_zscore_min: 0.8              # 15m=0.5 → 5m=0.8
+
+  confluence:
+    method: weighted_sum
+    min_score: 1.5
+    bonus_if_at_sr: 0.0
+
+risk:
+  take_profit:
+    primary_R: 1.8                      # pattern-level ile tutarli
+
+backtest:
+  warmup_bars: 300                      # 144 + fractal_n + buffer
+  fees:
+    taker: 0.00040
+    maker: -0.00010
+  slippage_bps: 8.0
+  initial_capital_usdt: 10000.0
