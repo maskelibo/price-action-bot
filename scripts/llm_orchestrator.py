@@ -1,5 +1,37 @@
 """Faz 5 — LLM Orchestrator.
 
+⚠️ ⚠️ ⚠️  DEPRECATED — 2026-05-25 itibarıyla ⚠️ ⚠️ ⚠️
+====================================================
+
+Bu modül **path duplication** yaratıyordu: `pa-ceo --mode daily` orchestrator'ı
+kuruyor ama Telegram push yapmıyordu; bu script ise CLI'dan brief üretip
+Telegram'a basıyordu. İki ayrı code path = iki ayrı bug yüzeyi.
+
+Faz 1.2 unification ile **tek doğru yol:**
+
+    # Daemon (boot autostart için):
+    pa-ceo --mode daily --telegram
+
+    # Tek seferlik brief (test, manual trigger):
+    pa-ceo --mode once --telegram
+
+    # Haftalık özet:
+    pa-ceo --mode weekly --telegram
+
+Telegram push artık `src/price_action/orchestrator/notifications.py` merkezi
+helper'ından geçer; scheduler job'ları (`_job_daily_kpi`, `_job_weekly_*`)
+de aynı helper'ı çağırır.
+
+Bu dosya gerçek silme yerine **shim** olarak bırakıldı — dış cron'lar veya
+eski referanslar çağırırsa hata vermesin diye. İçindeki fonksiyonlar
+pa-ceo CLI'a delegate eder.
+
+Plan: Faz 4 sonrası bu shim de silinir (ADR-008 — Faz 5 production hardening).
+
+────────────────────────────────────────────────────────────────────────
+
+ORIJINAL ESKİ DOKÜMANTASYON (Faz 5 öncesi):
+
 Günlük brief, haftalık özet, post-mortem, kriz alarmı ve watchdog modu.
 
 Usage

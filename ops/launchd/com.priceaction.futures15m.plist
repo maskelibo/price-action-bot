@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.priceaction.futures15m</string>
+
+  <!--
+    futures_daemon.py — 15m wide-stop paper daemon.
+
+    !!! ÖNEMLİ: BU PLIST HENÜZ YÜKLENMEDİ !!!
+
+    Mevcut PID 17267 manuel başlatılmış ve 2+ gündür çalışıyor.
+    İki daemon aynı anda = çift emir = felaket.
+
+    Yüklemeden önce:
+    1) Mevcut PID 17267'yi DURDUR: `kill 17267`
+    2) State'in temiz kapandığını doğrula (`logs/futures_daemon.log` son satır)
+    3) `launchctl load ~/Library/LaunchAgents/com.priceaction.futures15m.plist`
+    4) İlk 15dk gözlemle (`tail -f logs/futures_daemon.log`)
+
+    Karar: Principal manuel — Faz 1 sırasında otomatik geçiş yok.
+
+    Detay: ops/launchd/README.md §3
+  -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/peyman/price-action-bot/.venv/bin/python</string>
+    <string>-u</string>
+    <string>scripts/futures_daemon.py</string>
+    <string>--timeframe</string>
+    <string>15m</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/peyman/price-action-bot</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONPATH</key>
+    <string>/Users/peyman/price-action-bot/src</string>
+    <key>PA_RUN_MODE</key>
+    <string>paper</string>
+    <key>TZ</key>
+    <string>UTC</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/futures15m.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/futures15m.stderr.log</string>
+
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>4096</integer>
+  </dict>
+</dict>
+</plist>

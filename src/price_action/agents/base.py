@@ -155,9 +155,20 @@ class LLMAgentBase(abc.ABC):
             return ""
         return p.read_text(encoding="utf-8")
 
+    def _load_protocol(self) -> str:
+        """Faz 1.5: inter-agent protocol metnini oku (her oturumda system prompt'a girer)."""
+        p = self.settings.memory_dir / "shared" / "protocol.md"
+        if not p.exists():
+            return ""
+        try:
+            return p.read_text(encoding="utf-8")
+        except Exception:  # pragma: no cover
+            return ""
+
     def _load_system_prompt(self) -> str:
         rules = self._load_rules().strip()
         boot = self.memory.boot_context(self.name).strip()
+        protocol = self._load_protocol().strip()
         tools_line = (
             f"## ALLOWED TOOLS\n{', '.join(self.allowed_tools) or '(none)'}\n"
         )
@@ -165,6 +176,8 @@ class LLMAgentBase(abc.ABC):
             f"# AGENT: {self.name}",
             "## RULES (canonical)",
             rules or "(no rules file)",
+            "## INTER-AGENT PROTOCOL",
+            protocol or "(no protocol — protokol.md eksik)",
             "## BOOT CONTEXT (memory)",
             boot or "(no memory)",
             tools_line,
@@ -173,7 +186,9 @@ class LLMAgentBase(abc.ABC):
                 "- LLM rolün rapor/araştırma. Trading kararı veya canlı emir "
                 "vermezsin.\n"
                 "- API anahtarları, kişisel veri loglara/raporlara yazılmaz.\n"
-                "- Memory dosyaları append-only — silme/üzerine yazma yok."
+                "- Memory dosyaları append-only — silme/üzerine yazma yok.\n"
+                "- Tüm doc çıktıları INTER-AGENT PROTOCOL §1 frontmatter spec'ine uymalı.\n"
+                "- Critique için PROTOCOL §3 5-zorunlu-alan formatını kullan."
             ),
         ]
         return "\n\n".join(parts)
@@ -535,6 +550,139 @@ class LLMAgentBase(abc.ABC):
 
     def write_decision(self, adr: dict[str, Any], slug: str | None = None) -> Path:
         return self.memory.write_decision(self.name, adr, slug=slug)
+
+    # ------------------------------------------------------------------
+    # Faz 1.5 — INTER-AGENT PROTOCOL helper
+    # ------------------------------------------------------------------
+
+    def write_protocol_doc(
+        self,
+        doc_type: str,
+        body: str,
+        *,
+        slug: str | None = None,
+        target_dir: Path | None = None,
+        status: str = "DRAFT",
+        confidence: str = "med",
+        depends_on: list[str] | None = None,
+        blocks: list[str] | None = None,
+        requested_review_from: list[str] | None = None,
+        tags: list[str] | None = None,
+        supersedes: str | None = None,
+    ) -> Path:
+        """Protokol-uyumlu doc yaz (`memory/shared/protocol.md` §1 spec).
+
+        Frontmatter otomatik üretilir; doc_id globally unique; inbox.jsonl'e
+        broadcast satır eklenir (`requested_review_from`'daki her agent için).
+
+        Parameters
+        ----------
+        doc_type:
+            ``brief|hypothesis|tournament|drift_alert|whatif|adr|postmortem|incident|directive|critique|endorse|learning|decision``
+        body:
+            Markdown body — frontmatter SONRASI içerik.
+        slug:
+            Kısa kebab-case identifier. Yoksa doc_type + ts'ten üretilir.
+        target_dir:
+            Çıkış dizini. Yoksa `reports/<agent>/` (örn. `reports/researcher/`).
+        status / confidence / depends_on / blocks / requested_review_from / tags / supersedes:
+            Frontmatter alanları — `memory/shared/protocol.md` §1.
+
+        Returns
+        -------
+        Path
+            Oluşturulan doc'un yolu.
+        """
+        ts = datetime.now(timezone.utc)
+        ts_compact = ts.strftime("%Y%m%dT%H%M%S")
+        ts_iso = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
+        if slug is None:
+            slug = doc_type
+        doc_id = f"{self.name}-{ts_compact}-{slug}"
+
+        # Frontmatter
+        fm_lines = [
+            "---",
+            f"doc_id: {doc_id}",
+            f"doc_type: {doc_type}",
+            f"agent_id: {self.name}",
+            f"created_at: {ts_iso}",
+            f"status: {status}",
+            f"confidence: {confidence}",
+            f"depends_on: {json.dumps(depends_on or [])}",
+            f"blocks: {json.dumps(blocks or [])}",
+            f"requested_review_from: {json.dumps(requested_review_from or [])}",
+            f"tags: {json.dumps(tags or [])}",
+        ]
+        if supersedes:
+            fm_lines.append(f"supersedes: {supersedes}")
+        fm_lines.append("---")
+        content = "\n".join(fm_lines) + "\n\n" + body.strip() + "\n"
+
+        # Çıkış dizini
+        if target_dir is None:
+            # Varsayılan: reports/<agent>/<doc_type>/<doc_id>.md
+            target_dir = self.settings.reports_dir / self.name
+        target_dir.mkdir(parents=True, exist_ok=True)
+        path = target_dir / f"{doc_id}.md"
+        path.write_text(content, encoding="utf-8")
+        logger.info(
+            "agent.protocol_doc_written",
+            extra={
+                "agent": self.name,
+                "doc_id": doc_id,
+                "doc_type": doc_type,
+                "path": str(path),
+                "requested_review_from": requested_review_from or [],
+            },
+        )
+
+        # Inbox broadcast (requested_review_from'daki her agent için satır)
+        try:
+            self._inbox_publish(
+                doc_id=doc_id,
+                ref_path=str(path.relative_to(self.settings.reports_dir.parent)),
+                recipients=requested_review_from or [],
+                topic=doc_type,
+                ts_iso=ts_iso,
+            )
+        except Exception as exc:
+            logger.warning(
+                "agent.inbox_publish_fail",
+                extra={"doc_id": doc_id, "err": str(exc)[:200]},
+            )
+
+        return path
+
+    def _inbox_publish(
+        self,
+        *,
+        doc_id: str,
+        ref_path: str,
+        recipients: list[str],
+        topic: str,
+        ts_iso: str,
+    ) -> None:
+        """Inbox.jsonl'e mesaj satırları ekle (append-only).
+
+        `recipients` boşsa `all` broadcast — herkes okur, ack beklenmiyor.
+        """
+        inbox = self.settings.memory_dir / "protocol" / "inbox.jsonl"
+        inbox.parent.mkdir(parents=True, exist_ok=True)
+
+        targets = recipients if recipients else ["all"]
+        with inbox.open("a", encoding="utf-8") as f:
+            for recipient in targets:
+                msg = {
+                    "doc_id": doc_id,
+                    "sender": self.name,
+                    "recipient": recipient,
+                    "topic": topic,
+                    "ref_path": ref_path,
+                    "created_at": ts_iso,
+                    "ack_at": None,
+                }
+                f.write(json.dumps(msg, ensure_ascii=False) + "\n")
 
     # ------------------------------------------------------------------
     # Konsolidasyon (Lab tarafından çağrılır)

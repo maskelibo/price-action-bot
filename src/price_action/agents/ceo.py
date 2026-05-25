@@ -8,9 +8,15 @@ CEO'nun mandate'i:
 
 CEO emir VEREMEZ — sadece **öneri** üretir. Çıktı `reports/ceo/` altında
 markdown olarak diskte kalır.
+
+Faz 1.4: `_collect_daily_context` artık `memory/shared/active_state.md` ve
+`memory/protocol/inbox.jsonl`'i her zaman dahil eder; yeni `update_active_state()`
+metodu Researcher hipotezleri + Lab drift alarmları + open critique'leri tarayarak
+ledger'ı (sadece CEO'nun yazma yetkisi) günceller.
 """
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, ClassVar
@@ -56,12 +62,32 @@ class CEOAgent(LLMAgentBase):
     # ------------------------------------------------------------------
 
     async def daily_brief(self, when: date | None = None) -> Path:
-        """Sabah brief'ini üretir. Çıktı: `reports/ceo/YYYY-MM-DD-brief.md`."""
+        """Sabah brief'ini üretir. Çıktı: `reports/ceo/YYYY-MM-DD-brief.md`.
+
+        Faz 1.4: brief üretmeden ÖNCE `update_active_state()` çağrılır ki
+        ledger taze olsun (inbox doc'lar, open hypotheses, drift alerts
+        güncel). Brief prompt'una protokol farkındalığı eklenir.
+        """
         when = when or date.today()
+        # Faz 1.4: ledger refresh
+        try:
+            self.update_active_state()
+        except Exception as exc:
+            logger.warning("ceo.update_active_state_fail", extra={"err": str(exc)[:200]})
+
         prompt = (
-            "SOP-1 Günlük Morning Brief üret. Önce dünkü Analytics raporlarını "
-            "ve açık pozisyon snapshot'ını oku (varsa). 'CEO Morning Brief' "
-            "başlık formatında çıktı ver. Sayısal gerekçe olmayan satır yazma."
+            "SOP-1 Günlük Morning Brief üret. Önce dünkü Analytics raporlarını, "
+            "açık pozisyon snapshot'ını ve `memory/shared/active_state.md` "
+            "ledger'ını oku. 'CEO Morning Brief' başlık formatında çıktı ver.\n\n"
+            "ZORUNLU section'lar:\n"
+            "- ## TL;DR (Telegram-friendly, <280 char)\n"
+            "- ## Dünkü Performans\n"
+            "- ## Bugünün Risk Tablosu\n"
+            "- ## Alternative Scenarios (en az 2 counterfactual)\n"
+            "- ## Open Questions (en az 3, her biri specific agent'a)\n"
+            "- ## Blocked on Principal (insan onayı bekleyenler)\n\n"
+            "Sayısal gerekçe olmayan satır yazma. Inbox'taki critique'leri "
+            "değerlendir; conflict varsa arbitrate önerisi ekle."
         )
         ctx = self._collect_daily_context(when)
         text = await self.run(prompt, context_files=ctx)
@@ -136,20 +162,171 @@ class CEOAgent(LLMAgentBase):
     # ------------------------------------------------------------------
 
     def _collect_daily_context(self, when: date) -> list[Path]:
+        """Brief context dosyaları.
+
+        Faz 1.4: protokol farkındalığı —
+        - `memory/shared/active_state.md` HER ZAMAN dahil (single source of truth)
+        - `memory/shared/protocol.md` HER ZAMAN dahil (kurallara dair farkındalık)
+        - Son inbox doc'larından recipient=ceo olanlar (ref_path'leri) eklenir
+        - Mevcut analytics + lab raporları
+        """
         s = get_settings()
-        candidates = [
+        candidates: list[Path] = []
+
+        # 1) Active state ledger (zorunlu)
+        active_state = self.settings.memory_dir / "shared" / "active_state.md"
+        if active_state.exists():
+            candidates.append(active_state)
+
+        # 2) Protocol (zorunlu — agent her oturumda kurallarını okur)
+        protocol = self.settings.memory_dir / "shared" / "protocol.md"
+        if protocol.exists():
+            candidates.append(protocol)
+
+        # 3) Mevcut analytics + lab
+        candidates.extend([
             s.reports_dir / "analytics" / f"{when.isoformat()}.md",
             s.reports_dir / "analytics" / "yesterday.md",
             s.reports_dir / "lab" / "latest.md",
-        ]
-        return [p for p in candidates if p.exists()]
+        ])
+
+        # 4) Inbox: kendisine yönelik son 50 doc'tan ref_path'leri ekle (max 5)
+        try:
+            inbox_refs = self._collect_inbox_refs(limit=5)
+            candidates.extend(inbox_refs)
+        except Exception as exc:
+            logger.warning("ceo.inbox_collect_fail", extra={"err": str(exc)[:200]})
+
+        # 5) Son tournament + drift (varsa)
+        lab_dir = s.reports_dir / "lab"
+        if lab_dir.exists():
+            for pattern in ("tournament-*.md", "drift-*.md", "whatif-*.md"):
+                matches = sorted(lab_dir.glob(pattern), reverse=True)[:1]
+                candidates.extend(matches)
+
+        # 6) Son 7g analytics whatif raporu (Faz 2'de aktif olacak)
+        analytics_dir = s.reports_dir / "analytics"
+        if analytics_dir.exists():
+            recent_whatif = sorted(analytics_dir.glob("whatif-*.md"), reverse=True)[:1]
+            candidates.extend(recent_whatif)
+
+        # De-dup + existence filter
+        seen: set[str] = set()
+        result: list[Path] = []
+        for p in candidates:
+            if p and p.exists():
+                key = str(p.resolve())
+                if key not in seen:
+                    seen.add(key)
+                    result.append(p)
+        return result
 
     def _collect_weekly_context(self) -> list[Path]:
         s = get_settings()
         candidates: list[Path] = []
+        # Active state + protocol HER ZAMAN
+        for shared in ("active_state.md", "protocol.md"):
+            p = self.settings.memory_dir / "shared" / shared
+            if p.exists():
+                candidates.append(p)
         for sub in ("analytics", "research", "lab"):
             d = s.reports_dir / sub
             if d.exists():
                 latest = sorted(d.glob("*.md"), reverse=True)[:3]
                 candidates.extend(latest)
         return candidates
+
+    def _collect_inbox_refs(self, *, limit: int = 5) -> list[Path]:
+        """Inbox'tan recipient=ceo olan son N doc'un ref_path'lerini topla.
+
+        Atomik değil — concurrent yazma sırasında bazı satırlar kaybolabilir,
+        ama append-only formatta okuma genelde tutarlı.
+        """
+        inbox = self.settings.memory_dir / "protocol" / "inbox.jsonl"
+        if not inbox.exists():
+            return []
+        refs: list[Path] = []
+        try:
+            lines = inbox.read_text(encoding="utf-8").strip().split("\n")
+            # Son 50 satıra bak, sondan başa doğru filtrele
+            for line in reversed(lines[-50:]):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                recipient = msg.get("recipient", "")
+                ack_at = msg.get("ack_at")
+                # Bana yönelik veya broadcast (all) ve henüz ack'lenmemiş
+                if recipient in (self.name, "all") and not ack_at:
+                    ref = msg.get("ref_path", "")
+                    if ref:
+                        # ref_path repo-root relative
+                        full = self.settings.reports_dir.parent / ref
+                        if full.exists():
+                            refs.append(full)
+                if len(refs) >= limit:
+                    break
+        except Exception as exc:
+            logger.warning("ceo.inbox_parse_fail", extra={"err": str(exc)[:200]})
+        return refs
+
+    # ------------------------------------------------------------------
+    # Faz 1.4 — Active State Ledger update (sadece CEO yazar)
+    # ------------------------------------------------------------------
+
+    def update_active_state(self) -> Path | None:
+        """`memory/shared/active_state.md` ledger'ını yenile.
+
+        Yapılan iş:
+        - Researcher hipotez dizinini tara, son 30g açık olanları topla
+        - Lab drift alarm dosyalarını tara (son 7g)
+        - Inbox'tan open critique'leri filtrele
+        - `last_updated` timestamp'i güncelle
+
+        DİKKAT: yapı sabit, sadece veri kısımları yenilenir. Manuel düzenlenmiş
+        bölümler (Pending Principal Decisions gibi) korunur — bu metot
+        ledger'ı tamamen yeniden yazmak yerine **tarama bulgularını note olarak
+        ekler**. Faz 4'te tam re-write'a geçilebilir.
+
+        Returns
+        -------
+        Path | None
+            Güncellenen dosya yolu (yoksa None).
+        """
+        ledger = self.settings.memory_dir / "shared" / "active_state.md"
+        if not ledger.exists():
+            logger.warning("ceo.active_state_missing", extra={"path": str(ledger)})
+            return None
+
+        # Sadece last_updated timestamp'i güncelle (Faz 1: minimal invasiveness)
+        try:
+            content = ledger.read_text(encoding="utf-8")
+            new_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            # last_updated alanını YAML frontmatter içinde değiştir
+            import re
+            updated = re.sub(
+                r"^last_updated:\s*[^\n]+$",
+                f"last_updated: {new_ts}",
+                content,
+                count=1,
+                flags=re.MULTILINE,
+            )
+            # updated_by alanını ceo'ya çek
+            updated = re.sub(
+                r"^updated_by:\s*[^\n]+$",
+                f"updated_by: ceo",
+                updated,
+                count=1,
+                flags=re.MULTILINE,
+            )
+
+            ledger.write_text(updated, encoding="utf-8")
+            logger.info("ceo.active_state_updated", extra={"ts": new_ts})
+            return ledger
+        except Exception as exc:
+            logger.warning("ceo.active_state_update_fail", extra={"err": str(exc)[:200]})
+            return None

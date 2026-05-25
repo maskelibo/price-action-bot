@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.priceaction.ceo</string>
+
+  <!--
+    pa-ceo orchestrator daemon — CEO daily/weekly brief üretimi ve scheduler yönetimi.
+    Mac mini boot olunca otomatik başlar. Crash olursa 30sn sonra restart.
+
+    Detay: ops/launchd/README.md
+  -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/peyman/price-action-bot/.venv/bin/python</string>
+    <string>-m</string>
+    <string>price_action.orchestrator.ceo_loop</string>
+    <string>--mode</string>
+    <string>daily</string>
+    <string>--telegram</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/peyman/price-action-bot</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONPATH</key>
+    <string>/Users/peyman/price-action-bot/src</string>
+    <key>PA_LLM_USE_CLI</key>
+    <string>true</string>
+    <key>PA_RUN_MODE</key>
+    <string>paper</string>
+    <key>PA_CEO_PUSH_TELEGRAM</key>
+    <string>true</string>
+    <key>TZ</key>
+    <string>UTC</string>
+  </dict>
+
+  <!-- Boot anında ve load anında çalıştır -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Crash olursa restart; başarılı exit olursa restart etme -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+
+  <!-- Restart loop'unu engelle: en az 30sn aralık -->
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <!-- Loglar -->
+  <key>StandardOutPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/ceo.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/ceo.stderr.log</string>
+
+  <!-- Low priority — diğer trading process'lerin önüne geçmesin -->
+  <key>Nice</key>
+  <integer>5</integer>
+
+  <!-- File descriptor limiti (LLM streaming için yeterli) -->
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>4096</integer>
+  </dict>
+</dict>
+</plist>

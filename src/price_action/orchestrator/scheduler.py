@@ -119,26 +119,34 @@ async def _job_execute_orders() -> None:
 
 
 async def _job_daily_kpi() -> None:
-    """Analyst günlük KPI brief + CEO morning brief."""
+    """Analyst günlük KPI brief + CEO morning brief + Telegram push."""
     try:
         from price_action.agents import AnalystAgent, CEOAgent
 
         await AnalystAgent().daily_kpi_brief()
-        await CEOAgent().daily_brief()
+        brief_path = await CEOAgent().daily_brief()
+        _push_report_safe(brief_path, level="INFO", caption="CEO Morning Brief")
     except Exception as exc:
         logger.warning("scheduler.daily_kpi_fail", extra={"err": str(exc)[:200]})
 
 
 async def _job_weekly_tournament() -> None:
-    """Lab haftalık tournament — gerçek strateji listesi placeholder."""
+    """Lab haftalık tournament — gerçek strateji listesi placeholder.
+
+    Faz 1.2: terfi adayı bulunursa Telegram push (latest tournament dosyası).
+    """
     try:
         from price_action.agents import LabScientistAgent
 
         # Gerçek champion/challenger Lab tarafından yüklenir; burada hook.
-        await LabScientistAgent().weekly_tournament(
+        result = await LabScientistAgent().weekly_tournament(
             champion={"id": "noop", "oos_returns": [], "oos_sharpe": 0, "oos_maxdd": 0},
             challengers=[],
         )
+        # Tournament dosyası yazılıyorsa push (reports/lab/ son rapor)
+        _push_latest_safe("lab", "tournament-*.md", level="INFO",
+                          caption="Lab Tournament Result")
+        return result  # silenced unused var lint
     except Exception as exc:
         logger.warning("scheduler.tournament_fail", extra={"err": str(exc)[:200]})
 
@@ -154,6 +162,11 @@ async def _job_weekly_drift() -> None:
             lab.append_learning(
                 f"Drift alert: {result}", slug="drift-alert", confidence="high"
             )
+            # Faz 1.2: drift alarmı → Telegram WARN
+            _push_critical_safe(
+                f"DRIFT detected: {result}",
+                source="lab_scientist",
+            )
     except Exception as exc:
         logger.warning("scheduler.drift_fail", extra={"err": str(exc)[:200]})
 
@@ -163,6 +176,7 @@ async def _job_weekly_rag_refresh() -> None:
         from price_action.agents import LabScientistAgent
 
         await LabScientistAgent().rag_refresh(since_days=7)
+        # Faz 1.2: RAG refresh raporu — sessiz başarı, sadece hata push
     except Exception as exc:
         logger.warning("scheduler.rag_refresh_fail", extra={"err": str(exc)[:200]})
 
@@ -171,9 +185,57 @@ async def _job_monthly_review() -> None:
     try:
         from price_action.agents import CEOAgent
 
-        await CEOAgent().weekly_summary()
+        path = await CEOAgent().weekly_summary()
+        _push_report_safe(path, level="INFO", caption="CEO Monthly Review")
     except Exception as exc:
         logger.warning("scheduler.monthly_review_fail", extra={"err": str(exc)[:200]})
+
+
+# ----------------------------------------------------------------------
+# Faz 1.2 — Push helper'ları (sessiz fail; scheduler düşmesin)
+# ----------------------------------------------------------------------
+
+def _push_report_safe(path: Any, *, level: str = "INFO", caption: str | None = None) -> None:
+    """Path'i Telegram'a gönder; hata varsa sessizce logla."""
+    try:
+        from .notifications import push_report, should_push
+
+        if not should_push():
+            return
+        push_report(path, level=level, caption=caption, parse_mode="Markdown")
+    except Exception as exc:
+        logger.warning("scheduler.push_fail", extra={"path": str(path), "err": str(exc)[:200]})
+
+
+def _push_critical_safe(message: str, *, source: str | None = None) -> None:
+    """CRIT mesajını gönder; hata varsa sessizce logla."""
+    try:
+        from .notifications import push_critical
+
+        push_critical(message, source=source)
+    except Exception as exc:
+        logger.warning("scheduler.push_crit_fail", extra={"source": source, "err": str(exc)[:200]})
+
+
+def _push_latest_safe(
+    subdir: str, pattern: str, *, level: str = "INFO", caption: str | None = None
+) -> None:
+    """`reports/<subdir>/` altında en son matching dosyayı bul ve push."""
+    try:
+        from price_action.settings import get_settings
+
+        from .notifications import push_report_if_recent, should_push
+
+        if not should_push():
+            return
+        s = get_settings()
+        d = s.reports_dir / subdir
+        push_report_if_recent(d, pattern, level=level, caption=caption, parse_mode="Markdown")
+    except Exception as exc:
+        logger.warning(
+            "scheduler.push_latest_fail",
+            extra={"subdir": subdir, "pattern": pattern, "err": str(exc)[:200]},
+        )
 
 
 # ----------------------------------------------------------------------
