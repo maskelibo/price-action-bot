@@ -1,0 +1,276 @@
+# =============================================================================
+# PHOENIX-SCALP 5m P1C — DEPLOY CANDIDATE (2026-05-25)
+# =============================================================================
+# Bot: PHOENIX-SCALP-5m-P1C
+# Status: DRAFT — Principal sign-off PENDING (live NOT active, paper-only)
+# Origin: reports/research/5m_p1c_candidate_2026-05-24.md GOAL2+GOAL3
+#
+# RECIPE = W1 base + M2d DD controls + M3a vol_z sizing + 14-day rolling DD halt
+#
+# === BACKTEST (5y, 2021-05 → 2026-05) ===
+#   Aylık ortalama: +15.25%       (15m v2: +14.08%)
+#   Continuous DD:  -16.5%        (15m v2: -17.68%)
+#   Worst month:    -3.61%        (15m v2: -2.06%) — structural sınır
+#   Neg ay:         ?/~59          (15m: 0/61)
+#   n/yr:           537            (15m: 1,304)
+#   WR:             ~34%
+#   avg_risk_pct:   ~0.00485       (M3a vol_z tier ortalaması)
+#
+# === BACKTEST = HİPOTEZ. KANIT = CANLI FILL. ===
+# Worst-month -%3.61 live'da -%5'e ulaşabilir (50 trade örnekleminde varyans).
+# n/yr 537 → bazı dönemler 0-trade dry-spell olur (4-7 gün normal).
+#
+# === LAYERS ===
+# Layer 1 — W1 base (pool filter):
+#   - Pool: data/sec53_5m_pool_v11_vm20.pkl (973,764 trade, +55bps baked, vm=2.0)
+#   - sl_pct_min = 0.030 (wide-stop)
+#   - max_concurrent_positions = 3 (global cap)
+#   - per_symbol_cap = 1
+#   - drop_strategies = ['engulfing_continuation']
+#   - BE-protect: peak_R >= 0.5 → 0R
+#
+# Layer 2 — M2d DD controls:
+#   - Monthly halt: MTD exit-realized P/L < -2.5% → kalan ayı SKIP
+#   - 3-loss 12h halt (Z1c): 3 ardıl loss → 12 saat trade halt
+#   - Walker: additive-pct mode (compound walker'da overflow var, V14 hatası kanıtlandı)
+#   - Equity sentinel: 100 < eq < 1e8 her trade sonrası
+#
+# Layer 3 — M3a vol_z size tier:
+#   - vol_z >= 2 (high): risk_pct = 0.007
+#   - 0 <= vol_z < 2 (norm): risk_pct = 0.005 (baseline)
+#   - vol_z < 0 (low): risk_pct = 0.003
+#
+# Layer 4 — 14-day rolling DD halt (P1c):
+#   - Son 14 gün cumulative P/L (kapanan trade'lerden) < -3.0% → 14 gün halt
+#   - Reset: rolling pencere kaydıkça doğal release
+#
+# === BUG FIX'LERİ (BACKTEST KANITLAMALI) ===
+#   B1-001 (tie-break): Sort key (_entry_utc, symbol, strategy, side) — determinism doğrulandı
+#   Walker V14: Additive-pct (compound değil) — equity overflow yok
+#
+# === CHANGE LOG ===
+#   2026-05-25: İlk DRAFT, deploy-ready aday
+#   Activate via: PA_5M_CONFIG=configs/risk_phoenix_scalp_5m_p1c.yaml
+#   Live activation = Principal sign-off + paper validation first
+#
+# === SEPARATE FROM 15m ===
+#   journal: data/futures_journal_5m.duckdb (ayrı PnL track)
+#   state:   data/state/futures_5m/ (ayrı pyramid_store)
+#   logs:    logs/futures_daemon_5m.log + logs/launchd/futures5m.*.log
+#   plist:   com.priceaction.futures5m (mevcut 15m plist'le çakışmaz)
+# =============================================================================
+
+defaults:
+  account_currency: USDT
+  preset_name: phoenix_scalp_5m_p1c
+  bot_name: PHOENIX-SCALP-5m-P1C
+  timeframe: 5m
+  sim_only: true  # paper mode — Principal sign-off ile production'a
+
+# =============================================================================
+# EXECUTION
+# =============================================================================
+execution:
+  # round-trip (entry+exit) Binance USDM taker ~7.5bps/leg = 15bps RT
+  fee_bps_per_trade: 15.0
+
+  # P1c WIDE-STOP: sl_pct >= 0.030 (15m'de 0.025; 5m gürültüsü için daha sıkı)
+  # Causal: ATR'den entry'de bilinir, look-ahead yok
+  sl_pct_min: 0.030
+
+  # 5m'de bar daha sık → post-only fill window dar; fallback hızlı (15sn)
+  post_only_limit_enabled: true
+  post_only_fallback_seconds: 15
+
+  slippage_limit_bps: 25
+  pyramid_slippage_limit_bps: 50
+
+# =============================================================================
+# POSITION SIZING — M3a vol_z TIER (P1c imzası)
+# =============================================================================
+position_sizing:
+  method: vol_z_tier  # YENİ — P1c walker runtime çağıracak
+
+  # Tek-trade backtest_risk_pct ortalama (parity için referans)
+  # Gerçek runtime'da vol_z_tier'dan seçilir.
+  backtest_risk_pct: 0.00485  # M3a ortalama empirik
+
+  # P1c M3a tier'ları (DEPLOY-READY parametreler)
+  vol_z_tiers:
+    - {min: 2.0, max: 999, risk_pct: 0.007, label: high}      # high vol → büyük risk
+    - {min: 0.0, max: 2.0, risk_pct: 0.005, label: normal}    # baseline
+    - {min: -999, max: 0.0, risk_pct: 0.003, label: low}      # low vol → küçük risk
+
+  kelly_cap: 0.10        # 15m'de 0.15; 5m daha sıkı (n/yr 537 fewer samples)
+  min_quantity_usdt: 10
+  size_rounding: exchange_step
+  max_notional_pct_equity: 0.15
+  max_same_side_concurrent: 3   # P1c W1 max_concurrent_positions = 3
+
+# =============================================================================
+# STOP LOSS — 5m ATR
+# =============================================================================
+stop_loss:
+  method: atr
+  # 5m: 14 bar = 70 dakika (15m'de 14×15 = 3.5 saat)
+  atr_period: 14
+  atr_multiplier: 1.5
+  structural_buffer_pct: 0.003
+
+  trailing:
+    enabled: true
+    method: atr_chandelier
+    atr_period: 14
+    multiplier: 2.0
+    activate_after_R: 1.0
+
+# =============================================================================
+# TAKE PROFIT — P1c BE-protect
+# =============================================================================
+take_profit:
+  method: r_multiple
+  primary_R: 1.2          # 15m ile aynı
+
+  # P1c BE-protect: peak_R >= 0.5 olunca SL'i breakeven'a çek (0R)
+  # = exit her zaman ≥0R (small win or BE), large loss kapı
+  be_protect_enabled: true
+  be_protect_trigger_R: 0.5
+
+  partial_close_at_R: 0.8
+  runner_trail: true
+
+# =============================================================================
+# VOL TARGET (15m widestop'tan kopya, 5m için ölçek)
+# =============================================================================
+vol_target:
+  enabled: true
+  # 5m ATR%: 15m %1 → 5m %0.6 (TF-scaled, 1/sqrt(3))
+  target_atr_pct: 0.006
+  min_factor: 0.20
+  max_factor: 1.50
+
+# =============================================================================
+# LEVERAGE
+# =============================================================================
+leverage:
+  enabled: true
+  max_leverage_per_symbol: 3
+  max_portfolio_notional_x_equity: 3
+  margin_safety_ratio: 0.5
+
+# =============================================================================
+# DRAWDOWN BREAKERS — P1c Layer 2 (M2d)
+# =============================================================================
+drawdown_breakers:
+  # P1c Monthly Halt: MTD exit-realized P/L < -2.5% → kalan ayı SKIP
+  # 15m'de 0.02; P1c 0.025 (slightly looser çünkü 5m daha sık trade)
+  monthly_loss_pct: 0.025
+
+  # P1c 3-loss 12h halt (Z1c)
+  consecutive_loss_halt:
+    enabled: true
+    n_losses: 3
+    halt_hours: 12
+
+  # P1c 14-day rolling DD halt
+  rolling_dd_halt:
+    enabled: true
+    window_days: 14
+    threshold_pct: -0.03  # -3.0%
+    halt_days: 14
+
+  # 15m widestop'tan referans (bunlar P1c'de override edilmedi)
+  daily_loss_pct: 0.02
+  weekly_loss_pct: 0.05
+
+  # P1c equity sentinel — runtime guard
+  equity_sentinel:
+    enabled: true
+    min_equity_usdt: 100
+    max_equity_usdt: 100000000
+
+# =============================================================================
+# CORRELATION + CONCENTRATION
+# =============================================================================
+correlation_gate:
+  enabled: true
+  threshold: 0.7
+
+concentration_limits:
+  max_per_symbol_pct: 0.15
+  max_per_category_pct: 0.40
+
+# =============================================================================
+# STRATEGY PORTFOLIO — P1c W1 base
+# =============================================================================
+strategy_portfolio:
+  enabled: true
+
+  # 5m sembolleri (15m ile aynı evrenden başla)
+  symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - ADA/USDT
+    - DOT/USDT
+    - LINK/USDT
+    - AVAX/USDT
+    - DOGE/USDT
+    - XRP/USDT
+
+  # P1c W1 base: SADECE vsa_climax_test (other dropped or not enabled)
+  # drop_strategies = ['engulfing_continuation'] — explicit kapat
+  strategies:
+    - vsa_climax_test
+    # brooks_failed_breakout — Layer 1'de aktif değil (P1c W1 base = vsa-only)
+    # anchored_vwap_reversal — pool'da düşük edge (R+0.07)
+    # engulfing_continuation — drop_strategies'de açıkça kapatıldı
+
+  drop_strategies:
+    - engulfing_continuation
+
+  # P1c W1: per_symbol_cap = 1
+  per_symbol_cap: 1
+
+  same_symbol_side_cooldown_days: 0.004  # ~5 dakika (1 bar)
+
+  # P1c W1: max_concurrent = 3
+  max_concurrent_positions: 3
+
+  pyramid_enabled: false   # P1c wide-stop = pyramid OFF
+  signal_confidence_min: 0.20  # 15m'de 0.25; 5m daha gevşek (filtre vol_z'de)
+
+  expected_annual_return: 1.83  # +15.25%/ay × 12 ≈ +183% additive
+  expected_max_dd: 0.165         # -16.5%
+
+# =============================================================================
+# P1c-SPECIFIC RUNTIME CONFIG (price_action.execution.p1c_walker okuyacak)
+# =============================================================================
+p1c_runtime:
+  walker_mode: additive_pct       # compound değil (V14 bug fix)
+  monthly_halt_lookback: month_to_date
+  three_loss_window_hours: 12
+  rolling_dd_window_days: 14
+  rolling_dd_halt_days: 14
+  rolling_dd_threshold_pct: -0.03
+  be_protect_trigger_R: 0.5
+  vol_z_lookback_bars: 20         # 5m × 20 = 100 dakika
+
+# =============================================================================
+# EXIT (legacy, DEAD CONFIG — kept for parity)
+# =============================================================================
+exit_engine:
+  multi_target: true
+  partials:
+    - {R: 0.8, size_pct: 25}
+    - {R: 1.2, size_pct: 25}
+  runner_pct: 50
+
+# =============================================================================
+# BUDGET (paper sermayesi)
+# =============================================================================
+capital:
+  initial_usdt: 1000.0           # 15m'in $5000'i yanında $1000 paralel
+  reserve_usdt: 0.0
+  # Production: Principal kararı, mevcut $5k bölünür mü ya da ek mi

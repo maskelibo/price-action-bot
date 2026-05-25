@@ -22,13 +22,15 @@ tags:
 
 | Bot | Mode | PID | Strategy | Uptime | Capital | Risk/Trade | Notlar |
 |---|---|---|---|---|---|---|---|
-| futures_daemon_15m | paper (testnet) | 17267 | wide-stop (sl_pct ≥ 2.5%) | 2g+ | $5000 | $25 (0.5%) | Bekleyen — son 2 günde 0 entry |
+| futures_daemon_15m | paper (launchctl) | 80763 | wide-stop (sl_pct ≥ 2.5%) | yeni | $5000 | $25 (0.5%) | Faz 5 migration: manuel→launchctl-managed |
+| futures_daemon_5m_p1c | paper (launchctl) | 97251 | vsa_climax + P1c walker | yeni | $1000 | tier-based (0.3/0.5/0.7%) | Faz 5 ilk deploy — paralel ayrı PnL |
 
 ## 2. Active Strategies (deployed)
 
 | Strategy | Manifest | Config | Status | Live since | Last review |
 |---|---|---|---|---|---|
 | 15m wide-stop v2 | configs/risk_phoenix_scalp_15m_widestop.yaml | sl≥2.5%, risk 0.5% | ACTIVE | 2026-05-22 | 2026-05-22 |
+| 5m P1c (vsa_climax) | configs/risk_phoenix_scalp_5m_p1c.yaml | sl≥3%, vol_z tier sizing, P1c walker (monthly+3-loss+rolling 14d DD halts) | ACTIVE | 2026-05-25 | 2026-05-25 |
 
 ## 3. Open Hypotheses (Researcher pre-registered, sonuç bekleniyor)
 

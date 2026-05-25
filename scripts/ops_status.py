@@ -61,6 +61,31 @@ def _check_launchd() -> list[dict]:
         return [{"error": str(e)[:200]}]
 
 
+def _check_p1c_walker() -> dict:
+    """P1c walker state summary (5m bot)."""
+    try:
+        sys.path.insert(0, str(SRC))
+        from price_action.execution.p1c_walker import P1cWalker
+        from pathlib import Path as _P
+
+        cfg_path = ROOT / "configs" / "risk_phoenix_scalp_5m_p1c.yaml"
+        if not cfg_path.exists():
+            return {"status": "config not found"}
+        walker = P1cWalker(config_path=cfg_path)
+        summary = walker.state_summary()
+        halts = walker.check_halts()
+        return {
+            "equity_usdt": summary["equity"],
+            "mtd_pnl_pct": summary["mtd_pnl_pct"],
+            "n_trades": summary["n_trades"],
+            "n_open": summary["n_open"],
+            "halted": halts["halted"],
+            "halt_reason": halts.get("reason", "ok"),
+        }
+    except Exception as e:
+        return {"error": str(e)[:200]}
+
+
 def _check_processes() -> list[dict]:
     """ps aux | grep futures_daemon | ceo_loop."""
     try:
@@ -203,6 +228,7 @@ def main() -> int:
         "inbox": _check_inbox(),
         "active_state": _check_active_state(),
         "token_stats": _check_token_stats(),
+        "p1c_walker": _check_p1c_walker(),
         "disk": _check_disk(),
     }
 
@@ -266,6 +292,18 @@ def main() -> int:
         print(f"  Total input tokens: {t['total_input_tokens']:,}")
         print(f"  Total output tokens: {t['total_output_tokens']:,}")
         print(f"  Total cost (kabaca): ${t['total_cost_usd']}")
+
+    print("\n## P1c Walker (5m bot)")
+    p = snapshot["p1c_walker"]
+    if "error" in p:
+        print(f"  ERROR: {p['error']}")
+    elif "status" in p:
+        print(f"  {p['status']}")
+    else:
+        print(f"  Equity:       ${p['equity_usdt']:.2f}")
+        print(f"  MTD PnL:      {p['mtd_pnl_pct']:+.3f}%")
+        print(f"  Trades:       {p['n_trades']} closed, {p['n_open']} open")
+        print(f"  Halted:       {p['halted']}" + (f" ({p['halt_reason']})" if p['halted'] else ""))
 
     print("\n## Disk")
     d = snapshot["disk"]

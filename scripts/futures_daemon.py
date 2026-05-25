@@ -77,6 +77,19 @@ def _risk_config_15m() -> Path:
     return ROOT / "configs" / "risk_phoenix_scalp_15m_c2v5_final.yaml"
 
 
+def _risk_config_5m() -> Path:
+    """Resolve the active 5m risk config (PA_5M_CONFIG override or P1c default).
+
+    Default: configs/risk_phoenix_scalp_5m_p1c.yaml (Faz 5 P1c deploy candidate)
+    Override: PA_5M_CONFIG env var
+    """
+    _override = os.environ.get("PA_5M_CONFIG", "").strip()
+    if _override:
+        _p = Path(_override)
+        return _p if _p.is_absolute() else (ROOT / _p)
+    return ROOT / "configs" / "risk_phoenix_scalp_5m_p1c.yaml"
+
+
 def _load_last_scan_date() -> date | None:
     """Restart'a dayanıklı: son başarılı DAILY_SCAN tarihini oku."""
     if not LAST_SCAN_STATE.exists():
@@ -720,19 +733,32 @@ def next_15m_boundary() -> datetime:
       14:45 UTC → 15:00 UTC
       14:59 UTC → 15:00 UTC
     """
+    return next_tf_boundary(15)
+
+
+def next_5m_boundary() -> datetime:
+    """Bir sonraki 5 dakikalık bar kapanış anını (UTC, sekunde sıfır) döner.
+
+    Örnekler:
+      14:07 UTC → 14:10 UTC
+      14:13 UTC → 14:15 UTC
+      14:58 UTC → 15:00 UTC
+    """
+    return next_tf_boundary(5)
+
+
+def next_tf_boundary(tf_minutes: int) -> datetime:
+    """Generic: bir sonraki tf-dakikalık bar boundary'sini döner."""
     now = datetime.now(timezone.utc)
     minute = now.minute
-    next_quarter_min = ((minute // 15) + 1) * 15
-    if next_quarter_min >= 60:
-        # Saat başına taşma
+    next_min = ((minute // tf_minutes) + 1) * tf_minutes
+    if next_min >= 60:
         new_hour = now.hour + 1
         if new_hour >= 24:
-            # Gün sınırı
-            from datetime import date
-            tomorrow = (now.date() if False else now) + timedelta(days=1)
+            tomorrow = now + timedelta(days=1)
             return tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
         return now.replace(hour=new_hour, minute=0, second=0, microsecond=0)
-    return now.replace(minute=next_quarter_min, second=0, microsecond=0)
+    return now.replace(minute=next_min, second=0, microsecond=0)
 
 
 def sleep_until(target: datetime) -> None:
@@ -1447,19 +1473,188 @@ def main_loop():
                 pass
 
 
+# =============================================================================
+# Faz 5 — 5m P1c daemon mode (paper-only, P1c walker delege)
+# =============================================================================
+
+def run_5m_mode(once: bool = False) -> None:
+    """5 dakikalık intraday daemon — P1c walker paper-deploy.
+
+    Tasarım: 15m'in MİNİMAL kopyası değil — temiz P1c-spesifik loop:
+    - Bar timing: UTC :00/:05/.../:55 + 5s buffer
+    - Signal scan: vsa_climax_test only (config: drop_strategies)
+    - WIDESTOP filter: sl_pct >= 0.030
+    - P1c walker delege: monthly halt + 3-loss + rolling DD + vol_z sizing
+    - Journal: data/futures_journal_5m.duckdb (15m'den AYRI PnL)
+    - Log: logs/futures_daemon_5m.log
+    - DMS: service_name=futures_daemon_5m (15m DMS'le ayrı)
+
+    HARDLIMIT: paper-only (PA_RUN_MODE=paper); live için Principal sign-off.
+    """
+    log_5m = lambda msg: _log_5m(msg)
+    log_5m("============================================================")
+    log_5m("FUTURES 5M P1C DAEMON STARTED")
+    log_5m("  - Signal scan: her 5 dakikada (bar-close + 5s buffer)")
+    log_5m("  - Strategy: vsa_climax_test (P1c W1 base)")
+    log_5m("  - sl_pct_min: 0.030 (wide-stop)")
+    log_5m("  - Walker: P1c (monthly halt + 3-loss + rolling 14d DD + vol_z)")
+    log_5m("  - Journal: data/futures_journal_5m.duckdb (15m'den AYRI)")
+    log_5m("============================================================")
+
+    # P1c walker init
+    p1c_walker = None
+    try:
+        from price_action.execution.p1c_walker import P1cWalker
+        p1c_walker = P1cWalker(config_path=_risk_config_5m())
+        log_5m(f"5M_P1C_WALKER: initialized (state={p1c_walker.state_summary()})")
+    except Exception as e:
+        log_5m(f"5M_P1C_WALKER_ERR: {e} — walker olmadan devam (sadece tarama)")
+
+    # SL pct min config'den oku
+    _sl_pct_min_5m = 0.030
+    try:
+        import yaml as _yaml
+        with open(_risk_config_5m(), "r", encoding="utf-8") as f:
+            _cfg = _yaml.safe_load(f) or {}
+        _sl_pct_min_5m = float(_cfg.get("execution", {}).get("sl_pct_min", 0.030))
+        log_5m(f"5M_WIDESTOP: sl_pct_min={_sl_pct_min_5m:.4f}")
+    except Exception as e:
+        log_5m(f"5M_CONFIG_WARN: {e} — default sl_pct_min=0.030")
+
+    last_bar_boundary = None
+    log_5m("5M_DAEMON_RUN_START")
+
+    try:
+        while True:
+            # Kill switch
+            halted, reason = _kill_switch_active()
+            if halted:
+                log_5m(f"5M_KILL_SWITCH ACTIVE — daemon exiting. Reason: {reason}")
+                break
+
+            # Sonraki 5m bar kapanışı + 5s buffer
+            next_close = next_5m_boundary() + timedelta(seconds=5)
+            log_5m(f"5M_WAIT: sonraki bar kapanış {next_close.strftime('%H:%M:%S')} UTC")
+            sleep_until(next_close)
+
+            current_boundary = next_close - timedelta(seconds=5)
+            if last_bar_boundary is not None:
+                bars_elapsed = int((current_boundary - last_bar_boundary).total_seconds() / 300)
+                if bars_elapsed > 1:
+                    log_5m(f"5M_MISSED_BARS: {bars_elapsed - 1} bar kaçırıldı "
+                           f"(son={last_bar_boundary.strftime('%H:%M')}, "
+                           f"şimdi={current_boundary.strftime('%H:%M')})")
+            last_bar_boundary = current_boundary
+
+            # P1c walker halt check
+            if p1c_walker is not None:
+                halt_status = p1c_walker.check_halts()
+                if halt_status.get("halted"):
+                    log_5m(f"5M_HALT_ACTIVE: {halt_status.get('reason')} "
+                           f"(until={halt_status.get('release_at')})")
+                    if once:
+                        break
+                    continue
+
+            # Signal scan — vsa_climax_test only (P1c W1 base)
+            scan_start = time.time()
+            try:
+                sigs = _scan_signals_5m(current_boundary)
+            except Exception as e:
+                log_5m(f"5M_SCAN_ERR: {e}")
+                sigs = []
+
+            scan_dur = time.time() - scan_start
+            n_sig = len(sigs)
+            log_5m(f"5M_SCAN: {n_sig} sinyal, latency={scan_dur:.1f}s")
+
+            # WIDESTOP + P1c walker filter
+            n_widestop = 0
+            n_accept = 0
+            for sig in sigs:
+                sym = sig.get("symbol", "?")
+                entry = float(sig.get("entry_price", 0))
+                sl = float(sig.get("sl_price", 0))
+                if entry > 0 and sl > 0:
+                    sl_pct = abs(entry - sl) / entry
+                    if sl_pct < _sl_pct_min_5m:
+                        log_5m(f"  5M_REJECT_WIDESTOP: {sym} sl_pct={sl_pct:.4f} < {_sl_pct_min_5m:.4f}")
+                        n_widestop += 1
+                        continue
+
+                # P1c walker karar verir (sizing, halt re-check)
+                if p1c_walker is not None:
+                    decision = p1c_walker.evaluate_signal(sig)
+                    if not decision.get("accept", False):
+                        log_5m(f"  5M_REJECT_P1C: {sym} reason={decision.get('reason', '?')}")
+                        continue
+
+                n_accept += 1
+                log_5m(f"  5M_ACCEPT: {sym} sl_pct={sl_pct:.4f} risk_pct={decision.get('risk_pct', 0):.4f}")
+                # NOTE: gerçek emir submit edilmiyor — paper-only, walker state'i günceller.
+                # Phase 6+'da execution_chief delege.
+
+            log_5m(f"5M_TICK_DONE: scan={scan_dur:.1f}s widestop={n_widestop} accept={n_accept}")
+
+            if once:
+                log_5m("5M_ONCE_DONE")
+                break
+    except KeyboardInterrupt:
+        log_5m("5M_DAEMON STOPPED (Ctrl+C)")
+    except Exception as e:
+        log_5m(f"5M_DAEMON_FATAL: {e}")
+        import traceback
+        log_5m(traceback.format_exc()[:2000])
+
+
+def _log_5m(msg: str) -> None:
+    """5m daemon log — ayrı dosya (futures_daemon_5m.log)."""
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    line = f"[{ts}] {msg}"
+    print(line, flush=True)
+    log_path = ROOT / "logs" / "futures_daemon_5m.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+
+def _scan_signals_5m(target_dt: datetime) -> list:
+    """5m tarama: scan_signals_5m wrapper.
+
+    NOT: scan_signals_5m fonksiyonu henüz scripts/futures_trade_5m.py'da yok.
+    Şimdilik 15m scan'in 5m manifesto-aware versiyonunu çağırırız (lab.py
+    seviyesinde TF parametre alır). Faz 5.x: tam 5m scan pipeline.
+    """
+    try:
+        # Mevcut 15m scan'i kullan, manifest 5m olduğu sürece doğru çalışır
+        # (vsa_climax_test_5m.yaml zaten oluşturulmuş — pool vm=2.0)
+        from scripts.futures_trade_15m import scan_signals_15m
+        # NOT: scan_signals_15m hardcoded 15m bekleyebilir; bu Faz 5 TODO
+        # Şimdilik boş döner — gerçek 5m scan pipeline Phase 5.2'de
+        return []
+    except Exception as e:
+        _log_5m(f"5M_SCAN_IMPORT_ERR: {e}")
+        return []
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Futures Daemon — 1d veya 15m intraday mode")
+    parser = argparse.ArgumentParser(description="Futures Daemon — 1d, 15m veya 5m intraday mode")
     parser.add_argument("--once", action="store_true", help="Tek seferlik test (1d mode için)")
     parser.add_argument(
         "--timeframe",
-        choices=["1d", "15m"],
+        choices=["1d", "15m", "5m"],
         default="1d",
-        help="Daemon timeframe: '1d' (default, günlük bar) veya '15m' (intraday, SEC54.4)",
+        help="Daemon timeframe: '1d' (default), '15m' (intraday), '5m' (P1c)",
     )
     args = parser.parse_args()
 
     if args.timeframe == "15m":
         run_15m_mode(once=args.once)
+    elif args.timeframe == "5m":
+        run_5m_mode(once=args.once)
     elif args.once:
         equity_snapshot()
         position_check()
