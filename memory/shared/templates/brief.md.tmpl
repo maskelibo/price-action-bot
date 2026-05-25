@@ -1,0 +1,47 @@
+---
+doc_id: ceo-"{{yyyymmddTHHMMSS}}"-"{{slug}}"
+doc_type: brief
+agent_id: ceo
+created_at: "{{iso8601_utc}}"
+status: PROPOSED
+confidence: "{{low|med|high}}"
+depends_on: "{{[list of upstream doc_ids]}}"
+blocks: []
+requested_review_from: []
+tags: ["{{daily|weekly}}, {{regime_tag}}"]
+---
+
+# CEO {{Daily|Weekly}} Brief — {{YYYY-MM-DD}}
+
+## TL;DR
+> 1-2 cümle, Telegram'a kopyalanabilir. <280 karakter.
+
+## Dünkü Performans
+- Net P&L: $X (Y%)
+- Trade: N (W kazanan, L kayıp)
+- Sharpe (30g): X.XX | MaxDD (30g): -X.X%
+
+## Bugünün Risk Tablosu
+- Açık pozisyon: N | Net exposure: $X | Margin used: Y%
+- Korelasyon avg: X | Breaker mesafesi: -X.X%
+
+## Bekleyen Sinyaller
+| Symbol | Yön | Confluence | R:R | Risk Onayı |
+
+## Alternative Scenarios (en az 2 — zorunlu, Faz 2)
+1. **Counterfactual A:** Eğer X yapsaydık → tahmini Y%
+2. **Forward scenario:** Yarın Z event olursa → hazırlık önerisi
+
+## Open Questions (en az 3 — zorunlu, Faz 2)
+1. **<agent>'a soruyorum:** ...
+2. **<agent>'a soruyorum:** ...
+3. ...
+
+## Blocked on Principal (varsa)
+- [ ] **<karar>** — beklenen aksiyon: <act>, urgency: <low|med|high>
+
+## Direktif
+1. <madde>
+
+## İzlenecek
+- ...

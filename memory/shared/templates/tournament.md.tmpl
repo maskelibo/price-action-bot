@@ -1,0 +1,49 @@
+---
+doc_id: lab-"{{yyyymmddTHHMMSS}}"-tournament-w"{{WW}}"
+doc_type: tournament
+agent_id: lab_scientist
+created_at: "{{iso8601_utc}}"
+status: PROPOSED
+confidence: high
+depends_on: "{{[challenger hypothesis doc_ids]}}"
+blocks: []
+requested_review_from: [risk_officer, ceo]
+tags: [tournament, weekly]
+---
+
+# Tournament Report — Week {{WW}}
+
+## Setup
+- Champion: {{champion_strategy_id}}
+- Challengers (n={{N}}): {{list}}
+- Pool: {{pool_path}}
+- Test window: {{date_range}}
+- Fee/slippage assumption: {{conservative_taker_bps}}
+
+## Genel Tablo
+| ID | n trades | OOS Sharpe | OOS MaxDD | Effect vs champion | DSR p | Karar |
+|---|---|---|---|---|---|---|
+| {{champion}} | ... | ... | ... | (baseline) | - | CHAMPION |
+| {{challenger_1}} | ... | ... | ... | +X% | 0.0XX | PROMOTE/HOLD/REJECT |
+
+## Terfi Gate'leri (4/4 zorunlu)
+- [ ] Gate 1: DSR p-value < 0.05
+- [ ] Gate 2: Effect ≥ +15% OOS Sharpe
+- [ ] Gate 3: MaxDD ≤ champion + 5pp absolute
+- [ ] Gate 4: Rejim coverage ≥ 2/3 pozitif
+
+## Multiple Testing Correction
+- n_trials toplam: {{N}}
+- Method: {{Bonferroni|BH|López_de_Prado_DSR}}
+- Adjusted alpha: {{value}}
+
+## Detay (terfi adayları)
+{{per-candidate breakdown with regime split + bias check}}
+
+## Tavsiye (CEO için)
+- [ ] **PROMOTE:** {{ID}} — gerekçe (4/4 gate + ek bias kontrolü)
+- [ ] **HOLD:** {{ID}} — neden (örn. sample size yetersiz)
+- [ ] **REJECT:** {{ID}} — neden (örn. effect size zayıf, MaxDD üst gate)
+
+## İnsan Onayına Sunulan
+- {{varsa parametre değişikliği önerisi — sadece principal onayı sonrası deploy}}

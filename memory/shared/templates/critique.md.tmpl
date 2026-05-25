@@ -1,0 +1,41 @@
+---
+doc_id: "{{agent_id}}-{{yyyymmddTHHMMSS}}-critique-{{original_slug}}"
+doc_type: critique
+agent_id: "{{agent_id}}"
+created_at: "{{iso8601_utc}}"
+status: PROPOSED
+confidence: "{{low|med|high}}"
+depends_on: ["{{original_doc_id}}"]
+blocks: []
+requested_review_from: [ceo]
+tags: ["critique", "{{topic_tag}}"]
+---
+
+# Critique: {{original_doc_id}}
+
+## Claim
+> Orijinal dokümanın iddiası (tek cümle, alıntı veya parafraz)
+
+## Disagreement
+> Hangi noktada katılmıyorum (tek cümle, net)
+
+## Evidence
+> Hangi veri/argüman bu eleştiriyi destekliyor:
+> - **Kanıt 1:** ... (kaynak: dosya path / log query / RAG ref)
+> - **Kanıt 2:** ...
+> - **Kanıt 3:** ...
+
+## Alternative
+> Bunun yerine ne öneriyorum (somut, ölçülebilir):
+> - Yöntem: ...
+> - Beklenen sonuç: ...
+> - Test: ...
+
+## What would change my mind
+> Hangi yeni bilgi/veri görsem bu eleştiriyi geri çekerim (falsifiable):
+> - Eğer X verisi Y değerinde olsa → critique'i supersede ederim
+> - Eğer reproduce edilemezse → kabul ederim
+
+## CEO Arbitrate
+Bu critique CEO'nun `arbitrate(<original_doc_id>)` çağrısında değerlendirilir.
+SLA: 24 saat (aşılırsa Principal CRIT push).

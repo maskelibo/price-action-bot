@@ -1,0 +1,47 @@
+---
+doc_id: "ceo-{{yyyymmddTHHMMSS}}-directive-{{slug}}"
+doc_type: directive
+agent_id: ceo
+created_at: "{{iso8601_utc}}"
+status: PROPOSED
+confidence: "{{low|med|high}}"
+depends_on: []
+blocks: []
+requested_review_from: [risk_officer]
+tags: ["directive", "{{topic}}", "{{principal_approval_required}}"]
+---
+
+# CEO Directive: {{slug}}
+
+## TL;DR
+> 1 cümle, ne öneriyorum.
+
+## Bağlam
+- Trigger: {{event/report/principal_request}}
+- Veri kaynakları: {{list of doc_ids}}
+
+## Karar Çerçevesi
+1. **Veri** (sayısal gerekçe): ...
+2. **Hipotez** (ne olduğunu düşünüyorum): ...
+3. **Karşı-hipotez** (ne yanlış olabilir): ...
+4. **Asimetri** (risk:reward): ...
+5. **Tersine çevirme** (öneri yanlışsa nasıl anlarız — kill criteria): ...
+6. **Öneri** (net, tek cümle): ...
+
+## Risk Officer İncelemesi (kabul/red bekleniyor)
+- {{Risk Officer critique veya endorse linki — Faz 2.2 inbox roundtrip sonrası dolacak}}
+
+## Onay Akışı
+- [ ] Risk Officer endorse (ZORUNLU, gate)
+- [ ] Lab Scientist endorse (tournament-ilgili ise ZORUNLU)
+- [ ] Principal manuel onay (deploy ise ZORUNLU)
+
+## Geri-Çevirme Planı (rollback)
+- Eğer öneri canlıya alındıktan sonra X olursa: ...
+- Rollback adımları: ...
+- Veri kaybı riski: ...
+
+## Beklenen Etki
+- Hedef metrik: ...
+- Tahmini değişim: ...
+- Süre: ...

@@ -44,6 +44,10 @@ chroma.sqlite3
 memory/**/runtime/
 memory/**/episodic/*.jsonl
 
+# Inter-agent protocol — append-only message bus
+memory/protocol/inbox.jsonl
+memory/protocol/archive/
+
 # Notebooks
 .ipynb_checkpoints/
 notebooks/scratch/
