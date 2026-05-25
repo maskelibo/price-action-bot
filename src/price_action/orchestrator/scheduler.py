@@ -256,6 +256,117 @@ async def _job_scan_drift_alerts() -> None:
 
 
 # ----------------------------------------------------------------------
+# Faz 4.2 — Token budget report
+# ----------------------------------------------------------------------
+
+async def _job_weekly_token_report() -> None:
+    """OpsAgent haftalık token usage raporu (Pazar 05:00 UTC).
+
+    Prometheus pa_llm_tokens_total → per-agent breakdown + bütçe kontrolü.
+    Limit aşımı varsa Telegram CRIT push.
+    """
+    try:
+        from price_action.agents import OpsAgent
+        from price_action.ops.token_budget import (
+            build_weekly_report,
+            check_budget,
+            get_token_stats,
+            load_budget_config,
+        )
+
+        stats = get_token_stats(window_hours=24 * 7)
+        config = load_budget_config()
+        alerts = check_budget(stats, config)
+        body = build_weekly_report(stats, config, alerts)
+
+        ops = OpsAgent()
+        # OpsAgent write_protocol_doc helper'ı kullansın
+        from datetime import datetime as _dt, timezone as _tz
+        iso = _dt.now(_tz.utc).isocalendar()
+        week_label = f"{iso.year}-W{iso.week:02d}"
+        path = ops.write_protocol_doc(
+            doc_type="incident" if alerts else "postmortem",
+            body=body,
+            slug=f"token-report-{week_label}",
+            target_dir=ops.settings.reports_dir / "ops",
+            status="ACTIVE",
+            confidence="high",
+            requested_review_from=["ceo"] if alerts else [],
+            tags=["token_budget", "weekly", week_label],
+        )
+
+        # Limit aşımı varsa CRIT push
+        crit_alerts = [a for a in alerts if a.get("level") == "CRIT"]
+        if crit_alerts:
+            _push_critical_safe(
+                f"Token budget aşıldı: {[a['agent'] for a in crit_alerts]}",
+                source="ops_engineer",
+            )
+        elif alerts:
+            _push_report_safe(path, level="WARNING", caption="Token Budget WARN")
+        logger.info(
+            "scheduler.token_report_done",
+            extra={"path": str(path), "n_alerts": len(alerts)},
+        )
+    except Exception as exc:
+        logger.warning("scheduler.token_report_fail", extra={"err": str(exc)[:200]})
+
+
+# ----------------------------------------------------------------------
+# Faz 4.4 — Weekly consolidation
+# ----------------------------------------------------------------------
+
+async def _job_weekly_consolidation() -> None:
+    """Tüm agent'ların weekly_consolidation çağrısı + inbox archive (Pazar 05:30 UTC)."""
+    try:
+        from price_action.agents import (
+            AnalystAgent,
+            CEOAgent,
+            LabScientistAgent,
+            OpsAgent,
+            ResearcherAgent,
+            RiskOfficerAgent,
+        )
+        from price_action.settings import get_settings as _gs
+
+        agents = [
+            CEOAgent(), ResearcherAgent(), LabScientistAgent(),
+            AnalystAgent(), RiskOfficerAgent(), OpsAgent(),
+        ]
+        consolidated = 0
+        for a in agents:
+            try:
+                a.consolidate_weekly(last_n_days=7)
+                consolidated += 1
+            except Exception as exc:
+                logger.warning(
+                    "scheduler.consolidate_fail",
+                    extra={"agent": a.name, "err": str(exc)[:200]},
+                )
+
+        # Inbox archive: önceki haftanın inbox.jsonl'ini archive/'a taşı
+        s = _gs()
+        inbox = s.memory_dir / "protocol" / "inbox.jsonl"
+        if inbox.exists():
+            from datetime import datetime as _dt, timezone as _tz
+            iso = _dt.now(_tz.utc).isocalendar()
+            archive_path = s.memory_dir / "protocol" / "archive" / f"{iso.year}-W{iso.week:02d}.jsonl"
+            archive_path.parent.mkdir(parents=True, exist_ok=True)
+            # Move (rename)
+            inbox.rename(archive_path)
+            # Yeni boş inbox başlat
+            inbox.touch()
+            logger.info(
+                "scheduler.inbox_archived",
+                extra={"archive": str(archive_path)},
+            )
+
+        logger.info("scheduler.consolidation_done", extra={"n_agents": consolidated})
+    except Exception as exc:
+        logger.warning("scheduler.consolidation_fail", extra={"err": str(exc)[:200]})
+
+
+# ----------------------------------------------------------------------
 # Faz 1.2 — Push helper'ları (sessiz fail; scheduler düşmesin)
 # ----------------------------------------------------------------------
 
@@ -315,10 +426,12 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("daily_kpi", "cron", "0 23 * * *", _job_daily_kpi),
     ("daily_whatif", "cron", "30 23 * * *", _job_daily_whatif),  # Faz 2.3
     ("review_inbox", "cron", "15 * * * *", _job_review_inbox),  # Faz 2.3 saatlik
-    ("scan_drift_alerts", "cron", "45 * * * *", _job_scan_drift_alerts),  # Faz 3.1 her 30dk arası
+    ("scan_drift_alerts", "cron", "45 * * * *", _job_scan_drift_alerts),  # Faz 3.1 her saat
     ("weekly_lab_tournament", "cron", "0 3 * * sun", _job_weekly_tournament),
     ("weekly_drift", "cron", "30 3 * * sun", _job_weekly_drift),
     ("weekly_rag_refresh", "cron", "0 4 * * sun", _job_weekly_rag_refresh),
+    ("weekly_token_report", "cron", "0 5 * * sun", _job_weekly_token_report),  # Faz 4.2
+    ("weekly_consolidation", "cron", "30 5 * * sun", _job_weekly_consolidation),  # Faz 4.4
     ("monthly_review", "cron", "0 6 28-31 * *", _job_monthly_review),
 )
 

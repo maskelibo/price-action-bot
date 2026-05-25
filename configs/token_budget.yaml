@@ -1,0 +1,38 @@
+# Token budget — per-agent günlük input+output token limit (Faz 4.2).
+#
+# Max Pro plan altında bu rakamlar **referans** amaçlı; gerçek faturalama
+# Anthropic dashboard'unda. Limit aşımı OpsAgent CRIT alarm tetikler
+# (`token_budget.check_budget()`).
+#
+# Notlar:
+# - Sonnet/Haiku ucuz; Opus pahalı — limit Opus ağırlıklı tutulur
+# - Deterministic agent'lar (portfolio_manager, signal_chief, execution_chief)
+#   LLM kullanmaz, limit 0
+# - Faz 5+ kalibrasyon: ilk 2 hafta gözlemden sonra revize edilir
+
+daily_limits:
+  ceo: 50000           # 1 daily brief + opsiyonel haftalık + arbitrate (Opus)
+  researcher: 100000   # daily hipotez taraması + drift response (Opus)
+  lab_scientist: 80000 # haftalık tournament + drift detect + RAG (Opus, çoğu gün 0)
+  analyst: 60000       # daily KPI + whatif (Opus)
+  risk_officer: 40000  # saatlik inbox review batch (Sonnet)
+  ops_engineer: 20000  # incident summary + token report (Haiku — ucuz)
+  data_engineer: 5000  # opsiyonel commentary (Sonnet, çoğu gün 0)
+
+  # Deterministic — LLM use yok (config sıfır)
+  portfolio_manager: 0
+  signal_chief: 0
+  execution_chief: 0
+
+# Haftalık tüm-agent toplam limiti (Max Pro 5-saatlik pencere kombinasyonu)
+weekly_limit_total: 3000000  # 3M token / hafta
+
+# Alarm seviyeleri
+alert_threshold_pct: 80   # %80'a ulaşılırsa WARN
+crit_threshold_pct: 100   # %100 = CRIT push
+
+# Future Faz 5: per-model breakdown
+# model_pricing_override:
+#   claude-opus-4-7:
+#     input_per_1m: 15
+#     output_per_1m: 75

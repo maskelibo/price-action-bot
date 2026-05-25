@@ -52,9 +52,9 @@
     <true/>
   </dict>
 
-  <!-- Restart loop'unu engelle: en az 30sn aralık -->
+  <!-- Restart loop'unu engelle: 60sn aralık (Faz 4 hardening — crash storm tolerant) -->
   <key>ThrottleInterval</key>
-  <integer>30</integer>
+  <integer>60</integer>
 
   <!-- Loglar -->
   <key>StandardOutPath</key>
@@ -66,11 +66,16 @@
   <key>Nice</key>
   <integer>5</integer>
 
-  <!-- File descriptor limiti (LLM streaming için yeterli) -->
+  <!-- File descriptor limiti (LLM streaming + multi-agent için Faz 4 ↑) -->
   <key>SoftResourceLimits</key>
   <dict>
     <key>NumberOfFiles</key>
-    <integer>4096</integer>
+    <integer>8192</integer>
+  </dict>
+  <key>HardResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>16384</integer>
   </dict>
 </dict>
 </plist>

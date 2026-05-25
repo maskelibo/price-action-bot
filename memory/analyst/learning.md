@@ -27,3 +27,17 @@ created: 2026-05-08
 - **Aksiyon:** Rejim filtresi önerildi — ATR%14 >= 6 + BTC<EMA200 streak>=10 + 90d-DD<=-25 (ANY 2 of 3 → halt). Detay: [learning_20260512_regime_signature.md](learning_20260512_regime_signature.md).
 
 ---
+
+### 2026-05-25 — recurring-20260525-012429 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x5): [claude-opus-4-7] prompt=SOP-1 Günlük KPI Brief. Aşağıdaki trade listesini kulla
+
+---
+
+### 2026-05-25 — recurring-20260525-012429 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x3): [claude-opus-4-7] prompt=What-if counterfactual analysis. Son 7 gündeki WIDESTOP
+
+---
