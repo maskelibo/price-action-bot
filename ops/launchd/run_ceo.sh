@@ -45,6 +45,14 @@ export PA_RUN_MODE="${PA_RUN_MODE:-paper}"
 export PA_CEO_PUSH_TELEGRAM="true"
 export TZ="UTC"
 
+# 4b) PA_LLM_USE_CLI=true iken Claude CLI subscription auth kullanmalı.
+# Eğer ANTHROPIC_API_KEY set ise CLI onu kullanmaya çalışır; invalid/expired
+# olursa "Invalid API key" hatası alırız. UNSET — CLI OAuth/subscription'a düşsün.
+if [[ -n "${ANTHROPIC_API_KEY:-}" ]] && [[ "${PA_LLM_USE_CLI}" == "true" ]]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO: PA_LLM_USE_CLI=true — ANTHROPIC_API_KEY unset edildi (CLI subscription auth)"
+    unset ANTHROPIC_API_KEY
+fi
+
 # 5) Pre-flight check (loga yazılır)
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] ceo_loop starting"
 echo "  PYTHONPATH=${PYTHONPATH}"
