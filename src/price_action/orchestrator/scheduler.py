@@ -535,6 +535,75 @@ async def _job_monthly_market_scout() -> None:
         logger.warning("scheduler.market_scout_fail", extra={"err": str(exc)[:200]})
 
 
+async def _job_curator_daily_correlation() -> None:
+    """Faz 8: Strategy Curator günlük correlation update."""
+    try:
+        from price_action.agents import StrategyCuratorAgent
+        sc = StrategyCuratorAgent()
+        await sc.daily_correlation_update()
+    except Exception as exc:
+        logger.warning("scheduler.curator_correlation_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_curator_weekly_lifecycle() -> None:
+    """Faz 8: Strategy Curator haftalık lifecycle review."""
+    try:
+        from price_action.agents import StrategyCuratorAgent
+        sc = StrategyCuratorAgent()
+        path = await sc.weekly_lifecycle_review()
+        _push_report_safe(path, level="INFO", caption="Weekly Strategy Lifecycle")
+    except Exception as exc:
+        logger.warning("scheduler.curator_lifecycle_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_tf_exploration_chunk() -> None:
+    """Faz 10: TF exploration günlük chunk (1 strateji × 1 TF/gün)."""
+    try:
+        import asyncio
+        await asyncio.to_thread(_run_tf_exploration_chunk_sync)
+    except Exception as exc:
+        logger.warning("scheduler.tf_exploration_chunk_fail", extra={"err": str(exc)[:200]})
+
+
+def _run_tf_exploration_chunk_sync() -> None:
+    """Sync wrapper — scripts/tf_exploration_runner.py."""
+    try:
+        from scripts.tf_exploration_runner import explore_tf
+        from price_action.settings import get_settings as _gs
+        from datetime import datetime as _dt, timezone as _tz
+        from pathlib import Path
+
+        s = _gs()
+        # Basit rotation: gün × strateji index
+        strategies = ["vsa_climax_test", "brooks_failed_breakout", "anchored_vwap_reversal"]
+        idx = _dt.now(_tz.utc).day % len(strategies)
+        strategy = strategies[idx]
+
+        # Pool paths
+        pool_paths = {
+            "5m": s.reports_dir.parent / "data" / "sec53_5m_pool_v11_vm20.pkl",
+            "15m": s.reports_dir.parent / "data" / "sec53_15m_pool_v11.pkl",
+        }
+        out_dir = s.reports_dir / "tf_exploration"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{strategy}-{_dt.now(_tz.utc).date()}.md"
+
+        result = explore_tf(
+            strategy=strategy,
+            tf_list=["5m", "15m"],
+            pool_paths=pool_paths,
+        )
+        # render report — basit dump (full markdown rapor explore_tf'in kendisi yazar)
+        logger.info(
+            "scheduler.tf_exploration_done",
+            extra={"strategy": strategy, "best_tf": result.get("best_tf")},
+        )
+    except ImportError:
+        logger.warning("scheduler.tf_exploration_import_fail")
+    except Exception as exc:
+        logger.warning("scheduler.tf_exploration_inner_fail", extra={"err": str(exc)[:200]})
+
+
 async def _job_weekly_consolidation() -> None:
     """Tüm agent'ların weekly_consolidation çağrısı + inbox archive (Pazar 05:30 UTC)."""
     try:
@@ -648,8 +717,10 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     # Günlük
     ("daily_research", "cron", "0 2 * * *", _job_daily_research),
     ("adversary_daily_stress", "cron", "0 4 * * *", _job_adversary_daily_stress),  # Faz 9
+    ("tf_exploration_chunk", "cron", "30 4 * * *", _job_tf_exploration_chunk),  # Faz 10
     ("signal_scan", "cron", "5 0 * * *", _job_signal_scan),
     ("execute_orders", "cron", "10 0 * * *", _job_execute_orders),
+    ("curator_daily_correlation", "cron", "0 19 * * *", _job_curator_daily_correlation),  # Faz 8
     ("bot_daily_cards", "cron", "0 22 * * *", _job_bot_daily_cards),  # Faz 6
     ("daily_kpi", "cron", "0 23 * * *", _job_daily_kpi),
     ("daily_whatif", "cron", "30 23 * * *", _job_daily_whatif),  # Faz 2.3
@@ -661,6 +732,7 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("weekly_rag_refresh", "cron", "0 4 * * sun", _job_weekly_rag_refresh),
     ("weekly_token_report", "cron", "0 5 * * sun", _job_weekly_token_report),  # Faz 4.2
     ("weekly_consolidation", "cron", "30 5 * * sun", _job_weekly_consolidation),  # Faz 4.4
+    ("curator_weekly_lifecycle", "cron", "30 6 * * sun", _job_curator_weekly_lifecycle),  # Faz 8
     # Aylık
     ("monthly_market_scout", "cron", "0 8 5 * *", _job_monthly_market_scout),  # Faz 11
     ("monthly_review", "cron", "0 6 28-31 * *", _job_monthly_review),

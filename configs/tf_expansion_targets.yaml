@@ -1,0 +1,63 @@
+# =============================================================================
+# TF EXPANSION TARGETS — Faz 10 TF Exploration Pipeline
+# =============================================================================
+# Her TF için: pool yolu, açıklama, fizibilite seviyesi.
+# tf_exploration_runner.py + bot_factory.py burayı okur.
+#
+# feasibility:
+#   active  - pool var, bot çalışıyor (5m P1c, 15m widestop, 1d phoenix)
+#   medium  - pool yok ama hedeflenmiş (Faz 10 prime: 1h, 4h)
+#   low     - pool yok + ek araştırma gerekli (1m fee-sensitive, 30m sparse)
+# =============================================================================
+
+target_tfs:
+  - tf: 1m
+    pool: data/sec53_1m_pool_v11.pkl          # YOK — Faz 10.4'te build
+    notes: "Scalping, hyper-fast, fee-sensitive"
+    feasibility: low
+  - tf: 5m
+    pool: data/sec53_5m_pool_v11_vm20.pkl
+    notes: "P1c base, mevcut"
+    feasibility: active
+  - tf: 15m
+    pool: data/sec53_15m_pool_v11.pkl
+    notes: "Wide-stop, mevcut"
+    feasibility: active
+  - tf: 30m
+    pool: data/sec53_30m_pool_v11.pkl         # YOK
+    notes: "Orta-frekans, fee-friendly"
+    feasibility: low
+  - tf: 1h
+    pool: data/sec53_1h_pool_v11.pkl          # YOK
+    notes: "Faz 10 prime hedef — düşük fee, sürdürülebilir"
+    feasibility: medium
+  - tf: 4h
+    pool: data/sec53_4h_pool_v11.pkl          # YOK
+    notes: "Swing trading, weekend gap riski"
+    feasibility: medium
+  - tf: 1d
+    pool: data/sec53_1d_pool_v11.pkl          # YOK
+    notes: "Mevcut Phoenix 1d çalışıyor (farklı pool)"
+    feasibility: active
+
+# Composite score = sum(weights[k] * normalized[k]). Ağırlıklar toplam 1.0.
+# Her metrik 0..1 ölçeğine indirgenir (max-norm); MaxDD ters (küçük iyi).
+composite_score:
+  weights:
+    sharpe: 0.40                      # Trade-based Sharpe-like ratio
+    maxdd_inverse: 0.20               # 1 - (dd/max_dd) — küçük DD iyi
+    n_trades_per_year: 0.20           # Sample size sürdürülebilirlik
+    recovery_factor: 0.20             # sum_R / maxdd_R (Calmar-like)
+
+# Deploy threshold'ları
+deploy_thresholds:
+  composite_min: 0.70                 # 0-1 ölçek — best TF en az bu kadar olmalı
+  vs_baseline_min_gain_pct: 0.10      # Mevcut TF'den en az %10 iyi olmalı
+
+# Faz 10.2 backlog — eksik pool builder script'leri
+faz_10_phase_2:
+  pool_builders:
+    1m: scripts/build_pool_1m.py      # TODO (Faz 10.4)
+    30m: scripts/build_pool_30m.py    # TODO
+    1h: scripts/build_pool_1h.py      # TODO (Faz 10 prime hedef)
+    4h: scripts/build_pool_4h.py      # TODO

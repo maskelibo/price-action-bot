@@ -20,6 +20,7 @@ from .market_scout import MarketScoutAgent
 from .ops_engineer import OpsAgent
 from .researcher import ResearcherAgent
 from .risk_officer import RiskOfficerAgent
+from .strategy_curator import StrategyCuratorAgent
 
 __all__ = [
     "AdversaryEngineerAgent",
@@ -33,4 +34,5 @@ __all__ = [
     "OpsAgent",
     "ResearcherAgent",
     "RiskOfficerAgent",
+    "StrategyCuratorAgent",
 ]

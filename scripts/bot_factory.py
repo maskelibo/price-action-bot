@@ -1,0 +1,443 @@
+"""Bot Factory — Faz 10 yeni bot iskelet generator.
+
+Verilen strategy + TF için tüm gerekli dosyaları otomatik üretir:
+    1. configs/risk_phoenix_scalp_<tf>_<strategy_short>.yaml
+       — 5m P1c template alınır, TF-specific parametreler override edilir.
+    2. ops/launchd/com.priceaction.<bot_name>.plist
+       — com.priceaction.futures5m.plist template (Label + script path swap).
+    3. ops/launchd/run_<bot_name>.sh
+       — run_futures5m.sh template (PA_<TF>_CONFIG env değişir).
+    4. data/futures_journal_<tf>.duckdb schema kurar (15m schema kopyası).
+
+ÖNEMLİ: Sadece dosyalar üretilir. launchctl load EDİLMEZ — manuel.
+futures_daemon.py'a --timeframe <tf> choice eklemek Faz 10.3'te ayrı iş.
+
+Usage:
+    .venv/bin/python scripts/bot_factory.py \\
+        --strategy vsa_climax_test \\
+        --tf 1h \\
+        --bot-name futures1h \\
+        --capital 1000 \\
+        --sl-pct-min 0.04
+"""
+from __future__ import annotations
+
+import argparse
+import shutil
+import sys
+from pathlib import Path
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
+
+
+# Template kaynakları — bu üçü mevcut 5m P1c bot'undan kopyalanır.
+TEMPLATE_RISK_YAML = ROOT / "configs" / "risk_phoenix_scalp_5m_p1c.yaml"
+TEMPLATE_PLIST = ROOT / "ops" / "launchd" / "com.priceaction.futures5m.plist"
+TEMPLATE_RUN_SH = ROOT / "ops" / "launchd" / "run_futures5m.sh"
+
+# TF → ATR period / cooldown scale heuristic (15m bar = 1 baseline).
+# 5m daha kısa bar → daha fazla atr_period için bekleme; 1h daha az.
+_TF_MINUTES = {
+    "1m": 1, "5m": 5, "15m": 15, "30m": 30,
+    "1h": 60, "4h": 240, "1d": 1440,
+}
+
+
+def _strategy_short(strategy: str) -> str:
+    """vsa_climax_test → vsa; brooks_failed_breakout → brooks vb."""
+    return strategy.split("_", 1)[0].lower()
+
+
+def _tf_env_var(tf: str) -> str:
+    """1h → PA_1H_CONFIG; 5m → PA_5M_CONFIG."""
+    return f"PA_{tf.upper()}_CONFIG"
+
+
+def _bar_minutes(tf: str) -> int:
+    if tf not in _TF_MINUTES:
+        raise ValueError(f"Unknown TF: {tf}. Supported: {sorted(_TF_MINUTES)}")
+    return _TF_MINUTES[tf]
+
+
+def render_yaml_override(
+    *,
+    strategy: str,
+    tf: str,
+    capital_usdt: float,
+    sl_pct_min: float,
+) -> str:
+    """5m P1c template'i okuyup TF-specific parametreleri override eder.
+
+    Override edilenler:
+        defaults.preset_name, bot_name, timeframe
+        execution.sl_pct_min
+        execution.post_only_fallback_seconds (TF'e göre ölçek)
+        capital.initial_usdt
+        strategy_portfolio.strategies (yalnız verilen strategy)
+        stop_loss.atr_period (yeterli geçmiş için TF'e göre ölçek)
+        vol_target.target_atr_pct (sqrt(TF_ratio) ölçek)
+        p1c_runtime.vol_z_lookback_bars (TF'e göre ölçek)
+    """
+    if not TEMPLATE_RISK_YAML.exists():
+        raise FileNotFoundError(f"Template not found: {TEMPLATE_RISK_YAML}")
+    with TEMPLATE_RISK_YAML.open("r", encoding="utf-8") as f:
+        cfg: dict = yaml.safe_load(f)
+
+    bar_min = _bar_minutes(tf)
+    # 5m → 1.0 baseline; daha büyük TF (1h, 4h) için daha az bar lookback gerekir.
+    bar_ratio = bar_min / 5.0  # 5m=1; 1h=12; 4h=48
+    short = _strategy_short(strategy)
+
+    cfg.setdefault("defaults", {})
+    cfg["defaults"]["preset_name"] = f"phoenix_scalp_{tf}_{short}"
+    cfg["defaults"]["bot_name"] = f"PHOENIX-SCALP-{tf}-{short.upper()}"
+    cfg["defaults"]["timeframe"] = tf
+
+    exe = cfg.setdefault("execution", {})
+    exe["sl_pct_min"] = float(sl_pct_min)
+    # 5m'de 15s fallback; daha uzun TF'de daha gevşek (en çok 120s).
+    fallback = min(120, max(15, int(15 * bar_ratio)))
+    exe["post_only_fallback_seconds"] = fallback
+
+    sl = cfg.setdefault("stop_loss", {})
+    # 5m'de atr_period=14; daha büyük TF için aynı 14 yeterli ama
+    # min 7, max 28 clamp.
+    sl.setdefault("atr_period", 14)
+    sl["atr_period"] = max(7, min(28, int(round(14))))
+
+    vt = cfg.setdefault("vol_target", {})
+    # 15m baseline ATR%=0.01 → TF için 1/sqrt(TF_ratio_to_15m).
+    ratio_to_15m = bar_min / 15.0
+    baseline_atr = 0.01
+    vt["target_atr_pct"] = round(baseline_atr / (max(ratio_to_15m, 0.001) ** 0.5), 5)
+
+    portfolio = cfg.setdefault("strategy_portfolio", {})
+    portfolio["strategies"] = [strategy]
+    # Same-symbol cooldown 1-bar (TF cinsinden gün).
+    portfolio["same_symbol_side_cooldown_days"] = round(bar_min / 1440.0, 6)
+
+    runtime = cfg.setdefault("p1c_runtime", {})
+    # 5m'de 20 bar = 100 dakika. 1h'te 20 bar = 1200 dakika; daha az ihtiyaç.
+    # Default 20 bar koru ama clamp.
+    runtime.setdefault("vol_z_lookback_bars", 20)
+
+    cap = cfg.setdefault("capital", {})
+    cap["initial_usdt"] = float(capital_usdt)
+
+    # YAML header comment ekle — auto-generated işareti.
+    header = (
+        "# =============================================================================\n"
+        f"# {cfg['defaults']['bot_name']} — AUTO-GENERATED by bot_factory.py\n"
+        "# =============================================================================\n"
+        f"# Strategy: {strategy}\n"
+        f"# TF: {tf}\n"
+        f"# Template: configs/risk_phoenix_scalp_5m_p1c.yaml\n"
+        "# DO NOT edit by hand — regenerate via bot_factory.\n"
+        "# =============================================================================\n\n"
+    )
+    body = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
+    return header + body
+
+
+def render_plist(bot_name: str) -> str:
+    """5m plist template'inden bot_name + run script path swap."""
+    if not TEMPLATE_PLIST.exists():
+        raise FileNotFoundError(f"Template not found: {TEMPLATE_PLIST}")
+    text = TEMPLATE_PLIST.read_text(encoding="utf-8")
+    text = text.replace("com.priceaction.futures5m", f"com.priceaction.{bot_name}")
+    text = text.replace(
+        "ops/launchd/run_futures5m.sh",
+        f"ops/launchd/run_{bot_name}.sh",
+    )
+    text = text.replace(
+        "logs/launchd/futures5m.stdout.log",
+        f"logs/launchd/{bot_name}.stdout.log",
+    )
+    text = text.replace(
+        "logs/launchd/futures5m.stderr.log",
+        f"logs/launchd/{bot_name}.stderr.log",
+    )
+    return text
+
+
+def render_run_sh(
+    *,
+    bot_name: str,
+    tf: str,
+    config_relpath: str,
+) -> str:
+    """run_futures5m.sh template'inden TF + config path swap."""
+    if not TEMPLATE_RUN_SH.exists():
+        raise FileNotFoundError(f"Template not found: {TEMPLATE_RUN_SH}")
+    text = TEMPLATE_RUN_SH.read_text(encoding="utf-8")
+    env_var = _tf_env_var(tf)
+    # PA_5M_CONFIG → PA_<TF>_CONFIG ve default config path swap.
+    text = text.replace("PA_5M_CONFIG", env_var)
+    text = text.replace(
+        "configs/risk_phoenix_scalp_5m_p1c.yaml",
+        config_relpath,
+    )
+    # --timeframe 5m → --timeframe <tf>
+    text = text.replace("--timeframe 5m", f"--timeframe {tf}")
+    # futures5m banner string'leri güncelle (cosmetik).
+    text = text.replace("futures5m starting", f"{bot_name} starting")
+    text = text.replace("futures5m launchd wrapper", f"{bot_name} launchd wrapper")
+    return text
+
+
+def init_journal_schema(journal_path: Path) -> None:
+    """data/futures_journal_<tf>.duckdb schema kurar — 15m schema kopyası.
+
+    Idempotent: var olan tabloları korur (CREATE IF NOT EXISTS).
+    """
+    import duckdb
+
+    journal_path.parent.mkdir(parents=True, exist_ok=True)
+    con = duckdb.connect(str(journal_path))
+    try:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS futures_signals (
+                signal_id VARCHAR PRIMARY KEY,
+                ts TIMESTAMP,
+                symbol VARCHAR,
+                strategy VARCHAR,
+                side VARCHAR,
+                sl_price DOUBLE,
+                tp_price DOUBLE,
+                confluence DOUBLE,
+                leverage INTEGER,
+                status VARCHAR,
+                order_id VARCHAR,
+                fill_price DOUBLE,
+                fill_qty DOUBLE,
+                notional_usdt DOUBLE,
+                margin_usdt DOUBLE,
+                notes VARCHAR
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS futures_protection_orders (
+                prot_id VARCHAR PRIMARY KEY,
+                ts TIMESTAMP,
+                signal_id VARCHAR,
+                symbol VARCHAR,
+                side VARCHAR,
+                qty DOUBLE,
+                tp_price DOUBLE,
+                sl_price DOUBLE,
+                tp_order_id VARCHAR,
+                sl_order_id VARCHAR,
+                status VARCHAR,
+                notes VARCHAR
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS futures_equity_snapshots (
+                snapshot_id VARCHAR PRIMARY KEY,
+                ts TIMESTAMP,
+                wallet_balance DOUBLE,
+                unrealized_pnl DOUBLE,
+                margin_balance DOUBLE,
+                available_balance DOUBLE,
+                n_positions INTEGER,
+                n_open_orders INTEGER,
+                notes VARCHAR
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS futures_trades_closed (
+                trade_id TEXT PRIMARY KEY,
+                ts_open TIMESTAMP,
+                ts_close TIMESTAMP,
+                sym TEXT,
+                side TEXT,
+                strategy TEXT,
+                entry_price DOUBLE,
+                exit_price DOUBLE,
+                qty DOUBLE,
+                realized_pnl_usdt DOUBLE,
+                realized_r DOUBLE,
+                win BOOLEAN,
+                close_reason TEXT
+            )
+        """)
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ftc_close_ts ON futures_trades_closed (ts_close)"
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ftc_sym ON futures_trades_closed (sym)"
+        )
+        con.commit()
+    finally:
+        con.close()
+
+
+# ---------------------------------------------------------------------------
+# Main entry
+# ---------------------------------------------------------------------------
+def generate_bot(
+    *,
+    strategy: str,
+    tf: str,
+    bot_name: str,
+    capital_usdt: float,
+    sl_pct_min: float,
+    output_dir: Path | None = None,
+    overwrite: bool = False,
+) -> dict:
+    """Yeni bot iskelet üret.
+
+    Returns:
+        {
+            'files_created': list[Path],
+            'files_skipped': list[Path],
+            'next_steps': str,
+            'bot_name': str,
+            'tf': str,
+            'strategy': str,
+        }
+    """
+    root = output_dir or ROOT
+    short = _strategy_short(strategy)
+
+    risk_yaml_path = root / "configs" / f"risk_phoenix_scalp_{tf}_{short}.yaml"
+    plist_path = root / "ops" / "launchd" / f"com.priceaction.{bot_name}.plist"
+    run_sh_path = root / "ops" / "launchd" / f"run_{bot_name}.sh"
+    journal_path = root / "data" / f"futures_journal_{tf}.duckdb"
+
+    targets = [risk_yaml_path, plist_path, run_sh_path, journal_path]
+    existing = [p for p in targets if p.exists()]
+    if existing and not overwrite:
+        raise FileExistsError(
+            f"Bot files already exist (overwrite=False): "
+            f"{[str(p.relative_to(root)) for p in existing]}"
+        )
+
+    files_created: list[Path] = []
+
+    # 1. YAML config
+    risk_yaml_path.parent.mkdir(parents=True, exist_ok=True)
+    risk_yaml_path.write_text(
+        render_yaml_override(
+            strategy=strategy,
+            tf=tf,
+            capital_usdt=capital_usdt,
+            sl_pct_min=sl_pct_min,
+        ),
+        encoding="utf-8",
+    )
+    files_created.append(risk_yaml_path)
+
+    # 2. Plist
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    plist_path.write_text(render_plist(bot_name=bot_name), encoding="utf-8")
+    files_created.append(plist_path)
+
+    # 3. run.sh — execute bit set
+    run_sh_path.parent.mkdir(parents=True, exist_ok=True)
+    config_rel = str(risk_yaml_path.relative_to(root))
+    run_sh_path.write_text(
+        render_run_sh(bot_name=bot_name, tf=tf, config_relpath=config_rel),
+        encoding="utf-8",
+    )
+    run_sh_path.chmod(0o755)
+    files_created.append(run_sh_path)
+
+    # 4. DuckDB journal schema
+    init_journal_schema(journal_path)
+    files_created.append(journal_path)
+
+    next_steps = (
+        f"BOT '{bot_name}' iskelet hazır. Sıradaki adımlar (MANUEL):\n"
+        f"  1. configs review: cat {risk_yaml_path.relative_to(root)}\n"
+        f"  2. futures_daemon.py'a --timeframe {tf} choice EKLE (Faz 10.3)\n"
+        f"  3. Paper validation 7-14 gün: PA_RUN_MODE=paper bot çalıştır.\n"
+        f"  4. Hazırsa: launchctl load -w {plist_path.relative_to(root)}\n"
+        f"  5. Principal sign-off → sim_only: false flip."
+    )
+
+    return {
+        "files_created": files_created,
+        "files_skipped": [],
+        "next_steps": next_steps,
+        "bot_name": bot_name,
+        "tf": tf,
+        "strategy": strategy,
+    }
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Bot Factory — yeni bot iskelet generator (Faz 10)"
+    )
+    p.add_argument("--strategy", required=True, help="Örn: vsa_climax_test")
+    p.add_argument(
+        "--tf",
+        required=True,
+        choices=sorted(_TF_MINUTES.keys()),
+        help="Timeframe — 1m, 5m, 15m, 30m, 1h, 4h, 1d.",
+    )
+    p.add_argument(
+        "--bot-name",
+        required=True,
+        help="Bot etiketi (futures1h, futures4h vb.). com.priceaction.<bot_name> olur.",
+    )
+    p.add_argument("--capital", type=float, required=True, help="Initial USDT.")
+    p.add_argument(
+        "--sl-pct-min",
+        type=float,
+        required=True,
+        help="Min SL %% (örn: 0.04 = 1h için).",
+    )
+    p.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Root dizin override (test için). Default: repo root.",
+    )
+    p.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Var olan dosyaları override et (default: error).",
+    )
+    return p.parse_args()
+
+
+def main() -> int:
+    args = _parse_args()
+    try:
+        result = generate_bot(
+            strategy=args.strategy,
+            tf=args.tf,
+            bot_name=args.bot_name,
+            capital_usdt=args.capital,
+            sl_pct_min=args.sl_pct_min,
+            output_dir=args.output_dir,
+            overwrite=args.overwrite,
+        )
+    except FileExistsError as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        print("        --overwrite ile zorla yenile.", file=sys.stderr)
+        return 1
+
+    print(f"[OK] Bot '{result['bot_name']}' iskelet üretildi")
+    print(f"  TF:       {result['tf']}")
+    print(f"  Strategy: {result['strategy']}")
+    print()
+    print("  Files created:")
+    for p in result["files_created"]:
+        print(f"    - {p}")
+    print()
+    print(result["next_steps"])
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
