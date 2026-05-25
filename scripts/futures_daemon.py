@@ -1622,21 +1622,20 @@ def _log_5m(msg: str) -> None:
 
 
 def _scan_signals_5m(target_dt: datetime) -> list:
-    """5m tarama: scan_signals_5m wrapper.
+    """5m tarama: scripts.futures_trade_5m.scan_signals_5m delege.
 
-    NOT: scan_signals_5m fonksiyonu henüz scripts/futures_trade_5m.py'da yok.
-    Şimdilik 15m scan'in 5m manifesto-aware versiyonunu çağırırız (lab.py
-    seviyesinde TF parametre alır). Faz 5.x: tam 5m scan pipeline.
+    Faz 5.2 fix (2026-05-25): scripts/futures_trade_5m.py oluşturuldu,
+    artık gerçek 5m signal pipeline çalışıyor. P1c W1 base: vsa_climax_test
+    only (engulfing_continuation drop_strategies'de). vol_z signal dict'inde
+    döner — P1c walker M3a sizing için.
     """
     try:
-        # Mevcut 15m scan'i kullan, manifest 5m olduğu sürece doğru çalışır
-        # (vsa_climax_test_5m.yaml zaten oluşturulmuş — pool vm=2.0)
-        from scripts.futures_trade_15m import scan_signals_15m
-        # NOT: scan_signals_15m hardcoded 15m bekleyebilir; bu Faz 5 TODO
-        # Şimdilik boş döner — gerçek 5m scan pipeline Phase 5.2'de
-        return []
+        from scripts.futures_trade_5m import scan_signals_5m
+        return scan_signals_5m(target_dt)
     except Exception as e:
         _log_5m(f"5M_SCAN_IMPORT_ERR: {e}")
+        import traceback
+        _log_5m(traceback.format_exc()[:1500])
         return []
 
 

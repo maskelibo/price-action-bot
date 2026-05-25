@@ -37,9 +37,20 @@ _POOL_GUARD = threading.Lock()
 
 
 def _get_pooled_connection(path: str) -> tuple[duckdb.DuckDBPyConnection, threading.RLock]:
+    """Pooled connection. PA_DUCKDB_READ_ONLY=true ise read_only modunda aç.
+
+    Faz 5.2 fix: 5m bot 15m bot ile aynı market.duckdb'yi okuyor; DuckDB
+    exclusive lock conflict yaşıyor. PA_DUCKDB_READ_ONLY=true scan-only
+    bot'lar (5m) için — birden fazla process aynı anda RO açabilir.
+    """
+    import os as _os
+    read_only = _os.environ.get("PA_DUCKDB_READ_ONLY", "").lower() in ("1", "true", "yes")
     with _POOL_GUARD:
         if path not in _CONN_POOL:
-            _CONN_POOL[path] = duckdb.connect(path)
+            if read_only:
+                _CONN_POOL[path] = duckdb.connect(path, read_only=True)
+            else:
+                _CONN_POOL[path] = duckdb.connect(path)
             _CONN_LOCKS[path] = threading.RLock()
         return _CONN_POOL[path], _CONN_LOCKS[path]
 
@@ -148,6 +159,10 @@ class OHLCVStore:
             yield con
 
     def _ensure_schema(self) -> None:
+        # Faz 5.2: read_only mode'da DDL çalıştırma — schema zaten var varsayılır
+        import os as _os
+        if _os.environ.get("PA_DUCKDB_READ_ONLY", "").lower() in ("1", "true", "yes"):
+            return
         with self._conn() as con:
             con.execute(_OHLCV_DDL)
             con.execute(_INSTRUMENTS_DDL)
