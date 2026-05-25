@@ -134,3 +134,106 @@ def test_config_load_from_yaml(tmp_state):
     assert cfg.max_concurrent_positions == 3
     assert cfg.per_symbol_cap == 1
     assert cfg.initial_capital == 1000.0
+
+
+# ── Faz 5.3 tests — BE-protect + close_position ────────────────────────────────
+
+def test_be_protect_long_trigger(walker):
+    walker.record_open_position({
+        "symbol": "BTC/USDT", "side": "long",
+        "entry_price": 50000, "sl_price": 48500, "tp_price": 51800,
+        "strategy": "vsa_climax_test", "risk_usdt": 5.0,
+    })
+    # peak_R = 0.5 @ entry + 0.5 × sl_dist = 50000 + 750 = 50750
+    triggered = walker.check_be_protect({"BTC/USDT": 50750})
+    assert len(triggered) == 1
+    assert triggered[0]["new_sl"] == 50000  # SL → entry
+    assert triggered[0]["peak_R"] == 0.5
+    # State'de be_protected: True
+    assert walker._state["open_positions"]["BTC/USDT"]["be_protected"] is True
+
+
+def test_be_protect_short_trigger(walker):
+    walker.record_open_position({
+        "symbol": "ETH/USDT", "side": "short",
+        "entry_price": 3000, "sl_price": 3060, "tp_price": 2928,
+        "strategy": "vsa_climax_test", "risk_usdt": 5.0,
+    })
+    # peak_R = 0.5 @ entry - 0.5 × sl_dist = 3000 - 30 = 2970
+    triggered = walker.check_be_protect({"ETH/USDT": 2970})
+    assert len(triggered) == 1
+    assert triggered[0]["new_sl"] == 3000
+
+
+def test_be_protect_no_trigger_below_threshold(walker):
+    walker.record_open_position({
+        "symbol": "BTC/USDT", "side": "long",
+        "entry_price": 50000, "sl_price": 48500, "risk_usdt": 5.0,
+    })
+    # peak_R = 0.4 @ 50600 — eşik altında
+    triggered = walker.check_be_protect({"BTC/USDT": 50600})
+    assert len(triggered) == 0
+    assert walker._state["open_positions"]["BTC/USDT"]["be_protected"] is False
+
+
+def test_close_position_tp_hit_long(walker):
+    walker.record_open_position({
+        "symbol": "SOL/USDT", "side": "long",
+        "entry_price": 100, "sl_price": 95, "tp_price": 106,
+        "strategy": "vsa_climax_test", "risk_usdt": 5.0,
+    })
+    outcome = walker.close_position("SOL/USDT", close_price=106, reason="tp_hit")
+    assert outcome is not None
+    assert outcome["r_multiple"] == 1.2
+    assert outcome["pnl_usdt"] == 6.0
+    # Walker equity güncellendi
+    assert walker.state_summary()["equity"] == 1006.0
+
+
+def test_close_position_be_hit_no_loss(walker):
+    walker.record_open_position({
+        "symbol": "BTC/USDT", "side": "long",
+        "entry_price": 50000, "sl_price": 48500, "risk_usdt": 5.0,
+    })
+    # BE trigger
+    walker.check_be_protect({"BTC/USDT": 50750})
+    # BE hit (entry'e geri dönüş)
+    outcome = walker.close_position("BTC/USDT", close_price=50000, reason="be_hit")
+    assert outcome["pnl_usdt"] == 0.0  # No loss
+    assert walker.state_summary()["equity"] == 1000.0  # No change
+
+
+def test_close_position_sl_hit_loss(walker):
+    walker.record_open_position({
+        "symbol": "BTC/USDT", "side": "long",
+        "entry_price": 50000, "sl_price": 48500, "risk_usdt": 5.0,
+    })
+    outcome = walker.close_position("BTC/USDT", close_price=48500, reason="sl_hit")
+    assert outcome["r_multiple"] == -1.0
+    assert outcome["pnl_usdt"] == -5.0
+    assert walker.state_summary()["equity"] == 995.0
+
+
+def test_original_sl_dist_preserved_after_be(walker):
+    walker.record_open_position({
+        "symbol": "BTC/USDT", "side": "long",
+        "entry_price": 50000, "sl_price": 48500, "risk_usdt": 5.0,
+    })
+    pos = walker._state["open_positions"]["BTC/USDT"]
+    assert pos["original_sl_dist"] == 1500
+    # BE trigger sonrası original_sl_dist değişmemeli
+    walker.check_be_protect({"BTC/USDT": 50750})
+    pos = walker._state["open_positions"]["BTC/USDT"]
+    assert pos["original_sl_dist"] == 1500
+    assert pos["sl_price"] == 50000  # ama sl_price değişti
+
+
+def test_be_protect_disabled_no_op(tmp_state):
+    walker = P1cWalker()
+    walker.config.be_protect_enabled = False
+    walker.record_open_position({
+        "symbol": "BTC/USDT", "side": "long",
+        "entry_price": 50000, "sl_price": 48500, "risk_usdt": 5.0,
+    })
+    triggered = walker.check_be_protect({"BTC/USDT": 50750})
+    assert len(triggered) == 0

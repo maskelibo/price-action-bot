@@ -1591,8 +1591,44 @@ def run_5m_mode(once: bool = False) -> None:
 
                 n_accept += 1
                 log_5m(f"  5M_ACCEPT: {sym} sl_pct={sl_pct:.4f} risk_pct={decision.get('risk_pct', 0):.4f}")
-                # NOTE: gerçek emir submit edilmiyor — paper-only, walker state'i günceller.
-                # Phase 6+'da execution_chief delege.
+
+                # Faz 5.3: walker.record_open_position + paper journal entry
+                if p1c_walker is not None:
+                    try:
+                        from datetime import datetime as _dt, timezone as _tz
+                        position = {
+                            "symbol": sym,
+                            "side": sig.get("side", "?"),
+                            "entry_price": entry,
+                            "sl_price": sl,
+                            "tp_price": float(sig.get("tp_price", 0)),
+                            "strategy": sig.get("strategy", "?"),
+                            "risk_pct": decision.get("risk_pct", 0),
+                            "risk_usdt": decision.get("risk_usdt", 0),
+                            "tier": decision.get("tier", "?"),
+                            "vol_z": sig.get("vol_z", 0),
+                            "entry_ts": _dt.now(_tz.utc).isoformat(),
+                        }
+                        p1c_walker.record_open_position(position)
+                        log_5m(f"  5M_POSITION_OPENED: {sym} {sig.get('side')} risk=${decision.get('risk_usdt', 0):.2f} tier={decision.get('tier')}")
+
+                        # Paper journal entry (futures_journal_5m.duckdb)
+                        _write_5m_journal_signal(sig, decision)
+                    except Exception as e:
+                        log_5m(f"  5M_POSITION_RECORD_ERR: {e}")
+
+                # NOTE: real ccxt order submit Faz 5.3.2 — şu an walker state + journal yeterli
+
+            # Faz 5.3: Position monitor — BE-protect + close trigger
+            if p1c_walker is not None:
+                try:
+                    n_be, n_closed = _monitor_5m_positions(p1c_walker)
+                    if n_be > 0:
+                        log_5m(f"5M_BE_PROTECTED: {n_be} pozisyon SL → entry")
+                    if n_closed > 0:
+                        log_5m(f"5M_POSITIONS_CLOSED: {n_closed}")
+                except Exception as e:
+                    log_5m(f"5M_POSITION_MONITOR_ERR: {e}")
 
             log_5m(f"5M_TICK_DONE: scan={scan_dur:.1f}s widestop={n_widestop} accept={n_accept}")
 
@@ -1619,6 +1655,165 @@ def _log_5m(msg: str) -> None:
             f.write(line + "\n")
     except Exception:
         pass
+
+
+def _monitor_5m_positions(walker) -> tuple[int, int]:
+    """Faz 5.3: Open 5m positions için BE-protect + SL/TP hit kontrolü.
+
+    Her bar sonunda:
+    1. Open positions için ccxt'ten current price çek
+    2. walker.check_be_protect() — peak_R >= 0.5 → SL → entry
+    3. SL veya TP hit ise walker.close_position() çağır (paper journal)
+
+    Returns: (n_be_triggered, n_closed)
+    """
+    n_be = 0
+    n_closed = 0
+
+    positions = walker._state.get("open_positions", {})
+    if not positions:
+        return (0, 0)
+
+    # ccxt'ten current prices çek
+    try:
+        import ccxt
+        ex = ccxt.binance({
+            "enableRateLimit": True,
+            "options": {"defaultType": "future"},
+            "timeout": 10000,
+        })
+        current_prices: dict[str, float] = {}
+        for sym in positions.keys():
+            try:
+                ticker = ex.fetch_ticker(sym)
+                current_prices[sym] = float(ticker.get("last", 0))
+            except Exception:
+                pass
+    except Exception as e:
+        _log_5m(f"5M_PRICE_FETCH_ERR: {e}")
+        return (0, 0)
+
+    # BE-protect
+    be_triggered = walker.check_be_protect(current_prices)
+    for be in be_triggered:
+        n_be += 1
+        _log_5m(f"  5M_BE: {be['symbol']} {be['side']} peak_R={be['peak_R']} "
+                f"SL {be['old_sl']:.4f} → {be['new_sl']:.4f}")
+
+    # SL/TP hit check (paper close)
+    for symbol, pos in list(positions.items()):
+        current = current_prices.get(symbol)
+        if current is None or current <= 0:
+            continue
+
+        side = pos.get("side", "")
+        entry = float(pos.get("entry_price", 0))
+        sl = float(pos.get("sl_price", 0))
+        tp = float(pos.get("tp_price", 0))
+
+        close_reason = None
+        if side == "long":
+            if sl > 0 and current <= sl:
+                close_reason = "be_hit" if pos.get("be_protected") else "sl_hit"
+            elif tp > 0 and current >= tp:
+                close_reason = "tp_hit"
+        elif side == "short":
+            if sl > 0 and current >= sl:
+                close_reason = "be_hit" if pos.get("be_protected") else "sl_hit"
+            elif tp > 0 and current <= tp:
+                close_reason = "tp_hit"
+
+        if close_reason:
+            outcome = walker.close_position(symbol, close_price=current, reason=close_reason)
+            if outcome:
+                n_closed += 1
+                _log_5m(f"  5M_CLOSE: {symbol} {side} reason={close_reason} "
+                        f"price={current:.4f} pnl=${outcome['pnl_usdt']:+.2f} R={outcome['r_multiple']:+.2f}")
+                # Journal'a closed trade yaz
+                _write_5m_journal_trade_close(outcome)
+
+    return (n_be, n_closed)
+
+
+def _write_5m_journal_trade_close(outcome: dict) -> None:
+    """Closed trade'i futures_journal_5m.duckdb'ye yaz."""
+    try:
+        import duckdb
+        import uuid
+        journal_path = ROOT / "data" / "futures_journal_5m.duckdb"
+        if not journal_path.exists():
+            return
+
+        con = duckdb.connect(str(journal_path))
+        con.execute("""
+            INSERT INTO futures_trades_closed
+            (trade_id, ts_open, ts_close, sym, side, strategy,
+             entry_price, exit_price, qty, realized_pnl_usdt, realized_r,
+             win, close_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            str(uuid.uuid4()),
+            outcome.get("entry_ts", ""),
+            outcome["close_ts"],
+            outcome["symbol"],
+            outcome["side"],
+            outcome.get("strategy", "?"),
+            outcome["entry_price"],
+            outcome["close_price"],
+            0.0,  # qty placeholder (Faz 5.3.2 real submit'ta)
+            outcome["pnl_usdt"],
+            outcome["r_multiple"],
+            outcome["pnl_usdt"] > 0,
+            outcome["reason"],
+        ))
+        con.commit()
+        con.close()
+    except Exception as e:
+        _log_5m(f"  5M_JOURNAL_CLOSE_ERR: {e}")
+
+
+def _write_5m_journal_signal(sig: dict, decision: dict) -> None:
+    """Faz 5.3: futures_journal_5m.duckdb'ye signal entry yaz.
+
+    Mevcut 15m futures_journal'ın schema'sını kullanır — ayrı PnL track için.
+    """
+    try:
+        import duckdb
+        import uuid
+        journal_path = ROOT / "data" / "futures_journal_5m.duckdb"
+        if not journal_path.exists():
+            _log_5m(f"5M_JOURNAL_MISSING: {journal_path}")
+            return
+
+        con = duckdb.connect(str(journal_path))
+        signal_id = str(uuid.uuid4())
+        bar_close = sig.get("bar_close_ts") or sig.get("ts")
+        if hasattr(bar_close, "to_pydatetime"):
+            bar_close = bar_close.to_pydatetime()
+
+        con.execute("""
+            INSERT INTO futures_signals
+            (signal_id, ts, symbol, strategy, side, sl_price, tp_price,
+             confluence, leverage, status, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            signal_id,
+            bar_close,
+            sig.get("symbol", "?"),
+            sig.get("strategy", "?"),
+            sig.get("side", "?"),
+            float(sig.get("sl_price", 0)),
+            float(sig.get("tp_price", 0)),
+            float(sig.get("confluence", 0)),
+            1,  # leverage placeholder
+            "ACCEPTED_PAPER",
+            f"tier={decision.get('tier', '?')} risk_pct={decision.get('risk_pct', 0):.4f} risk_usdt={decision.get('risk_usdt', 0):.2f} vol_z={sig.get('vol_z', 0):+.2f}",
+        ))
+        con.commit()
+        con.close()
+        _log_5m(f"  5M_JOURNAL_WRITE: {signal_id[:8]} → futures_journal_5m.duckdb")
+    except Exception as e:
+        _log_5m(f"  5M_JOURNAL_ERR: {e}")
 
 
 def _scan_signals_5m(target_dt: datetime) -> list:

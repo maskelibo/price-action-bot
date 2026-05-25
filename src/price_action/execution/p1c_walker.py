@@ -412,8 +412,153 @@ class P1cWalker:
         self._save_state()
 
     def record_open_position(self, position: dict[str, Any]) -> None:
-        """Yeni pozisyon açıldı — open_positions'a ekle."""
+        """Yeni pozisyon açıldı — open_positions'a ekle.
+
+        Position dict required keys: symbol, side, entry_price, sl_price.
+        Optional: tp_price, strategy, risk_pct, risk_usdt, tier, vol_z, entry_ts.
+        Auto-add: peak_price, peak_R, be_protected (false initially), original_sl_dist
+        (orijinal SL mesafesi — BE sonrası R hesabı için lazım).
+        """
         symbol = position.get("symbol", "")
         if symbol:
+            entry = float(position.get("entry_price", 0))
+            sl = float(position.get("sl_price", 0))
+            position.setdefault("peak_price", entry)
+            position.setdefault("peak_R", 0.0)
+            position.setdefault("be_protected", False)
+            position.setdefault("original_sl_dist", abs(entry - sl) if entry > 0 and sl > 0 else 0)
             self._state.setdefault("open_positions", {})[symbol] = position
             self._save_state()
+
+    def check_be_protect(self, current_prices: dict[str, float]) -> list[dict[str, Any]]:
+        """BE-protect: open positions için peak_R hesabı + SL'i breakeven'a çek.
+
+        Faz 5.3: P1c spec'in temel "kazançları koru" mekanizması.
+        Her open position için:
+        1. Güncel fiyatı al (current_prices[symbol])
+        2. peak_price güncelle (long: max(peak, current), short: min(peak, current))
+        3. peak_R hesabı = (peak - entry) / sl_dist (long) | (entry - peak) / sl_dist (short)
+        4. Eğer peak_R >= be_protect_trigger_R (0.5) ve henüz BE protected değilse:
+           SL'i entry_price'a çek → "be_protected": True
+
+        Returns: BE'ye çekilen position'ların listesi (for logging).
+        """
+        if not self.config.be_protect_enabled:
+            return []
+
+        be_triggered: list[dict[str, Any]] = []
+        positions = self._state.get("open_positions", {})
+
+        for symbol, pos in positions.items():
+            if pos.get("be_protected", False):
+                continue  # Zaten BE'de
+
+            current = current_prices.get(symbol)
+            if current is None or current <= 0:
+                continue
+
+            entry = float(pos.get("entry_price", 0))
+            sl = float(pos.get("sl_price", 0))
+            side = pos.get("side", "")
+
+            if entry <= 0 or sl <= 0:
+                continue
+
+            sl_dist = abs(entry - sl)
+            if sl_dist <= 0:
+                continue
+
+            # Peak update + R hesabı
+            if side == "long":
+                peak = max(float(pos.get("peak_price", entry)), current)
+                peak_R = (peak - entry) / sl_dist
+            elif side == "short":
+                peak = min(float(pos.get("peak_price", entry)), current)
+                peak_R = (entry - peak) / sl_dist
+            else:
+                continue
+
+            pos["peak_price"] = peak
+            pos["peak_R"] = peak_R
+
+            # BE-protect trigger
+            if peak_R >= self.config.be_protect_trigger_R:
+                old_sl = pos["sl_price"]
+                pos["sl_price"] = entry  # SL → breakeven
+                pos["be_protected"] = True
+                be_triggered.append({
+                    "symbol": symbol,
+                    "side": side,
+                    "entry": entry,
+                    "old_sl": old_sl,
+                    "new_sl": entry,
+                    "peak_R": round(peak_R, 3),
+                    "current_price": current,
+                })
+
+        if be_triggered or any(pos.get("peak_R", 0) > 0 for pos in positions.values()):
+            self._save_state()
+
+        return be_triggered
+
+    def close_position(self, symbol: str, *, close_price: float, close_ts: str | None = None, reason: str = "manual") -> dict[str, Any] | None:
+        """Bir pozisyonu kapat — PnL hesabı + record_trade_outcome.
+
+        Args:
+            symbol: Kapanacak pozisyon sembolü.
+            close_price: Çıkış fiyatı.
+            close_ts: ISO timestamp; yoksa now.
+            reason: Kapanış sebebi (sl_hit, tp_hit, manual, be_hit, vb.)
+
+        Returns:
+            Trade outcome dict (record_trade_outcome'a verilir), veya None.
+        """
+        from datetime import datetime as _dt, timezone as _tz
+
+        positions = self._state.get("open_positions", {})
+        if symbol not in positions:
+            return None
+
+        pos = positions[symbol]
+        entry = float(pos.get("entry_price", 0))
+        side = pos.get("side", "")
+        risk_usdt = float(pos.get("risk_usdt", 0))
+
+        if entry <= 0 or risk_usdt <= 0:
+            return None
+
+        # Faz 5.3: BE-protect sonrası sl_price=entry (sl_dist=0) → original_sl_dist kullan
+        sl_dist = float(pos.get("original_sl_dist", 0))
+        if sl_dist <= 0:
+            # Fallback: hesapla (eski position'lar için)
+            sl_dist = abs(entry - float(pos.get("sl_price", 0)))
+            if sl_dist <= 0:
+                sl_dist = entry * 0.01  # %1 fallback (worst case)
+
+        # R-multiple hesabı
+        if side == "long":
+            r_mult = (close_price - entry) / sl_dist
+        elif side == "short":
+            r_mult = (entry - close_price) / sl_dist
+        else:
+            return None
+
+        pnl_usdt = r_mult * risk_usdt
+
+        outcome = {
+            "symbol": symbol,
+            "side": side,
+            "entry_ts": pos.get("entry_ts", ""),
+            "close_ts": close_ts or _dt.now(_tz.utc).isoformat(),
+            "entry_price": entry,
+            "close_price": close_price,
+            "pnl_usdt": round(pnl_usdt, 4),
+            "r_multiple": round(r_mult, 4),
+            "strategy": pos.get("strategy", ""),
+            "reason": reason,
+            "be_protected": pos.get("be_protected", False),
+        }
+
+        # record_trade_outcome positionı otomatik open_positions'tan siler + state günceller
+        self.record_trade_outcome(outcome)
+        return outcome
