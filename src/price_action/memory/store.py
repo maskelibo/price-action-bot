@@ -206,6 +206,81 @@ class MemoryStore:
     # Boot context
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Faz 2.5 — protokol-uyumlu doc listeleme
+    # ------------------------------------------------------------------
+
+    def list_recent_docs(
+        self,
+        agent: str | None = None,
+        doc_type: str | None = None,
+        *,
+        since_days: int = 7,
+        reports_root: Path | None = None,
+    ) -> list[Path]:
+        """Recent protocol-compliant doc'ları listele.
+
+        ``reports/<agent>/`` veya genel `reports/`'u tarar, frontmatter'a
+        bakarak filtre uygular.
+
+        Parameters
+        ----------
+        agent:
+            Belirli bir agent'ın çıktıları (örn. "ceo", "researcher").
+            None ise tüm agent'lar.
+        doc_type:
+            Belirli doc_type (örn. "brief", "hypothesis", "tournament").
+            None ise tüm tipler.
+        since_days:
+            Son N gün (mtime bazlı, frontmatter parse'ı pahalı olduğu için).
+        reports_root:
+            Override (default: ``settings.reports_dir``).
+
+        Returns
+        -------
+        list[Path]
+            En yeni doc'lar başta, sıralı.
+        """
+        if reports_root is None:
+            s = get_settings()
+            reports_root = s.reports_dir
+        if not reports_root.exists():
+            return []
+
+        from datetime import datetime as _dt, timezone as _tz
+        cutoff = _dt.now(_tz.utc).timestamp() - since_days * 86400
+
+        # Hangi dizinleri tara
+        if agent:
+            search_dirs = [reports_root / agent]
+        else:
+            search_dirs = [d for d in reports_root.iterdir() if d.is_dir()]
+
+        candidates: list[tuple[float, Path]] = []
+        for d in search_dirs:
+            if not d.exists():
+                continue
+            for p in d.rglob("*.md"):
+                try:
+                    mtime = p.stat().st_mtime
+                    if mtime < cutoff:
+                        continue
+                    # doc_type filtre — frontmatter peek (sadece ilk 20 satır)
+                    if doc_type:
+                        try:
+                            head = p.read_text(encoding="utf-8")[:1024]
+                            if f"doc_type: {doc_type}" not in head:
+                                continue
+                        except Exception:
+                            continue
+                    candidates.append((mtime, p))
+                except OSError:
+                    continue
+
+        # Sort: en yeni başta
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return [p for _, p in candidates]
+
     def boot_context(self, agent: str) -> str:
         """Her LLM çağrısı öncesi system prompt'a girecek özet.
 

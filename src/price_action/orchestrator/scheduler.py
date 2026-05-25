@@ -9,6 +9,8 @@ Job listesi:
 - signal_scan (1d kapanış sonrası) — Signal Chief (placeholder)
 - execute_orders                   — Execution (placeholder)
 - daily_kpi (23:00 UTC)            — Analyst + CEO daily_brief
+- daily_whatif (23:30 UTC)         — Analyst what-if counterfactual (Faz 2.3)
+- review_inbox (HH:15 saatlik)     — Risk Officer inbox review (Faz 2.3)
 - weekly_lab_tournament (Paz 03:00) — Lab Scientist
 - weekly_drift (Paz 03:30)         — Lab
 - weekly_rag_refresh (Paz 04:00)   — Lab
@@ -16,6 +18,7 @@ Job listesi:
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from price_action.logging_config import logger
@@ -192,6 +195,49 @@ async def _job_monthly_review() -> None:
 
 
 # ----------------------------------------------------------------------
+# Faz 2.3 — what-if + inbox review job'ları
+# ----------------------------------------------------------------------
+
+async def _job_daily_whatif() -> None:
+    """Analyst what-if counterfactual — günlük (23:30 UTC).
+
+    Son 7 gün rejected sinyallerinin 'filtre olmasaydı' PnL'ini hesaplar.
+    Çıktı protokol-uyumlu doc; Risk Officer review queue'sine girer.
+    Telegram push sadece filter_loss önemli (>%5) ise.
+    """
+    try:
+        from price_action.agents import AnalystAgent
+
+        path = await AnalystAgent().whatif_analysis(window_days=7)
+        if not isinstance(path, Path):
+            # write_doc=False döndü → dict
+            logger.info("scheduler.whatif_no_doc", extra={"stats": str(path)[:200]})
+            return
+        # Filter cost büyükse push et (notifications.yaml condition: filter_loss_pct >= 5)
+        # Şu an için her zaman push; Faz 4'te conditional logic eklenir
+        _push_report_safe(path, level="INFO", caption="Analyst What-If Analysis")
+    except Exception as exc:
+        logger.warning("scheduler.whatif_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_review_inbox() -> None:
+    """Risk Officer inbox review — saatlik (HH:15).
+
+    inbox.jsonl'i tara, recipient=risk_officer + ack_at=null doc'ları batch
+    işle. Batch size 5 (Sonnet, light reasoning, hourly).
+    """
+    try:
+        from price_action.agents import RiskOfficerAgent
+
+        ro = RiskOfficerAgent()
+        results = await ro.review_all_pending(max_items=5)
+        if results:
+            logger.info("scheduler.inbox_reviewed", extra={"n": len(results)})
+    except Exception as exc:
+        logger.warning("scheduler.inbox_review_fail", extra={"err": str(exc)[:200]})
+
+
+# ----------------------------------------------------------------------
 # Faz 1.2 — Push helper'ları (sessiz fail; scheduler düşmesin)
 # ----------------------------------------------------------------------
 
@@ -249,6 +295,8 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("signal_scan", "cron", "5 0 * * *", _job_signal_scan),
     ("execute_orders", "cron", "10 0 * * *", _job_execute_orders),
     ("daily_kpi", "cron", "0 23 * * *", _job_daily_kpi),
+    ("daily_whatif", "cron", "30 23 * * *", _job_daily_whatif),  # Faz 2.3
+    ("review_inbox", "cron", "15 * * * *", _job_review_inbox),  # Faz 2.3 saatlik
     ("weekly_lab_tournament", "cron", "0 3 * * sun", _job_weekly_tournament),
     ("weekly_drift", "cron", "30 3 * * sun", _job_weekly_drift),
     ("weekly_rag_refresh", "cron", "0 4 * * sun", _job_weekly_rag_refresh),

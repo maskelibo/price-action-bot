@@ -1,4 +1,4 @@
-"""LLM agent'lar — CEO, Researcher, Analyst, Lab Scientist, Ops Engineer.
+"""LLM agent'lar — CEO, Researcher, Analyst, Lab Scientist, Ops Engineer, Risk Officer.
 
 Tüm agent'lar ``LLMAgentBase``'ten türer. Her birinin SOP'leri kendi modülünde.
 
@@ -16,6 +16,7 @@ from .ceo import CEOAgent
 from .lab_scientist import LabScientistAgent
 from .ops_engineer import OpsAgent
 from .researcher import ResearcherAgent
+from .risk_officer import RiskOfficerAgent
 
 __all__ = [
     "AnalystAgent",
@@ -25,4 +26,5 @@ __all__ = [
     "LabScientistAgent",
     "OpsAgent",
     "ResearcherAgent",
+    "RiskOfficerAgent",
 ]
