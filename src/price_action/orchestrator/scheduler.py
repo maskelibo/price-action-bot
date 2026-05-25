@@ -556,6 +556,63 @@ async def _job_curator_weekly_lifecycle() -> None:
         logger.warning("scheduler.curator_lifecycle_fail", extra={"err": str(exc)[:200]})
 
 
+async def _job_researcher_5batch() -> None:
+    """Faz 12: Researcher 5-paralel hipotez üretimi (her gece 02:30)."""
+    try:
+        from price_action.agents import ResearcherAgent
+        r = ResearcherAgent()
+        results = await r.propose_5_batch()
+        logger.info(
+            "scheduler.researcher_5batch_done",
+            extra={"n_hypotheses": len(results)},
+        )
+    except Exception as exc:
+        logger.warning("scheduler.researcher_5batch_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_weekly_bot_attribution() -> None:
+    """Faz 12: Haftalık per-bot attribution (Analyst + Bot Monitor sentez)."""
+    try:
+        from price_action.agents import AnalystAgent, BotMonitorAgent
+        # Bot Monitor günlük cards'larını topla, Analyst sentez yapsın
+        bm = BotMonitorAgent()
+        cards_path = await bm.daily_report_cards()
+        # Şimdilik basit: bot_monitor weekly summary
+        # Faz 12.x: Analyst.weekly_attribution metodu ekle, çapraz-sentez
+        logger.info(
+            "scheduler.weekly_bot_attribution_done",
+            extra={"path": str(cards_path)},
+        )
+        _push_report_safe(cards_path, level="INFO", caption="Weekly Bot Attribution")
+    except Exception as exc:
+        logger.warning("scheduler.weekly_bot_attribution_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_weekly_principal_queue() -> None:
+    """Faz 12: Pazar 08:30 — CEO Q&A digest, Principal action queue."""
+    try:
+        from price_action.agents import CEOAgent
+        ceo = CEOAgent()
+        # CEO weekly_summary'i Principal action queue olarak push
+        path = await ceo.weekly_summary()
+        _push_report_safe(path, level="INFO", caption="Principal Action Queue (Weekly)")
+    except Exception as exc:
+        logger.warning("scheduler.weekly_principal_queue_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_monthly_strategy_portfolio_review() -> None:
+    """Faz 12: Aybaşı 09:00 — Curator + CEO monthly portfolio review."""
+    try:
+        from price_action.agents import CEOAgent, StrategyCuratorAgent
+        sc = StrategyCuratorAgent()
+        await sc.weekly_lifecycle_review()  # Monthly = ek detaylı weekly variant
+        ceo = CEOAgent()
+        path = await ceo.weekly_summary()
+        _push_report_safe(path, level="INFO", caption="Monthly Strategy Portfolio Review")
+    except Exception as exc:
+        logger.warning("scheduler.monthly_portfolio_review_fail", extra={"err": str(exc)[:200]})
+
+
 async def _job_tf_exploration_chunk() -> None:
     """Faz 10: TF exploration günlük chunk (1 strateji × 1 TF/gün)."""
     try:
@@ -716,6 +773,7 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("scan_drift_alerts", "cron", "45 * * * *", _job_scan_drift_alerts),  # Faz 3.1 :45
     # Günlük
     ("daily_research", "cron", "0 2 * * *", _job_daily_research),
+    ("researcher_5batch", "cron", "30 2 * * *", _job_researcher_5batch),  # Faz 12
     ("adversary_daily_stress", "cron", "0 4 * * *", _job_adversary_daily_stress),  # Faz 9
     ("tf_exploration_chunk", "cron", "30 4 * * *", _job_tf_exploration_chunk),  # Faz 10
     ("signal_scan", "cron", "5 0 * * *", _job_signal_scan),
@@ -733,9 +791,12 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("weekly_token_report", "cron", "0 5 * * sun", _job_weekly_token_report),  # Faz 4.2
     ("weekly_consolidation", "cron", "30 5 * * sun", _job_weekly_consolidation),  # Faz 4.4
     ("curator_weekly_lifecycle", "cron", "30 6 * * sun", _job_curator_weekly_lifecycle),  # Faz 8
+    ("weekly_bot_attribution", "cron", "30 7 * * sun", _job_weekly_bot_attribution),  # Faz 12
+    ("weekly_principal_queue", "cron", "30 8 * * sun", _job_weekly_principal_queue),  # Faz 12
     # Aylık
     ("monthly_market_scout", "cron", "0 8 5 * *", _job_monthly_market_scout),  # Faz 11
     ("monthly_review", "cron", "0 6 28-31 * *", _job_monthly_review),
+    ("monthly_strategy_portfolio", "cron", "0 9 28-31 * *", _job_monthly_strategy_portfolio_review),  # Faz 12
 )
 
 

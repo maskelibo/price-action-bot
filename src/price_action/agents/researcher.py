@@ -87,6 +87,69 @@ class ResearcherAgent(LLMAgentBase):
         )
         return text
 
+    async def propose_5_batch(self, themes: list[str] | None = None) -> list[str]:
+        """Faz 12: 5 paralel hipotez üret — 5 farklı theme/yön.
+
+        Default themes (haftalık rotation):
+        1. "Volatility regime sizing optimization"
+        2. "Cross-strategy correlation reduction"
+        3. "Funding rate alt-data filter"
+        4. "Time-of-day session bias"
+        5. "Multi-symbol confluence opportunities"
+
+        Args:
+            themes: Override list, default haftalık rotation
+        Returns:
+            List of generated hypothesis texts (5 adet, paralel yürütüldü)
+        """
+        import asyncio
+
+        if themes is None:
+            from datetime import datetime, timezone
+            # Haftalık rotation — gün × 5 ile farklı seed seti
+            day = datetime.now(timezone.utc).timetuple().tm_yday
+            theme_bank = [
+                "Volatility regime sizing optimization",
+                "Cross-strategy correlation reduction",
+                "Funding rate alt-data filter",
+                "Time-of-day session bias",
+                "Multi-symbol confluence opportunities",
+                "OI/volume divergence patterns",
+                "Liquidity grab + reversal setup",
+                "BTC dominance shift triggers",
+                "Weekend gap fill statistics",
+                "FOMC/CPI event pre-positioning",
+            ]
+            # 5 sliding theme
+            start = (day * 5) % len(theme_bank)
+            themes = [theme_bank[(start + i) % len(theme_bank)] for i in range(5)]
+
+        # Paralel yürütme
+        results = await asyncio.gather(
+            *[self.propose_hypothesis(theme) for theme in themes],
+            return_exceptions=True,
+        )
+
+        successful = []
+        for theme, result in zip(themes, results):
+            if isinstance(result, Exception):
+                logger.warning(
+                    "researcher.batch_item_fail",
+                    extra={"theme": theme, "err": str(result)[:200]},
+                )
+            else:
+                successful.append(result)
+                logger.info(
+                    "researcher.batch_item_ok",
+                    extra={"theme": theme, "len": len(result)},
+                )
+
+        logger.info(
+            "researcher.5batch_done",
+            extra={"n_themes": len(themes), "n_successful": len(successful)},
+        )
+        return successful
+
     def pre_register(self, hypothesis_md: str, slug: str | None = None) -> Path:
         """Hipotezi pre-register et — protokol-uyumlu doc.
 
