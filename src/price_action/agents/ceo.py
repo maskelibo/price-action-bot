@@ -89,6 +89,17 @@ class CEOAgent(LLMAgentBase):
         except Exception as exc:
             logger.warning("ceo.conflict_scan_fail", extra={"err": str(exc)[:200]})
 
+        # Faz 3.4 BUG FIX: arbitrate_outputs prompt'a dahil edilir
+        # (eskiden dead code — list dolduruluyordu ama prompt'a girmiyor)
+        arbitrate_section = ""
+        if arbitrate_outputs:
+            arbitrate_section = (
+                "\n\n## CONFLICTS RESOLVED (auto-arbitrate sonuçları)\n"
+                + "\n".join(arbitrate_outputs)
+                + "\n\n^ Bu çatışma çözümlerini brief'in 'Decisions Made' "
+                "veya 'Blocked on Principal' bölümlerine yansıt."
+            )
+
         prompt = (
             "SOP-1 Günlük Morning Brief üret. Önce dünkü Analytics raporlarını, "
             "açık pozisyon snapshot'ını ve `memory/shared/active_state.md` "
@@ -102,6 +113,7 @@ class CEOAgent(LLMAgentBase):
             "- ## Blocked on Principal (insan onayı bekleyenler)\n\n"
             "Sayısal gerekçe olmayan satır yazma. Inbox'taki critique'leri "
             "değerlendir; conflict varsa arbitrate önerisi ekle."
+            + arbitrate_section
         )
         ctx = self._collect_daily_context(when)
         text = await self.run(prompt, context_files=ctx)
