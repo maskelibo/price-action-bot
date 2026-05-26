@@ -22,7 +22,7 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -38,6 +38,98 @@ from price_action.logging_config import logger
 from price_action.memory import EpisodicLog, MemoryStore
 from price_action.memory.store import make_entry
 from price_action.settings import get_settings
+
+
+# FIX 2026-05-26 (H5): Global semaphore for CLI subprocess calls.
+# Önceden 11 agent paralel claude CLI çağırabiliyordu — Max Pro 5-saatlik
+# rate window'unu birden tüketebilirdi (asyncio.gather içinden 5-batch
+# researcher veya weekend Pazar burst). Bu semaphore concurrent CLI
+# çağrılarını N ile sınırlar (default 3, env PA_CLI_MAX_CONCURRENT ile
+# override edilebilir).
+_CLI_MAX_CONCURRENT = int(os.environ.get("PA_CLI_MAX_CONCURRENT", "3"))
+_CLI_SEMAPHORE: asyncio.Semaphore | None = None  # lazy init (event loop bound)
+
+
+def _get_cli_semaphore() -> asyncio.Semaphore:
+    """Module-level singleton — first call current event loop'a bağlanır."""
+    global _CLI_SEMAPHORE
+    if _CLI_SEMAPHORE is None:
+        _CLI_SEMAPHORE = asyncio.Semaphore(_CLI_MAX_CONCURRENT)
+    return _CLI_SEMAPHORE
+
+
+# FIX 2026-05-26 (H3): Circuit breaker for LLM calls.
+# Önceden tenacity 3x × CCXT 5x × scheduler retry cascade riski vardı.
+# Çözüm: per-agent failure counter; N consecutive fail in M minutes
+# → circuit OPEN T seconds (retry'lar skip, push_critical alert).
+# Half-open: T sonra 1 trial; başarılı ise CLOSE, fail ise yine OPEN.
+_CIRCUIT_FAIL_THRESHOLD = int(os.environ.get("PA_CIRCUIT_FAIL_THRESHOLD", "5"))
+_CIRCUIT_WINDOW_SECONDS = int(os.environ.get("PA_CIRCUIT_WINDOW_S", "300"))  # 5 dk
+_CIRCUIT_OPEN_SECONDS = int(os.environ.get("PA_CIRCUIT_OPEN_S", "600"))     # 10 dk
+_circuit_state: dict[str, dict[str, Any]] = {}  # agent_name → state
+
+
+def _circuit_check(agent_name: str) -> tuple[bool, str]:
+    """Returns (allow_call, reason).
+
+    State per agent:
+        failures: [timestamps of recent failures]
+        open_until: datetime when circuit re-closes (None if closed)
+    """
+    state = _circuit_state.setdefault(agent_name, {"failures": [], "open_until": None})
+    now = datetime.now(timezone.utc)
+
+    # Eğer açık ise: timer geçti mi?
+    if state["open_until"] is not None:
+        if now < state["open_until"]:
+            remaining = (state["open_until"] - now).total_seconds()
+            return False, f"circuit_open ({remaining:.0f}s kaldı)"
+        # Timer geçti — half-open (1 trial'a izin)
+        state["open_until"] = None
+        state["failures"] = []  # reset
+        return True, "circuit_half_open_trial"
+
+    return True, "circuit_closed"
+
+
+def _circuit_record_failure(agent_name: str) -> None:
+    """Failure kaydet — eşik aşılırsa circuit OPEN."""
+    state = _circuit_state.setdefault(agent_name, {"failures": [], "open_until": None})
+    now = datetime.now(timezone.utc)
+    state["failures"].append(now)
+    # Window dışındakileri at
+    cutoff = now - timedelta(seconds=_CIRCUIT_WINDOW_SECONDS)
+    state["failures"] = [t for t in state["failures"] if t >= cutoff]
+    if len(state["failures"]) >= _CIRCUIT_FAIL_THRESHOLD:
+        state["open_until"] = now + timedelta(seconds=_CIRCUIT_OPEN_SECONDS)
+        logger.error(
+            "agent.circuit_open",
+            extra={
+                "agent": agent_name,
+                "failures": len(state["failures"]),
+                "open_until": state["open_until"].isoformat(),
+            },
+        )
+        # Telegram CRIT alert
+        try:
+            from price_action.orchestrator.notifications import push_critical
+            push_critical(
+                f"LLM circuit OPEN: {agent_name} — "
+                f"{len(state['failures'])} fail in {_CIRCUIT_WINDOW_SECONDS}s, "
+                f"retry'lar {_CIRCUIT_OPEN_SECONDS}s skip edilecek",
+                source="circuit_breaker",
+            )
+        except Exception:
+            pass
+
+
+def _circuit_record_success(agent_name: str) -> None:
+    """Başarılı çağrı — failure listesini temizle (recovery)."""
+    state = _circuit_state.setdefault(agent_name, {"failures": [], "open_until": None})
+    if state["failures"] or state["open_until"] is not None:
+        logger.info("agent.circuit_recovered", extra={"agent": agent_name})
+    state["failures"] = []
+    state["open_until"] = None
 
 # ----------------------------------------------------------------------
 # Prometheus metrics — best-effort
@@ -275,13 +367,28 @@ class LLMAgentBase(abc.ABC):
         if self._client_kind == "dry":
             resp = self._dry_run_response(prompt)
         else:
-            resp = await asyncio.to_thread(
-                self._sync_call_with_retry,
-                system_prompt,
-                user_text,
-                max_tokens,
-                temperature,
-            )
+            # FIX 2026-05-26 (H5): CLI çağrılarını semaphore ile sınırla.
+            # Sadece CLI subprocess path için (Anthropic SDK direct çağrıları
+            # SDK'nin kendi rate limit'i var). dry-run + sdk path için
+            # semaphore by-pass.
+            if self._client_kind == "cli":
+                sem = _get_cli_semaphore()
+                async with sem:
+                    resp = await asyncio.to_thread(
+                        self._sync_call_with_retry,
+                        system_prompt,
+                        user_text,
+                        max_tokens,
+                        temperature,
+                    )
+            else:
+                resp = await asyncio.to_thread(
+                    self._sync_call_with_retry,
+                    system_prompt,
+                    user_text,
+                    max_tokens,
+                    temperature,
+                )
 
         # Telemetri
         try:
@@ -365,15 +472,24 @@ class LLMAgentBase(abc.ABC):
         max_tokens: int,
         temperature: float,
     ) -> LLMResponse:
+        # FIX 2026-05-26 (H3): Circuit breaker check
+        allow, reason = _circuit_check(self.name)
+        if not allow:
+            raise LLMError(f"circuit_breaker_open: {reason}")
         try:
             if self._client_kind == "cli":
-                return self._call_cli(system_prompt, user_text, max_tokens, temperature)
-            if self._client_kind == "agent_sdk":
-                return self._call_agent_sdk(system_prompt, user_text, max_tokens, temperature)
-            return self._call_anthropic(system_prompt, user_text, max_tokens, temperature)
+                resp = self._call_cli(system_prompt, user_text, max_tokens, temperature)
+            elif self._client_kind == "agent_sdk":
+                resp = self._call_agent_sdk(system_prompt, user_text, max_tokens, temperature)
+            else:
+                resp = self._call_anthropic(system_prompt, user_text, max_tokens, temperature)
+            _circuit_record_success(self.name)
+            return resp
         except LLMError:
+            _circuit_record_failure(self.name)
             raise
         except Exception as exc:
+            _circuit_record_failure(self.name)
             try:
                 PA_LLM_CALLS.labels(agent=self.name, model=self.model, status="error").inc()
             except Exception:  # pragma: no cover

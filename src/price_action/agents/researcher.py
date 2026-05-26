@@ -262,14 +262,33 @@ class ResearcherAgent(LLMAgentBase):
         hdir = self._hypotheses_dir()
 
         # Rule 2: 7g cooldown — son rejected hypothesis var mı?
+        # FIX 2026-05-26 (H8): content[:3000]/[:5000] string match yerine
+        # YAML frontmatter parse + full body fallback. Symbol/strategy footer'da
+        # ise miss riskini eliminer eder.
         cutoff_7d = datetime.now(timezone.utc) - timedelta(days=7)
         for h in hdir.glob("*.md"):
             try:
                 mtime = datetime.fromtimestamp(h.stat().st_mtime, tz=timezone.utc)
                 if mtime < cutoff_7d:
                     continue
-                content = h.read_text(encoding="utf-8")[:3000]
-                if symbol in content and strategy in content and "REJECTED" in content.upper():
+                content = h.read_text(encoding="utf-8")
+                # Frontmatter parse → daha güvenilir match
+                frontmatter, body = self._parse_doc_metadata(content)
+                tags = frontmatter.get("tags", []) or []
+                has_symbol = (
+                    symbol.lower() in str(tags).lower()
+                    or symbol.lower() in body.lower()
+                )
+                has_strategy = (
+                    strategy.lower() in str(tags).lower()
+                    or strategy.lower() in body.lower()
+                )
+                # REJECTED hem status field hem text içinde olabilir
+                is_rejected = (
+                    str(frontmatter.get("status", "")).upper() == "REJECTED"
+                    or "REJECTED" in body.upper()
+                )
+                if has_symbol and has_strategy and is_rejected:
                     days_ago = (datetime.now(timezone.utc) - mtime).days
                     return True, f"recent_reject_within_7d (symbol={symbol}, strategy={strategy}, days_ago={days_ago})"
             except Exception:
@@ -277,16 +296,25 @@ class ResearcherAgent(LLMAgentBase):
 
         # Rule 3 (H6 FIX): aynı (symbol, strategy) için son 7g'de ZATEN hypothesis varsa skip
         # Bu Lab'in haftalık drift_alert üretiminin sonsuz hipotez patlamasını engeller.
-        # tags veya body'de symbol+strategy match
         recent_count_same_pair = 0
         for h in hdir.glob("*.md"):
             try:
                 mtime = datetime.fromtimestamp(h.stat().st_mtime, tz=timezone.utc)
                 if mtime < cutoff_7d:
                     continue
-                content = h.read_text(encoding="utf-8")[:5000]
-                # tags'da hem symbol hem strategy varsa eşleştir
-                if symbol.lower() in content.lower() and strategy.lower() in content.lower():
+                content = h.read_text(encoding="utf-8")
+                frontmatter, body = self._parse_doc_metadata(content)
+                tags = frontmatter.get("tags", []) or []
+                # tags ve full body — char limit YOK (H8 fix)
+                has_symbol = (
+                    symbol.lower() in str(tags).lower()
+                    or symbol.lower() in body.lower()
+                )
+                has_strategy = (
+                    strategy.lower() in str(tags).lower()
+                    or strategy.lower() in body.lower()
+                )
+                if has_symbol and has_strategy:
                     recent_count_same_pair += 1
             except Exception:
                 continue
@@ -295,6 +323,28 @@ class ResearcherAgent(LLMAgentBase):
             return True, f"weekly_pair_limit (symbol={symbol}, strategy={strategy}, count={recent_count_same_pair})"
 
         return False, "ok"
+
+    @staticmethod
+    def _parse_doc_metadata(content: str) -> tuple[dict, str]:
+        """YAML frontmatter parse — H8 fix için yardımcı.
+
+        Returns (frontmatter dict, body str). Frontmatter yoksa ({}, content).
+        """
+        import yaml as _yaml
+        if not content.startswith("---"):
+            return {}, content
+        try:
+            end = content.find("\n---", 4)
+            if end < 0:
+                return {}, content
+            front_str = content[4:end].strip()
+            body = content[end + 4 :].lstrip("\n")
+            fm = _yaml.safe_load(front_str) or {}
+            if not isinstance(fm, dict):
+                fm = {}
+            return fm, body
+        except Exception:
+            return {}, content
 
     async def respond_to_drift(self, drift_doc_path: Path | str) -> Path | None:
         """Drift alert dokümanını oku, hipotez kartı taslağı üret.

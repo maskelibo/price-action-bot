@@ -98,15 +98,19 @@ def _load_last_scan_date() -> date | None:
     try:
         text = LAST_SCAN_STATE.read_text(encoding="utf-8").strip()
         return date.fromisoformat(text) if text else None
-    except Exception:
+    except Exception as exc:
+        # FIX 2026-05-26 (H1): silent → stderr log (logger henüz init değil olabilir)
+        sys.stderr.write(f"WARN _load_last_scan_date fail: {exc}\n")
         return None
 
 
 def _save_last_scan_date(d: date) -> None:
     try:
         LAST_SCAN_STATE.write_text(d.isoformat(), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as exc:
+        # FIX 2026-05-26 (H1): state save fail kritik — daemon restart'ta
+        # tarama tekrar yapılır (idempotent değilse double scan)
+        sys.stderr.write(f"WARN _save_last_scan_date fail: {exc}\n")
 
 
 def _kill_switch_active() -> tuple[bool, str]:
@@ -120,7 +124,9 @@ def _kill_switch_active() -> tuple[bool, str]:
         if bool(ks.get("halted", False)):
             return True, str(ks.get("reason") or "no reason")
         return False, ""
-    except Exception:
+    except Exception as exc:
+        # FIX 2026-05-26 (H1): bozuk kill_switch.json fark edilsin
+        sys.stderr.write(f"WARN _kill_switch_active parse fail (treating as not halted): {exc}\n")
         return False, ""  # bozuk dosya = halted değil (fail-safe)
 
 
@@ -257,7 +263,9 @@ def _get_pyramid_router(exchange):
         try:
             with open(_gr_yaml_path, "r", encoding="utf-8") as _gr_f:
                 _gr_cfg = _yaml_gr.safe_load(_gr_f) or {}
-        except Exception:
+        except Exception as _gr_load_exc:
+            # FIX 2026-05-26 (H1): config eksikliği görünür olsun
+            log(f"WARN _get_pyramid_router config load fail: {_gr_load_exc} — defaults kullanılıyor")
             _gr_cfg = {}
         _gr_exec = _gr_cfg.get("execution", {})
         _gr_po_enabled = bool(_gr_exec.get("post_only_limit_enabled", False))
@@ -877,7 +885,12 @@ def run_15m_mode(once: bool = False) -> None:
     # Default 0.0 = OFF → no signal is rejected → byte-identical to pre-WIRE
     # behavior. Deploy value (0.025) lives in the wide-stop config; activate
     # via PA_15M_CONFIG. See DEPLOY_widestop_15m.md.
+    # FIX 2026-05-26 (H4): config load fail → SAFE DEFAULT + CRIT alert
+    # Önceden _sl_pct_min_15m=0.0 fallback → widestop filter KAPALI → TÜM
+    # sinyaller geçer (catastrophic). Yeni: fail safe (1.0 = %100, hiçbir
+    # sinyal geçemez) + push_critical.
     _sl_pct_min_15m = 0.0
+    _sl_cfg_load_ok = False
     try:
         import yaml as _yaml_sl
         with open(_risk_config_15m(), "r", encoding="utf-8") as _sl_f:
@@ -885,11 +898,27 @@ def run_15m_mode(once: bool = False) -> None:
         _sl_pct_min_15m = float(
             (_sl_cfg_raw.get("execution", {}) or {}).get("sl_pct_min", 0.0)
         )
+        _sl_cfg_load_ok = True
     except Exception as _sl_err:
-        log(f"15M_WIDESTOP_CFG_WARN: {_sl_err} — sl_pct_min=0.0 (filtre kapalı)")
-    if _sl_pct_min_15m > 0.0:
+        log(f"15M_WIDESTOP_CFG_FAIL: {_sl_err} — SAFE DEFAULT sl_pct_min=1.0 (TÜM sinyaller reddedilecek)")
+        _sl_pct_min_15m = 1.0  # %100 — hiçbir sinyal bunu geçemez
+        # Telegram alert: config eksikse Principal HEMEN bilsin
+        try:
+            from price_action.orchestrator.notifications import push_critical as _pc_h4
+            _pc_h4(
+                f"15m risk config LOAD FAIL — daemon SAFE MODE'da "
+                f"(sl_pct_min=1.0, tüm sinyaller reddedilir). "
+                f"Path: {_risk_config_15m()} | Err: {str(_sl_err)[:120]}",
+                source="futures15m_startup",
+            )
+        except Exception:
+            pass
+    if _sl_cfg_load_ok and _sl_pct_min_15m > 0.0:
         log(f"15M_WIDESTOP: sl_pct_min={_sl_pct_min_15m:.4f} AKTİF — "
             f"dar-stop sinyaller REJECT edilecek")
+    elif not _sl_cfg_load_ok:
+        log(f"15M_WIDESTOP_SAFE_MODE: sl_pct_min={_sl_pct_min_15m:.4f} "
+            f"(config load fail — tüm sinyaller reddedilir; config'i düzelt + daemon restart)")
 
     # SEC58-L2: startup'ta DB'den aktif pyramid pozisyonlarını yükle (restart recovery)
     _pyramid_store_load_on_startup()
@@ -1599,15 +1628,29 @@ def run_5m_mode(once: bool = False) -> None:
         log_5m(f"5M_P1C_WALKER_ERR: {e} — walker olmadan devam (sadece tarama)")
 
     # SL pct min config'den oku
+    # FIX 2026-05-26 (H4): config load fail → SAFE DEFAULT 1.0 (tüm sinyaller red)
+    # + push_critical alert. Önceden 0.030 fallback'i bot'u "açık" mod'da çalıştırıyordu.
     _sl_pct_min_5m = 0.030
+    _cfg_load_ok_5m = False
     try:
         import yaml as _yaml
         with open(_risk_config_5m(), "r", encoding="utf-8") as f:
             _cfg = _yaml.safe_load(f) or {}
         _sl_pct_min_5m = float(_cfg.get("execution", {}).get("sl_pct_min", 0.030))
+        _cfg_load_ok_5m = True
         log_5m(f"5M_WIDESTOP: sl_pct_min={_sl_pct_min_5m:.4f}")
     except Exception as e:
-        log_5m(f"5M_CONFIG_WARN: {e} — default sl_pct_min=0.030")
+        log_5m(f"5M_CONFIG_FAIL: {e} — SAFE DEFAULT sl_pct_min=1.0 (TÜM sinyaller red)")
+        _sl_pct_min_5m = 1.0  # %100 — hiçbir sinyal geçemez
+        try:
+            from price_action.orchestrator.notifications import push_critical as _pc_h4_5m
+            _pc_h4_5m(
+                f"5m risk config LOAD FAIL — daemon SAFE MODE "
+                f"(sl_pct_min=1.0). Path: {_risk_config_5m()} | Err: {str(e)[:120]}",
+                source="futures5m_startup",
+            )
+        except Exception:
+            pass
 
     last_bar_boundary = None
     log_5m("5M_DAEMON_RUN_START")

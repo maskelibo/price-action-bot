@@ -380,8 +380,14 @@ class BotMonitorAgent(LLMAgentBase):
                             ),
                             "evidence": {"hours_since_last_trade": round(hours_since, 1)},
                         })
-                except Exception:
-                    pass  # ts parse hatası — sessiz geç
+                except Exception as _ts_exc:
+                    # FIX 2026-05-26 (H1): ts parse hatası görünür olsun
+                    # (corruption/encoding bug işareti olabilir)
+                    logger.warning(
+                        "bot_monitor.blind_spot_ts_parse_fail",
+                        extra={"bot": bot_name, "ts_raw": str(ts_close)[:50],
+                               "err": str(_ts_exc)[:200]},
+                    )
 
         # ---- Check 2: uniform tech reject ----------------------------
         # Daemon log'unu (varsa) tarayıp son N dakikadaki REJECT pattern'ını
@@ -480,8 +486,12 @@ class BotMonitorAgent(LLMAgentBase):
             for p in candidates:
                 if p.exists():
                     return p
-        except Exception:
-            pass
+        except Exception as _resolve_exc:
+            # FIX 2026-05-26 (H1)
+            logger.warning(
+                "bot_monitor.resolve_log_path_fail",
+                extra={"bot": bot_name, "err": str(_resolve_exc)[:200]},
+            )
         return None
 
     # ------------------------------------------------------------------
@@ -592,7 +602,13 @@ class BotMonitorAgent(LLMAgentBase):
             return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
         try:
             return datetime.fromisoformat(str(ts)).replace(tzinfo=timezone.utc)
-        except Exception:
+        except Exception as _ts_exc:
+            # FIX 2026-05-26 (H1): ts parse fail → now() döndürüyor (kabul edilebilir
+            # fallback) ama corruption pattern'ı izlemek için log'a yaz
+            logger.warning(
+                "bot_monitor._to_utc_parse_fail",
+                extra={"ts_raw": str(ts)[:50], "err": str(_ts_exc)[:120]},
+            )
             return datetime.now(timezone.utc)
 
     def _heartbeat_check(self, bot_name: str) -> bool:

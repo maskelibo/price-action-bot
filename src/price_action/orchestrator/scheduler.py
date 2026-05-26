@@ -25,14 +25,35 @@ from price_action.logging_config import logger
 
 
 def build_scheduler() -> Any:
-    """``AsyncIOScheduler`` instance'ı döndürür."""
+    """``AsyncIOScheduler`` instance'ı döndürür.
+
+    FIX 2026-05-26 (H2): Thread pool genişletildi (default 10 → 40).
+    Subprocess job'lar (regime_refresh 120s, execute_orders 60s,
+    tf_exploration_chunk 60s, process_pending_entries 30s) thread'leri
+    tüketebiliyordu. 35 cron job × ortalama 5s = peak load için 40 thread
+    yeterli. Concurrent subprocess çakışmaları için ek 20 thread'lik
+    ayrı process pool kullanılabilir (ileride opsiyon).
+    """
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[import-not-found]
+        from apscheduler.executors.pool import ThreadPoolExecutor  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError(
             "apscheduler yüklü değil — `pip install apscheduler`"
         ) from exc
-    return AsyncIOScheduler(timezone="UTC")
+    executors = {
+        "default": ThreadPoolExecutor(max_workers=40),
+    }
+    job_defaults = {
+        "coalesce": True,           # Aynı job için birikmiş misfire'lar tek run
+        "max_instances": 1,         # Aynı job ID concurrent yasak (kendiyle race yok)
+        "misfire_grace_time": 600,  # 10 dk geç çalışmaya izin
+    }
+    return AsyncIOScheduler(
+        timezone="UTC",
+        executors=executors,
+        job_defaults=job_defaults,
+    )
 
 
 # ----------------------------------------------------------------------
@@ -302,8 +323,12 @@ async def _job_hourly_token_check() -> None:
                         f"⚠️ Token budget %80+ — {agents_warn}",
                         level="WARNING",
                     )
-            except Exception:
-                pass
+            except Exception as _push_exc:
+                # FIX 2026-05-26 (H1): silent pass → log; Telegram fail görünür olsun
+                logger.warning(
+                    "scheduler.token_warn_push_fail",
+                    extra={"err": str(_push_exc)[:200], "agents_warn": agents_warn},
+                )
             logger.warning(
                 "scheduler.token_warn",
                 extra={"alerts": warn_alerts},
@@ -342,8 +367,9 @@ async def _job_health_check() -> None:
             )
             if out.returncode != 0:
                 issues.append("futures_daemon process YOK")
-        except Exception:
-            pass
+        except Exception as _pgrep_exc:
+            # FIX 2026-05-26 (H1)
+            logger.warning("scheduler.pgrep_fail", extra={"err": str(_pgrep_exc)[:200]})
 
         # 2. futures_daemon.log freshness
         flog = s.reports_dir.parent / "logs" / "futures_daemon.log"
@@ -368,8 +394,9 @@ async def _job_health_check() -> None:
                     mb = int(out.stdout.split()[0])
                     if mb > 1024:
                         issues.append(f"logs/ {mb}MB (>1GB) — rotation gecikmiş")
-            except Exception:
-                pass
+            except Exception as _du_exc:
+                # FIX 2026-05-26 (H1)
+                logger.warning("scheduler.du_fail", extra={"err": str(_du_exc)[:200]})
 
         if issues:
             _push_critical_safe(
@@ -630,8 +657,12 @@ async def _job_adversary_daily_stress() -> None:
                         f"Adversary stress test CRIT — bot={bot_id}",
                         source="adversary_engineer",
                     )
-            except Exception:
-                pass
+            except Exception as _crit_exc:
+                # FIX 2026-05-26 (H1)
+                logger.warning(
+                    "scheduler.adversary_crit_check_fail",
+                    extra={"bot": bot_id, "err": str(_crit_exc)[:200]},
+                )
     except Exception as exc:
         logger.warning("scheduler.adversary_daily_fail", extra={"err": str(exc)[:200]})
 
@@ -780,15 +811,23 @@ async def _job_lab_quick_scan() -> None:
                     f"Quick scan drift alert: {result}",
                     slug="drift-alert-quick", confidence="med",
                 )
-        except Exception:
-            pass
+        except Exception as _drift_exc:
+            # FIX 2026-05-26 (H1)
+            logger.warning(
+                "scheduler.lab_drift_detect_fail",
+                extra={"err": str(_drift_exc)[:200]},
+            )
 
         # 2. Param sweep ek hücre — her quick scan +1 cell
         try:
             import asyncio
             await asyncio.to_thread(_run_param_sweep_chunk_sync)
-        except Exception:
-            pass
+        except Exception as _sweep_exc:
+            # FIX 2026-05-26 (H1)
+            logger.warning(
+                "scheduler.lab_quick_sweep_fail",
+                extra={"err": str(_sweep_exc)[:200]},
+            )
 
         logger.info("scheduler.lab_quick_scan_done")
     except Exception as exc:
