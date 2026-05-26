@@ -389,25 +389,50 @@ class BotMonitorAgent(LLMAgentBase):
         # (regime_cache_stale, import_fail, vb.) TEKNİK bug indikatörü.
         if log_path and log_path.exists():
             try:
-                cutoff_clock = (now - timedelta(minutes=reject_window_minutes)).strftime("%H:%M")
-                # Log format: [HH:MM:SS] 15M_REJECT_RISK: SYM strat reason=X
+                # FIX 2026-05-26 v2: midnight rollover-safe pencere.
+                # Log timestamp'leri HH:MM:SS (tarih yok). Önceki naive
+                # string compare gün geçişinde dünün satırlarını "yeni"
+                # sayıyordu (kullanıcı raporladı: %93 regime_cache_stale
+                # false-positive, daemon aslında temiz çalışıyordu).
+                # Çözüm: satırları sondan başa oku, ilk timestamp düşüşünde
+                # dur (gün geçişi tespiti). Sonra cutoff_seconds penceresi
+                # içinde olanları say.
+                with log_path.open("r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()[-2000:]
+                # Sondan başa: timestamp toplamak için saniye cinsinden
+                # akümülatör. Her satır son satıra göre ne kadar geriye?
+                last_ts_sec: int | None = None
+                cumulative_back_sec = 0  # son satırdan kaç saniye geride
+                cutoff_back_sec = reject_window_minutes * 60
                 rejects: dict[str, int] = {}
                 total_rejects = 0
                 widestop_count = 0
-                # Read tail efficiently
-                with log_path.open("r", encoding="utf-8", errors="ignore") as f:
-                    lines = f.readlines()[-2000:]
-                for line in lines:
-                    if "REJECT" not in line:
+                for line in reversed(lines):
+                    m = re.match(r"^\[(\d{2}):(\d{2}):(\d{2})\]", line)
+                    if not m:
                         continue
-                    # Time gate (HH:MM string compare — yeterince doğru)
-                    m = re.match(r"^\[(\d{2}:\d{2}):\d{2}\]", line)
-                    if not m or m.group(1) < cutoff_clock:
+                    line_sec = (
+                        int(m.group(1)) * 3600
+                        + int(m.group(2)) * 60
+                        + int(m.group(3))
+                    )
+                    if last_ts_sec is None:
+                        last_ts_sec = line_sec
+                    else:
+                        # Gün geçişi tespiti: line_sec > last_ts_sec → dün
+                        diff = last_ts_sec - line_sec
+                        if diff < 0:
+                            # Gün geçişi: 86400 ekle (önceki gün)
+                            diff += 86400
+                        cumulative_back_sec += diff
+                        last_ts_sec = line_sec
+                        if cumulative_back_sec > cutoff_back_sec:
+                            break  # pencere dışı, dur
+                    if "REJECT" not in line:
                         continue
                     if "REJECT_WIDESTOP" in line:
                         widestop_count += 1
-                        continue  # tasarım gereği, atla
-                    # reason=X parse
+                        continue
                     rm = re.search(r"reason=(\S+)", line)
                     reason = rm.group(1) if rm else "unknown"
                     rejects[reason] = rejects.get(reason, 0) + 1
