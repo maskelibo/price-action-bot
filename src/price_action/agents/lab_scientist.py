@@ -136,41 +136,95 @@ class LabScientistAgent(LLMAgentBase):
     # ------------------------------------------------------------------
 
     def _collect_active_challengers(self, since_days: int = 7) -> list[dict[str, Any]]:
-        """Faz 3.2: Researcher'in son N gündeki hypothesis dokümanlarını topla.
+        """Tournament için aday strateji konfig'leri topla — iki kaynak.
 
-        `respond_to_drift()` ile üretilen drift_response hipotezleri dahil.
-        Backtest sonucu olmadan tournament'a girmez — sadece "var" işareti.
+        Kaynak 1 (FAZ 14.10, 2026-05-27 birincil): **Param sweep chunks**
+            `reports/param_sweep/chunks/*.jsonl` — `param_sweep_runner` her
+            saat 5 cell işliyor (vsa_climax_test, brooks_failed_breakout,
+            anchored_vwap_reversal rotasyonu). Çıktı per-cell:
+            `{sl_multiplier, tp_r, risk_pct, n_trades, sharpe_like,
+            mean_R_after_fees, sum_R, regime breakdowns}`.
+            `top_cells_as_challengers()` strateji başına top-N dedupe'lu
+            (sl, tp) cell döner — bunlar GERÇEK sayısal challenger.
+
+        Kaynak 2 (geçici, deprecated bekçi): **Researcher hipotez dosyaları**
+            `memory/researcher/hypotheses/*.md` — backtest sonucu YOKSA
+            (`PENDING_BACKTEST`), `_collect_pending_hypotheses()` ile
+            sadece METADATA olarak eklenir. Bu hipotezler tournament'a
+            sayısal yarışmacı olarak ALINMAZ (oos_sharpe=0 → reject), ama
+            CEO raporda "Researcher şu hipotezleri yazdı, henüz backtest
+            yok" bilgisi geçsin diye listede tutulur.
+
+        Eskisi (boş hipotezleri sweep'e koymak): tournament `rows: []`
+        üretiyordu → CEO yeni bot adayı GÖREMİYORDU. Bu yenisi sweep
+        chunk'larından gerçek tournament girdisi sağlıyor.
         """
-        from price_action.memory.store import MemoryStore
-
-        store = MemoryStore()
-        hyp_docs = store.list_recent_docs(
-            agent="researcher",
-            doc_type="hypothesis",
-            since_days=since_days,
-        )
-        # Researcher hypotheses memory/researcher/hypotheses/ altında olabilir,
-        # ya da reports/researcher/ altında (write_protocol_doc default).
-        # Her ikisini de tara.
-        from pathlib import Path as _P
-        hyp_dir_memory = self.settings.memory_dir / "researcher" / "hypotheses"
-        if hyp_dir_memory.exists():
-            extra = sorted(hyp_dir_memory.glob("*.md"), reverse=True)[:20]
-            hyp_docs = list(hyp_docs) + list(extra)
-
-        # Map → challenger dict; backtest sonucu yoksa "pending"
         challengers: list[dict[str, Any]] = []
-        for doc in hyp_docs[:10]:  # son 10 hipotez
-            challengers.append({
-                "id": doc.stem,
-                "source_doc": str(doc),
-                "oos_returns": [],
-                "oos_sharpe": 0.0,
-                "oos_maxdd": 0.0,
-                "n_trials": 0,
-                "status": "PENDING_BACKTEST",
-            })
-        logger.info("lab.auto_collected_challengers", extra={"n": len(challengers)})
+
+        # Kaynak 1 — gerçek sayısal challenger (param sweep cells)
+        try:
+            from price_action.lab.sweep_aggregator import top_cells_as_challengers
+            sweep_challengers = top_cells_as_challengers(
+                since_days=since_days,
+                top_n_per_strategy=3,
+                min_trades=500,
+                min_mean_R_after_fees=0.0,  # fee sonrası kayıp = aday değil
+            )
+            challengers.extend(sweep_challengers)
+            logger.info(
+                "lab.sweep_challengers_collected",
+                extra={"n": len(sweep_challengers)},
+            )
+        except Exception as exc:
+            logger.warning(
+                "lab.sweep_challengers_fail",
+                extra={"err": str(exc)[:200]},
+            )
+
+        # Kaynak 2 — hipotez "place-holder" listesi (metadata only, oos=0)
+        try:
+            from price_action.memory.store import MemoryStore
+            store = MemoryStore()
+            hyp_docs = store.list_recent_docs(
+                agent="researcher",
+                doc_type="hypothesis",
+                since_days=since_days,
+            )
+            hyp_dir_memory = self.settings.memory_dir / "researcher" / "hypotheses"
+            if hyp_dir_memory.exists():
+                extra = sorted(hyp_dir_memory.glob("*.md"), reverse=True)[:20]
+                hyp_docs = list(hyp_docs) + list(extra)
+            # FIX 2026-05-27 (Lab Scientist tournament feedback): README,
+            # TEMPLATE, .tmpl gibi gerçek hipotez olmayan dosyaları ele.
+            # Tournament rapor LLM'i bu artefakt'ları gördü ve incident
+            # açtırdı.
+            HYP_SKIP_PREFIXES = ("README", "TEMPLATE", "_template")
+            HYP_SKIP_SUFFIXES = (".tmpl", "_template.md")
+            for doc in hyp_docs[:15]:
+                name = doc.name
+                if any(name.startswith(p) for p in HYP_SKIP_PREFIXES):
+                    continue
+                if any(name.endswith(s) for s in HYP_SKIP_SUFFIXES):
+                    continue
+                challengers.append({
+                    "id": doc.stem,
+                    "source_doc": str(doc),
+                    "oos_returns": [],
+                    "oos_sharpe": 0.0,
+                    "oos_maxdd": 0.0,
+                    "n_trials": 0,
+                    "status": "PENDING_BACKTEST",
+                })
+        except Exception as exc:
+            logger.warning(
+                "lab.hyp_collect_fail",
+                extra={"err": str(exc)[:200]},
+            )
+
+        logger.info(
+            "lab.auto_collected_challengers",
+            extra={"n_total": len(challengers)},
+        )
         return challengers
 
     async def weekly_tournament(

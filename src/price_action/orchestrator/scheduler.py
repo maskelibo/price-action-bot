@@ -155,20 +155,36 @@ async def _job_daily_kpi() -> None:
 
 
 async def _job_weekly_tournament() -> None:
-    """Lab haftalık tournament — gerçek strateji listesi placeholder.
+    """Lab tournament — sweep chunk'larından gerçek challenger ile.
 
-    Faz 1.2: terfi adayı bulunursa Telegram push (latest tournament dosyası).
+    FIX 2026-05-27 (Faz 14.10): önceki versiyon `champion={"noop"...}`
+    + `challengers=[]` ile çağırıyordu → tournament rows hep boş.
+    Şimdi: LabScientist.weekly_tournament(challengers=None) çağrılır
+    → `_collect_active_challengers()` sweep aggregator + hipotez
+    placeholder'ı birleştirir → gerçek rows üretir.
+
+    Champion proxy: canlı bot (vsa_climax_test wide-stop), backtest
+    header summary'den sharpe ~1.5 + DD -17%. İleride bot_monitor'dan
+    rolling-7g live KPI okuyabilirsek otomatik bağlanır.
     """
     try:
         from price_action.agents import LabScientistAgent
 
-        # Gerçek champion/challenger Lab tarafından yüklenir; burada hook.
+        # Champion: canlı widestop_vsa2 bot proxy
+        # (backtest header: continuous-curve DD -17%, aylik +19.30%)
+        champion = {
+            "id": "live_vsa_climax_widestop_15m",
+            "oos_returns": [],
+            "oos_sharpe": 1.5,
+            "oos_maxdd": 0.17,
+            "n_trials": 30,
+        }
         result = await LabScientistAgent().weekly_tournament(
-            champion={"id": "noop", "oos_returns": [], "oos_sharpe": 0, "oos_maxdd": 0},
-            challengers=[],
+            champion=champion,
+            challengers=None,   # auto-collect: sweep cells + hyp placeholders
         )
         # Tournament dosyası yazılıyorsa push (reports/lab/ son rapor)
-        _push_latest_safe("lab", "tournament-*.md", level="INFO",
+        _push_latest_safe("lab", "*tournament*.md", level="INFO",
                           caption="Lab Tournament Result")
         return result  # silenced unused var lint
     except Exception as exc:
@@ -1296,6 +1312,9 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("daily_kpi", "cron", "0 23 * * *", _job_daily_kpi),
     ("daily_whatif", "cron", "30 23 * * *", _job_daily_whatif),  # Faz 2.3
     ("kill_criteria_eval", "cron", "45 23 * * *", _job_kill_criteria_eval),  # Faz 6
+    # FIX 2026-05-27 (Faz 14.10): günlük tournament — sweep chunk her saat
+    # büyüyor, haftalık çok seyrek. Günlük 04:00 UTC (07:00 TR) bilgilendirici.
+    ("daily_lab_tournament", "cron", "0 4 * * *", _job_weekly_tournament),
     # Haftalık
     ("weekly_lab_tournament", "cron", "0 3 * * sun", _job_weekly_tournament),
     ("weekly_drift", "cron", "30 3 * * sun", _job_weekly_drift),
