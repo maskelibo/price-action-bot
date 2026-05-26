@@ -1,0 +1,152 @@
+# Component SLA Declarations (Faz 14.2 — Promise/Reality Detector).
+#
+# Her komponent ne yapacağını burada beyan eder.
+# scripts/check_promises.py her saat bu söze karşı gerçek üretimi kontrol eder.
+# İhlal → push_critical Telegram alert.
+#
+# Field tipleri:
+#   min_per_24h: Son 24 saatte minimum X tane çıktı/event/file
+#   max_silence_hours: Bu komponent N saatten fazla sessiz kalırsa alarm
+#   file_pattern: Bu glob pattern'a uyan dosyalar son 24h içinde yazılmalı
+#   log_pattern: Daemon log'unda son 24h içinde bu regex en az N kez
+#   journal_table: Bu DuckDB tablosuna son 24h içinde min N satır
+#
+# severity: 'warn' (info push) | 'crit' (push_critical)
+# enabled: false → skip check (geçici devre dışı bırakma)
+
+components:
+
+  # ─────────────────────────────────────────────────────────────
+  # AGENTS
+  # ─────────────────────────────────────────────────────────────
+
+  researcher:
+    description: "Hipotez üretimi (5-batch gece + gün içi pulse)"
+    enabled: true
+    severity: crit
+    checks:
+      - kind: file_pattern
+        pattern: "memory/researcher/hypotheses/*.md"
+        min_per_24h: 1
+        comment: "Gece 02:30 5-batch + gün içi pulse → min 1 yeni hipotez/gün"
+      - kind: log_pattern
+        log: "logs/launchd/ceo.stdout.log"
+        regex: "scheduler.researcher_5batch_done"
+        min_per_24h: 1
+
+  lab_scientist:
+    description: "Param sweep + drift detect + tournament"
+    enabled: true
+    severity: warn
+    checks:
+      - kind: file_pattern
+        pattern: "reports/param_sweep/chunks/*.jsonl"
+        min_per_24h: 5
+        comment: "Saatlik param sweep + 2-saatlik quick scan = ~30 chunk/gün, min 5 garanti"
+      - kind: log_pattern
+        log: "logs/launchd/ceo.stdout.log"
+        regex: "scheduler.lab_quick_scan_done"
+        min_per_24h: 6
+
+  bot_monitor:
+    description: "Saatlik bot health snapshot + günlük cards"
+    enabled: true
+    severity: warn
+    checks:
+      - kind: file_pattern
+        pattern: "reports/bot_monitor/*snapshot*.md"
+        min_per_24h: 20
+        comment: "Saatlik snapshot → 24/gün, biraz tolerance ile 20"
+
+  risk_officer:
+    description: "Inbox review (saatlik :15)"
+    enabled: true
+    severity: warn
+    checks:
+      - kind: log_pattern
+        log: "logs/launchd/ceo.stdout.log"
+        regex: "risk_officer.(inbox_empty|batch_review_done)"
+        min_per_24h: 20
+        comment: "Saatlik :15 review, 20 min OK"
+
+  ceo:
+    description: "Daily brief (02:00 UTC) + arbitrate"
+    enabled: true
+    severity: crit
+    checks:
+      - kind: file_pattern
+        pattern: "reports/ceo/*brief*.md"
+        min_per_24h: 1
+
+  adversary_engineer:
+    description: "Günlük stres test (her bot için)"
+    enabled: true
+    severity: warn
+    checks:
+      - kind: file_pattern
+        pattern: "reports/adversary/*stress*.md"
+        min_per_24h: 2
+        comment: "2 bot × 1/gün = 2 test/gün"
+
+  strategy_curator:
+    description: "Günlük correlation update"
+    enabled: true
+    severity: warn
+    checks:
+      - kind: file_pattern
+        pattern: "reports/curator/*correlation*.md"
+        min_per_24h: 1
+
+  # ─────────────────────────────────────────────────────────────
+  # BOTS
+  # ─────────────────────────────────────────────────────────────
+
+  futures15m_daemon:
+    description: "15m signal scan + position monitor"
+    enabled: true
+    severity: crit
+    checks:
+      - kind: log_pattern
+        log: "logs/launchd/futures15m.stderr.log"
+        regex: "15M_SCAN: \\d+ sinyal"
+        min_per_24h: 60
+        comment: "Her 15dk tarama → 96/gün, tolerance ile 60"
+      - kind: log_pattern
+        log: "logs/launchd/futures15m.stderr.log"
+        regex: "POS_CHECK"
+        min_per_24h: 60
+
+  futures5m_daemon:
+    description: "5m signal scan + position monitor"
+    enabled: true
+    severity: crit
+    checks:
+      - kind: log_pattern
+        log: "logs/launchd/futures5m.stdout.log"
+        regex: "5M_SCAN: \\d+ sinyal"
+        min_per_24h: 200
+        comment: "Her 5dk tarama → 288/gün, tolerance ile 200"
+
+  # ─────────────────────────────────────────────────────────────
+  # INFRASTRUCTURE
+  # ─────────────────────────────────────────────────────────────
+
+  regime_features_refresh:
+    description: "Daily regime features parquet refresh (00:01 UTC)"
+    enabled: true
+    severity: crit
+    checks:
+      - kind: file_pattern
+        pattern: "data/regime_features_latest.parquet"
+        max_age_hours: 26  # 24h beklenir, 2h tolerance
+        comment: "Cron daily 00:01 UTC; >26h stale ise alert"
+
+  llm_calls_audit:
+    description: "Token tracking audit log"
+    enabled: true
+    severity: warn
+    checks:
+      - kind: file_pattern
+        pattern: "data/llm_calls.jsonl"
+        max_age_hours: 6
+        comment: "LLM çağrı var mı, audit yazılıyor mu"

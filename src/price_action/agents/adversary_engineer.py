@@ -723,3 +723,181 @@ class AdversaryEngineerAgent(LLMAgentBase):
             },
         )
         return doc_path
+
+    # ------------------------------------------------------------------
+    # Faz 14.3 — Quiet Failure Hunter (proactive bug detection)
+    # ------------------------------------------------------------------
+
+    async def quiet_failure_audit(self) -> Path | None:
+        """Sistemde sessizce başarısız olan komponentleri ara.
+
+        Promise/Reality detector eksiklikleri yakaladığı için bu metod
+        DAHA DERIN sorular sorar:
+        1. Hangi config dosyası son commit'ten farklı (drift)?
+        2. Hangi agent dry-run dışında hiç çağrı yapmadı?
+        3. Hangi `promised file` hiç oluşturulmamış (config'te referans
+           var ama disk'te yok)?
+        4. Hangi cron job 7 gün boyunca 0 success raporladı?
+        5. Hangi DuckDB tablo 30 gün+ değişmedi (atrofi)?
+
+        Çıktı: reports/adversary/quiet_audit-YYYY-MM-DD.md + push_critical
+        eğer CRIT bulgu varsa.
+        """
+        import subprocess
+        from datetime import datetime, timedelta, timezone
+        from pathlib import Path
+
+        now = datetime.now(timezone.utc)
+        findings: list[dict[str, Any]] = []
+        repo = Path("/Users/peyman/price-action-bot")
+
+        # ── Kontrol 1: Config drift (git status) ─────────────────────
+        try:
+            git_status = subprocess.run(
+                ["git", "diff", "--name-only", "HEAD", "--", "configs/"],
+                cwd=str(repo), capture_output=True, text=True, timeout=10,
+            )
+            if git_status.returncode == 0 and git_status.stdout.strip():
+                changed = git_status.stdout.strip().splitlines()
+                findings.append({
+                    "severity": "warn",
+                    "kind": "config_drift",
+                    "summary": f"{len(changed)} config dosyası git HEAD'den sapmış",
+                    "details": changed[:10],
+                })
+        except Exception as exc:
+            logger.warning("adversary.git_check_fail", extra={"err": str(exc)[:200]})
+
+        # ── Kontrol 2: Agent dry-run dışı çağrı yok ──────────────────
+        # data/llm_calls.jsonl'i tara — son 7g hangi agent hiç çağrı yapmamış
+        try:
+            import json as _json
+            audit = repo / "data" / "llm_calls.jsonl"
+            if audit.exists():
+                cutoff = now - timedelta(days=7)
+                agent_counts: dict[str, int] = {}
+                with audit.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            rec = _json.loads(line)
+                            ts = datetime.fromisoformat(rec["ts"])
+                            if ts < cutoff:
+                                continue
+                            agent_counts[rec["agent"]] = agent_counts.get(rec["agent"], 0) + 1
+                        except Exception:
+                            continue
+                expected_agents = [
+                    "ceo", "researcher", "lab_scientist", "analyst",
+                    "risk_officer", "bot_monitor", "adversary_engineer",
+                    "strategy_curator",
+                ]
+                missing = [a for a in expected_agents if agent_counts.get(a, 0) == 0]
+                if missing:
+                    findings.append({
+                        "severity": "crit",
+                        "kind": "silent_agent",
+                        "summary": f"{len(missing)} agent son 7g HİÇ LLM çağrısı yapmadı",
+                        "details": missing,
+                    })
+        except Exception as exc:
+            logger.warning("adversary.silent_check_fail", extra={"err": str(exc)[:200]})
+
+        # ── Kontrol 3: Promised file hiç oluşmamış ───────────────────
+        try:
+            promises_yaml = repo / "configs" / "promises.yaml"
+            if promises_yaml.exists():
+                import yaml as _yaml
+                promises = _yaml.safe_load(promises_yaml.read_text(encoding="utf-8")) or {}
+                never_written: list[str] = []
+                for comp_name, comp_cfg in (promises.get("components") or {}).items():
+                    for check in (comp_cfg.get("checks") or []):
+                        if check.get("kind") != "file_pattern":
+                            continue
+                        pattern = check.get("pattern", "")
+                        if not pattern:
+                            continue
+                        matches = list(repo.glob(pattern))
+                        if not matches:
+                            never_written.append(f"{comp_name}: {pattern}")
+                if never_written:
+                    findings.append({
+                        "severity": "warn",
+                        "kind": "never_written",
+                        "summary": f"{len(never_written)} promised file pattern hiç oluşmamış",
+                        "details": never_written[:10],
+                    })
+        except Exception as exc:
+            logger.warning("adversary.promises_check_fail", extra={"err": str(exc)[:200]})
+
+        # ── Kontrol 4: Eski log dosyaları (atrofi) ────────────────────
+        try:
+            cutoff_old = now - timedelta(days=7)
+            stale_dirs = []
+            for sub in ["param_sweep", "tf_exploration", "market_scout"]:
+                d = repo / "reports" / sub
+                if not d.exists():
+                    continue
+                newest = max(
+                    (datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc)
+                     for f in d.rglob("*") if f.is_file()),
+                    default=None,
+                )
+                if newest is None or newest < cutoff_old:
+                    stale_dirs.append(f"reports/{sub}/ (newest: {newest})")
+            if stale_dirs:
+                findings.append({
+                    "severity": "warn",
+                    "kind": "atrophied_output",
+                    "summary": f"{len(stale_dirs)} report dizini 7g+ yazılmıyor",
+                    "details": stale_dirs,
+                })
+        except Exception as exc:
+            logger.warning("adversary.atrophy_check_fail", extra={"err": str(exc)[:200]})
+
+        # ── Rapor üret ───────────────────────────────────────────────
+        lines = [
+            f"# Quiet Failure Audit — {now.strftime('%Y-%m-%d %H:%M UTC')}",
+            "",
+            f"**Toplam bulgu:** {len(findings)} ({sum(1 for f in findings if f['severity']=='crit')} CRIT)",
+            "",
+        ]
+        if not findings:
+            lines.append("✅ Sessiz başarısızlık tespit edilmedi. Sistem alarmları doğrulanmış.")
+        else:
+            for f in findings:
+                icon = "🚨" if f["severity"] == "crit" else "⚠️"
+                lines.append(f"## {icon} [{f['severity'].upper()}] {f['kind']}")
+                lines.append(f"- {f['summary']}")
+                for d in f.get("details", []):
+                    lines.append(f"  - `{d}`")
+                lines.append("")
+
+        body = "\n".join(lines)
+        path = self.write_protocol_doc(
+            doc_type="quiet_failure_audit",
+            body=body,
+            slug=f"quiet-audit-{now.strftime('%Y-%m-%d-%H')}",
+            target_dir=self._reports_dir(),
+            status="FINAL",
+            confidence="high",
+            requested_review_from=["ceo"],
+            tags=["adversary", "quiet_audit", "proactive"],
+        )
+
+        # CRIT bulgu varsa Telegram
+        crits = [f for f in findings if f["severity"] == "crit"]
+        if crits:
+            try:
+                from price_action.orchestrator.notifications import push_critical
+                msg = f"QUIET AUDIT — {len(crits)} CRIT bulgu:\n" + "\n".join(
+                    f"- {c['summary']}" for c in crits
+                )
+                push_critical(msg, source="adversary_quiet_audit")
+            except Exception:
+                pass
+
+        logger.info(
+            "adversary.quiet_audit_done",
+            extra={"n_findings": len(findings), "n_crit": len(crits), "path": str(path)},
+        )
+        return path

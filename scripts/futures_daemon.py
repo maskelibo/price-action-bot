@@ -972,6 +972,15 @@ def run_15m_mode(once: bool = False) -> None:
     log("  - Pyramid DB persist: pyramid_store.duckdb (SEC58-L2)")
     log("=" * 60)
 
+    # FIX 2026-05-26 (Faz 14.1): Provenance banner — config açıkça beyan
+    try:
+        from price_action.ops.provenance import config_provenance, format_banner
+        _prov = config_provenance(_risk_config_15m())
+        for _line in format_banner(_prov, component="FUTURES 15M").splitlines():
+            log(_line)
+    except Exception as _prov_exc:
+        log(f"PROVENANCE_BANNER_FAIL: {_prov_exc}")
+
     last_bar_boundary: datetime | None = None
 
     try:
@@ -1657,6 +1666,15 @@ def run_5m_mode(once: bool = False) -> None:
     log_5m("  - Walker: P1c (monthly halt + 3-loss + rolling 14d DD + vol_z)")
     log_5m("  - Journal: data/futures_journal_5m.duckdb (15m'den AYRI)")
     log_5m("============================================================")
+
+    # FIX 2026-05-26 (Faz 14.1): Provenance banner
+    try:
+        from price_action.ops.provenance import config_provenance, format_banner
+        _prov_5m = config_provenance(_risk_config_5m())
+        for _line in format_banner(_prov_5m, component="FUTURES 5M P1C").splitlines():
+            log_5m(_line)
+    except Exception as _prov_exc:
+        log_5m(f"PROVENANCE_BANNER_FAIL: {_prov_exc}")
 
     # P1c walker init
     p1c_walker = None

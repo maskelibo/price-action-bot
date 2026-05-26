@@ -507,6 +507,89 @@ async def _job_param_sweep_chunk() -> None:
         logger.warning("scheduler.param_sweep_chunk_fail", extra={"err": str(exc)[:200]})
 
 
+async def _job_truth_report() -> None:
+    """FIX 2026-05-26 (Faz 14.4): Daily Truth Report.
+
+    Her sabah 03:00 UTC (06:00 TR). Sistemin gerçek durumunu aggregate
+    eder ve Telegram'a tek mesaj olarak gönderir. Provenance + drift +
+    promises + pozisyonlar + alert'ler + commit'ler.
+
+    Bu rapor bir gün sen okumadan giderse — sistem yalan söylüyor demektir.
+    """
+    try:
+        import asyncio
+        import subprocess
+        from pathlib import Path
+        repo_root = Path(__file__).resolve().parents[3]
+        cmd = [
+            str(repo_root / ".venv" / "bin" / "python"),
+            "scripts/truth_report.py",
+        ]
+        result = await asyncio.to_thread(
+            subprocess.run, cmd, cwd=str(repo_root),
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode == 0:
+            logger.info("scheduler.truth_report_done",
+                        extra={"stdout_tail": result.stdout[-300:]})
+        else:
+            logger.warning("scheduler.truth_report_fail",
+                           extra={"rc": result.returncode,
+                                  "stderr": result.stderr[-300:]})
+    except Exception as exc:
+        logger.warning("scheduler.truth_report_exc", extra={"err": str(exc)[:200]})
+
+
+async def _job_quiet_failure_audit() -> None:
+    """FIX 2026-05-26 (Faz 14.3): Adversary quiet failure hunt.
+
+    Promise/Reality detector eksiklikleri yakaladığı için bu job
+    DAHA DERIN sorular sorar: config drift, silent agents, never-written
+    files, atrophied output directories. Haftada bir Pazar gecesi.
+    """
+    try:
+        from price_action.agents import AdversaryEngineerAgent
+        ae = AdversaryEngineerAgent()
+        path = await ae.quiet_failure_audit()
+        logger.info(
+            "scheduler.quiet_failure_audit_done",
+            extra={"path": str(path) if path else None},
+        )
+    except Exception as exc:
+        logger.warning("scheduler.quiet_failure_audit_fail",
+                       extra={"err": str(exc)[:200]})
+
+
+async def _job_check_promises() -> None:
+    """FIX 2026-05-26 (Faz 14.2): Promise/Reality detector.
+
+    configs/promises.yaml'daki SLA beyanlarını her saat kontrol eder.
+    CRIT ihlal varsa push_critical Telegram alert.
+    """
+    try:
+        import asyncio
+        import subprocess
+        from pathlib import Path
+        repo_root = Path(__file__).resolve().parents[3]
+        cmd = [
+            str(repo_root / ".venv" / "bin" / "python"),
+            "scripts/check_promises.py",
+        ]
+        result = await asyncio.to_thread(
+            subprocess.run, cmd, cwd=str(repo_root),
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode == 0:
+            logger.info("scheduler.promises_check_done",
+                        extra={"stdout_tail": result.stdout[-300:]})
+        else:
+            logger.warning("scheduler.promises_check_fail",
+                           extra={"rc": result.returncode,
+                                  "stderr": result.stderr[-300:]})
+    except Exception as exc:
+        logger.warning("scheduler.promises_check_exc", extra={"err": str(exc)[:200]})
+
+
 async def _job_dms_heartbeat_check() -> None:
     """FIX 2026-05-26 (M5): DMS heartbeat staleness automated check.
 
@@ -1126,6 +1209,12 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("rotate_launchd_logs", "cron", "50 * * * *", _job_rotate_launchd_logs),
     # FIX 2026-05-26 (M5): DMS heartbeat staleness check (her 5dk)
     ("dms_heartbeat_check", "cron", "*/5 * * * *", _job_dms_heartbeat_check),
+    # FIX 2026-05-26 (Faz 14.2): Promise/Reality check (saatlik :55)
+    ("check_promises", "cron", "55 * * * *", _job_check_promises),
+    # FIX 2026-05-26 (Faz 14.3): Adversary quiet failure audit (Pzr 22:30 UTC)
+    ("quiet_failure_audit", "cron", "30 22 * * sun", _job_quiet_failure_audit),
+    # FIX 2026-05-26 (Faz 14.4): Daily Truth Report (03:00 UTC = 06:00 TR)
+    ("truth_report", "cron", "0 3 * * *", _job_truth_report),
     ("hourly_token_check", "cron", "7 * * * *", _job_hourly_token_check),  # H3 :07
     ("review_inbox", "cron", "15 * * * *", _job_review_inbox),  # Faz 2.3 :15
     ("bot_health_check", "cron", "20 * * * *", _job_bot_health_check),  # Faz 6 :20
