@@ -91,6 +91,34 @@ def _risk_config_5m() -> Path:
     return ROOT / "configs" / "risk_phoenix_scalp_5m_p1c.yaml"
 
 
+# FIX 2026-05-26 (Faz 14.9): pyramid_enabled gate — cached.
+# Önceki bug: widestop_vsa2 config'inde strategy_portfolio.pyramid_enabled=false
+# olmasına rağmen daemon her POS_CHECK tick'inde pyramid_store'dan eski L2 PENDING
+# leg'i yükleyip submit etmeye çalışıyordu → Binance -1007 timeout sonsuz retry.
+# Kök neden: _get_pyramid_router() ve POS_CHECK loop bu flag'i hiç okumuyordu.
+_PYRAMID_ENABLED_CACHE: dict[str, bool] = {}
+
+
+def _pyramid_enabled_15m() -> bool:
+    """15m active config'de strategy_portfolio.pyramid_enabled değerini döner.
+
+    Cache: process-lifetime; config değişirse daemon restart gerek.
+    """
+    cache_key = "15m"
+    if cache_key in _PYRAMID_ENABLED_CACHE:
+        return _PYRAMID_ENABLED_CACHE[cache_key]
+    try:
+        import yaml as _yaml_pe
+        _path = _risk_config_15m()
+        with open(_path, "r", encoding="utf-8") as _pe_f:
+            _cfg = _yaml_pe.safe_load(_pe_f) or {}
+        _enabled = bool(_cfg.get("strategy_portfolio", {}).get("pyramid_enabled", True))
+    except Exception:
+        _enabled = True  # safe default: behavior unchanged on read fail
+    _PYRAMID_ENABLED_CACHE[cache_key] = _enabled
+    return _enabled
+
+
 def _load_last_scan_date() -> date | None:
     """Restart'a dayanıklı: son başarılı DAILY_SCAN tarihini oku."""
     if not LAST_SCAN_STATE.exists():
@@ -297,6 +325,12 @@ def _get_pyramid_router(exchange):
     global _pyramid_router_instance
     if _pyramid_router_instance is not None:
         return _pyramid_router_instance
+    # FIX 2026-05-26 (Faz 14.9): pyramid_enabled gate.
+    # Config'de kapalıysa router'ı hiç init etme — eski PENDING leg'lerin
+    # sonsuz submit retry'ı önlenir.
+    if not _pyramid_enabled_15m():
+        log("PYRAMID_ROUTER: skip init (strategy_portfolio.pyramid_enabled=false)")
+        return None
     try:
         import yaml as _yaml_gr
         _gr_yaml_path = _risk_config_15m()
@@ -941,33 +975,38 @@ def run_15m_mode(once: bool = False) -> None:
     # Pyramid router — SEC54.3 (P-04/P-05 fix: build_position_from_signal + pop on close)
     # Post-only flag 15m YAML'den okunur (2026-05-21: paper fill rate %87.5 → enabled)
     _pyramid_router_15m = None
-    try:
-        import yaml as _yaml_pr
-        _pr_yaml_path = _risk_config_15m()
-        with open(_pr_yaml_path, "r", encoding="utf-8") as _pr_f:
-            _pr_cfg = _yaml_pr.safe_load(_pr_f) or {}
-        _pr_exec = _pr_cfg.get("execution", {})
-        _pr_po_enabled = bool(_pr_exec.get("post_only_limit_enabled", False))
-        _pr_po_timeout = int(_pr_exec.get("post_only_fallback_seconds", 30))
-        _pr_slip_limit = float(_pr_exec.get("slippage_limit_bps", 25.0))
-        # pyramid_slippage_limit_bps: pyramid leg için ayrı market-fallback cap (default 50bps)
-        _pr_pyr_slip = float(_pr_exec.get("pyramid_slippage_limit_bps", 50.0))
-        from price_action.execution.pyramid_router import PyramidRouter
-        from price_action.execution.idempotency import IdempotencyStore
-        from price_action.execution.slippage_tracker import SlippageTracker
-        _pyramid_router_15m = PyramidRouter(
-            exchange=None,   # başlangıçta None; exchange signal submit sonrası set edilir
-            idempotency_store=IdempotencyStore(),
-            slippage_tracker=SlippageTracker(),
-            post_only_enabled=_pr_po_enabled,
-            fallback_seconds=_pr_po_timeout,
-            slippage_limit_bps=_pr_pyr_slip,
-            mode=os.environ.get("PA_RUN_MODE", "paper"),
-        )
-        log(f"15M_PYRAMID: PyramidRouter başlatıldı (SEC54.3, post_only={_pr_po_enabled}, "
-            f"timeout={_pr_po_timeout}s, slip={_pr_pyr_slip}bps)")
-    except Exception as e:
-        log(f"15M_PYRAMID_WARN: {e} — pyramid hook atlanıyor")
+    # FIX 2026-05-26 (Faz 14.9): pyramid_enabled gate.
+    # Config kapalıysa init etme → eski store'daki PENDING leg'ler tetiklenmez.
+    if not _pyramid_enabled_15m():
+        log("15M_PYRAMID: skip init (strategy_portfolio.pyramid_enabled=false)")
+    else:
+        try:
+            import yaml as _yaml_pr
+            _pr_yaml_path = _risk_config_15m()
+            with open(_pr_yaml_path, "r", encoding="utf-8") as _pr_f:
+                _pr_cfg = _yaml_pr.safe_load(_pr_f) or {}
+            _pr_exec = _pr_cfg.get("execution", {})
+            _pr_po_enabled = bool(_pr_exec.get("post_only_limit_enabled", False))
+            _pr_po_timeout = int(_pr_exec.get("post_only_fallback_seconds", 30))
+            _pr_slip_limit = float(_pr_exec.get("slippage_limit_bps", 25.0))
+            # pyramid_slippage_limit_bps: pyramid leg için ayrı market-fallback cap (default 50bps)
+            _pr_pyr_slip = float(_pr_exec.get("pyramid_slippage_limit_bps", 50.0))
+            from price_action.execution.pyramid_router import PyramidRouter
+            from price_action.execution.idempotency import IdempotencyStore
+            from price_action.execution.slippage_tracker import SlippageTracker
+            _pyramid_router_15m = PyramidRouter(
+                exchange=None,   # başlangıçta None; exchange signal submit sonrası set edilir
+                idempotency_store=IdempotencyStore(),
+                slippage_tracker=SlippageTracker(),
+                post_only_enabled=_pr_po_enabled,
+                fallback_seconds=_pr_po_timeout,
+                slippage_limit_bps=_pr_pyr_slip,
+                mode=os.environ.get("PA_RUN_MODE", "paper"),
+            )
+            log(f"15M_PYRAMID: PyramidRouter başlatıldı (SEC54.3, post_only={_pr_po_enabled}, "
+                f"timeout={_pr_po_timeout}s, slip={_pr_pyr_slip}bps)")
+        except Exception as e:
+            log(f"15M_PYRAMID_WARN: {e} — pyramid hook atlanıyor")
 
     # WIRE-widestop (2026-05-22): 15m wide-stop deploy filter threshold.
     # Reject signals whose entry sl_pct = |entry - sl| / entry < sl_pct_min.
