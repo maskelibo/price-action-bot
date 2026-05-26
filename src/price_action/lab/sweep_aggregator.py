@@ -25,7 +25,12 @@ DEFAULT_CHUNKS_DIR = REPO_ROOT / "reports" / "param_sweep" / "chunks"
 
 @dataclass(frozen=True)
 class CellRanking:
-    """Single param sweep cell, normalize edilmiş challenger formatında."""
+    """Single param sweep cell, normalize edilmiş challenger formatında.
+
+    FIX 2026-05-27 (Faz 14.11): param_sweep_runner artık per-cell
+    max_drawdown_R, sharpe_annualized, returns_R_sample üretiyor. Bu
+    sınıf bunları tournament'ın anlayacağı equity-% DD'ye çevirir.
+    """
 
     challenger_id: str
     strategy: str
@@ -34,20 +39,34 @@ class CellRanking:
     risk_pct: float
     n_trades: int
     mean_R_after_fees: float
-    sharpe_like: float  # = mean_R / std_R * sqrt(n)
+    sharpe_like: float
+    sharpe_annualized: float
     sum_R: float
+    max_drawdown_R: float            # R cinsinden (param_sweep_runner çıktısı)
+    trades_per_year: float
+    returns_R_sample: list[float]    # 500-trade sample (Welch t-test için)
     bull_mean_R: float | None
     bear_mean_R: float | None
     source_chunk: str
 
+    @property
+    def oos_maxdd_pct(self) -> float:
+        """R-cinsinden DD'yi equity %DD'ye çevir.
+
+        equity_dd ≈ max_drawdown_R × risk_pct
+        Örn: 25 R DD × 0.5% risk = 12.5% equity DD
+        Bu yaklaşım sequential equity-curve sim'den farklı (compounding
+        ihmal); yeterince doğru bir lower-bound proxy.
+        """
+        return float(self.max_drawdown_R) * float(self.risk_pct)
+
     def to_challenger_dict(self) -> dict[str, Any]:
         """Lab tournament'ın beklediği dict şemasına dönüş.
 
-        Önemli: `oos_returns` boş bırakılıyor (per-trade R serisi sweep
-        çıktısında yok). `oos_sharpe` olarak `sharpe_like` kullanılıyor —
-        annualized değil ama relatif sıralama doğru. `oos_maxdd`
-        sweep'te yok → 0 (tournament gate maxdd_excess karşılaştırması
-        kullanır, 0 vs 0 nötr).
+        Yeni alanlar (Faz 14.11):
+        - oos_sharpe: annualized (sharpe_like değil)
+        - oos_returns: 500-trade sample (Welch p-value hesaplanabilir)
+        - oos_maxdd: equity %DD (R*risk dönüşümü)
         """
         return {
             "id": self.challenger_id,
@@ -57,12 +76,16 @@ class CellRanking:
                 "tp_r": self.tp_r,
                 "risk_pct": self.risk_pct,
             },
-            "oos_sharpe": float(self.sharpe_like),
-            "oos_returns": [],  # serie yok — DSR varsayılan n=30'a düşer
-            "oos_maxdd": 0.0,   # sweep cell-level DD hesaplamıyor
+            "oos_sharpe": float(self.sharpe_annualized),
+            "oos_returns": list(self.returns_R_sample),
+            "oos_maxdd": self.oos_maxdd_pct,
             "n_trials": int(self.n_trades),
+            # Diagnostik alanlar (tournament dışında raporda kullanılabilir)
             "mean_R_after_fees": float(self.mean_R_after_fees),
             "sum_R": float(self.sum_R),
+            "max_drawdown_R": float(self.max_drawdown_R),
+            "sharpe_like_raw": float(self.sharpe_like),
+            "trades_per_year": float(self.trades_per_year),
             "bull_mean_R": self.bull_mean_R,
             "bear_mean_R": self.bear_mean_R,
             "source_doc": self.source_chunk,
@@ -146,6 +169,8 @@ def top_cells_as_challengers(
         tp = float(cell.get("tp_r", 0))
         rk = float(cell.get("risk_pct", 0))
         cell_id = f"{strategy}-sl{sl:.2f}-tp{tp:.2f}-risk{rk:.4f}"
+        # FIX 2026-05-27 (Faz 14.11): yeni alanlar — eski chunk'larda yok,
+        # backward-compat default'larla oku.
         ranking = CellRanking(
             challenger_id=cell_id,
             strategy=strategy,
@@ -155,7 +180,11 @@ def top_cells_as_challengers(
             n_trades=n_trades,
             mean_R_after_fees=mean_R_fees,
             sharpe_like=float(cell.get("sharpe_like", 0.0)),
+            sharpe_annualized=float(cell.get("sharpe_annualized", 0.0)),
             sum_R=float(cell.get("sum_R", 0.0)),
+            max_drawdown_R=float(cell.get("max_drawdown_R", 0.0)),
+            trades_per_year=float(cell.get("trades_per_year", 0.0)),
+            returns_R_sample=list(cell.get("returns_R_sample", []) or []),
             bull_mean_R=cell.get("bull_mean_R"),
             bear_mean_R=cell.get("bear_mean_R"),
             source_chunk=str(cell.get("_source_chunk", "")),
@@ -163,22 +192,34 @@ def top_cells_as_challengers(
         by_strategy.setdefault(strategy, []).append(ranking)
 
     # Her strateji için: önce (sl, tp) bazında dedupe (R-multiple replay
-    # risk_pct'e duyarsızdır; aynı sl/tp'nin farklı risk variant'ları
-    # tournament slot'unu boşa harcar), sonra top-N (sharpe_like).
+    # risk_pct'e duyarsızdır), sonra top-N (annualized sharpe).
+    # FIX 2026-05-27 (Faz 14.11): sıralama sharpe_annualized'e geçti —
+    # sharpe_like sqrt(n) ile şişiyordu (ki bu n_trades'i ödüllendiriyor,
+    # gerçek strateji kalitesini değil).
     challengers: list[dict[str, Any]] = []
     for strategy, rankings in by_strategy.items():
-        # Dedupe: (sl, tp) → en yüksek sharpe_like olanı tut (risk_pct
-        # tie-break: en küçük risk_pct = en konservatif)
+        # Dedupe: (sl, tp) → en yüksek annualized sharpe olanı tut.
+        # Tie-break: daha düşük risk_pct (daha konservatif).
         deduped: dict[tuple[float, float], CellRanking] = {}
         for r in rankings:
             key = (r.sl_multiplier, r.tp_r)
             existing = deduped.get(key)
-            if existing is None or (
-                r.sharpe_like > existing.sharpe_like
-                or (r.sharpe_like == existing.sharpe_like and r.risk_pct < existing.risk_pct)
+            # Fallback: sharpe_annualized 0 olabilir (eski chunk) → sharpe_like'a düş
+            r_sort = r.sharpe_annualized if r.sharpe_annualized != 0 else r.sharpe_like
+            ex_sort = (
+                existing.sharpe_annualized
+                if existing and existing.sharpe_annualized != 0
+                else (existing.sharpe_like if existing else float("-inf"))
+            )
+            if existing is None or r_sort > ex_sort or (
+                r_sort == ex_sort and r.risk_pct < existing.risk_pct
             ):
                 deduped[key] = r
-        unique = sorted(deduped.values(), key=lambda r: r.sharpe_like, reverse=True)
+        unique = sorted(
+            deduped.values(),
+            key=lambda r: (r.sharpe_annualized or r.sharpe_like),
+            reverse=True,
+        )
         top = unique[:top_n_per_strategy]
         for r in top:
             challengers.append(r.to_challenger_dict())

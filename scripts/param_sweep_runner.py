@@ -41,7 +41,7 @@ import math
 import pickle
 import sys
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -96,9 +96,31 @@ class CellMetric:
     sharpe_like: float
     mean_R_after_fees: float
     regime_breakdown: dict[str, dict[str, float]]
+    # FIX 2026-05-27 (Faz 14.11): tournament metrik düzeltmeleri.
+    # Eski: sweep cell'inde sadece aggregate vardı, lab tournament
+    # boş welch_p + sentetik maxDD ile uğraşıyordu (Lab Scientist
+    # commentary "MaxDD=0 + sharpe 7.6 = overfit imzası" dedi).
+    max_drawdown_R: float = 0.0      # peak-to-trough on R cumsum (R cinsinden, pozitif değer)
+    sharpe_annualized: float = 0.0   # gerçek annualized sharpe (trade rate'ten)
+    trades_per_year: float = 0.0     # n_trades / data_year_span
+    returns_R: list[float] = field(default_factory=list)  # per-trade R serisi (welch t-test için)
 
     def to_row(self) -> dict[str, Any]:
         row = dict(self.params)
+        # FIX 2026-05-27 (Faz 14.11): returns_R sample — Welch t-test
+        # için aggregator'ın okuyabileceği per-trade R array'i. 12K-34K
+        # full array chunk jsonl'i 10-30x şişirir → 500-trade sample.
+        # Welch power N=500'de etkin (effect 0.5'de power > 0.99).
+        # Sample stratejisi: ilk 250 + son 250 (kronolojik bilgiyi koru).
+        returns_sample: list[float] = []
+        if self.returns_R:
+            r = self.returns_R
+            if len(r) <= 500:
+                returns_sample = [round(x, 6) for x in r]
+            else:
+                first = r[:250]
+                last = r[-250:]
+                returns_sample = [round(x, 6) for x in (first + last)]
         row.update({
             "n_trades": self.n_trades,
             "win_rate": round(self.win_rate, 4),
@@ -107,6 +129,13 @@ class CellMetric:
             "std_R": round(self.std_R, 4),
             "sharpe_like": round(self.sharpe_like, 4),
             "mean_R_after_fees": round(self.mean_R_after_fees, 4),
+            # FIX 2026-05-27: yeni alanlar
+            "max_drawdown_R": round(self.max_drawdown_R, 4),
+            "sharpe_annualized": round(self.sharpe_annualized, 4),
+            "trades_per_year": round(self.trades_per_year, 2),
+            "returns_R_sample": returns_sample,
+            "returns_R_sample_n": len(returns_sample),
+            "returns_R_total_n": len(self.returns_R),
         })
         for regime, stats in self.regime_breakdown.items():
             for k, v in stats.items():
@@ -151,6 +180,48 @@ def apply_cell(
     sharpe_like = (mean_R / std_R * math.sqrt(n)) if std_R > 0 else 0.0
     mean_R_after_fees = float(new_R_net.mean())
 
+    # FIX 2026-05-27 (Faz 14.11): per-cell maxdrawdown + annualized sharpe +
+    # per-trade R serisi — Lab tournament metrik güvenirliği için.
+
+    # 3a) Max drawdown on R-cumsum (kronolojik). entry_ts'ye göre sırala,
+    # cumulative R serisi üzerinden peak-to-trough hesabı yap. R cinsinden
+    # mutlak değer (yani 12.5 = 12.5 R'lik geri çekilme).
+    if n > 0:
+        order = np.argsort(sub["entry_ts"].to_numpy())
+        chronological_R = new_R[order]
+        cumsum = np.cumsum(chronological_R)
+        running_peak = np.maximum.accumulate(cumsum)
+        drawdown = cumsum - running_peak   # ≤ 0 her zaman
+        max_drawdown_R = float(-drawdown.min())  # pozitif değer (R cinsinden)
+    else:
+        max_drawdown_R = 0.0
+
+    # 3b) Annualized sharpe — sharpe_like sqrt(n) ile şişer; gerçek
+    # annualized ölçüm için trade rate gerek. Pool entry_ts span'ından
+    # trade/yıl bul → annualize.
+    if n > 1 and std_R > 0:
+        ts_series = sub["entry_ts"].to_numpy()
+        ts_min = ts_series.min()
+        ts_max = ts_series.max()
+        span_seconds = float(
+            (pd.Timestamp(ts_max) - pd.Timestamp(ts_min)).total_seconds()
+        )
+        year_seconds = 365.25 * 86400.0
+        span_years = max(span_seconds / year_seconds, 1e-6)
+        trades_per_year = n / span_years
+        # Annualized Sharpe = (mean_R / std_R) * sqrt(trades_per_year)
+        # NOT: bu R cinsinden Sharpe; equity-curve Sharpe için risk_pct
+        # ile R → $ → equity returns dönüşümü gerek (sonra).
+        sharpe_annualized = (mean_R / std_R) * math.sqrt(trades_per_year)
+    else:
+        trades_per_year = 0.0
+        sharpe_annualized = 0.0
+
+    # 3c) Per-trade R serisi — Welch t-test için. n=12K-34K float ~100-300KB
+    # cell. Chunk jsonl boyutu pahasına lab tournament gerçek p-value
+    # hesaplayabilir.
+    returns_R_list = new_R.tolist()
+
     # 4) Regime breakdown (bull/bear). regime_series indexed by entry_ts.
     regime_breakdown: dict[str, dict[str, float]] = {}
     if regime_series is not None and len(regime_series) > 0:
@@ -177,6 +248,11 @@ def apply_cell(
         std_R=std_R, sharpe_like=sharpe_like,
         mean_R_after_fees=mean_R_after_fees,
         regime_breakdown=regime_breakdown,
+        # FIX 2026-05-27 (Faz 14.11)
+        max_drawdown_R=max_drawdown_R,
+        sharpe_annualized=sharpe_annualized,
+        trades_per_year=trades_per_year,
+        returns_R=returns_R_list,
     )
 
 
