@@ -38,7 +38,19 @@ def _log(msg: str) -> None:
 
 
 def _fetch_exchange_positions() -> dict[str, dict]:
-    """Borsadan açık pozisyon listesi (symbol → {qty, side, entry, mark})."""
+    """Borsadan açık pozisyon listesi.
+
+    FIX 2026-05-26 (Faz 14.8): 2 yol önce dene:
+    1) ccxt fetch_positions (gerçek, ama API key gerek)
+    2) Fallback: futures15m daemon POS_CHECK log'unu parse et
+       (her 15dk bot zaten fetch_positions yapıyor, log'a yazıyor)
+
+    POS_CHECK format:
+      "[HH:MM:SS] POS_CHECK: N pos, M algo (TP+SL) | SYM=L0.179@$X->Y(+Z) | ..."
+    """
+    out: dict[str, dict] = {}
+
+    # 1) ccxt try
     try:
         import ccxt
         ex = ccxt.binance({
@@ -50,23 +62,62 @@ def _fetch_exchange_positions() -> dict[str, dict]:
         if os.environ.get("PA_RUN_MODE", "paper") == "paper":
             ex.set_sandbox_mode(True)
         raw = ex.fetch_positions()
+        for r in raw or []:
+            qty = float(r.get("contracts") or r.get("amount") or 0.0)
+            if qty <= 0:
+                continue
+            sym = r.get("symbol", "")
+            out[sym] = {
+                "symbol": sym,
+                "side": "long" if r.get("side") in ("long", "buy") else "short",
+                "qty": qty,
+                "entry_price": float(r.get("entryPrice") or 0.0),
+                "mark_price": float(r.get("markPrice") or 0.0),
+                "unrealized_pnl": float(r.get("unrealizedPnl") or 0.0),
+                "source": "ccxt",
+            }
+        if out:
+            return out
     except Exception as exc:
-        _log(f"exchange_fetch_fail: {exc}")
-        return {}
-    out: dict[str, dict] = {}
-    for r in raw or []:
-        qty = float(r.get("contracts") or r.get("amount") or 0.0)
-        if qty <= 0:
-            continue
-        sym = r.get("symbol", "")
-        out[sym] = {
-            "symbol": sym,
-            "side": "long" if r.get("side") in ("long", "buy") else "short",
-            "qty": qty,
-            "entry_price": float(r.get("entryPrice") or 0.0),
-            "mark_price": float(r.get("markPrice") or 0.0),
-            "unrealized_pnl": float(r.get("unrealizedPnl") or 0.0),
-        }
+        _log(f"ccxt_fetch_fail (POS_CHECK log fallback'a geçiliyor): {exc}")
+
+    # 2) Fallback — POS_CHECK log parse
+    import re
+    log_path = _REPO / "logs" / "launchd" / "futures15m.stderr.log"
+    if not log_path.exists():
+        return out
+    try:
+        with log_path.open("r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()[-200:]  # son ~200 satır yeter (15dk × ~13 = 3h)
+        # En son POS_CHECK satırını bul
+        last_poscheck = None
+        for line in reversed(lines):
+            if "POS_CHECK:" in line and "|" in line:
+                last_poscheck = line.strip()
+                break
+        if not last_poscheck:
+            return out
+        # Parse: "SYM=L0.179@$X->Y(+Z)" — L/S = long/short, qty, entry, mark, pnl
+        # Format: SYMBOL=L<qty>@$<entry>-><mark>(±<pnl>)
+        pos_pattern = re.compile(
+            r"([A-Z]+/USDT)=([LS])([\d.]+)@\$([\d.]+)->([\d.]+)\(([+\-]?[\d.]+)\)"
+        )
+        for m in pos_pattern.finditer(last_poscheck):
+            sym, side_ch, qty, entry, mark, pnl = m.groups()
+            out[sym] = {
+                "symbol": sym,
+                "side": "long" if side_ch == "L" else "short",
+                "qty": float(qty),
+                "entry_price": float(entry),
+                "mark_price": float(mark),
+                "unrealized_pnl": float(pnl),
+                "source": "log_parse",
+            }
+        if out:
+            _log(f"POS_CHECK_FALLBACK: {len(out)} pozisyon log'dan okundu")
+    except Exception as exc:
+        _log(f"log_parse_fail: {exc}")
+
     return out
 
 
@@ -167,13 +218,19 @@ def reconcile() -> dict:
         _log(f"SAFE_MODE: exchange empty but journal has {len(journal)} open — "
              f"reconcile SKIPPED (API key veya fetch fail muhtemel)")
         stats["exchange_fetch_ok"] = False
+        # FIX 2026-05-26 (Faz 14.8): throttle (1h) — her 15dk spam etmesin
         try:
-            from price_action.orchestrator.notifications import push_critical
-            push_critical(
-                f"Reconciler SAFE_MODE — exchange fetch_positions boş döndü "
-                f"({len(journal)} journal açık). API key eksik veya fetch fail. "
-                f"Orphan close yapılmadı (yanlış kapanış riski).",
-                source="reconciler",
+            from price_action.ops.telegram_throttle import get_telegram_throttle
+            get_telegram_throttle().send_throttled(
+                alert_type="reconciler_safe_mode",
+                message=(
+                    f"⚠️ Reconciler güvenli mod — exchange bağlantısı yok.\n"
+                    f"Journal'da {len(journal)} açık pozisyon var ama borsadan "
+                    f"liste çekilemedi (API key eksik veya log parse fail). "
+                    f"Otomatik kapanış DURDURULDU (yanlış kayıp önleme). "
+                    f"Bot trade etmeye devam ediyor; sadece journal sync gecikiyor."
+                ),
+                level="WARNING",
             )
         except Exception:
             pass

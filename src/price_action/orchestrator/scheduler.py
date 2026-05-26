@@ -640,6 +640,7 @@ async def _job_dms_heartbeat_check() -> None:
             return
         now = _dt.now(_tz.utc)
         stale_threshold_min = 5
+        abandoned_threshold_min = 60 * 24  # FIX 2026-05-26 (Faz 14.8): 24h+ phantom
         for hb in data_dir.glob("dms_heartbeat_*.txt"):
             # Skip test heartbeat dosyaları
             if "test" in hb.name.lower():
@@ -647,12 +648,35 @@ async def _job_dms_heartbeat_check() -> None:
             try:
                 mtime = _dt.fromtimestamp(hb.stat().st_mtime, tz=_tz.utc)
                 age_min = (now - mtime).total_seconds() / 60
+                # FIX 2026-05-26: 24h+ eski → abandoned phantom, sessizce sil
+                if age_min > abandoned_threshold_min:
+                    try:
+                        hb.unlink()
+                        logger.info(
+                            "scheduler.dms_phantom_removed",
+                            extra={"file": hb.name, "age_min": round(age_min, 1)},
+                        )
+                    except Exception:
+                        pass
+                    continue
                 if age_min > stale_threshold_min:
-                    _push_critical_safe(
-                        f"DMS heartbeat STALE: {hb.name} {age_min:.1f}dk eski "
-                        f"(eşik {stale_threshold_min}dk). Daemon hung/crashed olabilir.",
-                        source="dms_monitor",
-                    )
+                    # FIX 2026-05-26: throttle 1h, aynı dosya için tekrarlanmasın
+                    try:
+                        from price_action.ops.telegram_throttle import get_telegram_throttle
+                        get_telegram_throttle().send_throttled(
+                            alert_type=f"dms_stale_{hb.name}",
+                            message=(
+                                f"⚠️ DMS heartbeat eski — {hb.name}\n"
+                                f"Son güncelleme: {age_min:.0f}dk önce (eşik {stale_threshold_min}dk).\n"
+                                f"Olası sebep: daemon dondu/kapandı. futures15m/5m POS_CHECK log'una bak."
+                            ),
+                            level="WARNING",
+                        )
+                    except Exception:
+                        _push_critical_safe(
+                            f"DMS heartbeat STALE: {hb.name} {age_min:.1f}dk eski",
+                            source="dms_monitor",
+                        )
                     logger.error(
                         "scheduler.dms_stale",
                         extra={"file": hb.name, "age_min": round(age_min, 1)},
