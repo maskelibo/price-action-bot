@@ -44,6 +44,12 @@
     <!-- FIX 2026-05-26 (C1): defansif buffer flush — log() zaten fsync yapıyor -->
     <key>PYTHONUNBUFFERED</key>
     <string>1</string>
+    <!-- DEPLOY 2026-05-26: Wide-stop v2 + VSA amplify (en iyi versiyon).
+         c2v5 baseline ~%0/ay honest; widestop v2 +%17.56/ay, 0/61 neg ay,
+         OOS PASS. Önceden c2v5 default kullanılıyordu (eski versiyon).
+         Backtest ref: config dosyası başlık yorumu. -->
+    <key>PA_15M_CONFIG</key>
+    <string>configs/risk_phoenix_scalp_15m_widestop_vsa2.yaml</string>
   </dict>
 
   <key>RunAtLoad</key>
