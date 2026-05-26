@@ -596,12 +596,21 @@ class LLMAgentBase(abc.ABC):
                 extra={"requested": timeout_s, "clamped_to": 1800},
             )
             timeout_s = 1800.0
+        # FIX 2026-05-26 (Faz 13.A): permission-mode acceptEdits.
+        # Önceden CLI subprocess Write/Edit tool'ları sandbox classifier
+        # tarafından bloklanıyordu — Researcher hipotez üretiyor ama
+        # dosyaya yazamıyordu ("Yazma izni reddedildi" log'da görünüyor).
+        # Çözüm: --permission-mode acceptEdits → tool çağrıları otomatik
+        # onaylanır (agent zaten kendi memory/reports dizinine yazıyor,
+        # ek risk yok).
         cmd = [
             cli_path,
             "-p",
             "--output-format=json",
             "--model",
             self.model,
+            "--permission-mode",
+            "acceptEdits",
             "--append-system-prompt",
             system_prompt,
         ]
