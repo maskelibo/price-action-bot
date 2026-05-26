@@ -98,12 +98,14 @@ def _fetch_exchange_positions() -> dict[str, dict]:
         if not last_poscheck:
             return out
         # Parse: "SYM=L0.179@$X->Y(+Z)" — L/S = long/short, qty, entry, mark, pnl
-        # Format: SYMBOL=L<qty>@$<entry>-><mark>(±<pnl>)
+        # Log'da sembol "/USDT" suffix'siz yazılıyor (örn. "DOGE=L5554...")
+        # → /USDT suffix'i biz ekleyeceğiz (binance futures default).
         pos_pattern = re.compile(
-            r"([A-Z]+/USDT)=([LS])([\d.]+)@\$([\d.]+)->([\d.]+)\(([+\-]?[\d.]+)\)"
+            r"([A-Z]{2,10})=([LS])([\d.]+)@\$([\d.]+)->([\d.]+)\(([+\-]?[\d.]+)\)"
         )
         for m in pos_pattern.finditer(last_poscheck):
-            sym, side_ch, qty, entry, mark, pnl = m.groups()
+            sym_raw, side_ch, qty, entry, mark, pnl = m.groups()
+            sym = f"{sym_raw}/USDT" if "/" not in sym_raw else sym_raw
             out[sym] = {
                 "symbol": sym,
                 "side": "long" if side_ch == "L" else "short",
