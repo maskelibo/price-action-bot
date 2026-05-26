@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import os
 import sys
 import time
@@ -1122,10 +1123,93 @@ def run_15m_mode(once: bool = False) -> None:
                                     _exc_name = type(_entry_exc).__name__
                                     if "SlippageExceeded" in _exc_name:
                                         log(f"  15M_SLIP_EXCEEDED: {sig['symbol']} {_entry_exc} — sinyal atlandı")
-                                    else:
+                                        _idem.mark_filled(_fp, "", 0.0, 0.0)
+                                        continue
+
+                                    # FIX 2026-05-26: Timeout-class hata → retry mekanizması
+                                    # Binance -1007 (TIMEOUT) ve benzeri transient hatalar için
+                                    # 2 retry: 30s ve 60s sonra (toplam ~90s entry penceresi).
+                                    # Her retry öncesi fresh ticker fetch (slip toleransı için).
+                                    _err_str = str(_entry_exc)
+                                    _is_timeout = (
+                                        "RequestTimeout" in _exc_name
+                                        or "-1007" in _err_str
+                                        or "timeout" in _err_str.lower()
+                                        or "Timeout" in _err_str
+                                    )
+                                    _retry_success = False
+                                    if _is_timeout:
+                                        log(f"  15M_ENTRY_TIMEOUT: {sig['symbol']} — retry akışı başlatılıyor")
+                                        for _retry_attempt, _retry_wait in enumerate([30, 60], start=1):
+                                            try:
+                                                time.sleep(_retry_wait)
+                                            except Exception:
+                                                pass
+                                            # Fresh price fetch
+                                            try:
+                                                _fresh_ticker = _ex_submit.fetch_ticker(sig["symbol"])
+                                                _fresh_px = float(_fresh_ticker.get("last") or _cur_px)
+                                                # Slip kontrolü: %1'den fazla kaymışsa abort
+                                                _slip_pct = abs(_fresh_px - _cur_px) / _cur_px * 100.0
+                                                if _slip_pct > 1.0:
+                                                    log(f"  15M_RETRY_ABORT: {sig['symbol']} "
+                                                        f"slip=%{_slip_pct:.2f} > %1.0 (fiyat çok kaydı)")
+                                                    break
+                                            except Exception as _ticker_exc:
+                                                log(f"  15M_RETRY_TICKER_FAIL: {sig['symbol']} {_ticker_exc}")
+                                                continue
+                                            # Retry entry (market only — post-only zaten timeout demek likidite yok)
+                                            try:
+                                                _order = _ex_submit.create_market_order(
+                                                    sig["symbol"], _order_side, _qty,
+                                                    params={"newClientOrderId": _coid + f"-r{_retry_attempt}"},
+                                                )
+                                                _fill_method = f"market_retry{_retry_attempt}"
+                                                log(f"  15M_RETRY_SUCCESS: {sig['symbol']} attempt={_retry_attempt} "
+                                                    f"px=${_fresh_px:.4f} (orig=${_cur_px:.4f})")
+                                                _cur_px = _fresh_px  # downstream slip kaydı için
+                                                _retry_success = True
+                                                break
+                                            except Exception as _retry_exc:
+                                                log(f"  15M_RETRY_FAIL: {sig['symbol']} attempt={_retry_attempt} "
+                                                    f"{type(_retry_exc).__name__}: {str(_retry_exc)[:100]}")
+                                                continue
+
+                                    if not _retry_success:
                                         log(f"  15M_ENTRY_ERR: {sig['symbol']} {_exc_name}: {str(_entry_exc)[:120]}")
-                                    _idem.mark_filled(_fp, "", 0.0, 0.0)  # idem kaydet (tekrar deneme engel)
-                                    continue  # bu sinyali atla, daemon devam et
+                                        # FIX 2026-05-26: missed_signals.jsonl audit + Telegram alert
+                                        try:
+                                            _missed_path = Path("data/missed_signals.jsonl")
+                                            _missed_path.parent.mkdir(parents=True, exist_ok=True)
+                                            _missed_entry = {
+                                                "ts": datetime.now(timezone.utc).isoformat(),
+                                                "tf": "15m",
+                                                "symbol": sig["symbol"],
+                                                "strategy": sig.get("strategy", ""),
+                                                "side": sig["side"],
+                                                "entry_px": _cur_px,
+                                                "sl_px": sig.get("sl_price"),
+                                                "error": f"{_exc_name}: {str(_entry_exc)[:200]}",
+                                                "retried": _is_timeout,
+                                            }
+                                            with open(_missed_path, "a", encoding="utf-8") as _mf:
+                                                _mf.write(json.dumps(_missed_entry, default=str) + "\n")
+                                        except Exception:
+                                            pass
+                                        try:
+                                            from price_action.orchestrator.notifications import push_critical
+                                            push_critical(
+                                                f"15m ENTRY MISSED: {sig['symbol']} {sig['side']} "
+                                                f"{sig.get('strategy','')} — "
+                                                f"{'retry failed' if _is_timeout else _exc_name} "
+                                                f"({str(_entry_exc)[:80]})",
+                                                source="futures15m",
+                                            )
+                                        except Exception:
+                                            pass
+                                        _idem.mark_filled(_fp, "", 0.0, 0.0)
+                                        continue  # bu sinyali atla, daemon devam et
+                                    # else: retry başarılı, normal akışa devam (fill journal vb.)
 
                                 _avg_px = float(_order.get("average") or _order.get("price") or _cur_px)
                                 _fill_qty = float(_order.get("filled") or _qty)
