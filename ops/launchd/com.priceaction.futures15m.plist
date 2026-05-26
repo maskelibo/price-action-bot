@@ -8,18 +8,15 @@
   <!--
     futures_daemon.py — 15m wide-stop paper daemon.
 
-    !!! ÖNEMLİ: BU PLIST HENÜZ YÜKLENMEDİ !!!
+    AKTİF olarak launchctl tarafından yönetiliyor (2026-05-25'ten beri).
+    PID dinamik (KeepAlive: Crashed=true, SuccessfulExit=false ile yeniden başlar).
+    Restart: `launchctl kickstart -k gui/501/com.priceaction.futures15m`
 
-    Mevcut PID 17267 manuel başlatılmış ve 2+ gündür çalışıyor.
-    İki daemon aynı anda = çift emir = felaket.
+    İki daemon aynı anda = çift emir = felaket. Manuel başlatma YAPMA,
+    sadece launchctl kickstart kullan.
 
-    Yüklemeden önce:
-    1) Mevcut PID 17267'yi DURDUR: `kill 17267`
-    2) State'in temiz kapandığını doğrula (`logs/futures_daemon.log` son satır)
-    3) `launchctl load ~/Library/LaunchAgents/com.priceaction.futures15m.plist`
-    4) İlk 15dk gözlemle (`tail -f logs/futures_daemon.log`)
-
-    Karar: Principal manuel — Faz 1 sırasında otomatik geçiş yok.
+    UYARI: Code değişikliği sonrası `kickstart -k` ile restart şart
+    (Python module cache temizliği).
 
     Detay: ops/launchd/README.md §3
   -->
@@ -44,6 +41,9 @@
     <string>paper</string>
     <key>TZ</key>
     <string>UTC</string>
+    <!-- FIX 2026-05-26 (C1): defansif buffer flush — log() zaten fsync yapıyor -->
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
   </dict>
 
   <key>RunAtLoad</key>

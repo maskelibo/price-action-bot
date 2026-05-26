@@ -480,6 +480,43 @@ async def _job_param_sweep_chunk() -> None:
         logger.warning("scheduler.param_sweep_chunk_fail", extra={"err": str(exc)[:200]})
 
 
+async def _job_process_pending_entries() -> None:
+    """FIX 2026-05-26 (H6): Pending retry queue processor.
+
+    futures_daemon entry timeout durumunda sinyali pending_retries.jsonl'e
+    yazıyor (daemon bloke olmasın diye). Bu cron her 60s queue'yu işler:
+    fresh ticker fetch → slip kontrol → market order retry. Başarılı ise
+    Telegram 'RESOLVED' alert. 2dk içinde başarısız ise 'MISSED' alert.
+    """
+    try:
+        import asyncio
+        import subprocess
+        from pathlib import Path
+        repo_root = Path(__file__).resolve().parents[3]
+        cmd = [
+            str(repo_root / ".venv" / "bin" / "python"),
+            "scripts/process_pending_entries.py",
+        ]
+        result = await asyncio.to_thread(
+            subprocess.run, cmd, cwd=str(repo_root),
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            # Sadece "anlamlı" çıktıyı logla (read>0 olduğunda)
+            if "read\": 0" not in result.stdout:
+                logger.info(
+                    "scheduler.pending_retry_done",
+                    extra={"stdout_tail": result.stdout[-300:]},
+                )
+        else:
+            logger.warning(
+                "scheduler.pending_retry_fail",
+                extra={"rc": result.returncode, "stderr": result.stderr[-300:]},
+            )
+    except Exception as exc:
+        logger.warning("scheduler.pending_retry_exc", extra={"err": str(exc)[:200]})
+
+
 async def _job_regime_features_refresh() -> None:
     """FIX 2026-05-25: Daily BTC regime features refresh.
 
@@ -957,6 +994,8 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("ingest_data", "cron", "0 * * * *", _job_ingest_data),  # saatlik :00
     # FIX 2026-05-25: regime features daily refresh (was missing — caused regime_cache_stale)
     ("regime_features_refresh", "cron", "1 0 * * *", _job_regime_features_refresh),  # 00:01 UTC
+    # FIX 2026-05-26 (H6): pending entry retry processor (her 60s)
+    ("process_pending_entries", "cron", "* * * * *", _job_process_pending_entries),
     ("hourly_token_check", "cron", "7 * * * *", _job_hourly_token_check),  # H3 :07
     ("review_inbox", "cron", "15 * * * *", _job_review_inbox),  # Faz 2.3 :15
     ("bot_health_check", "cron", "20 * * * *", _job_bot_health_check),  # Faz 6 :20

@@ -295,6 +295,30 @@ class LLMAgentBase(abc.ABC):
         except Exception:  # pragma: no cover
             pass
 
+        # FIX 2026-05-26 (C3): Persistent audit log — Prometheus counter
+        # restart'ta sıfırlanıyor, gerçek günlük kullanım kaybediliyordu.
+        # JSONL append-only source of truth; token_budget.get_token_stats
+        # bunu okuyup tüm-zaman cumulative sum verebiliyor.
+        try:
+            import json as _json
+            from datetime import datetime as _dt, timezone as _tz
+            from pathlib import Path as _Path
+            _audit_path = _Path("data/llm_calls.jsonl")
+            _audit_path.parent.mkdir(parents=True, exist_ok=True)
+            _audit_record = {
+                "ts": _dt.now(_tz.utc).isoformat(),
+                "agent": self.name,
+                "model": self.model,
+                "input_tokens": int(resp.input_tokens or 0),
+                "output_tokens": int(resp.output_tokens or 0),
+                "stop_reason": resp.stop_reason,
+            }
+            with open(_audit_path, "a", encoding="utf-8") as _af:
+                _af.write(_json.dumps(_audit_record) + "\n")
+                _af.flush()
+        except Exception:  # pragma: no cover — audit fail trade'i durdurmamalı
+            pass
+
         # Episodic kayıt (özet)
         self.record_episodic(
             f"[{self.model}] prompt={prompt[:120]} -> resp={resp.text[:120]}",

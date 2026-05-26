@@ -43,57 +43,85 @@ MODEL_PRICING_USD_PER_1M: dict[str, dict[str, float]] = {
 
 
 def get_token_stats(window_hours: int = 24) -> dict[str, dict[str, Any]]:
-    """Prometheus counter'dan per-agent + per-model token usage.
+    """Per-agent + per-model token usage (persistent + Prometheus union).
 
-    Prometheus client_python default registry'i tarar. Counter cumulative
-    olduğu için window_hours rate'i yaklaşık olarak hesaplanır
-    (ProcessInstanceLifetime metric'i ile).
+    FIX 2026-05-26 (C3): Önceden sadece Prometheus counter okuyordu —
+    process restart'ta sıfır oluyordu, gerçek kullanım kayboluyordu.
+    Şimdi `data/llm_calls.jsonl` audit dosyası source of truth; Prometheus
+    sadece içinde olan process için real-time view. Hibrit: audit'ten
+    window içindeki cumulative + Prometheus'tan fallback.
+
+    Parameters
+    ----------
+    window_hours : int
+        Audit dosyasından son N saatlik kayıtları topla (default: 24).
 
     Returns
     -------
     dict
-        ``{(agent, model): {input: N, output: M, calls: K, cost_usd: X}}``
+        ``{"agent|model": {input: N, output: M, calls: K, cost_usd: X}}``
     """
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from pathlib import Path as _Path
+    import json as _json
+
     stats: dict[tuple[str, str], dict[str, Any]] = {}
+    cutoff = _dt.now(_tz.utc) - _td(hours=window_hours)
 
-    try:
-        from prometheus_client import REGISTRY  # type: ignore[import-not-found]
-
-        for collector in REGISTRY._collector_to_names.keys():  # type: ignore[attr-defined]
-            try:
-                metrics = collector.collect()
-            except Exception:
-                continue
-            for metric in metrics:
-                if metric.name != "pa_llm_tokens":
-                    continue
-                for sample in metric.samples:
-                    if sample.name != "pa_llm_tokens_total":
+    # 1) PERSISTENT AUDIT — primary source of truth
+    audit_path = _Path("data/llm_calls.jsonl")
+    if audit_path.exists():
+        try:
+            with audit_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
                         continue
-                    labels = sample.labels
-                    agent = labels.get("agent", "?")
-                    model = labels.get("model", "?")
-                    tok_type = labels.get("type", "?")
-                    key = (agent, model)
-                    if key not in stats:
-                        stats[key] = {"input": 0, "output": 0, "calls": 0, "cost_usd": 0.0}
-                    stats[key][tok_type] = int(sample.value)
-
-                if metric.name == "pa_llm_calls":
-                    for sample in metric.samples:
-                        if sample.name != "pa_llm_calls_total":
+                    try:
+                        rec = _json.loads(line)
+                        ts = _dt.fromisoformat(rec["ts"])
+                        if ts < cutoff:
                             continue
-                        labels = sample.labels
-                        if labels.get("status") != "ok":
-                            continue
-                        agent = labels.get("agent", "?")
-                        model = labels.get("model", "?")
+                        agent = rec.get("agent", "?")
+                        model = rec.get("model", "?")
                         key = (agent, model)
                         if key not in stats:
                             stats[key] = {"input": 0, "output": 0, "calls": 0, "cost_usd": 0.0}
-                        stats[key]["calls"] = int(sample.value)
-    except Exception as exc:
-        logger.warning("token_budget.prometheus_unavailable", extra={"err": str(exc)[:200]})
+                        stats[key]["input"] += int(rec.get("input_tokens", 0) or 0)
+                        stats[key]["output"] += int(rec.get("output_tokens", 0) or 0)
+                        stats[key]["calls"] += 1
+                    except Exception:
+                        continue
+        except Exception as exc:
+            logger.warning("token_budget.audit_read_fail", extra={"err": str(exc)[:200]})
+
+    # 2) PROMETHEUS FALLBACK — audit dosyası yoksa veya process boost için
+    # (Audit kayıtları zaten aynı bilgileri tutuyor; bu sadece redundancy.)
+    if not stats:
+        try:
+            from prometheus_client import REGISTRY  # type: ignore[import-not-found]
+
+            for collector in REGISTRY._collector_to_names.keys():  # type: ignore[attr-defined]
+                try:
+                    metrics = collector.collect()
+                except Exception:
+                    continue
+                for metric in metrics:
+                    if metric.name != "pa_llm_tokens":
+                        continue
+                    for sample in metric.samples:
+                        if sample.name != "pa_llm_tokens_total":
+                            continue
+                        labels = sample.labels
+                        agent = labels.get("agent", "?")
+                        model = labels.get("model", "?")
+                        tok_type = labels.get("type", "?")
+                        key = (agent, model)
+                        if key not in stats:
+                            stats[key] = {"input": 0, "output": 0, "calls": 0, "cost_usd": 0.0}
+                        stats[key][tok_type] = int(sample.value)
+        except Exception as exc:
+            logger.warning("token_budget.prometheus_unavailable", extra={"err": str(exc)[:200]})
 
     # Compute cost
     for key, s in stats.items():
