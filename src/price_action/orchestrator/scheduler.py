@@ -507,6 +507,39 @@ async def _job_param_sweep_chunk() -> None:
         logger.warning("scheduler.param_sweep_chunk_fail", extra={"err": str(exc)[:200]})
 
 
+async def _job_reconcile_journal() -> None:
+    """FIX 2026-05-26 (Faz 14.6): Journal/Exchange state reconciler.
+
+    Her 15dk: borsa açık pozisyonlarını journal ile karşılaştır.
+    - Journal "açık" ama borsada yok → orphan, otomatik close (reconcile_orphan)
+    - Borsada var, journal'da yok → phantom, Telegram alert (manuel inceleme)
+    """
+    try:
+        import asyncio
+        import subprocess
+        from pathlib import Path
+        repo_root = Path(__file__).resolve().parents[3]
+        cmd = [
+            str(repo_root / ".venv" / "bin" / "python"),
+            "scripts/reconcile_journal.py",
+        ]
+        result = await asyncio.to_thread(
+            subprocess.run, cmd, cwd=str(repo_root),
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode == 0:
+            # Anlamlı çıktıyı logla
+            if "orphans_closed" in result.stdout and "0" not in result.stdout.split("orphans_closed")[1][:20]:
+                logger.info("scheduler.reconcile_done",
+                            extra={"stdout_tail": result.stdout[-300:]})
+        else:
+            logger.warning("scheduler.reconcile_fail",
+                           extra={"rc": result.returncode,
+                                  "stderr": result.stderr[-300:]})
+    except Exception as exc:
+        logger.warning("scheduler.reconcile_exc", extra={"err": str(exc)[:200]})
+
+
 async def _job_truth_report() -> None:
     """FIX 2026-05-26 (Faz 14.4): Daily Truth Report.
 
@@ -1215,6 +1248,8 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("quiet_failure_audit", "cron", "30 22 * * sun", _job_quiet_failure_audit),
     # FIX 2026-05-26 (Faz 14.4): Daily Truth Report (03:00 UTC = 06:00 TR)
     ("truth_report", "cron", "0 3 * * *", _job_truth_report),
+    # FIX 2026-05-26 (Faz 14.6): Journal/Exchange reconciler (her 15dk :07)
+    ("reconcile_journal", "cron", "7,22,37,52 * * * *", _job_reconcile_journal),
     ("hourly_token_check", "cron", "7 * * * *", _job_hourly_token_check),  # H3 :07
     ("review_inbox", "cron", "15 * * * *", _job_review_inbox),  # Faz 2.3 :15
     ("bot_health_check", "cron", "20 * * * *", _job_bot_health_check),  # Faz 6 :20
