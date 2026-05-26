@@ -17,7 +17,7 @@ daily_limits:
   # daha fazla pay (5x ucuz olduğu için aynı dolar maliyette 5x token alır).
 
   # En kritik düşünme (Opus 4.7 kalıyor)
-  ceo: 250000             # 80k → 250k (sabah brief büyüdü + arbitrate)
+  ceo: 1000000            # 80k → 250k → 1M (Faz 13: brief + arbitrate + weekly + monthly + spike buffer)
   researcher: 1500000     # 500k → 1.5M (Faz 13: gün içi 5 pulse + 5-batch + drift response + spike buffer)
   adversary_engineer: 250000  # 80k → 250k (stress test büyük doc)
 
