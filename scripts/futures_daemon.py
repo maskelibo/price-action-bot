@@ -406,7 +406,10 @@ def position_check():
                 entry = float(p.get('entryPrice', 0))
                 mark = float(p.get('markPrice', 0))
                 pnl = float(p.get('unrealizedPnl', 0))
-                pos_summary.append(f"{sym.replace('/USDT:USDT','').replace('/USDT','')}={side[0].upper()}{abs(contracts):.3f}@${entry:.2f}->{mark:.2f}({pnl:+.2f})")
+                # FIX 2026-05-26 (Faz 14.9): 4-digit fiyat format (Principal isteği).
+                # Düşük-fiyatlı coinler (DOGE, AVAX) $.2f'te aynı görünüyordu —
+                # gerçek hareket gizleniyordu. $.4f ile $0.1014 vs $0.1023 ayırt edilir.
+                pos_summary.append(f"{sym.replace('/USDT:USDT','').replace('/USDT','')}={side[0].upper()}{abs(contracts):.3f}@${entry:.4f}->{mark:.4f}({pnl:+.2f})")
             log(f"POS_CHECK: {len(positions)} pos, {state['n_algo_orders']} algo (TP+SL){rate_limit_suffix} | " + " | ".join(pos_summary[:6]))
         else:
             log(f"POS_CHECK: 0 pozisyon, {state['n_algo_orders']} algo orders{rate_limit_suffix}")
