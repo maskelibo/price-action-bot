@@ -27,22 +27,22 @@ from price_action.logging_config import logger
 def build_scheduler() -> Any:
     """``AsyncIOScheduler`` instance'ı döndürür.
 
-    FIX 2026-05-26 (H2): Thread pool genişletildi (default 10 → 40).
-    Subprocess job'lar (regime_refresh 120s, execute_orders 60s,
-    tf_exploration_chunk 60s, process_pending_entries 30s) thread'leri
-    tüketebiliyordu. 35 cron job × ortalama 5s = peak load için 40 thread
-    yeterli. Concurrent subprocess çakışmaları için ek 20 thread'lik
-    ayrı process pool kullanılabilir (ileride opsiyon).
+    FIX 2026-05-26 (H2): Async job desteği için AsyncIOExecutor (default).
+    Önceki versiyon ThreadPoolExecutor kullanıyordu → async coroutine'ler
+    "never awaited" hatasıyla 3 saatir hiç çalışmadı. Düzeltme:
+    AsyncIOExecutor (built-in pool 100 default — sub-second job'lar için
+    yeterli). Subprocess uzun süren job'lar asyncio.to_thread içinde
+    zaten yer alıyor → blocking yok.
     """
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[import-not-found]
-        from apscheduler.executors.pool import ThreadPoolExecutor  # type: ignore[import-not-found]
+        from apscheduler.executors.asyncio import AsyncIOExecutor  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError(
             "apscheduler yüklü değil — `pip install apscheduler`"
         ) from exc
     executors = {
-        "default": ThreadPoolExecutor(max_workers=40),
+        "default": AsyncIOExecutor(),
     }
     job_defaults = {
         "coalesce": True,           # Aynı job için birikmiş misfire'lar tek run
