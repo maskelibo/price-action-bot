@@ -38,6 +38,69 @@ def _apply_telegram_env(telegram: bool) -> None:
         os.environ["PA_CEO_PUSH_TELEGRAM"] = "true"
 
 
+async def _canary_check(scheduler: Any) -> None:
+    """FIX 2026-05-26 (Faz 14.7): Canary — restart sonrası 120s içinde
+    min 1 job tetiklenmiş mi kontrol et. Yoksa CRIT alert.
+
+    Önceki bug (H2 ThreadPoolExecutor): scheduler register'di görünüyor
+    ama hiç job çalışmıyor (3 saat sessiz felç). Bu canary aynı pattern
+    tekrarlanırsa 2 dakika içinde yakalar.
+    """
+    await asyncio.sleep(120)  # 2 dk bekle
+    try:
+        # APScheduler jobs içinde herhangi birinin last_run_time'ı 2 dk içinde mi?
+        from datetime import datetime, timedelta, timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=120)
+        jobs = scheduler.get_jobs()
+        # APScheduler private attr — next_run_time + son tetiği bilemiyoruz doğrudan.
+        # Alternatif: app.log'da son 120s scheduler.* log var mı?
+        from pathlib import Path
+        log_path = Path("logs/app.log")
+        recent_jobs_fired = 0
+        if log_path.exists():
+            try:
+                with log_path.open("r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()[-500:]
+                import re as _re
+                for line in lines:
+                    if "scheduler." not in line:
+                        continue
+                    m = _re.search(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", line)
+                    if not m:
+                        continue
+                    try:
+                        ts = datetime.fromisoformat(m.group(1)).replace(tzinfo=timezone.utc)
+                        if ts >= cutoff:
+                            recent_jobs_fired += 1
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+        if recent_jobs_fired == 0:
+            logger.error(
+                "ceo_loop.canary_dead",
+                extra={"n_jobs_registered": len(jobs), "fired_last_120s": 0},
+            )
+            try:
+                from .notifications import push_critical
+                push_critical(
+                    f"🐦 CANARY DEAD: CEO daemon restart sonrası 120s'de "
+                    f"HİÇBİR cron tetiklenmedi (registered jobs: {len(jobs)}). "
+                    f"Scheduler felç olabilir (önceki H2 bug paterni). "
+                    f"Debug: logs/launchd/ceo.stderr.log + verify_scheduler.py",
+                    source="ceo_canary",
+                )
+            except Exception:
+                pass
+        else:
+            logger.info(
+                "ceo_loop.canary_ok",
+                extra={"n_jobs_registered": len(jobs), "fired_last_120s": recent_jobs_fired},
+            )
+    except Exception as exc:
+        logger.warning("ceo_loop.canary_check_fail", extra={"err": str(exc)[:200]})
+
+
 async def _run_daemon() -> None:
     ensure_dirs()
     scheduler = build_scheduler()
@@ -47,6 +110,8 @@ async def _run_daemon() -> None:
         "ceo_loop.started",
         extra={"telegram_push": os.environ.get("PA_CEO_PUSH_TELEGRAM", "false")},
     )
+    # FIX 2026-05-26: canary background task — felç tespiti
+    asyncio.create_task(_canary_check(scheduler))
     stop = asyncio.Event()
 
     def _signal(*_a: Any) -> None:

@@ -56,6 +56,15 @@ if [[ -n "${ANTHROPIC_API_KEY:-}" ]] && [[ "${PA_LLM_USE_CLI}" == "true" ]]; the
     unset ANTHROPIC_API_KEY
 fi
 
+# 4c) FIX 2026-05-26 (Faz 14.7): pycache auto-clean.
+# Önceki bug: kod değişiklikten sonra `launchctl kickstart -k` daemon'u
+# yeniden başlatıyor ama __pycache__/*.pyc eski bytecode'u tutuyor → yeni
+# daemon ESKI kodu okuyor (3 saat sistem dondu 2026-05-26 H2 bug'ında).
+# Çözüm: her launch'da pycache temizle (~100ms iş).
+find "${ROOT}/src" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+find "${ROOT}/src" -name "*.pyc" -delete 2>/dev/null || true
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] pycache cleaned"
+
 # 5) Pre-flight check (loga yazılır)
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] ceo_loop starting"
 echo "  PYTHONPATH=${PYTHONPATH}"
