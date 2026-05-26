@@ -200,14 +200,21 @@ class SlippageTracker:
         })
 
         # TF-bazlı tek fill alarm
+        # FIX 2026-05-26 (Faz 14.5): insan-anlaşılır Türkçe mesaj
         budget = TF_SLIPPAGE_BUDGET.get(tf, TF_SLIPPAGE_BUDGET["1d"])
         single_max = budget["single_max"]
         if slippage_bps > single_max:
+            slip_pct = slippage_bps / 100  # bps → percent
+            limit_pct = single_max / 100
             self._alarm(
-                level="CRITICAL",
+                level="WARNING",  # CRITICAL → WARNING (zarar yok, sadece bilgi)
                 msg=(
-                    f"SINGLE_FILL_SLIPPAGE_EXCEEDED [{tf}]: "
-                    f"{symbol} {slippage_bps:.1f}bps > {single_max}bps"
+                    f"⚠️ Yüksek slip — {symbol} [{tf}]\n"
+                    f"Bot emrini verdi, fiyat %{slip_pct:.3f} kaydı "
+                    f"(limit %{limit_pct:.3f}). Trade açıldı ama beklenenden "
+                    f"%{(slip_pct - limit_pct):.3f} daha pahalı/ucuz doldu. "
+                    f"Sıkça olursa execution stratejisini gözden geçir "
+                    f"(post-only fail veya likidite az)."
                 ),
             )
 

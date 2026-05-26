@@ -575,7 +575,15 @@ def position_check():
                                                     if _sl_dist > 0:
                                                         _r = _pnl / (_sl_dist * _qty)
                                                 _notional = _qty * _entry
-                                                _hold_s = (now_close - (ts_open or now_close)).total_seconds() if ts_open else None
+                                                # FIX 2026-05-26: tz normalize (DuckDB tz-naive, now_close tz-aware)
+                                                _hold_s = None
+                                                if ts_open:
+                                                    try:
+                                                        _tso = ts_open if ts_open.tzinfo else ts_open.replace(tzinfo=timezone.utc)
+                                                        _tsc = now_close if now_close.tzinfo else now_close.replace(tzinfo=timezone.utc)
+                                                        _hold_s = (_tsc - _tso).total_seconds()
+                                                    except Exception:
+                                                        _hold_s = None
                                                 notify_position_close(
                                                     bot="futures15m",
                                                     symbol=str(sym_sig),
