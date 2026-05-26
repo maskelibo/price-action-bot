@@ -204,6 +204,114 @@ def push_report(
     return sent_any
 
 
+def notify_position_open(
+    *,
+    bot: str,
+    symbol: str,
+    side: str,
+    strategy: str,
+    entry_price: float,
+    qty: float,
+    notional_usdt: float,
+    margin_usdt: float,
+    leverage: int,
+    sl_price: float | None = None,
+    tp_price: float | None = None,
+) -> bool:
+    """🟢 Pozisyon açıldı bildirimi — Telegram'a güzel formatlı push.
+
+    FIX 2026-05-26 (Faz 14.5): Principal her açılan pozisyonu anında
+    görsün — entry tutarı, basılan sermaye, kaldıraç, SL/TP, R/R oranı.
+    """
+    side_str = side.upper()
+    emoji = "🟢" if side.lower() == "long" else "🔴"
+    lines = [
+        f"{emoji} POZİSYON AÇILDI — {bot}",
+        "━━━━━━━━━━━━━━━━━━━━━━",
+        f"{symbol} {side_str} ({strategy})",
+        f"Giriş: ${entry_price:,.4f} × {qty:g} = ${notional_usdt:,.2f} notional",
+        f"Margin: ${margin_usdt:,.2f} ({leverage}x leverage)",
+    ]
+    if sl_price is not None and entry_price > 0:
+        sl_pct = abs(entry_price - sl_price) / entry_price * 100
+        lines.append(f"SL: ${sl_price:,.4f} (-{sl_pct:.2f}%)")
+    if tp_price is not None and entry_price > 0:
+        tp_pct = abs(tp_price - entry_price) / entry_price * 100
+        lines.append(f"TP: ${tp_price:,.4f} (+{tp_pct:.2f}%)")
+    if sl_price and tp_price and entry_price > 0:
+        sl_dist = abs(entry_price - sl_price)
+        tp_dist = abs(tp_price - entry_price)
+        if sl_dist > 0:
+            rr = tp_dist / sl_dist
+            lines.append(f"R/R: {rr:.2f}")
+    msg = "\n".join(lines)
+    try:
+        from price_action.notifications.telegram import send_telegram
+        return send_telegram(msg, level="INFO", parse_mode=None)
+    except Exception as exc:
+        logger.warning("notify_position_open_fail", extra={"err": str(exc)[:200]})
+        return False
+
+
+def notify_position_close(
+    *,
+    bot: str,
+    symbol: str,
+    side: str,
+    strategy: str,
+    entry_price: float,
+    exit_price: float,
+    qty: float,
+    notional_usdt: float,
+    realized_pnl_usdt: float,
+    realized_r: float,
+    close_reason: str,
+    hold_seconds: float | None = None,
+) -> bool:
+    """Pozisyon kapandı bildirimi — PnL + yüzde + R + süre."""
+    # PnL %
+    if notional_usdt > 0:
+        pnl_pct = realized_pnl_usdt / notional_usdt * 100
+    else:
+        pnl_pct = 0.0
+    is_win = realized_pnl_usdt > 0
+    emoji = "🎉" if is_win else "❌"
+    label = "KAR" if is_win else "ZARAR"
+    reason_map = {
+        "tp": "TP HIT", "sl": "SL HIT", "be": "BE EXIT",
+        "be_hit": "BE EXIT", "tp_hit": "TP HIT", "sl_hit": "SL HIT",
+        "time": "TIME EXIT", "force": "MANUAL/FORCE",
+        "flatten": "DMS FLATTEN",
+    }
+    reason_str = reason_map.get(close_reason.lower(), close_reason.upper())
+    lines = [
+        f"{emoji} POZİSYON KAPANDI ({label}) — {bot}",
+        "━━━━━━━━━━━━━━━━━━━━━━",
+        f"{symbol} {side.upper()} ({strategy}) → {reason_str}",
+        f"Giriş: ${entry_price:,.4f} → Çıkış: ${exit_price:,.4f}",
+        f"Qty: {qty:g} (notional ${notional_usdt:,.2f})",
+    ]
+    sign = "+" if realized_pnl_usdt >= 0 else ""
+    lines.append(
+        f"─ PnL: {sign}${realized_pnl_usdt:,.2f} ({sign}{pnl_pct:.2f}%) [{sign}{realized_r:.2f}R]"
+    )
+    if hold_seconds is not None and hold_seconds > 0:
+        hours = int(hold_seconds // 3600)
+        minutes = int((hold_seconds % 3600) // 60)
+        if hours > 0:
+            lines.append(f"─ Süre: {hours}h {minutes}m")
+        else:
+            lines.append(f"─ Süre: {minutes}m")
+    msg = "\n".join(lines)
+    try:
+        from price_action.notifications.telegram import send_telegram
+        level = "INFO" if is_win else "WARNING"
+        return send_telegram(msg, level=level, parse_mode=None)
+    except Exception as exc:
+        logger.warning("notify_position_close_fail", extra={"err": str(exc)[:200]})
+        return False
+
+
 def push_critical(
     message: str,
     *,

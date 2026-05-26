@@ -553,6 +553,45 @@ def position_check():
                                             close_reason=close_reason,
                                         )
                                         log(f"  TRADE_CLOSED: sig={sig_id} {triggered_kind} inserted={inserted}")
+
+                                        # FIX 2026-05-26 (Faz 14.5): Telegram position-close bildirimi
+                                        if inserted:
+                                            try:
+                                                from price_action.orchestrator.notifications import notify_position_close
+                                                # PnL hesabı
+                                                _side = str(side_sig).lower()
+                                                _entry = float(entry_p or 0.0)
+                                                _exit = float(exit_p)
+                                                _qty = float(qty or 0.0)
+                                                if _side == "long":
+                                                    _pnl = (_exit - _entry) * _qty
+                                                else:
+                                                    _pnl = (_entry - _exit) * _qty
+                                                # R hesabı
+                                                _sl = float(sl_p or 0.0)
+                                                _r = 0.0
+                                                if _sl and _entry:
+                                                    _sl_dist = abs(_entry - _sl)
+                                                    if _sl_dist > 0:
+                                                        _r = _pnl / (_sl_dist * _qty)
+                                                _notional = _qty * _entry
+                                                _hold_s = (now_close - (ts_open or now_close)).total_seconds() if ts_open else None
+                                                notify_position_close(
+                                                    bot="futures15m",
+                                                    symbol=str(sym_sig),
+                                                    side=_side,
+                                                    strategy=str(strat or ""),
+                                                    entry_price=_entry,
+                                                    exit_price=_exit,
+                                                    qty=_qty,
+                                                    notional_usdt=_notional,
+                                                    realized_pnl_usdt=_pnl,
+                                                    realized_r=_r,
+                                                    close_reason=close_reason,
+                                                    hold_seconds=_hold_s,
+                                                )
+                                            except Exception as _tn_exc:
+                                                log(f"  TELEGRAM_CLOSE_FAIL: {_tn_exc}")
                                     except Exception as tje:
                                         log(f"  TRADE_CLOSED_WRITE_FAIL sig_id={sig_id}: {str(tje)[:120]}")
                             except Exception as je:
@@ -1303,6 +1342,27 @@ def run_15m_mode(once: bool = False) -> None:
                                     f"px=${_avg_px:.4f} lev={_lev}x id={_order.get('id','?')} "
                                     f"coid={_coid} method={_fill_method}")
 
+                                # FIX 2026-05-26 (Faz 14.5): Telegram position-open bildirimi
+                                try:
+                                    from price_action.orchestrator.notifications import notify_position_open
+                                    _entry_notional_telegram = _fill_qty * _avg_px
+                                    _margin_telegram = _entry_notional_telegram / max(int(_lev or 1), 1)
+                                    notify_position_open(
+                                        bot="futures15m",
+                                        symbol=sig["symbol"],
+                                        side=sig["side"],
+                                        strategy=sig.get("strategy", ""),
+                                        entry_price=_avg_px,
+                                        qty=_fill_qty,
+                                        notional_usdt=_entry_notional_telegram,
+                                        margin_usdt=_margin_telegram,
+                                        leverage=int(_lev or 1),
+                                        sl_price=sig.get("sl_price"),
+                                        tp_price=sig.get("tp_price"),
+                                    )
+                                except Exception as _notify_exc:
+                                    log(f"  TELEGRAM_OPEN_FAIL: {_notify_exc}")
+
                                 # G14: Entry fill slippage kaydı — maker/taker fee method'a göre
                                 try:
                                     from price_action.execution.slippage_tracker import SlippageTracker as _ST
@@ -1803,6 +1863,28 @@ def run_5m_mode(once: bool = False) -> None:
 
                         # Paper journal entry (futures_journal_5m.duckdb)
                         _write_5m_journal_signal(sig, decision)
+
+                        # FIX 2026-05-26 (Faz 14.5): Telegram position-open bildirimi
+                        try:
+                            from price_action.orchestrator.notifications import notify_position_open
+                            _qty = float(decision.get("qty", position.get("qty", 0.0)))
+                            _notional = _qty * float(entry)
+                            # 5m P1c walker margin = notional (1x leverage paper)
+                            notify_position_open(
+                                bot="futures5m",
+                                symbol=sym,
+                                side=sig.get("side", "?"),
+                                strategy=sig.get("strategy", "?"),
+                                entry_price=float(entry),
+                                qty=_qty,
+                                notional_usdt=_notional,
+                                margin_usdt=_notional,  # 1x paper
+                                leverage=1,
+                                sl_price=float(sl),
+                                tp_price=float(sig.get("tp_price", 0)) or None,
+                            )
+                        except Exception as _tn_exc:
+                            log_5m(f"  TELEGRAM_OPEN_FAIL: {_tn_exc}")
                     except Exception as e:
                         log_5m(f"  5M_POSITION_RECORD_ERR: {e}")
 
@@ -1920,6 +2002,38 @@ def _monitor_5m_positions(walker) -> tuple[int, int]:
                         f"price={current:.4f} pnl=${outcome['pnl_usdt']:+.2f} R={outcome['r_multiple']:+.2f}")
                 # Journal'a closed trade yaz
                 _write_5m_journal_trade_close(outcome)
+                # FIX 2026-05-26 (Faz 14.5): Telegram position-close bildirimi
+                try:
+                    from price_action.orchestrator.notifications import notify_position_close
+                    _entry = float(outcome.get("entry_price", entry))
+                    _exit = float(outcome.get("close_price", current))
+                    _qty = float(outcome.get("qty", pos.get("qty", 0.0)))
+                    _notional = _qty * _entry
+                    _hold_s = None
+                    if outcome.get("open_ts") and outcome.get("close_ts"):
+                        try:
+                            from datetime import datetime as _dt
+                            _ot = _dt.fromisoformat(str(outcome["open_ts"]))
+                            _ct = _dt.fromisoformat(str(outcome["close_ts"]))
+                            _hold_s = (_ct - _ot).total_seconds()
+                        except Exception:
+                            pass
+                    notify_position_close(
+                        bot="futures5m",
+                        symbol=symbol,
+                        side=side,
+                        strategy=str(pos.get("strategy", "")),
+                        entry_price=_entry,
+                        exit_price=_exit,
+                        qty=_qty,
+                        notional_usdt=_notional,
+                        realized_pnl_usdt=float(outcome["pnl_usdt"]),
+                        realized_r=float(outcome["r_multiple"]),
+                        close_reason=close_reason,
+                        hold_seconds=_hold_s,
+                    )
+                except Exception as _tn_exc:
+                    _log_5m(f"  TELEGRAM_CLOSE_FAIL: {_tn_exc}")
 
     return (n_be, n_closed)
 
