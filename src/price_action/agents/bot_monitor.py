@@ -245,6 +245,14 @@ class BotMonitorAgent(LLMAgentBase):
             con = duckdb.connect(str(journal_path), read_only=True)
             try:
                 if since is not None:
+                    # FIX 2026-05-26 (M2): DuckDB TIMESTAMP tz-naive, since tz-aware
+                    # olabilir → tz strip + UTC ISO string ile karşılaştır.
+                    # 00:00 UTC sınırında false-positive "0 trade" alert riskini
+                    # eliminer eder.
+                    if since.tzinfo is not None:
+                        since_naive = since.astimezone(timezone.utc).replace(tzinfo=None)
+                    else:
+                        since_naive = since
                     rows = con.execute(
                         """
                         SELECT trade_id, ts_open, ts_close, sym, side, strategy,
@@ -254,7 +262,7 @@ class BotMonitorAgent(LLMAgentBase):
                          WHERE ts_close >= ?
                          ORDER BY ts_close ASC
                         """,
-                        [since],
+                        [since_naive],
                     ).fetchall()
                 else:
                     rows = con.execute(
@@ -597,11 +605,21 @@ class BotMonitorAgent(LLMAgentBase):
 
     @staticmethod
     def _to_utc(ts: Any) -> datetime:
-        """DuckDB rows tz-naive UTC TIMESTAMP döner; aware'a yükselt."""
+        """DuckDB rows tz-naive UTC TIMESTAMP döner; aware'a yükselt.
+
+        FIX 2026-05-26 (M2): tz-naive datetime input için açıkça UTC
+        atayan defansif yol. Önceden tz-aware fromisoformat olmadığında
+        replace ile UTC atıyordu — gerçek tz info varsa overwrite riski.
+        Yeni: önce isoformat parse, sonra tz check.
+        """
         if isinstance(ts, datetime):
             return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
         try:
-            return datetime.fromisoformat(str(ts)).replace(tzinfo=timezone.utc)
+            parsed = datetime.fromisoformat(str(ts))
+            # tz-aware ise UTC'ye dönüştür, tz-naive ise UTC ata
+            if parsed.tzinfo is not None:
+                return parsed.astimezone(timezone.utc)
+            return parsed.replace(tzinfo=timezone.utc)
         except Exception as _ts_exc:
             # FIX 2026-05-26 (H1): ts parse fail → now() döndürüyor (kabul edilebilir
             # fallback) ama corruption pattern'ı izlemek için log'a yaz
@@ -941,17 +959,61 @@ class BotMonitorAgent(LLMAgentBase):
     # ------------------------------------------------------------------
 
     def _load_warn_state(self) -> dict[str, Any]:
+        """Warn state oku.
+
+        FIX 2026-05-26 (L3): corrupt JSON → silent boş dict yerine
+        backup + log + boş dict. Backup ile data recovery mümkün.
+        Önceden corrupt warn_state.json kill criteria yanlış tetikleme
+        riskine sebep oluyordu (false-positive PAUSE recommendation).
+        """
         p = self._warn_state_path()
         if not p.exists():
             return {}
         try:
             return json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception as exc:
+            # Corruption tespit edildi — yedekle (overwrite etmeden önce
+            # forensic için), sonra boş dict dön
+            try:
+                backup_path = p.parent / f"{p.stem}.corrupt.{int(datetime.now(timezone.utc).timestamp())}.json"
+                p.rename(backup_path)
+                logger.error(
+                    "bot_monitor.warn_state_corrupt",
+                    extra={
+                        "path": str(p),
+                        "backup": str(backup_path),
+                        "err": str(exc)[:200],
+                    },
+                )
+            except Exception:
+                pass
             return {}
 
     def _save_warn_state(self, state: dict[str, Any]) -> None:
+        """Warn state kaydet — atomic write pattern.
+
+        FIX 2026-05-26 (L3): tempfile + atomic rename ile yarı-yazılmış
+        corrupt file riskini eliminer eder (crash safety).
+        """
         p = self._warn_state_path()
-        p.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
+        try:
+            import tempfile
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", delete=False,
+                dir=str(p.parent), prefix=".warn_state_tmp_", suffix=".json",
+            ) as tmp:
+                json.dump(state, tmp, indent=2, default=str)
+                tmp.flush()
+                import os as _os
+                _os.fsync(tmp.fileno())
+                tmp_name = tmp.name
+            import os as _os
+            _os.replace(tmp_name, str(p))
+        except Exception as exc:
+            logger.warning(
+                "bot_monitor.warn_state_save_fail",
+                extra={"path": str(p), "err": str(exc)[:200]},
+            )
 
     async def evaluate_kill_criteria(self) -> Path | None:
         """Tüm bot'lar için kill criteria check. WARN ya da PAUSE öneri.

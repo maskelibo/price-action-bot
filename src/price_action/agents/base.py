@@ -577,7 +577,25 @@ class LLMAgentBase(abc.ABC):
         ``--output-format=json`` cevabı ve token usage'ı yapılandırılmış döner.
         """
         cli_path = self._client if isinstance(self._client, str) else "claude"
-        timeout_s = float(os.getenv("PA_CLI_TIMEOUT_S", "180"))
+        # FIX 2026-05-26 (M4): timeout bounds check — geçersiz değer instant
+        # fail loop'a sebep olurdu (PA_CLI_TIMEOUT_S=0 → instant timeout → retry).
+        try:
+            timeout_s = float(os.getenv("PA_CLI_TIMEOUT_S", "180"))
+        except (ValueError, TypeError):
+            timeout_s = 180.0
+        # Bounds: minimum 30s (subprocess overhead), maximum 1800s (30dk)
+        if timeout_s < 30:
+            logger.warning(
+                "agent.cli_timeout_below_min",
+                extra={"requested": timeout_s, "clamped_to": 30},
+            )
+            timeout_s = 30.0
+        elif timeout_s > 1800:
+            logger.warning(
+                "agent.cli_timeout_above_max",
+                extra={"requested": timeout_s, "clamped_to": 1800},
+            )
+            timeout_s = 1800.0
         cmd = [
             cli_path,
             "-p",

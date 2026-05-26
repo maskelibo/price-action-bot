@@ -122,6 +122,36 @@ def process_chunk(
     total = len(all_cells)
     chunk = all_cells[offset : offset + chunk_size]
 
+    # FIX 2026-05-26 (M6): pool file missing → loud fail + Telegram alert.
+    # Önceden FileNotFoundError silent skip → state ilerlemiyor → infinite
+    # retry. Şimdi: explicit fail, Principal pool'u yeniden inşa etsin.
+    if not pool_path.exists():
+        err_msg = (
+            f"param_sweep pool file MISSING: {pool_path} "
+            f"(strategy={strategy}). Pool yeniden inşa edilmeli. "
+            f"Chunk skip, state ilerlemiyor."
+        )
+        try:
+            import sys as _sys
+            print(f"[ERROR] {err_msg}", file=_sys.stderr, flush=True)
+        except Exception:
+            pass
+        try:
+            _src = Path(__file__).resolve().parent.parent / "src"
+            if str(_src) not in _sys.path:
+                _sys.path.insert(0, str(_src))
+            from price_action.orchestrator.notifications import push_critical
+            push_critical(err_msg, source="param_sweep_processor")
+        except Exception:
+            pass
+        return {
+            "strategy": strategy,
+            "cells_processed": 0,
+            "offset_after": offset,
+            "error": "pool_file_missing",
+            "pool_path": str(pool_path),
+        }
+
     df = load_pool(pool_path)
     df_strat = df[df["strategy"] == strategy].copy()
     if drop_strategies:

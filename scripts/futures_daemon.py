@@ -220,16 +220,56 @@ _pyramid_store = None
 
 
 def _get_pyramid_store() -> object | None:
-    """PyramidStore singleton (lazy init)."""
+    """PyramidStore singleton (lazy init).
+
+    FIX 2026-05-26 (M3): init fail → push_critical Telegram alert.
+    Önceden in-memory mode silent fallback'e düşüyordu — restart'ta
+    aktif pyramid pozisyonları kayboluyordu (bot duplicate layer-up
+    açma riski). Şimdi: data/ permission check + alert.
+    """
     global _pyramid_store
     if _pyramid_store is not None:
         return _pyramid_store
+
+    # Önce data/ dizini yazılabilir mi kontrol et (defansif)
+    try:
+        data_dir = Path("data")
+        data_dir.mkdir(parents=True, exist_ok=True)
+        test_file = data_dir / ".pyramid_write_test"
+        test_file.write_text("ok", encoding="utf-8")
+        test_file.unlink()
+    except Exception as perm_exc:
+        log(f"PYRAMID_STORE_PERMISSION_FAIL: data/ yazılabilir değil ({perm_exc})")
+        try:
+            from price_action.orchestrator.notifications import push_critical
+            push_critical(
+                f"PyramidStore: data/ permission denied — "
+                f"in-memory mode, restart = state KAYIP. "
+                f"Permission'ları düzelt + daemon restart. ({perm_exc})",
+                source="futures_daemon_pyramid",
+            )
+        except Exception:
+            pass
+        _pyramid_store = None
+        return None
+
     try:
         from price_action.execution.pyramid_store import PyramidStore
         _pyramid_store = PyramidStore()
         log(f"PYRAMID_STORE: başlatıldı → {_pyramid_store._path}")
     except Exception as exc:
         log(f"PYRAMID_STORE_INIT_FAIL: {exc} — in-memory only (restart = state lost)")
+        # FIX 2026-05-26 (M3): Silent değil — Principal hemen bilsin
+        try:
+            from price_action.orchestrator.notifications import push_critical
+            push_critical(
+                f"PyramidStore INIT FAIL: {str(exc)[:200]} — "
+                f"daemon in-memory mode'a düştü. Restart sonrası aktif "
+                f"pyramid pozisyonları kaybolur (duplicate layer-up riski).",
+                source="futures_daemon_pyramid",
+            )
+        except Exception:
+            pass
         _pyramid_store = None
     return _pyramid_store
 

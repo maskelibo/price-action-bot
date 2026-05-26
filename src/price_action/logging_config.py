@@ -44,8 +44,13 @@ def _redact(payload: dict) -> dict:
 
 def _json_sink(message) -> None:
     record = message.record
+    # FIX 2026-05-26 (L1): tüm log timestamps UTC. Önceden record["time"]
+    # local timezone'du; futures_daemon UTC ile karışıyordu (post-mortem
+    # zorlaşıyordu).
+    from datetime import timezone as _tz
+    ts_utc = record["time"].astimezone(_tz.utc) if record["time"].tzinfo else record["time"]
     payload = {
-        "ts": record["time"].isoformat(),
+        "ts": ts_utc.isoformat(),
         "level": record["level"].name,
         "logger": record["name"],
         "msg": record["message"],

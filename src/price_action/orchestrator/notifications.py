@@ -82,6 +82,22 @@ def _chunk_text(text: str, max_chars: int) -> list[str]:
         if cut < max_chars // 2:
             # Hâlâ kötü → hard cut
             cut = max_chars - 100
+        # FIX 2026-05-26 (L2): Emoji/Unicode surrogate safety.
+        # UTF-8 multi-byte char ortasında cut yapmaktan kaçın.
+        # cut'a yakın geçerli char boundary'sini bul.
+        try:
+            # encode/decode round-trip ile char safety
+            test = remaining[:cut].encode("utf-8", errors="strict")
+            # Eğer encode başarılı, cut güvenli. Sorun yok.
+        except UnicodeError:
+            # Geriye doğru git, geçerli boundary bul
+            for backstep in range(1, 10):
+                try:
+                    remaining[: cut - backstep].encode("utf-8", errors="strict")
+                    cut = cut - backstep
+                    break
+                except UnicodeError:
+                    continue
 
         header = f"_(continued — part {chunk_idx + 1})_\n\n" if chunk_idx > 0 else ""
         chunks.append(header + remaining[:cut].rstrip())

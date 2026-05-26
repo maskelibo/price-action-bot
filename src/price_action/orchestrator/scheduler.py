@@ -507,6 +507,73 @@ async def _job_param_sweep_chunk() -> None:
         logger.warning("scheduler.param_sweep_chunk_fail", extra={"err": str(exc)[:200]})
 
 
+async def _job_dms_heartbeat_check() -> None:
+    """FIX 2026-05-26 (M5): DMS heartbeat staleness automated check.
+
+    Önceden DMS dosyaları sadece Bot Monitor saatlik snapshot içinde
+    kontrol ediliyordu, Telegram'a push olmuyordu. Bu job her 5dk
+    heartbeat dosyalarını kontrol eder; stale (>5dk) ise CRIT alert.
+    """
+    try:
+        from datetime import datetime as _dt, timezone as _tz
+        from pathlib import Path
+        from price_action.settings import get_settings
+        s = get_settings()
+        data_dir = s.reports_dir.parent / "data"
+        if not data_dir.exists():
+            return
+        now = _dt.now(_tz.utc)
+        stale_threshold_min = 5
+        for hb in data_dir.glob("dms_heartbeat_*.txt"):
+            # Skip test heartbeat dosyaları
+            if "test" in hb.name.lower():
+                continue
+            try:
+                mtime = _dt.fromtimestamp(hb.stat().st_mtime, tz=_tz.utc)
+                age_min = (now - mtime).total_seconds() / 60
+                if age_min > stale_threshold_min:
+                    _push_critical_safe(
+                        f"DMS heartbeat STALE: {hb.name} {age_min:.1f}dk eski "
+                        f"(eşik {stale_threshold_min}dk). Daemon hung/crashed olabilir.",
+                        source="dms_monitor",
+                    )
+                    logger.error(
+                        "scheduler.dms_stale",
+                        extra={"file": hb.name, "age_min": round(age_min, 1)},
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "scheduler.dms_check_file_fail",
+                    extra={"file": hb.name, "err": str(exc)[:200]},
+                )
+    except Exception as exc:
+        logger.warning("scheduler.dms_check_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_rotate_launchd_logs() -> None:
+    """FIX 2026-05-26 (M1): launchd log rotation (size + retention)."""
+    try:
+        import asyncio
+        import subprocess
+        from pathlib import Path
+        repo_root = Path(__file__).resolve().parents[3]
+        cmd = [
+            str(repo_root / ".venv" / "bin" / "python"),
+            "scripts/rotate_launchd_logs.py",
+        ]
+        result = await asyncio.to_thread(
+            subprocess.run, cmd, cwd=str(repo_root),
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode == 0 and "rotated=0" not in result.stdout:
+            logger.info(
+                "scheduler.log_rotate_done",
+                extra={"stdout_tail": result.stdout[-300:]},
+            )
+    except Exception as exc:
+        logger.warning("scheduler.log_rotate_fail", extra={"err": str(exc)[:200]})
+
+
 async def _job_process_pending_entries() -> None:
     """FIX 2026-05-26 (H6): Pending retry queue processor.
 
@@ -954,21 +1021,41 @@ async def _job_weekly_consolidation() -> None:
                 )
 
         # Inbox archive: önceki haftanın inbox.jsonl'ini archive/'a taşı
+        # FIX 2026-05-26 (M7): atomic rename + lockfile pattern.
+        # Önceden review_inbox (:15 her saat) ile race vardı — Pazar 05:30
+        # consolidation rename ederken :15 review okuyorsa file descriptor
+        # dangling olabilirdi. Lockfile ile review okuma sırasında archive
+        # bekler, vice versa.
         s = _gs()
         inbox = s.memory_dir / "protocol" / "inbox.jsonl"
         if inbox.exists():
             from datetime import datetime as _dt, timezone as _tz
-            iso = _dt.now(_tz.utc).isocalendar()
-            archive_path = s.memory_dir / "protocol" / "archive" / f"{iso.year}-W{iso.week:02d}.jsonl"
-            archive_path.parent.mkdir(parents=True, exist_ok=True)
-            # Move (rename)
-            inbox.rename(archive_path)
-            # Yeni boş inbox başlat
-            inbox.touch()
-            logger.info(
-                "scheduler.inbox_archived",
-                extra={"archive": str(archive_path)},
-            )
+            import fcntl
+            lock_path = s.memory_dir / "protocol" / ".inbox.lock"
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            lock_file = None
+            try:
+                lock_file = open(lock_path, "w")
+                # Exclusive lock — block if review_inbox holds it
+                fcntl.flock(lock_file, fcntl.LOCK_EX)
+                iso = _dt.now(_tz.utc).isocalendar()
+                archive_path = s.memory_dir / "protocol" / "archive" / f"{iso.year}-W{iso.week:02d}.jsonl"
+                archive_path.parent.mkdir(parents=True, exist_ok=True)
+                # Atomic rename within same filesystem
+                inbox.rename(archive_path)
+                # Yeni boş inbox başlat
+                inbox.touch()
+                logger.info(
+                    "scheduler.inbox_archived",
+                    extra={"archive": str(archive_path)},
+                )
+            finally:
+                if lock_file is not None:
+                    try:
+                        fcntl.flock(lock_file, fcntl.LOCK_UN)
+                        lock_file.close()
+                    except Exception:
+                        pass
 
         logger.info("scheduler.consolidation_done", extra={"n_agents": consolidated})
     except Exception as exc:
@@ -1035,6 +1122,10 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("regime_features_refresh", "cron", "1 0 * * *", _job_regime_features_refresh),  # 00:01 UTC
     # FIX 2026-05-26 (H6): pending entry retry processor (her 60s)
     ("process_pending_entries", "cron", "* * * * *", _job_process_pending_entries),
+    # FIX 2026-05-26 (M1): launchd log rotation (saatlik :50)
+    ("rotate_launchd_logs", "cron", "50 * * * *", _job_rotate_launchd_logs),
+    # FIX 2026-05-26 (M5): DMS heartbeat staleness check (her 5dk)
+    ("dms_heartbeat_check", "cron", "*/5 * * * *", _job_dms_heartbeat_check),
     ("hourly_token_check", "cron", "7 * * * *", _job_hourly_token_check),  # H3 :07
     ("review_inbox", "cron", "15 * * * *", _job_review_inbox),  # Faz 2.3 :15
     ("bot_health_check", "cron", "20 * * * *", _job_bot_health_check),  # Faz 6 :20
