@@ -848,21 +848,77 @@ def _run_param_sweep_chunk_sync() -> None:
 async def _job_adversary_daily_stress() -> None:
     """Faz 9: Adversary Engineer günlük stress test.
 
-    FIX 2026-05-26: önceden gün modulo ile 1 bot/gün rotation vardı
-    (day%2==0 → futures15m, day%2==1 → futures5m). Bu Principal'in
-    "futures15m hiç test edilmiyor" şikayetine sebep oldu çünkü
-    aktif gün rotation'a denk gelmediğinde günlerce sıra atlıyordu.
-    Yeni davranış: her gece HER iki bot için stress test (paralel).
-    Token bütçesi artırıldı (Faz 4.2 revize 2026-05-25), karşılayabilir.
+    FIX 2026-05-26: önceden gün modulo ile 1 bot/gün rotation vardı.
+    Yeni: her gece HER iki bot için stress test (paralel).
+
+    FIX 2026-05-27 (Faz 14.14): pool parametresi her zaman None geçiyordu
+    → adversary "no_pool_data" döndürüyor → DD=nan, equity gate fail.
+    Şimdi: bot_id'ye göre R-multiple pool yüklenir + pnl_pct'e çevrilir.
+    Adversary _replay_stress_period() pnl_pct toplamından equity curve
+    + DD + recovery hesabını yapar.
     """
     try:
         import asyncio
+        import pickle
+        from pathlib import Path
         from price_action.agents import AdversaryEngineerAgent
         ae = AdversaryEngineerAgent()
         bots = ["futures15m", "futures5m"]
+        # FIX 2026-05-27: bot → pool dosyası mapping + risk_pct (canlı config'den)
+        BOT_POOL_MAP = {
+            "futures15m": ("data/sec53_15m_pool_v11_vsa2_top4.pkl", 0.005),
+            "futures5m": ("data/sec53_5m_pool_v11_vm20.pkl", 0.005),
+        }
+
+        def _load_pool_for_adversary(pool_path: str, risk_pct: float) -> list[dict]:
+            """R-multiple pool → adversary format (ts iso + pnl_pct float)."""
+            p = Path(pool_path)
+            if not p.exists():
+                logger.warning("scheduler.adversary_pool_missing", extra={"path": pool_path})
+                return []
+            try:
+                with p.open("rb") as f:
+                    raw = pickle.load(f)
+            except Exception as _exc:
+                logger.warning("scheduler.adversary_pool_load_fail",
+                              extra={"path": pool_path, "err": str(_exc)[:200]})
+                return []
+            converted: list[dict] = []
+            for tr in raw:
+                try:
+                    ts = tr.get("entry_ts") or tr.get("exit_ts")
+                    if ts is None:
+                        continue
+                    ts_str = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+                    # R → pnl_pct (yüzde, ör. 1R × %0.5 risk = %0.5)
+                    R = float(tr.get("R", 0.0))
+                    pnl_pct = R * float(risk_pct) * 100.0
+                    converted.append({
+                        "ts": ts_str,
+                        "pnl_pct": pnl_pct,
+                        "symbol": tr.get("symbol"),
+                        "strategy": tr.get("strategy"),
+                    })
+                except Exception:
+                    continue
+            logger.info(
+                "scheduler.adversary_pool_loaded",
+                extra={"path": pool_path, "n_trades": len(converted), "risk_pct": risk_pct},
+            )
+            return converted
+
+        # Her bot için pool yükle + adversary'ye geçir
+        bot_pools: dict[str, list[dict]] = {}
+        for bot_id in bots:
+            if bot_id in BOT_POOL_MAP:
+                pool_path, risk_pct = BOT_POOL_MAP[bot_id]
+                bot_pools[bot_id] = _load_pool_for_adversary(pool_path, risk_pct)
+            else:
+                bot_pools[bot_id] = []
+
         # Paralel çalıştır (bağımsız işler, agent re-entrant)
         results = await asyncio.gather(
-            *[ae.daily_stress_test(b) for b in bots],
+            *[ae.daily_stress_test(b, pool=bot_pools[b]) for b in bots],
             return_exceptions=True,
         )
         for bot_id, result in zip(bots, results):
