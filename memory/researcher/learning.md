@@ -292,3 +292,348 @@ Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed k
 Tekrar eden episode (x7): propose_hypothesis seed=Günlük tarama: yeni RAG ekleri ışığında price action edg
 
 ---
+
+### 2026-05-25 — recurring-20260525-205516 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x14): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Günlük tarama: yeni R
+
+---
+
+### 2026-05-25 — recurring-20260525-205516 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x14): propose_hypothesis seed=Günlük tarama: yeni RAG ekleri ışığında price action edg
+
+---
+
+### 2026-05-25 — recurring-20260525-205516 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x4): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'OI/volume divergence
+
+---
+
+### 2026-05-25 — recurring-20260525-205516 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x4): propose_hypothesis seed=OI/volume divergence patterns
+
+---
+
+### 2026-05-25 — recurring-20260525-205516 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x4): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Liquidity grab + reve
+
+---
+
+### 2026-05-25 — recurring-20260525-205537 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x15): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Günlük tarama: yeni R
+
+---
+
+### 2026-05-25 — recurring-20260525-205537 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x15): propose_hypothesis seed=Günlük tarama: yeni RAG ekleri ışığında price action edg
+
+---
+
+### 2026-05-25 — recurring-20260525-205537 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x5): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'OI/volume divergence
+
+---
+
+### 2026-05-25 — recurring-20260525-205537 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x5): propose_hypothesis seed=OI/volume divergence patterns
+
+---
+
+### 2026-05-25 — recurring-20260525-205537 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x5): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Liquidity grab + reve
+
+---
+
+### 2026-05-25 — recurring-20260525-211157 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x16): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Günlük tarama: yeni R
+
+---
+
+### 2026-05-25 — recurring-20260525-211157 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x16): propose_hypothesis seed=Günlük tarama: yeni RAG ekleri ışığında price action edg
+
+---
+
+### 2026-05-25 — recurring-20260525-211157 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x6): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'OI/volume divergence
+
+---
+
+### 2026-05-25 — recurring-20260525-211157 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x6): propose_hypothesis seed=OI/volume divergence patterns
+
+---
+
+### 2026-05-25 — recurring-20260525-211157 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x6): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Liquidity grab + reve
+
+---
+
+### 2026-05-25 — recurring-20260525-213459 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x17): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Günlük tarama: yeni R
+
+---
+
+### 2026-05-25 — recurring-20260525-213459 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x17): propose_hypothesis seed=Günlük tarama: yeni RAG ekleri ışığında price action edg
+
+---
+
+### 2026-05-25 — recurring-20260525-213459 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'OI/volume divergence
+
+---
+
+### 2026-05-25 — recurring-20260525-213459 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): propose_hypothesis seed=OI/volume divergence patterns
+
+---
+
+### 2026-05-25 — recurring-20260525-213459 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Liquidity grab + reve
+
+---
+
+### 2026-05-26 — recurring-20260526-071446 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x19): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Günlük tarama: yeni R
+
+---
+
+### 2026-05-26 — recurring-20260526-071446 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x19): propose_hypothesis seed=Günlük tarama: yeni RAG ekleri ışığında price action edg
+
+---
+
+### 2026-05-26 — recurring-20260526-071446 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'OI/volume divergence
+
+---
+
+### 2026-05-26 — recurring-20260526-071446 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): propose_hypothesis seed=OI/volume divergence patterns
+
+---
+
+### 2026-05-26 — recurring-20260526-071446 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Liquidity grab + reve
+
+---
+
+### 2026-05-26 — recurring-20260526-080051 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x20): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Günlük tarama: yeni R
+
+---
+
+### 2026-05-26 — recurring-20260526-080051 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x20): propose_hypothesis seed=Günlük tarama: yeni RAG ekleri ışığında price action edg
+
+---
+
+### 2026-05-26 — recurring-20260526-080051 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'OI/volume divergence
+
+---
+
+### 2026-05-26 — recurring-20260526-080051 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): propose_hypothesis seed=OI/volume divergence patterns
+
+---
+
+### 2026-05-26 — recurring-20260526-080051 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Liquidity grab + reve
+
+---
+
+### 2026-05-26 — recurring-20260526-082040 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x21): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Günlük tarama: yeni R
+
+---
+
+### 2026-05-26 — recurring-20260526-082040 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x21): propose_hypothesis seed=Günlük tarama: yeni RAG ekleri ışığında price action edg
+
+---
+
+### 2026-05-26 — recurring-20260526-082040 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'OI/volume divergence
+
+---
+
+### 2026-05-26 — recurring-20260526-082040 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): propose_hypothesis seed=OI/volume divergence patterns
+
+---
+
+### 2026-05-26 — recurring-20260526-082040 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Liquidity grab + reve
+
+---
+
+### 2026-05-26 — recurring-20260526-091035 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x22): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Günlük tarama: yeni R
+
+---
+
+### 2026-05-26 — recurring-20260526-091035 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x22): propose_hypothesis seed=Günlük tarama: yeni RAG ekleri ışığında price action edg
+
+---
+
+### 2026-05-26 — recurring-20260526-091035 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'OI/volume divergence
+
+---
+
+### 2026-05-26 — recurring-20260526-091035 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): propose_hypothesis seed=OI/volume divergence patterns
+
+---
+
+### 2026-05-26 — recurring-20260526-091035 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Liquidity grab + reve
+
+---
+
+### 2026-05-26 — recurring-20260526-174243 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x23): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Günlük tarama: yeni R
+
+---
+
+### 2026-05-26 — recurring-20260526-174243 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x23): propose_hypothesis seed=Günlük tarama: yeni RAG ekleri ışığında price action edg
+
+---
+
+### 2026-05-26 — recurring-20260526-174243 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'OI/volume divergence
+
+---
+
+### 2026-05-26 — recurring-20260526-174243 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): propose_hypothesis seed=OI/volume divergence patterns
+
+---
+
+### 2026-05-26 — recurring-20260526-174243 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Hipotez Üretim. Seed konu: 'Liquidity grab + reve
+
+---
+
+### 2026-05-27 — rsi2-iterate-protocol-validated (high)
+- tags: iterate, sop-4b, validated, deploy-ready, protocol
+
+**Vaka:** rsi2-extreme-fade reject (+%13.61/-%79) → 7 round iterate
+→ v45 BEATS_LIVE (+%19.29/-%19, ratio 1.000).
+
+**Öğrenilen sihirli sos'lar:**
+1. `consecutive_loss_pause = 3` — DD yarıya, ROI %10 kayıp
+2. `tp_r = 2.0 → 3.0` — big winner yakalama, ROI %20+ artış
+3. `max_concurrent = 4-6` — cluster losses break
+4. `monthly_dd_halt = 0.10-0.12` — catastrophic ay koruması
+5. `risk_pct sabit (0.005)` — azaltma yerine loss_pause kullan
+
+**Anti-pattern'lar (yapma):**
+1. BE-protect mean-rev'e ZIT (early winner SL'e gider, reversion exit kaybı)
+2. Trail stop genelde etkisiz (TP override zaten yakalıyor)
+3. Confluence eşiği rsi2'de işe yaramaz (sabit 2.0)
+4. ATR filter rsi2'de ters mantık (low-vol period sinyal verir)
+5. 1 round denedim çalışmadı → 6+ round disiplin gerekli
+
+**Süreç:** her umut verici strateji için 6-7 round protokol zorunlu.
+Detay: memory/researcher/iterate_protocol.md
+
+**Tier hedefleri:**
+- Round 1-3: STRICT PROMOTE (companion adayı)
+- Round 4-5: ELITE (Lab tournament)
+- Round 6-7: BEATS_LIVE / SUPER ELITE (deploy)
+
+---
