@@ -1,0 +1,193 @@
+{
+  "generated_at": "2026-05-27T10:47:34.352686+00:00",
+  "variants": [
+    {
+      "variant": "v21_balance",
+      "trades": {},
+      "equity": {
+        "risk_pct": 0.003,
+        "daily_dd_halt": 0.025,
+        "max_concurrent": 6
+      },
+      "n_taken": 29351,
+      "monthly_roi": 7.440977546061422,
+      "neg_count": 19,
+      "total_months": 61,
+      "max_dd": -40.276806597358046,
+      "annualized": 117.99942818143667,
+      "worst_month": -13.744625296485635,
+      "strict_promote": false,
+      "loose_promote": false
+    },
+    {
+      "variant": "v22_v7+monthly",
+      "trades": {},
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "monthly_dd_halt": 0.15
+      },
+      "n_taken": 25314,
+      "monthly_roi": 9.71775651720161,
+      "neg_count": 24,
+      "total_months": 61,
+      "max_dd": -51.71181851118892,
+      "annualized": 150.70768717097388,
+      "worst_month": -15.397895410725226,
+      "strict_promote": false,
+      "loose_promote": false
+    },
+    {
+      "variant": "v23_v15+monthly",
+      "trades": {
+        "tp_r": 2.0
+      },
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "monthly_dd_halt": 0.15
+      },
+      "n_taken": 21714,
+      "monthly_roi": 10.763118498331513,
+      "neg_count": 21,
+      "total_months": 61,
+      "max_dd": -56.359166528111906,
+      "annualized": 170.8153658380974,
+      "worst_month": -16.267579072607152,
+      "strict_promote": false,
+      "loose_promote": false
+    },
+    {
+      "variant": "v24_r0.004_c6",
+      "trades": {},
+      "equity": {
+        "risk_pct": 0.004,
+        "daily_dd_halt": 0.025,
+        "max_concurrent": 6
+      },
+      "n_taken": 26787,
+      "monthly_roi": 10.505154296289541,
+      "neg_count": 17,
+      "total_months": 61,
+      "max_dd": -49.572389860712214,
+      "annualized": 195.31405699449803,
+      "worst_month": -22.92631116296633,
+      "strict_promote": false,
+      "loose_promote": false
+    },
+    {
+      "variant": "v25_r0.0035_c5",
+      "trades": {},
+      "equity": {
+        "risk_pct": 0.0035,
+        "daily_dd_halt": 0.02,
+        "max_concurrent": 5,
+        "monthly_dd_halt": 0.12
+      },
+      "n_taken": 23664,
+      "monthly_roi": 7.6188966038027495,
+      "neg_count": 20,
+      "total_months": 61,
+      "max_dd": -41.28594761009866,
+      "annualized": 122.921065118574,
+      "worst_month": -12.844262742180412,
+      "strict_promote": false,
+      "loose_promote": false
+    },
+    {
+      "variant": "v26_v7+loss3",
+      "trades": {},
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 3
+      },
+      "n_taken": 8640,
+      "monthly_roi": 9.545594972625809,
+      "neg_count": 14,
+      "total_months": 61,
+      "max_dd": -19.01248324843144,
+      "annualized": 182.98172744354412,
+      "worst_month": -8.539574229126146,
+      "strict_promote": true,
+      "loose_promote": true
+    },
+    {
+      "variant": "v27_short+normal",
+      "trades": {
+        "side_only": "short"
+      },
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4
+      },
+      "n_taken": 13646,
+      "monthly_roi": 5.628046447645561,
+      "neg_count": 26,
+      "total_months": 61,
+      "max_dd": -39.82054661535444,
+      "annualized": 76.18894042695983,
+      "worst_month": -14.847946796062384,
+      "strict_promote": false,
+      "loose_promote": false
+    },
+    {
+      "variant": "v28_v15+c6+mon",
+      "trades": {
+        "tp_r": 2.0
+      },
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 6,
+        "monthly_dd_halt": 0.12
+      },
+      "n_taken": 21154,
+      "monthly_roi": 10.718817188435368,
+      "neg_count": 30,
+      "total_months": 61,
+      "max_dd": -69.477523142915,
+      "annualized": 137.93211745320372,
+      "worst_month": -14.845280060011968,
+      "strict_promote": false,
+      "loose_promote": false
+    },
+    {
+      "variant": "v29_balance+tp2",
+      "trades": {
+        "tp_r": 2.0
+      },
+      "equity": {
+        "risk_pct": 0.003,
+        "daily_dd_halt": 0.025,
+        "max_concurrent": 4
+      },
+      "n_taken": 23283,
+      "monthly_roi": 6.848327477728105,
+      "neg_count": 19,
+      "total_months": 61,
+      "max_dd": -39.5859587321518,
+      "annualized": 105.56561976389003,
+      "worst_month": -13.403309035008625,
+      "strict_promote": false,
+      "loose_promote": false
+    },
+    {
+      "variant": "v30_r0.004+v7",
+      "trades": {},
+      "equity": {
+        "risk_pct": 0.004,
+        "daily_dd_halt": 0.03,
+        "max_concurrent": 4
+      },
+      "n_taken": 25184,
+      "monthly_roi": 8.494674321664723,
+      "neg_count": 20,
+      "total_months": 61,
+      "max_dd": -42.56523749143008,
+      "annualized": 139.67473629346173,
+      "worst_month": -15.306373897018666,
+      "strict_promote": false,
+      "loose_promote": false
+    }
+  ]
+}
