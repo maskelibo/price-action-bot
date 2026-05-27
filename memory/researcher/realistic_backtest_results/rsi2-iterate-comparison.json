@@ -1,0 +1,107 @@
+{
+  "generated_at": "2026-05-27T10:27:16.960622+00:00",
+  "champion_baseline": {
+    "monthly": 12.99,
+    "dd": -15.48,
+    "neg": "4/61"
+  },
+  "variants": [
+    {
+      "variant": "v1_baseline",
+      "label": "Baseline (no filter, no BE)",
+      "trades_args": {
+        "confluence_min": 0,
+        "be_protect": false,
+        "tp_r": 1.5
+      },
+      "equity_args": {
+        "risk_pct": 0.005,
+        "daily_dd_halt": null,
+        "max_concurrent": 999
+      },
+      "n_trades_raw": 38131,
+      "n_trades_taken": 38131,
+      "monthly_roi": 13.610629310105107,
+      "max_dd": -79.46881480959594,
+      "neg_count": 21,
+      "total_months": 61,
+      "annualized": 188.51585930788124,
+      "worst_month": -45.04529188713592,
+      "final_equity": 2023903.5053094996,
+      "promote": false
+    },
+    {
+      "variant": "v2_risk_reduction",
+      "label": "risk_pct 0.005\u21920.002 + daily DD halt 2%",
+      "trades_args": {
+        "confluence_min": 0,
+        "be_protect": false,
+        "tp_r": 1.5
+      },
+      "equity_args": {
+        "risk_pct": 0.002,
+        "daily_dd_halt": 0.02,
+        "max_concurrent": 999
+      },
+      "n_trades_raw": 38131,
+      "n_trades_taken": 33777,
+      "monthly_roi": 5.906262334945843,
+      "max_dd": -33.658534738511456,
+      "neg_count": 20,
+      "total_months": 61,
+      "annualized": 88.22543988226725,
+      "worst_month": -9.4621567678002,
+      "final_equity": 238001.6074440299,
+      "promote": false
+    },
+    {
+      "variant": "v4_be_protect",
+      "label": "BE-protect (1R \u2192 SL=entry)",
+      "trades_args": {
+        "confluence_min": 0,
+        "be_protect": true,
+        "tp_r": 1.5
+      },
+      "equity_args": {
+        "risk_pct": 0.005,
+        "daily_dd_halt": null,
+        "max_concurrent": 999
+      },
+      "n_trades_raw": 38131,
+      "n_trades_taken": 38131,
+      "monthly_roi": -15.77432704586384,
+      "max_dd": -99.99944040375675,
+      "neg_count": 50,
+      "total_months": 61,
+      "annualized": -90.4293172499664,
+      "worst_month": -51.72085680651628,
+      "final_equity": 0.07814227545464769,
+      "promote": false
+    },
+    {
+      "variant": "v5_regime_filter",
+      "label": "BTC EMA200 regime (long bull, short bear)",
+      "trades_args": {
+        "confluence_min": 0,
+        "be_protect": false,
+        "tp_r": 1.5,
+        "regime_filter": true
+      },
+      "equity_args": {
+        "risk_pct": 0.005,
+        "daily_dd_halt": null,
+        "max_concurrent": 999
+      },
+      "n_trades_raw": 21757,
+      "n_trades_taken": 21757,
+      "monthly_roi": 9.80381564540793,
+      "max_dd": -59.37420606133058,
+      "neg_count": 28,
+      "total_months": 61,
+      "annualized": 114.34057335326311,
+      "worst_month": -33.34786691137774,
+      "final_equity": 450005.563471971,
+      "promote": false
+    }
+  ]
+}

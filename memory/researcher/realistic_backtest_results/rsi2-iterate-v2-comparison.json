@@ -1,0 +1,86 @@
+{
+  "generated_at": "2026-05-27T10:30:12.981240+00:00",
+  "variants": [
+    {
+      "variant": "v2.1_risk0.001",
+      "label": "risk_pct 0.001 + daily DD halt 1.5%",
+      "args": {},
+      "equity": {
+        "risk_pct": 0.001,
+        "daily_dd_halt": 0.015,
+        "max_concurrent": 999
+      },
+      "n_taken": 36418,
+      "monthly_roi": 2.674498246934938,
+      "neg_count": 21,
+      "total_months": 61,
+      "max_dd": -20.814278342237056,
+      "annualized": 35.31385820713431,
+      "worst_month": -6.23590191881812,
+      "promote": false,
+      "final_equity": 45523.52903323984
+    },
+    {
+      "variant": "v7_concurrent4",
+      "label": "max_concurrent=4 only (no risk change)",
+      "args": {},
+      "equity": {
+        "risk_pct": 0.005,
+        "daily_dd_halt": null,
+        "max_concurrent": 4
+      },
+      "n_taken": 27394,
+      "monthly_roi": 10.43843106749078,
+      "neg_count": 24,
+      "total_months": 61,
+      "max_dd": -58.416666454650354,
+      "annualized": 173.1637186486071,
+      "worst_month": -28.629521611120133,
+      "promote": false,
+      "final_equity": 1538795.0990817081
+    },
+    {
+      "variant": "v9_combo_v2_v7",
+      "label": "risk 0.002 + concurrent=4",
+      "args": {},
+      "equity": {
+        "risk_pct": 0.002,
+        "daily_dd_halt": 0.02,
+        "max_concurrent": 4
+      },
+      "n_taken": 26527,
+      "monthly_roi": 4.083285246858727,
+      "neg_count": 22,
+      "total_months": 61,
+      "max_dd": -26.414322705169063,
+      "annualized": 57.661764048028544,
+      "worst_month": -9.79825919982954,
+      "promote": false,
+      "final_equity": 97932.53267016761
+    },
+    {
+      "variant": "v11_btc_eth_only",
+      "label": "Sadece BTC + ETH (mature)",
+      "args": {
+        "symbol_subset": [
+          "BTC/USDT",
+          "ETH/USDT"
+        ]
+      },
+      "equity": {
+        "risk_pct": 0.002,
+        "daily_dd_halt": 0.02,
+        "max_concurrent": 999
+      },
+      "n_taken": 4373,
+      "monthly_roi": 0.4248664878780959,
+      "neg_count": 32,
+      "total_months": 61,
+      "max_dd": -11.103493655233562,
+      "annualized": 4.959026903242303,
+      "worst_month": -6.126352144437641,
+      "promote": false,
+      "final_equity": 12739.533635911283
+    }
+  ]
+}
