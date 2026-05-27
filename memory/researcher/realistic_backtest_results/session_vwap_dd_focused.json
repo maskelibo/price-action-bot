@@ -1,0 +1,162 @@
+{
+  "generated_at": "2026-05-27T15:22:09.225711+00:00",
+  "variants": [
+    {
+      "variant": "v3_baseline",
+      "name": "v3_baseline",
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 3
+      },
+      "n_taken": 12758,
+      "monthly_roi": 15.279318530067105,
+      "neg_count": 7,
+      "total_months": 61,
+      "max_dd": -21.865438550960263,
+      "annualized": 414.4267177121077,
+      "worst_month": -16.67462132960653,
+      "beats_live": false,
+      "ideal": false,
+      "elite": false
+    },
+    {
+      "variant": "v9_+monthly0.12",
+      "name": "v9_+monthly0.12",
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 3,
+        "monthly_dd_halt": 0.12
+      },
+      "n_taken": 12434,
+      "monthly_roi": 14.821630170393341,
+      "neg_count": 7,
+      "total_months": 61,
+      "max_dd": -21.872751274992375,
+      "annualized": 390.7723712161431,
+      "worst_month": -13.682863007025292,
+      "beats_live": false,
+      "ideal": false,
+      "elite": false
+    },
+    {
+      "variant": "v11_pause2",
+      "name": "v11_pause2",
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 2
+      },
+      "n_taken": 7688,
+      "monthly_roi": 12.077052589305007,
+      "neg_count": 6,
+      "total_months": 61,
+      "max_dd": -15.356699263763998,
+      "annualized": 282.401862326126,
+      "worst_month": -5.996223233734099,
+      "beats_live": false,
+      "ideal": true,
+      "elite": true
+    },
+    {
+      "variant": "v14_pause2+monthly0.12",
+      "name": "v14_pause2+monthly0.12",
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 2,
+        "monthly_dd_halt": 0.12
+      },
+      "n_taken": 7688,
+      "monthly_roi": 12.077052589305007,
+      "neg_count": 6,
+      "total_months": 61,
+      "max_dd": -15.356699263763998,
+      "annualized": 282.401862326126,
+      "worst_month": -5.996223233734099,
+      "beats_live": false,
+      "ideal": true,
+      "elite": true
+    },
+    {
+      "variant": "v15_risk0.003",
+      "name": "v15_risk0.003",
+      "equity": {
+        "risk_pct": 0.003,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 3
+      },
+      "n_taken": 12758,
+      "monthly_roi": 8.817998711134914,
+      "neg_count": 7,
+      "total_months": 61,
+      "max_dd": -13.72458787825915,
+      "annualized": 170.37430216206477,
+      "worst_month": -10.3153333193039,
+      "beats_live": false,
+      "ideal": false,
+      "elite": false
+    },
+    {
+      "variant": "v17_triple_combo",
+      "name": "v17_triple_combo",
+      "equity": {
+        "risk_pct": 0.003,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 2,
+        "monthly_dd_halt": 0.12
+      },
+      "n_taken": 7688,
+      "monthly_roi": 7.048445203389441,
+      "neg_count": 6,
+      "total_months": 61,
+      "max_dd": -9.481942869633725,
+      "annualized": 125.25455932952858,
+      "worst_month": -3.599712837993685,
+      "beats_live": false,
+      "ideal": false,
+      "elite": false
+    },
+    {
+      "variant": "v18_pause2+conc3",
+      "name": "v18_pause2+conc3",
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 3,
+        "consecutive_loss_pause": 2
+      },
+      "n_taken": 7478,
+      "monthly_roi": 9.576571925106878,
+      "neg_count": 14,
+      "total_months": 61,
+      "max_dd": -21.707644795003432,
+      "annualized": 185.6093893992723,
+      "worst_month": -6.925199904895929,
+      "beats_live": false,
+      "ideal": false,
+      "elite": false
+    },
+    {
+      "variant": "v19_safest",
+      "name": "v19_safest",
+      "equity": {
+        "risk_pct": 0.003,
+        "max_concurrent": 3,
+        "consecutive_loss_pause": 2,
+        "monthly_dd_halt": 0.1,
+        "daily_dd_halt": 0.02
+      },
+      "n_taken": 7478,
+      "monthly_roi": 5.570405419241943,
+      "neg_count": 14,
+      "total_months": 61,
+      "max_dd": -13.55829757279572,
+      "annualized": 89.01892918237107,
+      "worst_month": -4.174016094606204,
+      "beats_live": false,
+      "ideal": false,
+      "elite": false
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-05-27T14:10:33.481098+00:00",
+  "updated_at": "2026-05-27T15:23:29.593701+00:00",
   "candidates": [
     {
       "id": "v63-rsi2-rescue",
@@ -57,43 +57,64 @@
       "notes": "7-round iterate champion. Live'\u0131 yenen tek SUPER_ELITE \u015fu ana kadar."
     },
     {
-      "id": "session-vwap-v3-range-mr",
+      "id": "session-vwap-v11-range-mr",
       "added_at": "2026-05-27T14:10:33.480954+00:00",
       "status": "READY_FOR_DEPLOY",
       "priority": "P2",
       "doc": "memory/researcher/deploy_candidates/session-vwap-v3-range-mr.md",
       "performance": {
-        "monthly_roi": 15.28,
-        "max_dd": -21.87,
-        "annualized": 414.43,
-        "neg_months": 7,
+        "monthly_roi": 12.08,
+        "max_dd": -15.36,
+        "annualized": 282.4,
+        "neg_months": 6,
         "total_months": 61,
-        "risk_adj_ratio": 0.699
+        "risk_adj_ratio": 0.786
       },
       "vs_live": {
-        "monthly_roi_diff": 2.3,
-        "max_dd_diff": -6.4,
-        "annualized_multiplier": 1.26
+        "monthly_roi_diff": -0.9,
+        "max_dd_diff": 0.12,
+        "annualized_multiplier": 0.86,
+        "note": "DD live'dan 0.12pp DAHA AZ \u2014 pure improvement risk taraf\u0131nda"
       },
       "deploy_options": [
         {
-          "label": "v3 ELITE",
+          "label": "v11 RECOMMENDED",
           "risk_pct": 0.005,
-          "max_concurrent": 4,
-          "pause": 3,
-          "roi": 15.28,
-          "dd": -21.87
+          "pause": 2,
+          "roi": 12.08,
+          "dd": -15.36,
+          "note": "Live ile ayn\u0131 risk profili"
         },
         {
-          "label": "v4 SAFE (DD<LIVE)",
-          "risk_pct": 0.002,
-          "max_concurrent": 4,
+          "label": "v17 ultra-safe",
+          "risk_pct": 0.003,
+          "pause": 2,
+          "monthly_halt": 0.12,
+          "roi": 7.05,
+          "dd": -9.48,
+          "note": "Half-Kelly, DD %6 az"
+        },
+        {
+          "label": "v15 mid-risk",
+          "risk_pct": 0.003,
           "pause": 3,
-          "roi": 5.77,
-          "dd": -9.36
+          "roi": 8.82,
+          "dd": -13.72
         }
       ],
-      "notes": "D\u00fc\u015f\u00fck-vol bot aray\u0131\u015f\u0131 s\u0131ras\u0131nda ke\u015ffedildi \u2014 asl\u0131nda range MR. 3-bot combo (live+v63+v3) aday\u0131."
+      "notes": "D\u00fc\u015f\u00fck-vol bot aray\u0131\u015f\u0131 s\u0131ras\u0131nda ke\u015ffedildi \u2014 asl\u0131nda range MR. 3-bot combo (live+v63+v3) aday\u0131.",
+      "updated_at": "2026-05-27T15:23:29.593548+00:00",
+      "spec": {
+        "strategy": "session_vwap_mean_reversion",
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 2,
+        "tp_r": 1.5
+      },
+      "upgrade_history": [
+        "v3 (DD -21.87%)",
+        "v11 (DD -15.36% \u2014 pause 3\u21922 sihir)"
+      ]
     }
   ],
   "principal_note": "v63 deploy queue'ya al\u0131nd\u0131 2026-05-27. Her an deploy edebiliriz dedi user."
