@@ -637,3 +637,48 @@ Detay: memory/researcher/iterate_protocol.md
 - Round 6-7: BEATS_LIVE / SUPER ELITE (deploy)
 
 ---
+
+### 2026-05-27 — cross-strategy-companion-vsa SEED ABORT (v5 reddi)
+
+- **Hipotez:** Cron tetikledi → "vsa_climax_test ile düşük korelasyonlu raf adayı" seed'inde 5. sibling açılması.
+- **Sonuç:** RED (sibling yazılmadı). ADR `2026-05-27-cross-strategy-companion-seed-abort-v5.md`.
+- **Ne öğrendim:**
+  1. Aynı seed üzerinde 4 sibling (unconditional ρ, drawdown ρ, trade-arrival Jaccard, OLS-residual β+IR) zaten family-wise N=264'e ulaşmış, Bonferroni `p < 1.9 × 10⁻⁴`. 5. sibling = N→330, Bonferroni daha sıkı, false-discovery rate yön: yukarı. **Marjinal istatistiksel değer ≤ 0.**
+  2. Düşündüğüm 5 eksenden (mutual information, copula, regime-complement, capacity-disjoint, Kendall τ) hiçbiri v1-v4'ten gerçekten ortogonal değil — sadece doğrusal-olmayan akrabalar.
+  3. **Otomatik prompt cron'unun körlüğü:** seed cooldown guard'ı yok; aynı seed N kez besleniyor → meta-overfit pompası. Ops Engineer incident gerekiyor.
+- **Hangi bias'a düştüm:** Yok — bu sefer **bias'a düşmeyi reddettim**. Otomatik prompt seni "bir şey üret" baskısına sokar; doğru cevap "üretmemek". Researcher mottosu olan "Strong opinions, loosely held + reject more than you accept" pratiğe döküldü.
+- **Bir dahaki sefer:**
+  - Bir seed üzerinde 3+ sibling birikmişse, 4. sibling'i yazmadan önce **ADR-precheck** yap (Bayesian prior çarpımı + family-wise Bonferroni hesabı + gerçekten yeni eksen var mı?).
+  - Cron tarafına "seed cooldown" (son 7 günde X+ sibling açılmışsa otomatik dondur) önerisi Ops Engineer'a havale edildi (ADR §6.1).
+  - Alternatif seed listesi hazır tut: regime-conditional VSA gating, ML meta-labeler retry, event-driven (FOMC/CPI, BTCD-shift) seed'leri.
+
+---
+
+### 2026-05-27 — low-vol-bot-impossible (high)
+- tags: low_vol, impossible, fundamental_finding, regime
+
+**Bulgu:** "Düşük volatilite koşullarında para kazanan bot" yapılamıyor.
+
+**Sayısal kanıt:**
+- BTC ATR/price < 2.5%: 5y'da sadece 184 gün (%10)
+- BTC ATR/price < 2.0%: 5y'da 55 gün (%3)
+- BTC ATR/price < 1.5%: 5y'da 9 gün (%0.5)
+- Bu az sayıda günle istatistiksel anlamlı backtest yapılamaz
+
+**Test edilen 8 varyant** (bollinger_squeeze_breakout + vol regime gate):
+- 7/8 negatif aylık ROI
+- 1 tane +%0.26 marjinal (122 trade, 8 ay sample — güvensiz)
+
+**Temel fizik:** Düşük vol = az hareket = az kazanç imkanı. Tasarım problemi değil.
+
+**Doğru yaklaşım:** Düşük vol'da BOT YAPMA, PASIF KAL. Mevcut botların portföyü:
+- LIVE vsa_climax (trend climax) → high-vol + trending'de aktif
+- v63 rsi2 (high-vol mean rev) → high-vol + range'de aktif
+- v3 session_vwap (intraday MR) → tüm günlerde aktif
+- Düşük vol günleri = tümü pasif (NORMAL ve DOĞRU davranış)
+
+**Alternatif (sabah projesi):**
+- Event-driven bot (FOMC/CPI öncesi)
+- Funding rate arbitrage
+- Volatility-aware sizing (high vol → küçük size)
+- Bunlar yeni Python strategy class gerekir
