@@ -21,24 +21,31 @@ daily_limits:
   # yukarıda, gerçek $ ödeme yok — bu limitler sadece "agent kontrolden çıkmış mı"
   # kanaryası (örn sonsuz döngü). 5h pencere rate limit'i ayrı, Anthropic backend.
 
-  # En kritik düşünme (Opus 4.7 kalıyor)
-  ceo: 2000000            # 1M → 2M (arbitrate + weekly + monthly spike headroom)
-  researcher: 3000000     # 1.5M → 3M (1.8M peak gözlemlendi + 5-batch headroom)
-  adversary_engineer: 500000  # 250k → 500k (stress test büyük doc)
+  # REVIZE 2026-05-27 09:37 TR (Faz 14.19): Hipotez backtest runner +
+  # daily tournament + 30dk cron sonrası tekrar aşımlar:
+  #   researcher    3.46M / 3M  (115%) → 6M  (Faz 14.15 hyp backtest LLM extract spike)
+  #   lab_scientist 4.14M / 1.5M (276%) → 8M  (tournament + sweep cell + 50 extract)
+  #   risk_officer  2.10M / 1M  (210%) → 4M  (tournament + critique + endorse zinciri)
+  # Diğerleri stabil, dokunmuyorum. Max Pro içinde, gerçek $ yok.
 
-  # Sonnet'e geçenler (5x ucuz, token bütçesi cömert)
-  lab_scientist: 1500000  # 400k → 1.5M (526k peak + daily tournament 5+ challenger)
-  analyst: 1500000        # 250k → 1.5M (709k peak — whatif + kpi + per-bot kart)
-  market_scout: 300000    # 150k → 300k (aylık burst)
-  strategy_curator: 400000 # 200k → 400k (haftalık + 4-saatte korelasyon)
+  # En kritik düşünme (Opus 4.7 kalıyor)
+  ceo: 2000000            # 2M (stabil)
+  researcher: 6000000     # 3M → 6M (hypothesis runner LLM extract spike)
+  adversary_engineer: 500000  # 500k stabil
+
+  # Sonnet'e geçenler
+  lab_scientist: 8000000  # 1.5M → 8M (tournament + 50+ hipotez extract + sweep)
+  analyst: 1500000        # 1.5M stabil
+  market_scout: 300000    # 300k stabil
+  strategy_curator: 400000 # 400k stabil
 
   # Reviewer/operasyon
-  risk_officer: 1000000   # 250k → 1M (436k peak — tournament + lifecycle review)
-  ops_engineer: 200000    # 100k → 200k (Haiku ucuz, frekans yüksek)
-  data_engineer: 60000    # 30k → 60k
+  risk_officer: 4000000   # 1M → 4M (tournament zinciri büyüdü)
+  ops_engineer: 200000    # 200k stabil
+  data_engineer: 60000    # 60k stabil
 
   # Faz 6 — Bot Monitor (Haiku)
-  bot_monitor: 400000     # 200k → 400k (15dk snapshot + günlük kart)
+  bot_monitor: 400000     # 400k stabil
 
   # Deterministic — LLM use yok
   portfolio_manager: 0
@@ -46,8 +53,9 @@ daily_limits:
   execution_chief: 0
 
 # Haftalık tüm-agent toplam limiti
-# Yeni dailies × 7 ≈ 88M (2+3+0.5+1.5+1.5+0.3+0.4+1+0.2+0.06+0.4 = 10.96M × 7)
-weekly_limit_total: 100000000  # 35M → 100M (Faz 14.12 revize)
+# Yeni dailies × 7 (Faz 14.19):
+#   2 + 6 + 0.5 + 8 + 1.5 + 0.3 + 0.4 + 4 + 0.2 + 0.06 + 0.4 = 23.36M × 7 ≈ 164M
+weekly_limit_total: 200000000  # 100M → 200M (Faz 14.19)
 
 # Alarm seviyeleri (sıkı tut, erken uyarı)
 alert_threshold_pct: 75
