@@ -196,16 +196,61 @@ class LabScientistAgent(LLMAgentBase):
                 hyp_docs = list(hyp_docs) + list(extra)
             # FIX 2026-05-27 (Lab Scientist tournament feedback): README,
             # TEMPLATE, .tmpl gibi gerçek hipotez olmayan dosyaları ele.
-            # Tournament rapor LLM'i bu artefakt'ları gördü ve incident
-            # açtırdı.
             HYP_SKIP_PREFIXES = ("README", "TEMPLATE", "_template")
             HYP_SKIP_SUFFIXES = (".tmpl", "_template.md")
+            # FIX 2026-05-27 (Faz 14.15): hipotez backtest_results/ varsa
+            # PENDING_BACKTEST placeholder yerine GERÇEK sonuçları kullan.
+            results_dir = (
+                self.settings.memory_dir / "researcher" / "backtest_results"
+            )
             for doc in hyp_docs[:15]:
                 name = doc.name
                 if any(name.startswith(p) for p in HYP_SKIP_PREFIXES):
                     continue
                 if any(name.endswith(s) for s in HYP_SKIP_SUFFIXES):
                     continue
+                # backtest result var mı?
+                result_path = results_dir / f"{doc.stem}.json"
+                if result_path.exists():
+                    try:
+                        import json as _json
+                        rdata = _json.loads(result_path.read_text())
+                        rstatus = rdata.get("result", {}).get("status", "")
+                        rtype = rdata.get("spec", {}).get("type", "")
+                        if rstatus == "OK" and rtype == "param_sweep":
+                            best = rdata["result"].get("best_cell", {})
+                            challengers.append({
+                                "id": doc.stem,
+                                "source_doc": str(doc),
+                                "oos_returns": list(best.get("returns_R_sample", [])),
+                                "oos_sharpe": float(best.get("sharpe_annualized", 0.0)),
+                                "oos_maxdd": float(
+                                    best.get("max_drawdown_R", 0.0)
+                                ) * float(best.get("risk_pct", 0.005)),
+                                "n_trials": int(best.get("n_trades", 0)),
+                                "mean_R_after_fees": float(best.get("mean_R_after_fees", 0.0)),
+                                "hypothesis_spec": rdata.get("spec"),
+                                "status": "BACKTESTED_FROM_HYP",
+                            })
+                            continue
+                        elif rstatus == "OK" and rtype == "analysis":
+                            # Analysis sonucu — sayısal challenger değil ama
+                            # findings olarak ekle (informational)
+                            challengers.append({
+                                "id": doc.stem,
+                                "source_doc": str(doc),
+                                "oos_returns": [],
+                                "oos_sharpe": 0.0,
+                                "oos_maxdd": 0.0,
+                                "n_trials": 0,
+                                "analysis_findings": rdata["result"],
+                                "status": "ANALYSIS_RESULT",
+                            })
+                            continue
+                        # NOT_EXECUTABLE / DEFERRED / ERROR — fall through to placeholder
+                    except Exception:
+                        pass
+                # Default: PENDING_BACKTEST placeholder (sweep_aggregator dolduracak)
                 challengers.append({
                     "id": doc.stem,
                     "source_doc": str(doc),

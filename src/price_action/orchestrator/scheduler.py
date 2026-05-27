@@ -154,6 +154,47 @@ async def _job_daily_kpi() -> None:
         logger.warning("scheduler.daily_kpi_fail", extra={"err": str(exc)[:200]})
 
 
+async def _job_hypothesis_backtest_runner() -> None:
+    """FIX 2026-05-27 (Faz 14.15): Researcher hipotezleri için backtest köprüsü.
+
+    Researcher 36 saatte 1.8M token yakıp 14 hipotez yazıyor, hiçbiri
+    BACKTEST edilmiyordu → tournament'a oos_returns=[] olarak girip
+    otomatik reject ediliyordu. Bu job:
+
+      1. memory/researcher/hypotheses/ son N gün
+      2. backtest_results/ ENVET (result yok)
+      3. LLM extract → param_sweep|analysis|new_strategy classify
+      4. Tipine göre runner çağır
+      5. memory/researcher/backtest_results/<hyp_id>.json yaz
+
+    Her job çağrısı max 3 hipotez (LLM extract her hipotez ~5K token).
+    """
+    try:
+        from price_action.lab.hypothesis_runner import HypothesisRunner
+        runner = HypothesisRunner()
+        results = await runner.run_all_pending(since_days=30, max_runs=3)
+        ok = sum(
+            1 for r in results
+            if r.get("result", {}).get("status") == "OK"
+        )
+        logger.info(
+            "scheduler.hyp_backtest_done",
+            extra={
+                "n_attempted": len(results),
+                "n_ok": ok,
+                "results": [
+                    {"id": r.get("hypothesis_id"), "status": r.get("result", {}).get("status")}
+                    for r in results
+                ],
+            },
+        )
+    except Exception as exc:
+        logger.warning(
+            "scheduler.hyp_backtest_fail",
+            extra={"err": str(exc)[:200]},
+        )
+
+
 async def _job_weekly_tournament() -> None:
     """Lab tournament — sweep chunk'larından gerçek challenger ile.
 
@@ -1371,6 +1412,10 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     # FIX 2026-05-27 (Faz 14.10): günlük tournament — sweep chunk her saat
     # büyüyor, haftalık çok seyrek. Günlük 04:00 UTC (07:00 TR) bilgilendirici.
     ("daily_lab_tournament", "cron", "0 4 * * *", _job_weekly_tournament),
+    # FIX 2026-05-27 (Faz 14.15): hipotez backtest runner — her 6 saat.
+    # Researcher hipotezi yazınca 6 saat içinde otomatik backtest sonucu üretilir.
+    # 02:25, 08:25, 14:25, 20:25 UTC (TR 05:25, 11:25, 17:25, 23:25).
+    ("hypothesis_backtest_runner", "cron", "25 2,8,14,20 * * *", _job_hypothesis_backtest_runner),
     # Haftalık
     ("weekly_lab_tournament", "cron", "0 3 * * sun", _job_weekly_tournament),
     ("weekly_drift", "cron", "30 3 * * sun", _job_weekly_drift),
