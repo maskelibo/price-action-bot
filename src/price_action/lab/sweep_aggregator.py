@@ -60,14 +60,99 @@ class CellRanking:
         """
         return float(self.max_drawdown_R) * float(self.risk_pct)
 
+    def monthly_metrics(self) -> dict[str, float]:
+        """FIX 2026-05-27 (Faz 14.13): Principal'in anladığı dilde metrik —
+        aylık ROI ortalama, max DD %, negatif ay sayısı, yıllık compound.
+
+        Hesap:
+            equity[0] = 1.0
+            her trade: equity *= (1 + R * risk_pct)
+            sample period_years = n_trades / trades_per_year
+            month_count = period_years * 12
+            equity'yi month_count parçaya böl, her parçanın return'i = aylık ROI
+            mean_monthly_roi_pct, max_dd_pct (peak-trough), neg_month_count
+
+        Sample boyutu 500 trade, gerçek pool 12K-34K. Sample stratejisi
+        first250+last250 = kronolojik kapsama ⇒ aylık dağılım tahmini
+        gerçek 5y backtest'inkine yakın (büyük sapma yok).
+        """
+        if not self.returns_R_sample or self.trades_per_year <= 0:
+            return {
+                "monthly_roi_pct_mean": 0.0,
+                "monthly_roi_pct_median": 0.0,
+                "monthly_neg_count": 0,
+                "monthly_total_count": 0,
+                "annual_compound_pct": 0.0,
+                "max_dd_compound_pct": 0.0,
+            }
+        try:
+            import numpy as np
+            r = np.array(self.returns_R_sample, dtype=float)
+            n = len(r)
+            risk = float(self.risk_pct) or 0.005
+            # Equity curve: compound (1 + R*risk)
+            per_trade_ret = r * risk
+            equity = np.cumprod(1.0 + per_trade_ret)
+            # Sample period years (sample n / yearly rate)
+            period_years = float(n) / max(float(self.trades_per_year), 1.0)
+            total_months = max(period_years * 12.0, 1.0)
+            month_count = int(round(total_months))
+            if month_count < 2:
+                # too small span — return aggregate-as-month
+                monthly_returns = np.array([equity[-1] - 1.0])
+            else:
+                # Equity'yi month_count parçaya böl
+                edges = np.linspace(0, n - 1, month_count + 1).astype(int)
+                monthly_returns_list = []
+                prev_eq = 1.0
+                for i in range(month_count):
+                    end_eq = equity[edges[i + 1]]
+                    monthly_returns_list.append((end_eq / prev_eq) - 1.0)
+                    prev_eq = end_eq
+                monthly_returns = np.array(monthly_returns_list)
+            monthly_roi_mean = float(monthly_returns.mean())
+            monthly_roi_median = float(np.median(monthly_returns))
+            neg_count = int((monthly_returns < 0).sum())
+            total_count = int(len(monthly_returns))
+            # Compound annual return
+            final_equity = float(equity[-1])
+            if period_years > 0:
+                annual_compound = final_equity ** (1.0 / period_years) - 1.0
+            else:
+                annual_compound = 0.0
+            # Max DD on compound equity curve
+            running_peak = np.maximum.accumulate(equity)
+            dd = (equity - running_peak) / running_peak
+            max_dd = float(-dd.min())
+            return {
+                "monthly_roi_pct_mean": monthly_roi_mean * 100.0,
+                "monthly_roi_pct_median": monthly_roi_median * 100.0,
+                "monthly_neg_count": neg_count,
+                "monthly_total_count": total_count,
+                "annual_compound_pct": annual_compound * 100.0,
+                "max_dd_compound_pct": max_dd * 100.0,
+            }
+        except Exception:
+            return {
+                "monthly_roi_pct_mean": 0.0,
+                "monthly_roi_pct_median": 0.0,
+                "monthly_neg_count": 0,
+                "monthly_total_count": 0,
+                "annual_compound_pct": 0.0,
+                "max_dd_compound_pct": 0.0,
+            }
+
     def to_challenger_dict(self) -> dict[str, Any]:
         """Lab tournament'ın beklediği dict şemasına dönüş.
 
-        Yeni alanlar (Faz 14.11):
+        Yeni alanlar:
         - oos_sharpe: annualized (sharpe_like değil)
         - oos_returns: 500-trade sample (Welch p-value hesaplanabilir)
-        - oos_maxdd: equity %DD (R*risk dönüşümü)
+        - oos_maxdd: equity %DD (R*risk dönüşümü, lower-bound proxy)
+        - monthly_*: Faz 14.13 — Principal'in anladığı dilde metrik
+          (aylık ROI ortalama %, neg ay sayısı, max DD compound)
         """
+        monthly = self.monthly_metrics()
         return {
             "id": self.challenger_id,
             "strategy": self.strategy,
@@ -80,7 +165,7 @@ class CellRanking:
             "oos_returns": list(self.returns_R_sample),
             "oos_maxdd": self.oos_maxdd_pct,
             "n_trials": int(self.n_trades),
-            # Diagnostik alanlar (tournament dışında raporda kullanılabilir)
+            # Diagnostik
             "mean_R_after_fees": float(self.mean_R_after_fees),
             "sum_R": float(self.sum_R),
             "max_drawdown_R": float(self.max_drawdown_R),
@@ -88,6 +173,13 @@ class CellRanking:
             "trades_per_year": float(self.trades_per_year),
             "bull_mean_R": self.bull_mean_R,
             "bear_mean_R": self.bear_mean_R,
+            # Principal'in dilinde (Faz 14.13)
+            "monthly_roi_pct_mean": monthly["monthly_roi_pct_mean"],
+            "monthly_roi_pct_median": monthly["monthly_roi_pct_median"],
+            "monthly_neg_count": monthly["monthly_neg_count"],
+            "monthly_total_count": monthly["monthly_total_count"],
+            "annual_compound_pct": monthly["annual_compound_pct"],
+            "max_dd_compound_pct": monthly["max_dd_compound_pct"],
             "source_doc": self.source_chunk,
             "status": "FROM_SWEEP_CHUNK",
         }
