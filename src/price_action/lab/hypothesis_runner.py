@@ -222,7 +222,14 @@ class HypothesisRunner:
         else:
             sl_multipliers = [1.0]  # default
 
-        tp_rs = [float(x) for x in grid.get("tp_r", [1.5])]
+        # FIX 2026-05-27 06:10 TR (Faz 14.16b): hipotez tp_r belirtmediyse
+        # 1.5 default override BÜYÜK KAZANÇLARI CAP'LİYOR — vsa wide-stop
+        # trade'lerinin peak_R'leri çoğunlukla 1.5'u aşıyor, realized +3R
+        # kazançlar +1.5R'ye çekiliyor → mean_R negatife dönüyor.
+        # 999 default = "override yapma, pool'un realized R'sini kullan".
+        # Bu, hipotezin sadece sl_pct + risk_pct'i test ettiği durum için
+        # canlı bot davranışına çok daha yakın sonuç verir.
+        tp_rs = [float(x) for x in grid.get("tp_r", [999.0])]
         risk_pcts = [float(x) for x in grid.get("risk_pct", [default_risk])]
 
         # Sweep'i koş — sadece ilk N=20 cell (test için, full grid yorucu)
@@ -238,6 +245,32 @@ class HypothesisRunner:
             df = load_pool(full_pool_path)
         except Exception as exc:
             return {"status": "ERROR", "reason": f"pool load fail: {str(exc)[:100]}"}
+
+        # FIX 2026-05-27 06:00 TR (Faz 14.16): KRİTİK BUG —
+        # Pool 4 stratejiyi karıştırıyor (brooks 220K + anchored 104K + vsa 75K
+        # + engulfing 9K = 409K trade). apply_cell strategy filtresi
+        # yapmıyor → "vsa_climax_test widestop" hipotezini test ederken
+        # brooks'un kötü trade'leri de dahil olup ortalama negatife düşüyor.
+        # Doğru: vsa_climax_test sadece + wide-stop → mean R = +1.077.
+        # Yanlış (önceki): 4-strateji karışık → mean R = -0.0556.
+        if "strategy" in df.columns:
+            df_strategy = df[df["strategy"] == spec.base_strategy].copy()
+            n_before, n_after = len(df), len(df_strategy)
+            logger.info(
+                "hyp_runner.pool_strategy_filtered",
+                extra={
+                    "strategy": spec.base_strategy,
+                    "n_before": n_before,
+                    "n_after": n_after,
+                    "pct_kept": round(n_after / max(n_before, 1) * 100, 1),
+                },
+            )
+            if n_after == 0:
+                return {
+                    "status": "ERROR",
+                    "reason": f"pool'da {spec.base_strategy} trade yok",
+                }
+            df = df_strategy
 
         cells: list[dict[str, Any]] = []
         max_cells = 20

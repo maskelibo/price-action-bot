@@ -1,27 +1,27 @@
 {
   "hypothesis_id": "2026-05-26-cross-strategy-tail-corr-companion-v2",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-26-cross-strategy-tail-corr-companion-v2.md",
-  "extracted_at": "2026-05-27T02:24:49.848354+00:00",
+  "extracted_at": "2026-05-27T03:06:44.834177+00:00",
   "spec": {
     "type": "analysis",
     "base_strategy": "vsa_climax_test",
     "param_grid": null,
     "accept_gates": [
-      "\u03c1_dd \u2264 0.30",
-      "sharpe_standalone_oos \u2265 0.80",
-      "annual_combo \u2265 25%",
-      "sharpe_combo improvement \u2265 15%",
-      "maxdd_combo increase \u2264 +3pp",
-      "cvar95_combo increase \u2264 +20%",
-      "DSR \u2265 0.40 (Bonferroni N=66)",
-      "Bonferroni p < 7.6e-4",
-      "IS/OOS Sharpe gap \u2264 50%",
-      "Lookahead causality test PASS",
-      "DD>5% bar ratio \u2265 10% (pre-gate)",
-      "\u03c1_dd - \u03c1_full \u2265 0"
+      "rho_dd <= 0.30",
+      "sharpe_standalone_oos >= 0.80",
+      "annual_combo >= 25%",
+      "sharpe_combo improvement >= 15%",
+      "maxdd_combo increase <= +3pp",
+      "cvar95_combo increase <= +20%",
+      "dsr >= 0.40 (Bonferroni N=66)",
+      "p < 7.6e-4 (Bonferroni)",
+      "DD>5% bar oran\u0131 >= 10% (pre-gate)",
+      "IS/OOS Sharpe fark\u0131 <= 50%",
+      "lookahead causality test PASS",
+      "rho_dd - rho_full >= 0"
     ],
     "executable": false,
-    "reason_if_not": "Cross-strategy tail-correlation analysis across 66 shelf candidates against vsa_climax_test in conditional DD windows; not a parameter sweep \u2014 requires shelf snapshot loader, conditional \u03c1 pipeline, combo portfolio simulator, and DSR/Bonferroni framework not present in current sweep runner."
+    "reason_if_not": "Cross-strategy tail-correlation analizi; mevcut param sweep runner'\u0131 ko\u015fturamaz. 66 aday \u00fczerinde conditional correlation hesab\u0131 + portfolio combo backtest gerektirir, ayr\u0131 analiz pipeline'\u0131 laz\u0131m."
   },
   "result": {
     "status": "OK",
@@ -156,6 +156,6 @@
       }
     ],
     "n_low_corr_pairs": 15,
-    "partial_note": "PARTIAL \u2014 sadece unconditional Pearson hesapland\u0131. Hipotez tam ko\u015fum i\u00e7in ekstra pipeline ister: Cross-strategy tail-correlation analysis across 66 shelf candidates against vsa_climax_test in conditional DD windows; not a parameter sweep \u2014 requires shelf snapshot loader, conditional \u03c1 pipeline, combo portfolio simulator, and DSR/Bonferroni framework not present in current sweep runner."
+    "partial_note": "PARTIAL \u2014 sadece unconditional Pearson hesapland\u0131. Hipotez tam ko\u015fum i\u00e7in ekstra pipeline ister: Cross-strategy tail-correlation analizi; mevcut param sweep runner'\u0131 ko\u015fturamaz. 66 aday \u00fczerinde conditional correlation hesab\u0131 + portfolio combo backtest gerektirir, ayr\u0131 analiz pipeline'\u0131 laz\u0131m."
   }
 }

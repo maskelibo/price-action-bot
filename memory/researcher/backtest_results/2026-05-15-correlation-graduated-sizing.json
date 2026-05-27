@@ -1,0 +1,25 @@
+{
+  "hypothesis_id": "2026-05-15-correlation-graduated-sizing",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-15-correlation-graduated-sizing.md",
+  "extracted_at": "2026-05-27T03:00:09.056711+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "Mean annual return alpha \u2265 +3pp",
+      "Mean MaxDD bozulmas\u0131 \u2264 +2pp",
+      "Capital utilization improvement \u2265 +10pp",
+      "Bootstrap CI low > 0",
+      "Bonferroni-adj p < 0.010",
+      "Robustness \u2265 5/7 PASS",
+      "Cluster_4+_blocked rate \u2264 30%"
+    ],
+    "executable": false,
+    "reason_if_not": "Overlay sizing policy (correlation cluster graduated sizing) \u2014 yeni cluster detection + position sizing mant\u0131\u011f\u0131; mevcut param sweep runner'\u0131 bu yap\u0131y\u0131 ko\u015fturamaz (DEFERRED, new_strategy)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Overlay sizing policy (correlation cluster graduated sizing) \u2014 yeni cluster detection + position sizing mant\u0131\u011f\u0131; mevcut param sweep runner'\u0131 bu yap\u0131y\u0131 ko\u015fturamaz (DEFERRED, new_strategy)"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "hypothesis_id": "2026-05-15-alt-data-continuous-regime-intensity-sizer",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-15-alt-data-continuous-regime-intensity-sizer.md",
+  "extracted_at": "2026-05-27T03:00:22.586998+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "mean annual return alpha >= +%4pp (3y rolling 13 windows)",
+      "MaxDD bozulmasi <= +%2pp",
+      "Bootstrap CI(95%) low (return alpha) >= 0",
+      "Robustness 8 testten < 4 HARD FAIL",
+      "Bonferroni-adj p < 0.010 (5 paralel HYP)",
+      "Shuffle null (RII gunleri rastgele permute) p < 0.05",
+      "alpha vs F&G-binary-baseline >= +%2pp"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy overlay sizer \u2014 4 feature RII (F&G + funding + OI + RV) continuous sizing multiplier; mevcut sweep runner param_grid bazli, RII overlay logic + dis veri bagimliliklari (fng_daily.csv, funding_BTCUSDT.csv, open_interest_daily.csv NEW DEPENDENCY) backtest motorunda implemente edilmemis; DEFERRED"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy overlay sizer \u2014 4 feature RII (F&G + funding + OI + RV) continuous sizing multiplier; mevcut sweep runner param_grid bazli, RII overlay logic + dis veri bagimliliklari (fng_daily.csv, funding_BTCUSDT.csv, open_interest_daily.csv NEW DEPENDENCY) backtest motorunda implemente edilmemis; DEFERRED"
+  }
+}

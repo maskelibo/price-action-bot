@@ -1,7 +1,7 @@
 {
   "hypothesis_id": "2026-05-27-daily-scan-shuffle-null-v1v2-companion-precheck",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-27-daily-scan-shuffle-null-v1v2-companion-precheck.md",
-  "extracted_at": "2026-05-27T02:26:41.536740+00:00",
+  "extracted_at": "2026-05-27T03:06:35.079228+00:00",
   "spec": {
     "type": "analysis",
     "base_strategy": "vsa_climax_test",
@@ -11,7 +11,7 @@
       "score_real >= null_mean + 1.5 * null_sd"
     ],
     "executable": false,
-    "reason_if_not": "Selection-bias shuffle-null permutation test (B=500 block-shuffle on DD windows) across 66-candidate frozen universe; not a backtest parameter sweep \u2014 requires custom permutation analysis runner, not the existing sweep engine."
+    "reason_if_not": "Negative-control shuffle-null permutation test (B=500) of v1/v2 companion selection procedure \u2014 requires bespoke permutation harness over 66-candidate shelf with conditional bar-return \u03c1 on DD windows, not parameterizable via existing sweep runner."
   },
   "result": {
     "status": "OK",
@@ -146,6 +146,6 @@
       }
     ],
     "n_low_corr_pairs": 15,
-    "partial_note": "PARTIAL \u2014 sadece unconditional Pearson hesapland\u0131. Hipotez tam ko\u015fum i\u00e7in ekstra pipeline ister: Selection-bias shuffle-null permutation test (B=500 block-shuffle on DD windows) across 66-candidate frozen universe; not a backtest parameter sweep \u2014 requires custom permutation analysis runner, not the existing sweep engine."
+    "partial_note": "PARTIAL \u2014 sadece unconditional Pearson hesapland\u0131. Hipotez tam ko\u015fum i\u00e7in ekstra pipeline ister: Negative-control shuffle-null permutation test (B=500) of v1/v2 companion selection procedure \u2014 requires bespoke permutation harness over 66-candidate shelf with conditional bar-return \u03c1 on DD windows, not parameterizable via existing sweep runner."
   }
 }
