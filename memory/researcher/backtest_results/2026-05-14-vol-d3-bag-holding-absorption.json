@@ -1,0 +1,38 @@
+{
+  "hypothesis_id": "2026-05-14-vol-d3-bag-holding-absorption",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-14-vol-d3-bag-holding-absorption.md",
+  "extracted_at": "2026-05-27T03:08:57.725553+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "narrow_spread_mult": [
+        0.7,
+        1.0,
+        1.3
+      ],
+      "vol_sma_mult": [
+        1.5,
+        2.0,
+        2.5
+      ]
+    },
+    "accept_gates": [
+      "n >= 200",
+      "mR >= 0.10",
+      "WR >= 0.45",
+      "shuffle_p < 0.05",
+      "max_R < 10",
+      "symbol_out_cv_max_dev < 0.30",
+      "per_symbol_positive_mR >= 6/11",
+      "OOS_mR >= 0.05",
+      "corr_with_wyckoff_spring_vsa < 0.6"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: yeni VSA Bag Holding pattern detector (vsa_bag_holding.py) gerektiriyor; mevcut backtest motoru bu stratejiyi hen\u00fcz ko\u015fturamaz (DEFERRED)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: yeni VSA Bag Holding pattern detector (vsa_bag_holding.py) gerektiriyor; mevcut backtest motoru bu stratejiyi hen\u00fcz ko\u015fturamaz (DEFERRED)"
+  }
+}

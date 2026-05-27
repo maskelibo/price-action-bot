@@ -1,0 +1,58 @@
+{
+  "hypothesis_id": "2026-05-15-vol-percentile-aware-multi-target-tp-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-15-vol-percentile-aware-multi-target-tp-v2.md",
+  "extracted_at": "2026-05-27T03:08:20.602811+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": {
+      "tp1_r_low": [
+        0.6
+      ],
+      "tp1_r_high": [
+        1.4
+      ],
+      "tp2_r_low": [
+        1.0
+      ],
+      "tp2_r_high": [
+        2.0
+      ],
+      "trail_atr_low": [
+        0.5
+      ],
+      "trail_atr_high": [
+        1.5
+      ],
+      "partial_close_1R": [
+        0.3
+      ],
+      "partial_close_2R": [
+        0.3
+      ],
+      "runner_pct": [
+        0.4
+      ],
+      "rv_period": [
+        14
+      ],
+      "pct_lookback": [
+        90
+      ]
+    },
+    "accept_gates": [
+      "mean_annual_return_alpha >= +2pp",
+      "mean_maxdd_degradation <= +2pp",
+      "vol_quartile_monotonic_Q1<Q2<Q3<Q4 (>=3 ard\u0131\u015f\u0131k)",
+      "bootstrap_CI_low > 0",
+      "bonferroni_adj_p < 0.010",
+      "robustness >= 5/7 PASS"
+    ],
+    "executable": false,
+    "reason_if_not": "Vol-percentile-conditional dynamic TP/trail mapping (per-trade rolling 14d realized vol 90d-percentile \u2192 linear-interpolated TP1/TP2/trail) mevcut sweep runner'da desteklenmiyor; engine v2.0.3 multi-target framework i\u00e7ine custom per-trade vol_pct computation + linear mapping injection gerekiyor. Param_sweep de\u011fil engine extension \u2014 DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Vol-percentile-conditional dynamic TP/trail mapping (per-trade rolling 14d realized vol 90d-percentile \u2192 linear-interpolated TP1/TP2/trail) mevcut sweep runner'da desteklenmiyor; engine v2.0.3 multi-target framework i\u00e7ine custom per-trade vol_pct computation + linear mapping injection gerekiyor. Param_sweep de\u011fil engine extension \u2014 DEFERRED."
+  }
+}

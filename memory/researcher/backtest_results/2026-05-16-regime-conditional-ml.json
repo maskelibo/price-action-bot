@@ -1,0 +1,22 @@
+{
+  "hypothesis_id": "2026-05-16-regime-conditional-ml",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-16-regime-conditional-ml.md",
+  "extracted_at": "2026-05-27T03:08:08.593794+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "W6 hold-out alpha > 0",
+      "W6 n_taken > 30",
+      "Random regime null p-value < 0.05",
+      "In-sample regime-aktif pencere say\u0131s\u0131 >= 2"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: ML meta-labeling regime-conditional overlay \u2014 mevcut backtest motoru (vsa_climax_test/brooks/avwap/engulfing sweep runner) bu hipotezi ko\u015fturamaz. RF model training + walk-forward + regime mask uygulamas\u0131 ve random regime null testi \u00f6zel ML pipeline gerektirir (DEFERRED)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: ML meta-labeling regime-conditional overlay \u2014 mevcut backtest motoru (vsa_climax_test/brooks/avwap/engulfing sweep runner) bu hipotezi ko\u015fturamaz. RF model training + walk-forward + regime mask uygulamas\u0131 ve random regime null testi \u00f6zel ML pipeline gerektirir (DEFERRED)."
+  }
+}

@@ -1,0 +1,158 @@
+{
+  "hypothesis_id": "2026-05-26-cross-strategy-low-corr-companion-to-vsa-climax",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-26-cross-strategy-low-corr-companion-to-vsa-climax.md",
+  "extracted_at": "2026-05-27T03:06:55.366976+00:00",
+  "spec": {
+    "type": "analysis",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [
+      "|\u03c1_bar| \u2264 0.20 (aday \u00d7 vsa_climax_test bar-return korelasyonu)",
+      "sharpe_standalone_oos \u2265 0.80 (walk-forward 3y/6m, step 3m)",
+      "sharpe_combo iyile\u015fmesi \u2265 %15 (vsa_climax_test standalone'a g\u00f6re)",
+      "maxdd_combo art\u0131\u015f\u0131 \u2264 +5pp (\u2264 -22.00%)",
+      "annual_combo \u2265 %25 (5y net annualized return)",
+      "DSR \u2265 0.40 (Bonferroni N=66)",
+      "Bonferroni-d\u00fczeltilmi\u015f p < 7.6 \u00d7 10\u207b\u2074",
+      "IS/OOS Sharpe fark\u0131 \u2264 %50",
+      "Lookahead causality testi ge\u00e7er"
+    ],
+    "executable": false,
+    "reason_if_not": "analysis tipi: 66-aday raf taramas\u0131 + cross-strategy korelasyon/DSR/Bonferroni analizi. Mevcut param sweep runner'\u0131 bu portf\u00f6y-d\u00fczeyi \u00e7oklu-aday tarama + kombinasyon backtest ak\u0131\u015f\u0131n\u0131 ko\u015fturamaz; ayr\u0131 analiz pipeline gerekir."
+  },
+  "result": {
+    "status": "OK",
+    "type": "analysis",
+    "n_strategies_compared": 6,
+    "min_sample_size": 500,
+    "correlation_matrix": {
+      "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 1.0,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 0.0482,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 0.0218,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 0.0264,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.097,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0407
+      },
+      "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0482,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 1.0,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.029,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 0.0072,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.1029,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0498
+      },
+      "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0218,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": -0.029,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 1.0,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.081,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": 0.0033,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0801
+      },
+      "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0264,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 0.0072,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.081,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 1.0,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.0102,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0613
+      },
+      "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": -0.097,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": -0.1029,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 0.0033,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.0102,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": 1.0,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": 0.0596
+      },
+      "vsa_climax_test-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": -0.0407,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": -0.0498,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.0801,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.0613,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": 0.0596,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": 1.0
+      }
+    },
+    "low_correlation_pairs": [
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0482
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "rho": 0.0218
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0264
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.097
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0407
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "rho": -0.029
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0072
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.1029
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0498
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.081
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": 0.0033
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0801
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.0102
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0613
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0596
+      }
+    ],
+    "n_low_corr_pairs": 15,
+    "partial_note": "PARTIAL \u2014 sadece unconditional Pearson hesapland\u0131. Hipotez tam ko\u015fum i\u00e7in ekstra pipeline ister: analysis tipi: 66-aday raf taramas\u0131 + cross-strategy korelasyon/DSR/Bonferroni analizi. Mevcut param sweep runner'\u0131 bu portf\u00f6y-d\u00fczeyi \u00e7oklu-aday tarama + kombinasyon backtest ak\u0131\u015f\u0131n\u0131 ko\u015fturamaz; ayr\u0131 analiz pipeline gerekir."
+  }
+}

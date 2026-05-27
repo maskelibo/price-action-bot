@@ -1,0 +1,41 @@
+{
+  "hypothesis_id": "2026-05-14-vol-z-spike-fade",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-14-vol-z-spike-fade.md",
+  "extracted_at": "2026-05-27T03:08:37.711067+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "vol_z_threshold": [
+        2.0,
+        2.5,
+        3.0
+      ],
+      "body_ratio_min": [
+        0.3,
+        0.4,
+        0.5
+      ],
+      "atr_window": [
+        14,
+        20,
+        30
+      ]
+    },
+    "accept_gates": [
+      "n >= 150",
+      "mR >= 0.10",
+      "WR >= 0.45",
+      "shuffle_p < 0.05",
+      "max_R < 10",
+      "symbol_out_cv_max_dev < 0.30",
+      "per_symbol_positive_mR >= 6/11"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: yeni vol_z_spike_fade detector ve src/price_action/strategies/vol_z_spike_fade.py dosyas\u0131 yaz\u0131lmas\u0131 gerekiyor; mevcut backtest motoru bu hipotezi standalone ko\u015fturamaz (DEFERRED)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: yeni vol_z_spike_fade detector ve src/price_action/strategies/vol_z_spike_fade.py dosyas\u0131 yaz\u0131lmas\u0131 gerekiyor; mevcut backtest motoru bu hipotezi standalone ko\u015fturamaz (DEFERRED)."
+  }
+}
