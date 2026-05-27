@@ -93,25 +93,22 @@ async def _canary_check(scheduler: Any) -> None:
             or (register_jobs_seen and len(jobs) > 0)
         )
         if not is_alive:
+            # FIX 2026-05-27 06:32 TR (Faz 14.18): Telegram push KALDIRILDI.
+            # Canary heuristic 3 false-positive verdi (Faz 14.7 + 14.17).
+            # Gerçek H2 felci için 3 başka redundant monitor zaten var:
+            #   - DMS heartbeat check (her 5 dk)
+            #   - Promise/Reality check (her saat :55)
+            #   - Health check (her 30 dk)
+            # Canary sadece log'lar; Telegram spam'i önlemek için push yok.
             logger.error(
-                "ceo_loop.canary_dead",
+                "ceo_loop.canary_dead_silent",
                 extra={
                     "n_jobs_registered": len(jobs),
                     "fired_last_300s": recent_jobs_fired,
                     "register_jobs_seen": register_jobs_seen,
+                    "note": "Telegram push disabled — see DMS/promises/health for real monitoring",
                 },
             )
-            try:
-                from .notifications import push_critical
-                push_critical(
-                    f"🐦 CANARY DEAD: CEO restart sonrası 5 dk içinde "
-                    f"HİÇBİR scheduler aktivitesi YOK (registered jobs: {len(jobs)}, "
-                    f"register_jobs log: {register_jobs_seen}). Gerçek felç riski. "
-                    f"Debug: logs/launchd/ceo.stderr.log + verify_scheduler.py",
-                    source="ceo_canary",
-                )
-            except Exception:
-                pass
         else:
             logger.info(
                 "ceo_loop.canary_ok",
