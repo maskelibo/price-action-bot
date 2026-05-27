@@ -280,3 +280,39 @@ Haftalık `learning.md`:
 2. Hangi cognitive bias'a düştüm (confirmation, narrative, recency)?
 3. Hangi yeni istatistiksel teknik faydalı olabilir?
 4. Lab'in hangi geri bildirimi metodumu değiştirdi?
+
+## SOP-4c: Otonom İterate Pipeline (2026-05-27)
+
+Eskiden iterate hipotezleri elle yazıyordun. **ARTIK OTONOM**:
+
+1. **scripts/find_promising_to_iterate.py** (cron 06:05 TR günde 1):
+   realistic_backtest_results/ tarar → pozitif edge + kötü risk olan
+   stratejileri tespit eder → reports/researcher_iterate_queue/ + tracker.
+
+2. **src/price_action/lab/iterate_orchestrator.py** (cron her 2 saat):
+   - Queue okur
+   - Her target için state'i (data/state/iterate_state.json) kontrol eder
+   - Bir sonraki round'u tasarlar (R1-R7 template)
+   - 5 variant koşturur (~5-10 dk compute)
+   - Best variant'i tracker'a kaydeder
+   - BEATS_LIVE/SUPER_ELITE bulununca Telegram push CRIT
+   - 7 round bitince target "completed" işaretler
+
+3. **Idempotency**: aynı target × round tekrar koşulursa hata vermez
+   (state'den hangi round'un bittiğini bilir).
+
+4. **Crash-safe**: her variant try/except, error log'a yazılır ama
+   pipeline çökmez.
+
+Sen (Researcher persona) hâlâ MANUEL hipotez yazabilirsin (yeni stratejiler
+için). Ama iterate (rescue) ARTIK otomatik.
+
+Sıkı izleme:
+  - data/state/iterate_state.json — per-target durum
+  - logs/app.log → scheduler.auto_iterate_done / scheduler.auto_iterate_promote_found
+  - memory/researcher/realistic_backtest_results/auto-iterate-*.json — per-round detay
+
+NEXT (otomatik):
+  - 4 pending target için 7 round (her biri 7 × 2h = 14 saat = 6 gün)
+  - Her BEATS_LIVE/SUPER_ELITE Telegram'a düşer
+  - Principal "şu strateji deploy etmeye değer mi?" diye sorar

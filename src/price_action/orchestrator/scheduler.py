@@ -154,6 +154,54 @@ async def _job_daily_kpi() -> None:
         logger.warning("scheduler.daily_kpi_fail", extra={"err": str(exc)[:200]})
 
 
+async def _job_auto_iterate_orchestrator() -> None:
+    """FIX 2026-05-27 (Faz 14.24): OTONOM iterate orchestrator.
+
+    User talebi: 'İşte böyle geliştirilir bot. Otonom hale getir.
+    Israrcı olsun umut vaad edenlere. Yarın sorduğumda bug çıkmasın.'
+
+    Çalışma:
+      1. data/state/iterate_state.json — per-target progress (idempotent)
+      2. memory/researcher/iterate_targets.json — pending queue
+      3. Her koşumda 2 target × 5 variant (~10 dk compute)
+      4. 7 round bitince target completed
+      5. BEATS_LIVE / SUPER_ELITE bulununca Telegram CRIT push
+      6. Crash-safe — her variant try/except, state korunur
+
+    Cron: her 2 saatte 1 (24h'da 12 koşum × 2 target × 5 variant = 120 trade)
+    Tam yetenek: tüm 4 pending target 7 round × 5 variant = 140 variant /
+    2 target per run = 70 koşum / 2h = 6 gün (worst case).
+    Daha sık (saat başı) = 3 gün. Şimdilik 2 saat.
+    """
+    try:
+        import asyncio
+        from price_action.lab.iterate_orchestrator import run_orchestrator
+        result = await asyncio.to_thread(
+            run_orchestrator,
+            max_targets_per_run=2,
+            max_variants_per_round=5,
+        )
+        logger.info(
+            "scheduler.auto_iterate_done",
+            extra={
+                "targets_processed": result["targets_processed"],
+                "rounds_run": result["rounds_run"],
+                "promotes_found": len(result["promotes_found"]),
+                "errors": len(result["errors"]),
+            },
+        )
+        if result["promotes_found"]:
+            logger.warning(
+                "scheduler.auto_iterate_promote_found",
+                extra={"promotes": result["promotes_found"]},
+            )
+    except Exception as exc:
+        logger.warning(
+            "scheduler.auto_iterate_exc",
+            extra={"err": str(exc)[:200]},
+        )
+
+
 async def _job_find_promising_to_iterate() -> None:
     """FIX 2026-05-27 (Faz 14.22): Pozitif edge'li ama riskli stratejileri
     tespit et + Researcher'a iterate talebi yaz.
@@ -1457,9 +1505,12 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     # extract, Lab daily 1.5M içinde rahatça.
     ("hypothesis_backtest_runner", "cron", "*/30 * * * *", _job_hypothesis_backtest_runner),
     # FIX 2026-05-27 (Faz 14.22): pozitif edge'li ama riskli stratejileri tespit
-    # → Researcher iterate queue. Günde 1 kez 03:05 UTC (06:05 TR) — truth_report
-    # sonrası, sabah 06:00 raporundan hemen sonra.
+    # → Researcher iterate queue. Günde 1 kez 03:05 UTC (06:05 TR).
     ("find_promising_to_iterate", "cron", "5 3 * * *", _job_find_promising_to_iterate),
+    # FIX 2026-05-27 (Faz 14.24): OTONOM iterate orchestrator. Queue'daki her
+    # umut verici stratejiye 7 round disiplin ile iterate yap. 2 saatte 1 koşar
+    # (12/gün × 2 target × 5 variant = 120 variant/gün).
+    ("auto_iterate_orchestrator", "cron", "15 */2 * * *", _job_auto_iterate_orchestrator),
     # Haftalık
     ("weekly_lab_tournament", "cron", "0 3 * * sun", _job_weekly_tournament),
     ("weekly_drift", "cron", "30 3 * * sun", _job_weekly_drift),
