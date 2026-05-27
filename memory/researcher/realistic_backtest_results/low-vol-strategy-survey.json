@@ -1,0 +1,103 @@
+{
+  "generated_at": "2026-05-27T13:43:52.942197+00:00",
+  "results": [
+    {
+      "module": "bollinger_squeeze_breakout",
+      "class": "BollingerSqueezeBreakoutStrategy",
+      "desc": "BB squeeze + breakout",
+      "status": "OK",
+      "n_trades_raw": 4010,
+      "n_taken": 4010,
+      "monthly_roi": -2.3300647042588296,
+      "max_dd": -80.78738301679303,
+      "neg_count": 40,
+      "total_months": 61,
+      "annualized": -27.08868530039804,
+      "worst_month": -19.373670529578803
+    },
+    {
+      "module": "session_vwap_mean_reversion",
+      "class": "SessionVWAPMeanReversionStrategy",
+      "desc": "VWAP geri \u00e7ekilme",
+      "status": "OK",
+      "n_trades_raw": 568593,
+      "n_taken": 568593,
+      "monthly_roi": 277.2347948279788,
+      "max_dd": -100.0,
+      "neg_count": 39,
+      "total_months": 61,
+      "annualized": -99.94215824476095,
+      "worst_month": -99.43504453918747
+    },
+    {
+      "module": "naked_poc_mr",
+      "class": "NakedPOCMRStrategy",
+      "desc": "POC mean rev",
+      "status": "IMPORT_FAIL",
+      "err": "module 'price_action.strategies.naked_poc_mr' has no attribute 'NakedPOCMRStrategy'"
+    },
+    {
+      "module": "tpo_value_area",
+      "class": "TPOValueAreaStrategy",
+      "desc": "Value Area extremes",
+      "status": "OK",
+      "n_trades_raw": 4675,
+      "n_taken": 4675,
+      "monthly_roi": -1.4812058950813694,
+      "max_dd": -74.92617184390289,
+      "neg_count": 39,
+      "total_months": 61,
+      "annualized": -19.750264434488273,
+      "worst_month": -14.767812194092244
+    },
+    {
+      "module": "inside_day_failure",
+      "class": "InsideDayFailureStrategy",
+      "desc": "Inside bar pattern",
+      "status": "OK",
+      "n_trades_raw": 18313,
+      "n_taken": 18313,
+      "monthly_roi": -3.0747185341264895,
+      "max_dd": -95.81332245778736,
+      "neg_count": 37,
+      "total_months": 61,
+      "annualized": -40.80897492650971,
+      "worst_month": -36.1174129560047
+    },
+    {
+      "module": "liquidation_fade",
+      "class": "LiquidationFadeStrategy",
+      "desc": "Likidite av\u0131",
+      "status": "NO_TRADES",
+      "n_signals": 0
+    },
+    {
+      "module": "cvd_spike_fade",
+      "class": "CVDSpikeFadeStrategy",
+      "desc": "CVD spike fade",
+      "status": "OK",
+      "n_trades_raw": 10077,
+      "n_taken": 10077,
+      "monthly_roi": -0.984499506775328,
+      "max_dd": -71.0011585480905,
+      "neg_count": 31,
+      "total_months": 61,
+      "annualized": -16.615905077482108,
+      "worst_month": -21.612324960621486
+    },
+    {
+      "module": "bollinger_fade_mr",
+      "class": "BollingerFadeMRStrategy",
+      "desc": "BB outer mean rev",
+      "status": "OK",
+      "n_trades_raw": 514,
+      "n_taken": 514,
+      "monthly_roi": -0.20839555797015683,
+      "max_dd": -19.27994631779373,
+      "neg_count": 39,
+      "total_months": 61,
+      "annualized": -2.7628437262468886,
+      "worst_month": -4.411042164244039
+    }
+  ]
+}

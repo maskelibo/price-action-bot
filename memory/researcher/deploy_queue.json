@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-05-27T13:16:03.626051+00:00",
+  "updated_at": "2026-05-27T14:10:33.481098+00:00",
   "candidates": [
     {
       "id": "v63-rsi2-rescue",
@@ -55,6 +55,45 @@
         }
       ],
       "notes": "7-round iterate champion. Live'\u0131 yenen tek SUPER_ELITE \u015fu ana kadar."
+    },
+    {
+      "id": "session-vwap-v3-range-mr",
+      "added_at": "2026-05-27T14:10:33.480954+00:00",
+      "status": "READY_FOR_DEPLOY",
+      "priority": "P2",
+      "doc": "memory/researcher/deploy_candidates/session-vwap-v3-range-mr.md",
+      "performance": {
+        "monthly_roi": 15.28,
+        "max_dd": -21.87,
+        "annualized": 414.43,
+        "neg_months": 7,
+        "total_months": 61,
+        "risk_adj_ratio": 0.699
+      },
+      "vs_live": {
+        "monthly_roi_diff": 2.3,
+        "max_dd_diff": -6.4,
+        "annualized_multiplier": 1.26
+      },
+      "deploy_options": [
+        {
+          "label": "v3 ELITE",
+          "risk_pct": 0.005,
+          "max_concurrent": 4,
+          "pause": 3,
+          "roi": 15.28,
+          "dd": -21.87
+        },
+        {
+          "label": "v4 SAFE (DD<LIVE)",
+          "risk_pct": 0.002,
+          "max_concurrent": 4,
+          "pause": 3,
+          "roi": 5.77,
+          "dd": -9.36
+        }
+      ],
+      "notes": "D\u00fc\u015f\u00fck-vol bot aray\u0131\u015f\u0131 s\u0131ras\u0131nda ke\u015ffedildi \u2014 asl\u0131nda range MR. 3-bot combo (live+v63+v3) aday\u0131."
     }
   ],
   "principal_note": "v63 deploy queue'ya al\u0131nd\u0131 2026-05-27. Her an deploy edebiliriz dedi user."
