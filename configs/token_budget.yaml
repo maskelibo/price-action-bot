@@ -11,29 +11,34 @@
 # - Faz 5+ kalibrasyon: ilk 2 hafta gözlemden sonra revize edilir
 
 daily_limits:
-  # REVIZE 2026-05-25: Risk Officer üretimde 60K limit aşmış (98K/60K = %164).
-  # Sebep: review_doc full body okuyor, lifecycle/feasibility raporları 30K+ token.
-  # Politika değişikliği: limitleri 3x buffer ile artır + Sonnet'e geçen agent'lara
-  # daha fazla pay (5x ucuz olduğu için aynı dolar maliyette 5x token alır).
+  # REVIZE 2026-05-27 (Faz 14.12): 24h üretim verisi gözlemlendi:
+  #   researcher    1.8M / 1.5M (120%) → 3M    (5-batch + drift + pulse spike)
+  #   analyst       709k / 250k (284%) → 1.5M  (whatif + daily_kpi + per-bot)
+  #   lab_scientist 526k / 400k (132%) → 1.5M  (daily tournament + sweep + drift)
+  #   risk_officer  436k / 250k (174%) → 1M    (tournament + lifecycle review)
+  #   ceo           802k / 1M   ( 80%) → 2M    (brief + arbitrate + weekly + spike)
+  # Politika: ~2-3x gözlemlenmiş peak. Max Pro daily quota'sı bunlardan çok
+  # yukarıda, gerçek $ ödeme yok — bu limitler sadece "agent kontrolden çıkmış mı"
+  # kanaryası (örn sonsuz döngü). 5h pencere rate limit'i ayrı, Anthropic backend.
 
   # En kritik düşünme (Opus 4.7 kalıyor)
-  ceo: 1000000            # 80k → 250k → 1M (Faz 13: brief + arbitrate + weekly + monthly + spike buffer)
-  researcher: 1500000     # 500k → 1.5M (Faz 13: gün içi 5 pulse + 5-batch + drift response + spike buffer)
-  adversary_engineer: 250000  # 80k → 250k (stress test büyük doc)
+  ceo: 2000000            # 1M → 2M (arbitrate + weekly + monthly spike headroom)
+  researcher: 3000000     # 1.5M → 3M (1.8M peak gözlemlendi + 5-batch headroom)
+  adversary_engineer: 500000  # 250k → 500k (stress test büyük doc)
 
-  # Sonnet'e geçenler (Faz 13 planı, daha fazla token tolere)
-  lab_scientist: 400000   # 150k → 400k (param sweep × 3 frekans + TF)
-  analyst: 250000         # 80k → 250k (per-bot card + whatif daily)
-  market_scout: 150000    # 40k → 150k (aylık burst yüksek ama günlük 0)
-  strategy_curator: 200000 # 60k → 200k (haftalık review + 4-saatte 1 corr)
+  # Sonnet'e geçenler (5x ucuz, token bütçesi cömert)
+  lab_scientist: 1500000  # 400k → 1.5M (526k peak + daily tournament 5+ challenger)
+  analyst: 1500000        # 250k → 1.5M (709k peak — whatif + kpi + per-bot kart)
+  market_scout: 300000    # 150k → 300k (aylık burst)
+  strategy_curator: 400000 # 200k → 400k (haftalık + 4-saatte korelasyon)
 
-  # Reviewer/operasyon (üretimde gözlenen)
-  risk_officer: 250000    # 60k → 250k (98K kullanım kanıtladı — 4x buffer)
-  ops_engineer: 100000    # 30k → 100k (Haiku ucuz, sık çalışsın)
-  data_engineer: 30000    # 10k → 30k
+  # Reviewer/operasyon
+  risk_officer: 1000000   # 250k → 1M (436k peak — tournament + lifecycle review)
+  ops_engineer: 200000    # 100k → 200k (Haiku ucuz, frekans yüksek)
+  data_engineer: 60000    # 30k → 60k
 
-  # Faz 6 — Bot Monitor (Haiku, 15dk frekans → 4x daha sık)
-  bot_monitor: 200000     # 50k → 200k (Haiku 5x ucuz, sıklık 4x → net 5x bütçe)
+  # Faz 6 — Bot Monitor (Haiku)
+  bot_monitor: 400000     # 200k → 400k (15dk snapshot + günlük kart)
 
   # Deterministic — LLM use yok
   portfolio_manager: 0
@@ -41,8 +46,8 @@ daily_limits:
   execution_chief: 0
 
 # Haftalık tüm-agent toplam limiti
-# Sum of dailies × 7 ≈ 19M, biraz buffer ile:
-weekly_limit_total: 35000000  # 8M → 25M → 35M (Researcher 1.5M/gün'e çıktı)
+# Yeni dailies × 7 ≈ 88M (2+3+0.5+1.5+1.5+0.3+0.4+1+0.2+0.06+0.4 = 10.96M × 7)
+weekly_limit_total: 100000000  # 35M → 100M (Faz 14.12 revize)
 
 # Alarm seviyeleri (sıkı tut, erken uyarı)
 alert_threshold_pct: 75
