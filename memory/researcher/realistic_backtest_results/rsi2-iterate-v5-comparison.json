@@ -1,0 +1,237 @@
+{
+  "generated_at": "2026-05-27T10:57:38.141157+00:00",
+  "variants": [
+    {
+      "variant": "v31_v26+tp2.0",
+      "trades": {
+        "tp_r": 2.0
+      },
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 3
+      },
+      "n_taken": 7538,
+      "monthly_roi": 11.781694202196851,
+      "neg_count": 12,
+      "total_months": 61,
+      "max_dd": -25.07901998863175,
+      "annualized": 258.6857696093633,
+      "worst_month": -16.598012399116136,
+      "elite": false,
+      "strict": false
+    },
+    {
+      "variant": "v32_v26+pause2",
+      "trades": {},
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 2
+      },
+      "n_taken": 5787,
+      "monthly_roi": 9.410856407122449,
+      "neg_count": 12,
+      "total_months": 61,
+      "max_dd": -14.615831141353045,
+      "annualized": 179.33239176067772,
+      "worst_month": -9.589738352308807,
+      "elite": false,
+      "strict": true
+    },
+    {
+      "variant": "v33_v26+pause4",
+      "trades": {},
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 4
+      },
+      "n_taken": 11296,
+      "monthly_roi": 9.70780366140723,
+      "neg_count": 16,
+      "total_months": 61,
+      "max_dd": -32.28732115239869,
+      "annualized": 179.3497121823609,
+      "worst_month": -22.71719811396794,
+      "elite": false,
+      "strict": false
+    },
+    {
+      "variant": "v34_v26+conc6",
+      "trades": {},
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 6,
+        "consecutive_loss_pause": 3
+      },
+      "n_taken": 9154,
+      "monthly_roi": 14.594695614339306,
+      "neg_count": 12,
+      "total_months": 61,
+      "max_dd": -21.16069198747329,
+      "annualized": 366.467797995807,
+      "worst_month": -7.743743592820418,
+      "elite": false,
+      "strict": true
+    },
+    {
+      "variant": "v35_v26+monthly0.10",
+      "trades": {},
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 3,
+        "monthly_dd_halt": 0.1
+      },
+      "n_taken": 8484,
+      "monthly_roi": 9.250419833655481,
+      "neg_count": 15,
+      "total_months": 61,
+      "max_dd": -21.641666494289716,
+      "annualized": 172.3541965872582,
+      "worst_month": -10.4832027086736,
+      "elite": false,
+      "strict": true
+    },
+    {
+      "variant": "v36_v26+tp2+conc6",
+      "trades": {
+        "tp_r": 2.0
+      },
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 6,
+        "consecutive_loss_pause": 3
+      },
+      "n_taken": 7994,
+      "monthly_roi": 18.02883926490382,
+      "neg_count": 8,
+      "total_months": 61,
+      "max_dd": -23.215022785372295,
+      "annualized": 556.9566413052426,
+      "worst_month": -14.077271976875982,
+      "elite": false,
+      "strict": true
+    },
+    {
+      "variant": "v37_v26+pause2+tp2",
+      "trades": {
+        "tp_r": 2.0
+      },
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 2
+      },
+      "n_taken": 5088,
+      "monthly_roi": 10.896459525170235,
+      "neg_count": 12,
+      "total_months": 61,
+      "max_dd": -17.02028590908293,
+      "annualized": 227.4057554341085,
+      "worst_month": -11.374407929207964,
+      "elite": true,
+      "strict": true
+    },
+    {
+      "variant": "v38_v26+tp2+monthly",
+      "trades": {
+        "tp_r": 2.0
+      },
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 3,
+        "monthly_dd_halt": 0.12
+      },
+      "n_taken": 7428,
+      "monthly_roi": 11.573558948184909,
+      "neg_count": 13,
+      "total_months": 61,
+      "max_dd": -19.626759656579683,
+      "annualized": 249.7361371144946,
+      "worst_month": -12.258448210114114,
+      "elite": true,
+      "strict": true
+    },
+    {
+      "variant": "v39_v26+conc6+mon",
+      "trades": {},
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 6,
+        "consecutive_loss_pause": 3,
+        "monthly_dd_halt": 0.12
+      },
+      "n_taken": 9120,
+      "monthly_roi": 14.409444621521322,
+      "neg_count": 12,
+      "total_months": 61,
+      "max_dd": -21.16069198747329,
+      "annualized": 357.13777425383944,
+      "worst_month": -12.358645481453756,
+      "elite": false,
+      "strict": true
+    },
+    {
+      "variant": "v40_v26+pause_days2",
+      "trades": {},
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 3,
+        "pause_days": 2
+      },
+      "n_taken": 5493,
+      "monthly_roi": 6.222150970243696,
+      "neg_count": 16,
+      "total_months": 61,
+      "max_dd": -20.733551598151447,
+      "annualized": 98.26107656380869,
+      "worst_month": -13.993786115961825,
+      "elite": false,
+      "strict": true
+    },
+    {
+      "variant": "v41_v7+pause3+tp2",
+      "trades": {
+        "tp_r": 2.0
+      },
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 4,
+        "consecutive_loss_pause": 3
+      },
+      "n_taken": 7538,
+      "monthly_roi": 11.781694202196851,
+      "neg_count": 12,
+      "total_months": 61,
+      "max_dd": -25.07901998863175,
+      "annualized": 258.6857696093633,
+      "worst_month": -16.598012399116136,
+      "elite": false,
+      "strict": false
+    },
+    {
+      "variant": "v42_v26+conc5+tp175",
+      "trades": {
+        "tp_r": 1.75
+      },
+      "equity": {
+        "risk_pct": 0.005,
+        "max_concurrent": 5,
+        "consecutive_loss_pause": 3
+      },
+      "n_taken": 8214,
+      "monthly_roi": 13.4295654351553,
+      "neg_count": 10,
+      "total_months": 61,
+      "max_dd": -21.21638179931127,
+      "annualized": 321.65981050094035,
+      "worst_month": -12.991560571200312,
+      "elite": false,
+      "strict": true
+    }
+  ]
+}
