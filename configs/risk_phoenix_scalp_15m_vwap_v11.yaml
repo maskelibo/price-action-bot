@@ -1,0 +1,45 @@
+# session_vwap_mean_reversion v11 — DEPLOY CANDIDATE
+# Faz 14.25 (2026-05-27): paper testnet deploy.
+#
+# Spec (backtest 5y):
+#   Aylık ROI: +12.08% (live +12.99 ile neredeyse aynı)
+#   Max DD:   -15.36% (live -15.48'den 0.12pp DAHA AZ)
+#   Yıllık:   +282%
+#   Neg ay:   6/61
+#
+# Tek değişiklik v3'ten: consecutive_loss_pause 3 → 2
+
+name: phoenix_scalp_15m_vwap_v11
+version: v11-deploy
+description: |
+  session_vwap_mean_reversion intraday range MR companion strategy.
+
+strategies_enabled:
+  - session_vwap_mean_reversion
+
+execution:
+  sl_pct_min: 0.0                # session_vwap dar SL, widestop YOK
+  risk_per_trade: 0.005
+  backtest_risk_pct: 0.005
+  fee_bps_per_trade: 5.0
+
+position_sizing:
+  risk_per_trade: 0.005
+  use_confidence_dynamic_sizing: false
+  conf_tiers:
+    - {min: 0.00, max: 0.50, risk_pct: 0.005}
+    - {min: 0.50, max: 1.00, risk_pct: 0.005}
+
+strategy_portfolio:
+  max_concurrent_positions: 4    # v11 sıkı cap
+  consecutive_loss_pause_n: 2    # SİHİRLİ SOS — DD %22 → %15
+  consecutive_loss_pause_days: 1
+  pyramid_enabled: false
+  strategies:
+    - session_vwap_mean_reversion
+
+risk:
+  daily_dd_halt_pct: 0.04        # default
+  weekly_dd_halt_pct: 0.08
+  monthly_dd_halt_pct: 0.99      # essentially off
+  max_portfolio_notional_x_equity: 2.0   # daha sıkı

@@ -1,0 +1,88 @@
+# PROPOSED CONFIG — RSI2 v63 RESCUE (NOT YET PRODUCTION)
+#
+# Origin: 7-round iterate from rsi2-extreme-fade baseline (commits bd9ecf4..6a6b6ed)
+# Backtest performance (5y): aylık +%20.08 / DD -%16.95 / yıllık +%639
+# Risk-adjusted ratio: 1.184 (live bot 0.839)
+#
+# ⚠️ DEPLOYMENT GUARD (ADR-002):
+#   - Bu dosya configs/proposed/ altında — production değil
+#   - Production'a taşımak için Principal manuel onay + Risk Officer endorse şart
+#   - Test path: paper trade 1-2 hafta (configs/proposed/'tan PA_15M_CONFIG override)
+#
+# Deploy checklist:
+#   [ ] Principal approval
+#   [ ] Risk Officer endorse
+#   [ ] Lab tournament combo Sharpe (live + v63 korelasyon ρ < 0.3)
+#   [ ] Half-Kelly veya full risk karar
+#   [ ] Regime-aware activation gate (opsiyonel)
+#   [ ] Ayrı plist + ayrı journal infrastructure
+#   [ ] 1-2 hafta paper trade real fee/slippage doğrula
+#   [ ] cp configs/proposed/risk_phoenix_scalp_15m_rsi2_v63.yaml configs/
+
+name: rsi_phoenix_scalp_15m_rsi2_v63
+version: v63-deploy-candidate
+description: |
+  rsi2-extreme-fade 7-round iterate champion.
+  Companion strategy adayı — vsa_climax (live) ile düşük korelasyon beklenir.
+
+strategy:
+  module: rsi2_extreme_fade
+  class: RSI2ExtremeFadeStrategy
+  timeframe: 15m
+
+universe:
+  symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - XRP/USDT
+    - DOGE/USDT
+    - ADA/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - DOT/USDT
+
+execution:
+  risk_per_trade: 0.005           # %0.5 (LIVE config ile aynı)
+                                  # HALF-KELLY önerisi: 0.0025
+  max_concurrent: 8               # LIVE 16'dan azaltılmış
+  consecutive_loss_pause: 3       # 3 art arda kayıp → 1 gün halt (SİHİRLİ SOS)
+  pause_days: 1                   # halt süresi (1 gün)
+  tp_r: 3.0                       # 3R fixed TP (big winner yakalama)
+
+  # ÖNEMLI: sl_pct_min YOK
+  # vsa_climax'ta widestop %2.5 vardı, rsi2'de bu filtre %96 trade'i keser
+  # rsi2 doğası dar SL — DEĞIŞMEMELI
+  sl_pct_min: 0.0
+
+  # DD halt'lar — loss_pause yeterli, ekstra koruma yok
+  daily_dd_halt_pct: null
+  monthly_dd_halt_pct: null
+
+signals:
+  rsi_period: 2
+  rsi_oversold: 10
+  rsi_overbought: 90
+  confirmation: engulfing_bar
+
+position_sizing:
+  risk_pct: 0.005
+  backtest_risk_pct: 0.005
+
+# RISK OFFICER REVIEW NOTLARI:
+# - Aylık ROI varyansı yüksek (std %25) — tek ay -%14 görülecek
+# - $1M üstü sermayede slippage edge'i eritir
+# - Düşük vol dönemlerde zayıf (Nisan 2026 -%13.55 örnek)
+# - Live bot'un widestop filter'ı ile FARKLI uzayda çalışır
+# - Korelasyon sabaha kadar test edilecek (Lab tournament)
+
+# OPSIYONEL — REGIME GATE (henüz uygulanmıyor):
+# activation_filter:
+#   btc_atr_pct_min: 0.025  # BTC volatilite >= %2.5 olunca aktif
+# Bu eklenirse düşük vol periodları skip edilir, DD daha az.
+
+
+# FIX 2026-05-27 (Faz 14.25): config-driven strategy selection
+strategies_enabled:
+  - rsi2_extreme_fade

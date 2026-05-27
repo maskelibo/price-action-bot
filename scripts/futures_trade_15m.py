@@ -139,14 +139,59 @@ def init_15m_journal() -> None:
 
 # ── Signal scan (15m) ─────────────────────────────────────────────────────────
 
-# Strategy registry — module-local constant (import edilmeden önce tanımlı,
-# thread'ler bu listeyi read-only paylaşır, race condition yok).
-_TOP_4_15M = [
+# Strategy registry — config-driven (Faz 14.25, 2026-05-27).
+# strategies_enabled: [...] config'de varsa onu kullan, yoksa default 4 (vsa+top3).
+# Bu sayede aynı daemon farklı PA_15M_CONFIG ile farklı strateji subset koşturur.
+
+_STRATEGY_CATALOG = {
+    "vsa_climax_test":             "VSAClimaxTestStrategy",
+    "brooks_failed_breakout":      "BrooksFailedBreakoutStrategy",
+    "anchored_vwap_reversal":      "AnchoredVWAPReversalStrategy",
+    "engulfing_continuation":      "EngulfingContinuationStrategy",
+    "rsi2_extreme_fade":           "RSI2ExtremeFadeStrategy",
+    "session_vwap_mean_reversion": "SessionVWAPMeanReversionStrategy",
+}
+
+_DEFAULT_4 = [
     ("vsa_climax_test",          "VSAClimaxTestStrategy"),
     ("brooks_failed_breakout",   "BrooksFailedBreakoutStrategy"),
     ("anchored_vwap_reversal",   "AnchoredVWAPReversalStrategy"),
     ("engulfing_continuation",   "EngulfingContinuationStrategy"),
 ]
+
+
+def _resolve_strategies_15m() -> list[tuple[str, str]]:
+    """Config'den `strategies_enabled` oku → (module, class) list döndür.
+
+    Default: 4'lü top set (vsa+brooks+anchored+engulfing).
+    """
+    import os
+    cfg_path = os.environ.get("PA_15M_CONFIG", "")
+    if not cfg_path:
+        return _DEFAULT_4
+    try:
+        import yaml
+        from pathlib import Path as _P
+        path = _P(cfg_path)
+        if not path.is_absolute():
+            path = _P(__file__).resolve().parents[1] / cfg_path
+        if not path.exists():
+            return _DEFAULT_4
+        cfg = yaml.safe_load(path.read_text()) or {}
+        enabled = cfg.get("strategies_enabled") or []
+        if not enabled:
+            return _DEFAULT_4
+        out = []
+        for mod_name in enabled:
+            cls = _STRATEGY_CATALOG.get(mod_name)
+            if cls:
+                out.append((mod_name, cls))
+        return out or _DEFAULT_4
+    except Exception:
+        return _DEFAULT_4
+
+
+_TOP_4_15M = _resolve_strategies_15m()
 
 
 def _fetch_fresh_bars_ccxt(sym: str, n_bars: int = 50) -> Optional[pd.DataFrame]:

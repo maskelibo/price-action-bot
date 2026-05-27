@@ -45,15 +45,13 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 # Multi-bot futures support
-_BOT_NAME = os.environ.get("PA_BOT_NAME", "").lower()
-if _BOT_NAME == "atlas":
-    JOURNAL = ROOT / "data" / "futures_journal_atlas.duckdb"
-    LOG_FILE = ROOT / "logs" / "futures_daemon_atlas.log"
-    LAST_SCAN_STATE = ROOT / "logs" / "state" / "futures_last_scan_atlas.txt"
-elif _BOT_NAME == "phoenix":
-    JOURNAL = ROOT / "data" / "futures_journal_phoenix.duckdb"
-    LOG_FILE = ROOT / "logs" / "futures_daemon_phoenix.log"
-    LAST_SCAN_STATE = ROOT / "logs" / "state" / "futures_last_scan_phoenix.txt"
+# FIX 2026-05-27 (Faz 14.25): generic — herhangi bir bot adına izin ver.
+_BOT_NAME = os.environ.get("PA_BOT_NAME", "").lower().strip()
+if _BOT_NAME and _BOT_NAME not in ("default", ""):
+    # Generic: PA_BOT_NAME=rsi2 → futures_journal_rsi2.duckdb
+    JOURNAL = ROOT / "data" / f"futures_journal_{_BOT_NAME}.duckdb"
+    LOG_FILE = ROOT / "logs" / f"futures_daemon_{_BOT_NAME}.log"
+    LAST_SCAN_STATE = ROOT / "logs" / "state" / f"futures_last_scan_{_BOT_NAME}.txt"
 else:
     JOURNAL = ROOT / "data" / "futures_journal.duckdb"
     LOG_FILE = ROOT / "logs" / "futures_daemon.log"
