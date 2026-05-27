@@ -1,0 +1,32 @@
+{
+  "generated_at": "2026-05-27T06:57:05.832855+00:00",
+  "result": {
+    "hypothesis_id": "2026-05-21-pyramid-trigger-sweep",
+    "base_strategy": "vsa_climax_test",
+    "config_label": "r%0.5_conf0.25_cap0.15_cd5/1.0d",
+    "sl_pct_threshold": 0.03,
+    "risk_pct": 0.005,
+    "final_equity": 661064.9899468137,
+    "initial_capital": 10000.0,
+    "total_return_pct": 6510.649899468137,
+    "annualized_compound_pct": 131.3830024867446,
+    "max_drawdown_pct": -11.907702974836374,
+    "win_rate_pct": 46.32963988919668,
+    "n_trades": 2888,
+    "avg_R": 1.0586277109411095,
+    "monthly_roi_pct_mean": 7.2427880767129125,
+    "monthly_roi_pct_median": 7.4176091858819015,
+    "monthly_neg_count": 3,
+    "monthly_total_count": 61,
+    "worst_month_pct": -1.4919389197997401,
+    "best_month_pct": 24.613267057691,
+    "oos_window_months": 18,
+    "oos_monthly_roi_pct_mean": 8.89037989744675,
+    "oos_monthly_neg_count": 1,
+    "oos_total_return_pct": 346.0528289757003,
+    "oos_max_drawdown_pct": -0.34757259772450133,
+    "period_years": 4.996121378051563,
+    "pool_path": "/Users/peyman/price-action-bot/data/sec53_15m_pool_v11_vsa2_top4.pkl",
+    "config_path": "/Users/peyman/price-action-bot/configs/risk_phoenix_scalp_15m_widestop_vsa2.yaml"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "generated_at": "2026-05-27T06:57:02.598614+00:00",
+  "result": {
+    "hypothesis_id": "2026-05-21-15m-wide-stop-honest-edge",
+    "base_strategy": "vsa_climax_test",
+    "config_label": "r%0.5_conf0.25_cap0.15_cd5/1.0d",
+    "sl_pct_threshold": 0.018,
+    "risk_pct": 0.005,
+    "final_equity": 15375162.767421672,
+    "initial_capital": 10000.0,
+    "total_return_pct": 153651.62767421672,
+    "annualized_compound_pct": 334.3179472104034,
+    "max_drawdown_pct": -15.475314393634681,
+    "win_rate_pct": 46.82521875701144,
+    "n_trades": 4457,
+    "avg_R": 1.0417713080283768,
+    "monthly_roi_pct_mean": 13.086381434661174,
+    "monthly_roi_pct_median": 12.209372052389389,
+    "monthly_neg_count": 3,
+    "monthly_total_count": 61,
+    "worst_month_pct": -3.436617723297819,
+    "best_month_pct": 31.774610071198218,
+    "oos_window_months": 18,
+    "oos_monthly_roi_pct_mean": 13.52557773342965,
+    "oos_monthly_neg_count": 0,
+    "oos_total_return_pct": 825.9877126587187,
+    "oos_max_drawdown_pct": 0.0,
+    "period_years": 4.99652064795802,
+    "pool_path": "/Users/peyman/price-action-bot/data/sec53_15m_pool_v11_vsa2_top4.pkl",
+    "config_path": "/Users/peyman/price-action-bot/configs/risk_phoenix_scalp_15m_widestop_vsa2.yaml"
+  }
+}

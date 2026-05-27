@@ -512,7 +512,13 @@ class ProductionConfig:
 
 @dataclass(frozen=True)
 class ReplayResult:
-    """Tek bir replay sonucu — tum metrikler."""
+    """Tek bir replay sonucu — tum metrikler.
+
+    FIX 2026-05-27 (Faz 14.20): equity_curve + entry_ts_list opsiyonel
+    alanlar eklendi. Hipotez backtest runner aylık aggregation için
+    bu serileri kullanır (live bot backtest header formatı: 'aylık +X%,
+    neg ay 0/61, ann +Y%').
+    """
 
     final_equity: float
     initial_capital: float
@@ -522,6 +528,9 @@ class ReplayResult:
     avg_r: float
     sum_r: float
     config_label: str
+    # Faz 14.20 — opsiyonel detay; eski callers etkilenmez
+    equity_curve: list[float] | None = None
+    entry_ts_list: list[Any] | None = None
 
     @property
     def total_return(self) -> float:
@@ -676,6 +685,8 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None,
     cash = cfg.initial_capital
     open_pos: list[dict] = []
     eq_curve: list[float] = [cfg.initial_capital]
+    # Faz 14.20: process edilen her trade'in exit_ts'i — aylık aggregation için
+    _processed_exit_ts: list[Any] = []
     Rs: list[float] = []
 
     daily_anchor = weekly_anchor = monthly_anchor = cfg.initial_capital
@@ -740,6 +751,8 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None,
                 peak_equity = max(peak_equity, equity)
                 Rs.append(R_use)
                 eq_curve.append(equity)
+                # Faz 14.20: processed trade'in exit_ts'i (aylık aggregate için)
+                _processed_exit_ts.append(p.get("exit_ts"))
                 # v1.5: side-bazlı pnl tracking
                 if p.get("side") == "long":
                     monthly_long_pnl += pnl
@@ -1069,6 +1082,8 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None,
         equity = cash
         Rs.append(R_use)
         eq_curve.append(equity)
+        # Faz 14.20: kalan açıkları kapatırken de exit_ts kaydet
+        _processed_exit_ts.append(p.get("exit_ts"))
 
     # Max DD hesap
     peak = eq_curve[0]
@@ -1092,6 +1107,8 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None,
         avg_r=avg_r,
         sum_r=sum(Rs),
         config_label=cfg.label(),
+        equity_curve=list(eq_curve),  # Faz 14.20: aylık aggregation için
+        entry_ts_list=list(_processed_exit_ts),  # Faz 14.20: gerçek process edilen trade ts'leri
     )
 
 
