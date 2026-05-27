@@ -154,6 +154,44 @@ async def _job_daily_kpi() -> None:
         logger.warning("scheduler.daily_kpi_fail", extra={"err": str(exc)[:200]})
 
 
+async def _job_find_promising_to_iterate() -> None:
+    """FIX 2026-05-27 (Faz 14.22): Pozitif edge'li ama riskli stratejileri
+    tespit et + Researcher'a iterate talebi yaz.
+
+    User direktifi: 'Researcher rsi2 gibi botlardan vazgeçmesin — sonuçları
+    iyi DD düşürmeye, ROI artırmaya çalışsın, çöpe atmasın.'
+
+    Output: reports/researcher_iterate_queue/iterate-queue-<date>.md
+    Researcher persona SOP-4b'ye göre bu queue'yu okur ve v2/v3 hipotezler
+    yazar (REDDETMEK YASAK politika).
+    """
+    try:
+        import asyncio
+        import subprocess
+        from pathlib import Path
+        repo_root = Path(__file__).resolve().parents[3]
+        cmd = [
+            str(repo_root / ".venv" / "bin" / "python"),
+            "scripts/find_promising_to_iterate.py",
+        ]
+        result = await asyncio.to_thread(
+            subprocess.run, cmd, cwd=str(repo_root),
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode == 0:
+            logger.info(
+                "scheduler.iterate_queue_done",
+                extra={"stdout_tail": result.stdout[-500:]},
+            )
+        else:
+            logger.warning(
+                "scheduler.iterate_queue_fail",
+                extra={"rc": result.returncode, "stderr": result.stderr[-300:]},
+            )
+    except Exception as exc:
+        logger.warning("scheduler.iterate_queue_exc", extra={"err": str(exc)[:200]})
+
+
 async def _job_hypothesis_backtest_runner() -> None:
     """FIX 2026-05-27 (Faz 14.15): Researcher hipotezleri için backtest köprüsü.
 
@@ -1418,6 +1456,10 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     # → tüm backlog ~8h temizlenir. Token budget: 144 × 5K = 720K LLM
     # extract, Lab daily 1.5M içinde rahatça.
     ("hypothesis_backtest_runner", "cron", "*/30 * * * *", _job_hypothesis_backtest_runner),
+    # FIX 2026-05-27 (Faz 14.22): pozitif edge'li ama riskli stratejileri tespit
+    # → Researcher iterate queue. Günde 1 kez 03:05 UTC (06:05 TR) — truth_report
+    # sonrası, sabah 06:00 raporundan hemen sonra.
+    ("find_promising_to_iterate", "cron", "5 3 * * *", _job_find_promising_to_iterate),
     # Haftalık
     ("weekly_lab_tournament", "cron", "0 3 * * sun", _job_weekly_tournament),
     ("weekly_drift", "cron", "30 3 * * sun", _job_weekly_drift),
