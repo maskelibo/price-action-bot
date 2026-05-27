@@ -1,0 +1,24 @@
+{
+  "hypothesis_id": "2026-05-15-dd-aware-dynamic-leverage",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-15-dd-aware-dynamic-leverage.md",
+  "extracted_at": "2026-05-27T02:43:14.620367+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "mean_annual_return_alpha >= +5pp",
+      "mean_maxdd_degradation <= +1pp",
+      "worst_window_maxdd_improvement >= -4pp",
+      "bootstrap_CI95_low_return_alpha > 0",
+      "bonferroni_adjusted_p < 0.010",
+      "robustness_suite >= 5/7 PASS"
+    ],
+    "executable": false,
+    "reason_if_not": "Portfolio-level overlay (DD-aware dynamic leverage controller) \u2014 not a parameter sweep of an existing strategy. Requires production_replay engine with equity-curve-conditional leverage scaling logic not supported by the current sweep runner. PRE-REGISTERED parameters are fixed (sweep YASAK), so no grid to execute. DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Portfolio-level overlay (DD-aware dynamic leverage controller) \u2014 not a parameter sweep of an existing strategy. Requires production_replay engine with equity-curve-conditional leverage scaling logic not supported by the current sweep runner. PRE-REGISTERED parameters are fixed (sweep YASAK), so no grid to execute. DEFERRED."
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "hypothesis_id": "2026-05-17-bb-continuation-15m",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-17-bb-continuation-15m.md",
+  "extracted_at": "2026-05-27T02:42:22.100881+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "n_trade >= 500",
+      "mean_R >= +0.15",
+      "WR >= 55%",
+      "shuffle_p_value < 0.10",
+      "regime_split >= 2/3 positive",
+      "symbol_out_worst_deviation <= 50%"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: BB outer touch + RSI extreme + momentum confirm candle continuation entry yeni signal logic gerektiriyor; mevcut backtest motoru bu hipotezi ko\u015fturamaz (DEFERRED)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: BB outer touch + RSI extreme + momentum confirm candle continuation entry yeni signal logic gerektiriyor; mevcut backtest motoru bu hipotezi ko\u015fturamaz (DEFERRED)"
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "hypothesis_id": "2026-05-27-weekend-gap-fill-stats-1d-v1",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-27-weekend-gap-fill-stats-1d-v1.md",
+  "extracted_at": "2026-05-27T02:39:37.014969+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "gap_anchor_open_utc_hour": [
+        21
+      ],
+      "gap_anchor_close_utc_hour": [
+        23
+      ],
+      "gap_size_atr_mult": [
+        0.8,
+        1.0,
+        1.2
+      ],
+      "weekend_vol_zscore_thr": [
+        -0.3,
+        0.0,
+        0.3
+      ],
+      "entry_session_utc": [
+        0,
+        1,
+        2
+      ],
+      "tp_gap_frac": [
+        0.3,
+        0.5,
+        0.7
+      ],
+      "sl_gap_frac": [
+        0.8,
+        1.0,
+        1.2
+      ],
+      "time_stop_hours": [
+        48,
+        72,
+        96
+      ]
+    },
+    "accept_gates": [
+      "OOS Hit-rate (gap-fill >= 50% within 72h) > 58%",
+      "OOS net annualized return > +12%",
+      "OOS Sharpe > 0.7",
+      "OOS MaxDD < 18%",
+      "OOS Profit Factor > 1.35",
+      "OOS Win Rate > 52%",
+      "Shuffle baseline p < 0.02 (1000 week-block permutations)",
+      "Calendar-shuffle baseline p < 0.05 (anchor-randomize)",
+      "Median trial OOS Sharpe > 0",
+      "Top-5%-trial OOS Sharpe > 0.7",
+      "BH (FDR=0.05) significance on top-10 trials vs week-shuffle null",
+      "DSR p < 0.05 AND bootstrap-Sharpe CI [5%, 95%] upper > 0",
+      "In-sample Sharpe >= 0.4",
+      "In-sample / OOS Sharpe ratio <= 2.0",
+      "Best params not at >=2 parameter range edges",
+      "Welch-t (trigger ON vs OFF) p <= 0.10",
+      "Total trades >= 50 (in-sample 4y)",
+      "No single 90-day window contributes > 50% of total P&L",
+      "Symbol-out CV (BTC-out, ETH-out) min Sharpe >= 0.3",
+      "Regime split: positive in >= 2 of 3 regimes (bull/bear/range)",
+      "Stress periods (LUNA / FTX / 2024-08) cumulative loss <= 12% each",
+      "Correlation rho vs futures5m_phoenix Top-10 cluster < 0.25 (90d rolling)"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: novel calendar-effect class (weekend gap-fill mean reversion on BTC/ETH 1D using CME-session anchors). Not a parameter sweep of existing strategies (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation). Backtest engine does not support this signal logic (CME-session anchored weekend gap detection + ATR-normalized gap sizing + volume z-score filter + Monday early-session entry against gap direction). DEFERRED \u2014 requires new strategy implementation."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: novel calendar-effect class (weekend gap-fill mean reversion on BTC/ETH 1D using CME-session anchors). Not a parameter sweep of existing strategies (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation). Backtest engine does not support this signal logic (CME-session anchored weekend gap detection + ATR-normalized gap sizing + volume z-score filter + Monday early-session entry against gap direction). DEFERRED \u2014 requires new strategy implementation."
+  }
+}

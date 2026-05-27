@@ -1,0 +1,25 @@
+{
+  "hypothesis_id": "2026-05-15-vsa-volume-confluence-sizer",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-15-vsa-volume-confluence-sizer.md",
+  "extracted_at": "2026-05-27T02:42:39.756575+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [
+      "mean annual return alpha \u2265 +%2pp",
+      "mean MaxDD bozulmas\u0131 \u2264 +%2pp",
+      "Bootstrap CI low \u2265 0",
+      "Robustness \u2265 4/7 PASS",
+      "Bonferroni-adj p < 0.010",
+      "Shuffle null (VSA score random permute) p < 0.05",
+      "Q4 mean_R - Q1 mean_R \u2265 +0.10"
+    ],
+    "executable": false,
+    "reason_if_not": "VSA 4-component volume confluence overlay (climax/no-supply/no-demand/effort-vs-result) yeni sizing katman\u0131; mevcut param sweep runner sl_pct/risk_pct/tp_r tarz\u0131 grid'leri ko\u015fturuyor, bu hipotez ise yeni feature computation + sizing scalar mapping gerektiriyor (DEFERRED \u2014 engine extension laz\u0131m)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "VSA 4-component volume confluence overlay (climax/no-supply/no-demand/effort-vs-result) yeni sizing katman\u0131; mevcut param sweep runner sl_pct/risk_pct/tp_r tarz\u0131 grid'leri ko\u015fturuyor, bu hipotez ise yeni feature computation + sizing scalar mapping gerektiriyor (DEFERRED \u2014 engine extension laz\u0131m)."
+  }
+}

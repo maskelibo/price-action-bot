@@ -1,0 +1,25 @@
+{
+  "hypothesis_id": "2026-05-15-ml-meta-labeling-v1",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-15-ml-meta-labeling-v1.md",
+  "extracted_at": "2026-05-27T02:43:01.468054+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "Mean OOS Sharpe alpha (ML_filter - flat_T2) >= +0.15",
+      "Bootstrap CI(95%) low > 0 (Sharpe alpha)",
+      "Shuffle null pass >= 5/6 pencere (p<0.05)",
+      "Bonferroni-adj pass >= 3/6 pencere (p<0.00833)",
+      "Mean CV AUC >= 0.55",
+      "Mean overfit gap (train_acc - cv_acc) <= 0.15",
+      "Trade survival rate in [20%, 95%]"
+    ],
+    "executable": false,
+    "reason_if_not": "ML meta-labeling overlay (Random Forest + triple-barrier + purged k-fold CV + uniqueness weights) \u2014 mevcut param sweep runner'i bu pipeline'i (RF egitimi, purged CV, threshold filter) kosturamaz; ozel ML training/inference altyapisi gerekir (DEFERRED to dedicated ML pipeline, not a parametric strategy sweep)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "ML meta-labeling overlay (Random Forest + triple-barrier + purged k-fold CV + uniqueness weights) \u2014 mevcut param sweep runner'i bu pipeline'i (RF egitimi, purged CV, threshold filter) kosturamaz; ozel ML training/inference altyapisi gerekir (DEFERRED to dedicated ML pipeline, not a parametric strategy sweep)."
+  }
+}

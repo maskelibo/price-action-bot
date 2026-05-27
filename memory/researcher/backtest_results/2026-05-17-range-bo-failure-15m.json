@@ -1,0 +1,24 @@
+{
+  "hypothesis_id": "2026-05-17-range-bo-failure-15m",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-17-range-bo-failure-15m.md",
+  "extracted_at": "2026-05-27T02:41:55.838418+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "n_trade >= 500",
+      "mean_R >= +0.10",
+      "WR >= 48%",
+      "shuffle_p_value < 0.10",
+      "at least 2/3 regime splits positive mR",
+      "symbol-out alpha deviation <= 50%"
+    ],
+    "executable": false,
+    "reason_if_not": "Yeni strateji tan\u0131m\u0131 (Bollinger Squeeze + failed breakout + reclaim pattern); mevcut backtest motoru bu pattern'i ko\u015fturamaz, signal detector implementasyonu gerekiyor (DEFERRED)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Yeni strateji tan\u0131m\u0131 (Bollinger Squeeze + failed breakout + reclaim pattern); mevcut backtest motoru bu pattern'i ko\u015fturamaz, signal detector implementasyonu gerekiyor (DEFERRED)."
+  }
+}

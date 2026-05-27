@@ -1,0 +1,32 @@
+{
+  "hypothesis_id": "2026-05-27-fomc-cpi-event-pre-positioning-v1",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-27-fomc-cpi-event-pre-positioning-v1.md",
+  "extracted_at": "2026-05-27T02:40:21.660012+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "in_sample_portfolio_event_mean_net_return >= +5 bps",
+      "in_sample_HAC_t >= 1.0",
+      "OOS_portfolio_event_mean_net_return >= +10 bps",
+      "OOS_HAC_t >= 1.5",
+      "primary_target_HAC_t > 2.5",
+      "Bonferroni_2_direction_p < 0.025",
+      "per_event_mean_net_return >= +25 bps (cost-net)",
+      "stress_periods_drawdown <= 3% (LUNA 2022-05, FTX 2022-11, Yen carry 2024-08)",
+      "param_perturbation_window_pm_5min mean_return_change < 25%",
+      "event_type_split: at least one of CPI/FOMC HAC-t > 2.0",
+      "symbol_out_CV portfolio mean stability",
+      "shuffle_baseline 1000 perms: real_t_stat percentile > 95%",
+      "per_symbol_heterogeneity: not bimodal (top10 vs bottom10 opposite signs => reject)",
+      "sign_lock_falsification: mirror direction OOS ~ 0"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: macro event-driven pre-positioning overlay; requires external macro calendar ingest (BLS CPI + FRB FOMC UTC timestamps), 1m bar data, event-clustered Newey-West HAC stat tests, sign-lock procedure and shuffle/permutation framework \u2014 none of which are supported by the current param-sweep backtest runner. DEFERRED until calendar data pipeline + event-driven backtest engine extension are built."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: macro event-driven pre-positioning overlay; requires external macro calendar ingest (BLS CPI + FRB FOMC UTC timestamps), 1m bar data, event-clustered Newey-West HAC stat tests, sign-lock procedure and shuffle/permutation framework \u2014 none of which are supported by the current param-sweep backtest runner. DEFERRED until calendar data pipeline + event-driven backtest engine extension are built."
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "hypothesis_id": "2026-05-17-feature-space-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-17-feature-space-v2.md",
+  "extracted_at": "2026-05-27T02:42:04.603483+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "mean OOS Sharpe alpha >= +0.15",
+      "Bootstrap CI(95%) low > 0",
+      "Shuffle null p<0.05 >= 5/6 pencere",
+      "Bonferroni p<0.00833 >= 3/6 pencere",
+      "Mean CV AUC >= 0.55",
+      "Mean overfit gap < 0.15",
+      "Trade survival rate 20-95%",
+      "Yeni 5 feature mean importance toplami >= %25"
+    ],
+    "executable": false,
+    "reason_if_not": "ML meta-labeling filter overlay yeni strateji tipi; mevcut sweep runner RF training + walk-forward + purged k-fold + multi-TF/alt-data feature pipeline'\u0131 ko\u015fturamaz (DEFERRED)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "ML meta-labeling filter overlay yeni strateji tipi; mevcut sweep runner RF training + walk-forward + purged k-fold + multi-TF/alt-data feature pipeline'\u0131 ko\u015fturamaz (DEFERRED)"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "hypothesis_id": "2026-05-17-rsi-extreme-mr-15m",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-17-rsi-extreme-mr-15m.md",
+  "extracted_at": "2026-05-27T02:41:43.210686+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "n_trades >= 1000",
+      "mean_R >= +0.10",
+      "WR >= 48%",
+      "shuffle_p_value < 0.10",
+      "at least 2/3 regime splits positive mR",
+      "symbol-out alpha deviation <= 50%"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: RSI(14) ekstrem + ATR%-percentile range filter + hammer/shooting-star reversal \u2014 mevcut 4 strateji (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) detector library'sinde yok. Yeni signal logic implementasyonu gerekir, backtest motoru hipotezi mevcut haliyle ko\u015fturamaz (DEFERRED)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: RSI(14) ekstrem + ATR%-percentile range filter + hammer/shooting-star reversal \u2014 mevcut 4 strateji (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) detector library'sinde yok. Yeni signal logic implementasyonu gerekir, backtest motoru hipotezi mevcut haliyle ko\u015fturamaz (DEFERRED)."
+  }
+}

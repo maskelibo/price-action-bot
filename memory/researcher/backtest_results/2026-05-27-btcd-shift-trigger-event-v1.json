@@ -1,0 +1,26 @@
+{
+  "hypothesis_id": "2026-05-27-btcd-shift-trigger-event-v1",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-27-btcd-shift-trigger-event-v1.md",
+  "extracted_at": "2026-05-27T02:40:35.396928+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "Iddia-A: DOWN_CROSS sonras\u0131 5-bar long fwd_logret \u2265 25 bps daha y\u00fcksek (one-sided t-test, \u03b1=0.025 Bonferroni sonras\u0131)",
+      "Iddia-B: UP_CROSS sonras\u0131 5-bar short fwd_logret \u2265 25 bps daha y\u00fcksek (one-sided t-test, \u03b1=0.025 Bonferroni sonras\u0131)",
+      "Raw p-value < 0.025 (one-sided) per iddia",
+      "Bonferroni-sonras\u0131 en az bir iddia p < 0.00625 (8 test d\u00fczeltmesi)",
+      "event_count \u2265 20 her y\u00f6n i\u00e7in (DOWN ve UP ayr\u0131)",
+      "sharpe_5bar_long > 1.0 ve/veya sharpe_5bar_short > 1.0",
+      "placebo_diff \u2264 5 bps (1000 reshuffle shuffle baseline kontrol)",
+      "Curve-fit tripwire: dondurulmu\u015f de\u011ferlerde gate ba\u015far\u0131l\u0131 olmal\u0131, post-hoc sensitivity kurtarma yasak"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: BTC.D shift event trigger cross-asset regime overlay \u2014 mevcut backtest motoru sembol-spesifik OHLCV \u00fczerinde \u00e7al\u0131\u015f\u0131r, CoinGecko BTC.D snapshot + stablecoin-corrected dominance hesab\u0131 + event-based overlay sinyal ak\u0131\u015f\u0131 hen\u00fcz desteklenmiyor. Data dept BTC.D snapshot onay\u0131 ve overlay engine implementasyonu gerekli (DEFERRED)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: BTC.D shift event trigger cross-asset regime overlay \u2014 mevcut backtest motoru sembol-spesifik OHLCV \u00fczerinde \u00e7al\u0131\u015f\u0131r, CoinGecko BTC.D snapshot + stablecoin-corrected dominance hesab\u0131 + event-based overlay sinyal ak\u0131\u015f\u0131 hen\u00fcz desteklenmiyor. Data dept BTC.D snapshot onay\u0131 ve overlay engine implementasyonu gerekli (DEFERRED)."
+  }
+}

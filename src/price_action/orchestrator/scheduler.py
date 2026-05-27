@@ -1412,10 +1412,12 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     # FIX 2026-05-27 (Faz 14.10): günlük tournament — sweep chunk her saat
     # büyüyor, haftalık çok seyrek. Günlük 04:00 UTC (07:00 TR) bilgilendirici.
     ("daily_lab_tournament", "cron", "0 4 * * *", _job_weekly_tournament),
-    # FIX 2026-05-27 (Faz 14.15): hipotez backtest runner — her 6 saat.
-    # Researcher hipotezi yazınca 6 saat içinde otomatik backtest sonucu üretilir.
-    # 02:25, 08:25, 14:25, 20:25 UTC (TR 05:25, 11:25, 17:25, 23:25).
-    ("hypothesis_backtest_runner", "cron", "25 2,8,14,20 * * *", _job_hypothesis_backtest_runner),
+    # FIX 2026-05-27 (Faz 14.15): hipotez backtest runner.
+    # REVIZE 2026-05-27 02:45 UTC: 6h → 30dk. Backlog 48 hipotez, 6h'da
+    # 3 koşum = 96 saat (4 gün) çok yavaş. 30dk'da 3 koşum = 144/gün
+    # → tüm backlog ~8h temizlenir. Token budget: 144 × 5K = 720K LLM
+    # extract, Lab daily 1.5M içinde rahatça.
+    ("hypothesis_backtest_runner", "cron", "*/30 * * * *", _job_hypothesis_backtest_runner),
     # Haftalık
     ("weekly_lab_tournament", "cron", "0 3 * * sun", _job_weekly_tournament),
     ("weekly_drift", "cron", "30 3 * * sun", _job_weekly_drift),

@@ -1,0 +1,23 @@
+{
+  "hypothesis_id": "2026-05-18-per-strategy-regime-conditional-filters",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-18-regime-conditional-filters.md",
+  "extracted_at": "2026-05-27T02:41:21.533873+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "n_neg_months <= 9",
+      "annual_pct_fee8 >= 1100",
+      "max_loss_pct >= -15",
+      "wf_mean_r_adj >= 12.0",
+      "mandate_pass >= 4/5"
+    ],
+    "executable": false,
+    "reason_if_not": "Per-strategy regime-conditional filter overlay (F1-F4) requires custom replay script with t-1 causal BTC/F&G feature engineering and per-strategy skip logic; mevcut param sweep runner bu filter mant\u0131\u011f\u0131n\u0131 ko\u015fturamaz (DEFERRED \u2014 scripts/sec54_6d_regime_filter_replay.py custom implementation gerekli)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Per-strategy regime-conditional filter overlay (F1-F4) requires custom replay script with t-1 causal BTC/F&G feature engineering and per-strategy skip logic; mevcut param sweep runner bu filter mant\u0131\u011f\u0131n\u0131 ko\u015fturamaz (DEFERRED \u2014 scripts/sec54_6d_regime_filter_replay.py custom implementation gerekli)."
+  }
+}

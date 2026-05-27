@@ -1,0 +1,24 @@
+{
+  "hypothesis_id": "2026-05-17-bollinger-fade-mr-15m",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-17-bollinger-fade-mr-15m.md",
+  "extracted_at": "2026-05-27T02:42:14.407504+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "n_trade >= 1000",
+      "mean_R >= 0.10",
+      "WR >= 0.48",
+      "shuffle_p_value < 0.10",
+      "at_least_2_of_3_regimes_positive_mR",
+      "symbol_out_alpha_deviation <= 0.50"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Bollinger Band fade + RSI extreme + ADX range regime \u2014 yeni signal logic, mevcut 4 strateji (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) i\u00e7inde yok. Backtest motoru bu hipotezi \u015fu anda ko\u015fturamaz (DEFERRED \u2014 yeni detector implementasyonu gerekli)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Bollinger Band fade + RSI extreme + ADX range regime \u2014 yeni signal logic, mevcut 4 strateji (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) i\u00e7inde yok. Backtest motoru bu hipotezi \u015fu anda ko\u015fturamaz (DEFERRED \u2014 yeni detector implementasyonu gerekli)."
+  }
+}
