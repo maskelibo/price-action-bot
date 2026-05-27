@@ -60,6 +60,9 @@ if _BOT_NAME == "atlas":
     JOURNAL = ROOT / "data" / "paper_journal_atlas.duckdb"
 elif _BOT_NAME == "phoenix":
     JOURNAL = ROOT / "data" / "paper_journal_phoenix.duckdb"
+elif _BOT_NAME and _BOT_NAME not in ("default", ""):
+    # FIX 2026-05-27 (Faz 14.26): generic per-bot.
+    JOURNAL = ROOT / "data" / f"paper_journal_{_BOT_NAME}.duckdb"
 else:
     JOURNAL = ROOT / "data" / "paper_journal.duckdb"
 

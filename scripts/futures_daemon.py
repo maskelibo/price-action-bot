@@ -46,16 +46,24 @@ sys.path.insert(0, str(ROOT / "src"))
 
 # Multi-bot futures support
 # FIX 2026-05-27 (Faz 14.25): generic — herhangi bir bot adına izin ver.
+# FIX 2026-05-27 (Faz 14.26): idempotency + pyramid_store + DMS DB'leri de per-bot.
+#   Önceki bug: PA_BOT_NAME sadece journal/log/state ayırıyordu, ama
+#   idempotency.duckdb ve pyramid_store.duckdb shared kalmıştı → ikinci bot
+#   startup'ta DuckDB lock conflict, DMS init fail (kritik güvenlik açığı).
 _BOT_NAME = os.environ.get("PA_BOT_NAME", "").lower().strip()
 if _BOT_NAME and _BOT_NAME not in ("default", ""):
     # Generic: PA_BOT_NAME=rsi2 → futures_journal_rsi2.duckdb
     JOURNAL = ROOT / "data" / f"futures_journal_{_BOT_NAME}.duckdb"
     LOG_FILE = ROOT / "logs" / f"futures_daemon_{_BOT_NAME}.log"
     LAST_SCAN_STATE = ROOT / "logs" / "state" / f"futures_last_scan_{_BOT_NAME}.txt"
+    IDEMPOTENCY_DB = ROOT / "data" / f"idempotency_{_BOT_NAME}.duckdb"
+    PYRAMID_STORE_DB = ROOT / "data" / f"pyramid_store_{_BOT_NAME}.duckdb"
 else:
     JOURNAL = ROOT / "data" / "futures_journal.duckdb"
     LOG_FILE = ROOT / "logs" / "futures_daemon.log"
     LAST_SCAN_STATE = ROOT / "logs" / "state" / "futures_last_scan.txt"
+    IDEMPOTENCY_DB = ROOT / "data" / "idempotency.duckdb"
+    PYRAMID_STORE_DB = ROOT / "data" / "pyramid_store.duckdb"
 KILL_SWITCH_PATH = ROOT / "logs" / "kill_switch.json"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 LAST_SCAN_STATE.parent.mkdir(parents=True, exist_ok=True)
@@ -190,7 +198,7 @@ def _init_dead_mans_switch(exchange):
     global _dms
     try:
         from price_action.execution.dead_mans_switch import DeadMansSwitch
-        _dms = DeadMansSwitch(exchange, service_name="futures_daemon")
+        _dms = DeadMansSwitch(exchange, service_name="futures_daemon", db_path=IDEMPOTENCY_DB)
         _dms.start()
         log("DEAD_MANS_SWITCH: başlatıldı (timeout=300s, heartbeat=60s)")
     except Exception as e:
@@ -281,7 +289,7 @@ def _get_pyramid_store() -> object | None:
 
     try:
         from price_action.execution.pyramid_store import PyramidStore
-        _pyramid_store = PyramidStore()
+        _pyramid_store = PyramidStore(db_path=PYRAMID_STORE_DB)
         log(f"PYRAMID_STORE: başlatıldı → {_pyramid_store._path}")
     except Exception as exc:
         log(f"PYRAMID_STORE_INIT_FAIL: {exc} — in-memory only (restart = state lost)")
@@ -351,7 +359,7 @@ def _get_pyramid_router(exchange):
         from price_action.execution.slippage_tracker import SlippageTracker
         _pyramid_router_instance = PyramidRouter(
             exchange=exchange,
-            idempotency_store=IdempotencyStore(),
+            idempotency_store=IdempotencyStore(db_path=IDEMPOTENCY_DB),
             slippage_tracker=SlippageTracker(),
             post_only_enabled=_gr_po_enabled,
             fallback_seconds=_gr_po_timeout,
@@ -951,7 +959,7 @@ def run_15m_mode(once: bool = False) -> None:
         # exchange=None idi → _emergency_flatten pozisyon kapatamıyordu (sahte
         # güvenlik). Ayrı instance: DMS watchdog thread'i ana loop ile çakışmasın.
         _dms_exchange = _get_fx_dms()
-        dms_15m = DeadMansSwitch(exchange=_dms_exchange, service_name="futures_daemon_15m", tf="15m")
+        dms_15m = DeadMansSwitch(exchange=_dms_exchange, service_name="futures_daemon_15m", tf="15m", db_path=IDEMPOTENCY_DB)
         dms_15m.start()
         log("15M_DMS: başlatıldı (tf=15m, heartbeat=20s, timeout=1800s, flatten AKTİF)")
     except Exception as e:
@@ -994,7 +1002,7 @@ def run_15m_mode(once: bool = False) -> None:
             from price_action.execution.slippage_tracker import SlippageTracker
             _pyramid_router_15m = PyramidRouter(
                 exchange=None,   # başlangıçta None; exchange signal submit sonrası set edilir
-                idempotency_store=IdempotencyStore(),
+                idempotency_store=IdempotencyStore(db_path=IDEMPOTENCY_DB),
                 slippage_tracker=SlippageTracker(),
                 post_only_enabled=_pr_po_enabled,
                 fallback_seconds=_pr_po_timeout,
@@ -1244,7 +1252,7 @@ def run_15m_mode(once: bool = False) -> None:
                                 _coid = f"PA_{_fp}"  # max 19 char (< 36 limit)
 
                                 from price_action.execution.idempotency import IdempotencyStore as _IdemStore
-                                _idem = _IdemStore()
+                                _idem = _IdemStore(db_path=IDEMPOTENCY_DB)
                                 if _idem.is_seen(_fp):
                                     log(f"  15M_IDEM_SKIP: {sig['symbol']} {sig.get('strategy','')} "
                                         f"fp={_fp} — zaten gönderildi (restart/duplicate scan)")

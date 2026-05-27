@@ -61,8 +61,11 @@ from price_action.execution.post_only_router import (
     place_post_only_with_fallback,
 )
 
-# Multi-bot futures support — PA_BOT_NAME env var (atlas | phoenix | default)
-_BOT_NAME = os.environ.get("PA_BOT_NAME", "").lower()
+# Multi-bot futures support — PA_BOT_NAME env var (atlas | phoenix | rsi2 | vwap | …)
+# FIX 2026-05-27 (Faz 14.26): generic — herhangi bir bot adı per-bot journal alır.
+# Önceki bug: rsi2/vwap (ve diğer yeni bot'lar) else dalına düşüp LIVE journal'a
+# yazıyordu → DuckDB lock conflict, journal init fail, kritik veri kaybı riski.
+_BOT_NAME = os.environ.get("PA_BOT_NAME", "").lower().strip()
 if _BOT_NAME == "atlas":
     JOURNAL = ROOT / "data" / "futures_journal_atlas.duckdb"
     RISK_YAML = ROOT / "configs" / "risk_atlas_v203.yaml"
@@ -71,6 +74,12 @@ elif _BOT_NAME == "phoenix":
     JOURNAL = ROOT / "data" / "futures_journal_phoenix.duckdb"
     RISK_YAML = ROOT / "configs" / "risk_phoenix_v204.yaml"
     BREAKER_STATE = ROOT / "logs" / "risk" / "futures_breaker_state_phoenix.json"
+elif _BOT_NAME and _BOT_NAME not in ("default", ""):
+    # Generic: PA_BOT_NAME=rsi2 → futures_journal_rsi2.duckdb
+    # RISK_YAML burada placeholder (15m daemon PA_15M_CONFIG'ten okuyor, bu sadece 1d için)
+    JOURNAL = ROOT / "data" / f"futures_journal_{_BOT_NAME}.duckdb"
+    RISK_YAML = ROOT / "configs" / "risk_balanced.yaml"
+    BREAKER_STATE = ROOT / "logs" / "risk" / f"futures_breaker_state_{_BOT_NAME}.json"
 else:
     JOURNAL = ROOT / "data" / "futures_journal.duckdb"
     RISK_YAML = ROOT / "configs" / "risk_balanced.yaml"
