@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-05-27T13:16:03.626051+00:00",
+  "candidates": [
+    {
+      "id": "v63-rsi2-rescue",
+      "added_at": "2026-05-27T13:16:03.625948+00:00",
+      "status": "READY_FOR_DEPLOY",
+      "priority": "P1",
+      "doc": "memory/researcher/deploy_candidates/v63-rsi2-rescue.md",
+      "config_proposed": "configs/proposed/risk_phoenix_scalp_15m_rsi2_v63.yaml",
+      "performance": {
+        "monthly_roi": 20.08,
+        "max_dd": -16.95,
+        "annualized": 639.77,
+        "neg_months": 11,
+        "total_months": 61,
+        "win_rate_months": 82.0,
+        "risk_adj_ratio": 1.184
+      },
+      "vs_live": {
+        "monthly_roi_diff": 7.1,
+        "max_dd_diff": -1.5,
+        "annualized_multiplier": 1.94,
+        "ratio_vs": "beats (1.18 vs 0.84)"
+      },
+      "pending_reviews": [
+        "principal_approval",
+        "risk_officer_endorse",
+        "lab_tournament_combo_korrelasyon"
+      ],
+      "deploy_options": [
+        {
+          "label": "Full risk",
+          "risk_pct": 0.005,
+          "expected_roi": 20.0,
+          "expected_dd": -17.0
+        },
+        {
+          "label": "Half-Kelly (RECOMMENDED)",
+          "risk_pct": 0.0025,
+          "expected_roi": 10.0,
+          "expected_dd": -8.5
+        },
+        {
+          "label": "Regime-gated (BTC ATR>%2.5)",
+          "risk_pct": 0.005,
+          "expected_roi": 18.0,
+          "expected_dd": -12.0
+        },
+        {
+          "label": "Combo 70/30 live+v63",
+          "risk_pct": 0.005,
+          "expected_combo_sharpe_boost": "yes (\u03c1<0.3 ise)"
+        }
+      ],
+      "notes": "7-round iterate champion. Live'\u0131 yenen tek SUPER_ELITE \u015fu ana kadar."
+    }
+  ],
+  "principal_note": "v63 deploy queue'ya al\u0131nd\u0131 2026-05-27. Her an deploy edebiliriz dedi user."
+}
