@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:33:18.255842+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-14-high-tight-flag",
+    "strategy": "high_tight_flag",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 1,
+    "n_signals_raw": 1,
+    "monthly_roi_mean": -0.5000000000000004,
+    "monthly_neg_count": 1,
+    "monthly_total": 1,
+    "max_dd": 0.0,
+    "annualized": 0,
+    "worst_month": -0.5000000000000004,
+    "best_month": -0.5000000000000004,
+    "period_years": 0,
+    "win_rate": 0.0,
+    "mean_R": -1.0,
+    "final_equity": 9950.0
+  }
+}

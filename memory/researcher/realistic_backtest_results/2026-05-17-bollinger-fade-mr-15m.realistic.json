@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:38:23.893335+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-17-bollinger-fade-mr-15m",
+    "strategy": "bollinger_fade_mr",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 514,
+    "n_signals_raw": 514,
+    "monthly_roi_mean": -0.48706728968594415,
+    "monthly_neg_count": 42,
+    "monthly_total": 61,
+    "max_dd": -26.53734203913567,
+    "annualized": -6.002860961557355,
+    "worst_month": -4.411042164244028,
+    "best_month": 6.456712742630044,
+    "period_years": 5.016484143280858,
+    "win_rate": 35.40856031128405,
+    "mean_R": -0.11731012068150594,
+    "final_equity": 7330.439172861212
+  }
+}

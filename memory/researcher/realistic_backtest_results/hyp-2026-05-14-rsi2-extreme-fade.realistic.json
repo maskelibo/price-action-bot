@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:34:52.204909+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "hyp-2026-05-14-rsi2-extreme-fade",
+    "strategy": "rsi2_extreme_fade",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 38131,
+    "n_signals_raw": 38131,
+    "monthly_roi_mean": 13.610629310105107,
+    "monthly_neg_count": 21,
+    "monthly_total": 61,
+    "max_dd": -79.46881480959594,
+    "annualized": 188.51585930788124,
+    "worst_month": -45.04529188713592,
+    "best_month": 126.11764930927288,
+    "period_years": 5.0116073465662785,
+    "win_rate": 41.315465107130684,
+    "mean_R": 0.03162311818047114,
+    "final_equity": 2023903.5053094996
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "generated_at": "2026-05-27T07:14:20.190594+00:00",
+  "result": {
+    "hypothesis_id": "engulfing_continuation-baseline-sl0.025",
+    "base_strategy": "engulfing_continuation",
+    "config_label": "r%0.5_conf0.25_cap0.15_cd5/1.0d",
+    "sl_pct_threshold": 0.025,
+    "risk_pct": 0.005,
+    "final_equity": 19320.615484961843,
+    "initial_capital": 10000.0,
+    "total_return_pct": 93.20615484961843,
+    "annualized_compound_pct": 14.07020799998393,
+    "max_drawdown_pct": -12.826369975519084,
+    "win_rate_pct": 48.47027972027972,
+    "n_trades": 2288,
+    "avg_R": 0.21136751347922306,
+    "monthly_roi_pct_mean": 1.1300019557883099,
+    "monthly_roi_pct_median": 0.6763704699604522,
+    "monthly_neg_count": 23,
+    "monthly_total_count": 61,
+    "worst_month_pct": -4.611107498460099,
+    "best_month_pct": 9.410235930324106,
+    "oos_window_months": 18,
+    "oos_monthly_roi_pct_mean": 1.8127578755784493,
+    "oos_monthly_neg_count": 5,
+    "oos_total_return_pct": 36.954807616765265,
+    "oos_max_drawdown_pct": -4.029433985700776,
+    "period_years": 5.002794889345197,
+    "pool_path": "/Users/peyman/price-action-bot/data/sec53_15m_pool_v11.pkl",
+    "config_path": "/Users/peyman/price-action-bot/configs/risk_phoenix_scalp_15m_widestop_vsa2.yaml"
+  }
+}

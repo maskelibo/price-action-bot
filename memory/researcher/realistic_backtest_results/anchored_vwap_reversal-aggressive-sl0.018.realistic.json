@@ -1,0 +1,32 @@
+{
+  "generated_at": "2026-05-27T07:14:19.307524+00:00",
+  "result": {
+    "hypothesis_id": "anchored_vwap_reversal-aggressive-sl0.018",
+    "base_strategy": "anchored_vwap_reversal",
+    "config_label": "r%0.5_conf0.2_cap0.15_cd0/5.0d",
+    "sl_pct_threshold": 0.018,
+    "risk_pct": 0.00485,
+    "final_equity": 24326.263364161863,
+    "initial_capital": 10000.0,
+    "total_return_pct": 143.26263364161863,
+    "annualized_compound_pct": 19.45965255327067,
+    "max_drawdown_pct": -3.77244455547771,
+    "win_rate_pct": 50.112866817155755,
+    "n_trades": 2215,
+    "avg_R": 0.41869199525034767,
+    "monthly_roi_pct_mean": 1.5676617126502896,
+    "monthly_roi_pct_median": 0.7176639465725443,
+    "monthly_neg_count": 16,
+    "monthly_total_count": 58,
+    "worst_month_pct": -0.9446851407708179,
+    "best_month_pct": 16.53334118636094,
+    "oos_window_months": 18,
+    "oos_monthly_roi_pct_mean": 1.7578088635633364,
+    "oos_monthly_neg_count": 6,
+    "oos_total_return_pct": 35.17127995395164,
+    "oos_max_drawdown_pct": -1.7561584707752802,
+    "period_years": 4.999600730093543,
+    "pool_path": "/Users/peyman/price-action-bot/data/sec53_5m_pool_v11_vm20.pkl",
+    "config_path": "/Users/peyman/price-action-bot/configs/risk_phoenix_scalp_5m_p1c.yaml"
+  }
+}

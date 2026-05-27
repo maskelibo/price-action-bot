@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:33:02.145640+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-14-bb-extreme-reversal",
+    "strategy": "bb_extreme_reversal",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 2764,
+    "n_signals_raw": 2764,
+    "monthly_roi_mean": -1.7224488063344336,
+    "monthly_neg_count": 42,
+    "monthly_total": 61,
+    "max_dd": -68.11020867106153,
+    "annualized": -20.281003464531988,
+    "worst_month": -14.511877124218731,
+    "best_month": 8.638939889612796,
+    "period_years": 4.9988307095596625,
+    "win_rate": 37.08393632416787,
+    "mean_R": -0.07839473914546521,
+    "final_equity": 3220.5067939691385
+  }
+}

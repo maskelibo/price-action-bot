@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:35:46.727074+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-14-vol-d4-weis-wave-divergence",
+    "strategy": "weis_wave_divergence",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 17251,
+    "n_signals_raw": 17251,
+    "monthly_roi_mean": 1.122844589716868,
+    "monthly_neg_count": 28,
+    "monthly_total": 61,
+    "max_dd": -78.82110633586328,
+    "annualized": 1.3563991991565771,
+    "worst_month": -25.76971245456591,
+    "best_month": 51.36782477266981,
+    "period_years": 5.016198950490532,
+    "win_rate": 40.27012926786853,
+    "mean_R": 0.004514959386952643,
+    "final_equity": 10699.183832576717
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:32:57.474044+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-12-volatility-compression-breakout-nr7",
+    "strategy": "nr7_breakout_v2",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 63549,
+    "n_signals_raw": 63549,
+    "monthly_roi_mean": -6.180062851667573,
+    "monthly_neg_count": 35,
+    "monthly_total": 61,
+    "max_dd": -99.96465680044294,
+    "annualized": -76.13939898046853,
+    "worst_month": -64.72491263894989,
+    "best_month": 66.13879700457994,
+    "period_years": 5.016883413187315,
+    "win_rate": 39.316118270940535,
+    "mean_R": -0.018921830304099593,
+    "final_equity": 7.5491843636464315
+  }
+}

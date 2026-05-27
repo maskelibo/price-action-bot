@@ -1,0 +1,32 @@
+{
+  "generated_at": "2026-05-27T07:14:14.223112+00:00",
+  "result": {
+    "hypothesis_id": "brooks_failed_breakout-aggressive-sl0.018",
+    "base_strategy": "brooks_failed_breakout",
+    "config_label": "r%0.5_conf0.25_cap0.15_cd5/1.0d",
+    "sl_pct_threshold": 0.018,
+    "risk_pct": 0.005,
+    "final_equity": 381871.70266414364,
+    "initial_capital": 10000.0,
+    "total_return_pct": 3718.7170266414364,
+    "annualized_compound_pct": 106.69649136455553,
+    "max_drawdown_pct": -17.215343294074668,
+    "win_rate_pct": 48.51019341348667,
+    "n_trades": 5739,
+    "avg_R": 0.42703665463138674,
+    "monthly_roi_pct_mean": 6.320008063125572,
+    "monthly_roi_pct_median": 5.591627231965646,
+    "monthly_neg_count": 8,
+    "monthly_total_count": 61,
+    "worst_month_pct": -8.744515644336238,
+    "best_month_pct": 23.30841208959704,
+    "oos_window_months": 18,
+    "oos_monthly_roi_pct_mean": 8.500613544871587,
+    "oos_monthly_neg_count": 2,
+    "oos_total_return_pct": 321.6767149863247,
+    "oos_max_drawdown_pct": -1.8347982477955826,
+    "period_years": 5.016655258955054,
+    "pool_path": "/Users/peyman/price-action-bot/data/sec53_15m_pool_v11.pkl",
+    "config_path": "/Users/peyman/price-action-bot/configs/risk_phoenix_scalp_15m_widestop_vsa2.yaml"
+  }
+}

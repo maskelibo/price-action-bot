@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:37:37.483080+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-17-bb-continuation-15m",
+    "strategy": "bb_band_continuation",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 16347,
+    "n_signals_raw": 16347,
+    "monthly_roi_mean": 6.538196721578135,
+    "monthly_neg_count": 26,
+    "monthly_total": 61,
+    "max_dd": -58.078050455485894,
+    "annualized": 74.38551569199798,
+    "worst_month": -35.80947965328409,
+    "best_month": 82.14322432474886,
+    "period_years": 5.015828199863107,
+    "win_rate": 45.01131706123448,
+    "mean_R": 0.03663977446792322,
+    "final_equity": 162695.19430216536
+  }
+}

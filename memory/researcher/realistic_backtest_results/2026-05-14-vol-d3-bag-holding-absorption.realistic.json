@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:35:34.668163+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-14-vol-d3-bag-holding-absorption",
+    "strategy": "vsa_bag_holding",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 1359,
+    "n_signals_raw": 1359,
+    "monthly_roi_mean": -0.35513197978380723,
+    "monthly_neg_count": 34,
+    "monthly_total": 61,
+    "max_dd": -32.1704687381367,
+    "annualized": -4.819234559909836,
+    "worst_month": -7.9766761681167475,
+    "best_month": 6.683365957966836,
+    "period_years": 5.01400296600502,
+    "win_rate": 38.7785136129507,
+    "mean_R": -0.032767613822418905,
+    "final_equity": 7806.306344028469
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:33:15.546417+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-14-brooks-db-bull-flag",
+    "strategy": "brooks_db_bull_flag",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 4579,
+    "n_signals_raw": 4579,
+    "monthly_roi_mean": -0.026035460171024812,
+    "monthly_neg_count": 31,
+    "monthly_total": 61,
+    "max_dd": -39.839050305391694,
+    "annualized": -1.65673520260059,
+    "worst_month": -8.688898449705462,
+    "best_month": 14.91776056615739,
+    "period_years": 5.007785763175907,
+    "win_rate": 42.585717405547065,
+    "mean_R": -0.0005391683194189496,
+    "final_equity": 9197.43274515815
+  }
+}

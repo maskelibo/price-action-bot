@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:32:22.820072+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-12-liquidity-sweep-displacement-fvg",
+    "strategy": "liquidity_sweep_reversal",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 17150,
+    "n_signals_raw": 17150,
+    "monthly_roi_mean": 2.3000859690577102,
+    "monthly_neg_count": 28,
+    "monthly_total": 61,
+    "max_dd": -71.71959374844525,
+    "annualized": 16.666940370321505,
+    "worst_month": -31.410734632987914,
+    "best_month": 50.64874807276212,
+    "period_years": 5.016341546885695,
+    "win_rate": 40.76384839650146,
+    "mean_R": 0.012731149844566712,
+    "final_equity": 21668.710795234387
+  }
+}

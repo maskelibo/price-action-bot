@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:36:28.557720+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-14-vol-z-spike-fade",
+    "strategy": "cvd_spike_fade",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 5808,
+    "n_signals_raw": 5808,
+    "monthly_roi_mean": -0.7420879152069711,
+    "monthly_neg_count": 33,
+    "monthly_total": 61,
+    "max_dd": -68.2596551853097,
+    "annualized": -11.94066656345829,
+    "worst_month": -16.93232517412705,
+    "best_month": 20.68855293907097,
+    "period_years": 5.0152863335614875,
+    "win_rate": 39.307851239669425,
+    "mean_R": -0.018248232839022587,
+    "final_equity": 5284.851481904641
+  }
+}

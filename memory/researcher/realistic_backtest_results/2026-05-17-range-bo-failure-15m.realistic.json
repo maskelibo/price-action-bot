@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:39:25.227105+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-17-range-bo-failure-15m",
+    "strategy": "range_bo_failure_mr",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 24027,
+    "n_signals_raw": 24036,
+    "monthly_roi_mean": -0.5855272305673789,
+    "monthly_neg_count": 34,
+    "monthly_total": 61,
+    "max_dd": -92.05030996480464,
+    "annualized": -25.918225517940176,
+    "worst_month": -37.41146073047754,
+    "best_month": 44.49667601570664,
+    "period_years": 5.012691079169518,
+    "win_rate": 39.96753652141341,
+    "mean_R": -0.008850967479192484,
+    "final_equity": 2222.8153083426214
+  }
+}

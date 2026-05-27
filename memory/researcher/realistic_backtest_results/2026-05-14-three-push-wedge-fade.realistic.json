@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:34:59.551260+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-14-three-push-wedge-fade",
+    "strategy": "three_push_wedge_fade",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 1796,
+    "n_signals_raw": 1796,
+    "monthly_roi_mean": -0.047693455321852915,
+    "monthly_neg_count": 33,
+    "monthly_total": 61,
+    "max_dd": -34.8446401264027,
+    "annualized": -1.3319612344999343,
+    "worst_month": -6.820604260681106,
+    "best_month": 8.003390030598268,
+    "period_years": 4.9955509924709105,
+    "win_rate": 39.86636971046771,
+    "mean_R": -0.003723379751580985,
+    "final_equity": 9352.083756558115
+  }
+}

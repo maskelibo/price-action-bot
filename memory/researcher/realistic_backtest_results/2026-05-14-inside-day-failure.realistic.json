@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:33:18.503425+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-14-inside-day-failure",
+    "strategy": "inside_day_failure",
+    "timeframe": "1d",
+    "status": "OK",
+    "n_trades": 456,
+    "n_signals_raw": 456,
+    "monthly_roi_mean": -0.0799534820530512,
+    "monthly_neg_count": 32,
+    "monthly_total": 60,
+    "max_dd": -20.20629674741274,
+    "annualized": -1.3341078389186412,
+    "worst_month": -3.6941249804758547,
+    "best_month": 5.100939931128812,
+    "period_years": 4.725530458590007,
+    "win_rate": 39.03508771929825,
+    "mean_R": -0.02412280701754386,
+    "final_equity": 9385.041644143894
+  }
+}

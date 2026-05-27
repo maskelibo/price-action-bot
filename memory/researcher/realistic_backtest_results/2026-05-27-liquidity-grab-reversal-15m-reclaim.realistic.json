@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:40:31.397868+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-27-liquidity-grab-reversal-15m-reclaim",
+    "strategy": "failed_bo_bos_reclaim",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 23081,
+    "n_signals_raw": 23081,
+    "monthly_roi_mean": -4.393872417628765,
+    "monthly_neg_count": 38,
+    "monthly_total": 61,
+    "max_dd": -98.62807225999163,
+    "annualized": -53.772775321631606,
+    "worst_month": -40.1442530552582,
+    "best_month": 48.694942941693256,
+    "period_years": 5.0154859685147155,
+    "win_rate": 38.910792426671286,
+    "mean_R": -0.02984761984391728,
+    "final_equity": 208.5929958965091
+  }
+}

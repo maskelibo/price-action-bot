@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:34:30.124463+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-14-quasimodo-reversal",
+    "strategy": "quasimodo_reversal",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 62101,
+    "n_signals_raw": 62101,
+    "monthly_roi_mean": 8.651042862158373,
+    "monthly_neg_count": 28,
+    "monthly_total": 61,
+    "max_dd": -87.27936351779347,
+    "annualized": 32.69234297985226,
+    "worst_month": -44.75122698363576,
+    "best_month": 155.08960671690045,
+    "period_years": 5.016911932466347,
+    "win_rate": 42.48240769069741,
+    "mean_R": 0.007695885588625907,
+    "final_equity": 41333.94658581451
+  }
+}

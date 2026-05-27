@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-05-27T07:35:15.580552+00:00",
+  "source": "scripts/run_new_strategy_backtest.py",
+  "result": {
+    "hyp": "2026-05-14-turtle-soup-20day-failed-breakout",
+    "strategy": "turtle_soup_20d",
+    "timeframe": "15m",
+    "status": "OK",
+    "n_trades": 24862,
+    "n_signals_raw": 24862,
+    "monthly_roi_mean": -2.5562737457539852,
+    "monthly_neg_count": 33,
+    "monthly_total": 61,
+    "max_dd": -94.92037164225124,
+    "annualized": -37.23387597377689,
+    "worst_month": -34.01932887049763,
+    "best_month": 30.157295884584844,
+    "period_years": 5.016370066164727,
+    "win_rate": 39.57847317190894,
+    "mean_R": -0.015105866235171244,
+    "final_equity": 966.7524986027377
+  }
+}
