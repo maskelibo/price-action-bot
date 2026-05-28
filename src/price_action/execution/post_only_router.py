@@ -170,7 +170,12 @@ def place_post_only_with_fallback(
 
     if slip_bps > slippage_limit_bps:
         # Ters-kapat: ayni qty market order, opposite side
+        # FIX 2026-05-28 (Faz 14.27 C3-2): Önceki bug — reverse close fail
+        # ise silent except, pozisyon ACIK kalıyordu, no Telegram alert.
+        # Şimdi: structured log + push_critical orphan tracking.
         rev_side = opposite_side(side)
+        rev_ok = False
+        rev_err: str | None = None
         try:
             exchange.create_market_order(
                 symbol=symbol,
@@ -178,9 +183,60 @@ def place_post_only_with_fallback(
                 amount=qty,
                 params={"reduceOnly": True} if hasattr(exchange, "options") else {},
             )
-        except Exception:
-            # Reverse fail — pozisyon acik, alarm
-            pass
+            rev_ok = True
+        except Exception as _rev_exc:
+            rev_err = f"{type(_rev_exc).__name__}: {str(_rev_exc)[:200]}"
+
+        if not rev_ok:
+            # KRITIK: pozisyon orphan kaldı, Principal'a CRIT push
+            try:
+                import logging as _lg
+                _log = _lg.getLogger(__name__)
+                _log.error(
+                    "post_only_router.reverse_close_FAIL — ORPHAN POSITION",
+                    extra={
+                        "symbol": symbol,
+                        "side": side,
+                        "qty": qty,
+                        "fill_px": fill_px,
+                        "target_px": target_price,
+                        "slip_bps": slip_bps,
+                        "limit_bps": slippage_limit_bps,
+                        "rev_err": rev_err,
+                    },
+                )
+            except Exception:
+                pass
+            try:
+                from price_action.orchestrator.notifications import push_critical
+                push_critical(
+                    f"🚨 ORPHAN POSITION — {symbol} {side} qty={qty} fill=${fill_px} "
+                    f"(slip={slip_bps:.0f}bps > limit={slippage_limit_bps:.0f}bps). "
+                    f"Reverse close FAILED: {rev_err}. MANUEL kapat.",
+                    source="post_only_router_slip",
+                )
+            except Exception:
+                pass
+            # Orphan tracking — disk'e yaz reconciler tarafından okunabilsin
+            try:
+                from pathlib import Path
+                import json as _json
+                from datetime import datetime as _dt, timezone as _tz
+                orphan_path = Path("data/orphan_positions.jsonl")
+                orphan_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(orphan_path, "a", encoding="utf-8") as _f:
+                    _f.write(_json.dumps({
+                        "ts": _dt.now(_tz.utc).isoformat(),
+                        "symbol": symbol,
+                        "side": side,
+                        "qty": qty,
+                        "fill_px": fill_px,
+                        "slip_bps": slip_bps,
+                        "rev_err": rev_err,
+                    }) + "\n")
+            except Exception:
+                pass
+
         raise SlippageExceededError(slip_bps, slippage_limit_bps, symbol=symbol)
 
     return market_order, "market_fallback"

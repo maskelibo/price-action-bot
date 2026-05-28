@@ -159,11 +159,18 @@ class P1cWalker:
     # ------------------------------------------------------------------
 
     def _load_or_init_state(self) -> dict[str, Any]:
-        if _STATE_FILE.exists():
-            try:
-                return json.loads(_STATE_FILE.read_text(encoding="utf-8"))
-            except Exception:
-                pass
+        """State recovery — partial write/corrupt fallback ile.
+
+        FIX 2026-05-28 (Faz 14.27 C2-3): Önceki bug: JSON corruption (partial
+        write crash) → tamamen sıfırdan başla → equity + trades KAYIP. Şimdi
+        .bak yedek deniyor önce.
+        """
+        for path in (_STATE_FILE, _STATE_FILE.with_suffix(_STATE_FILE.suffix + ".bak")):
+            if path.exists():
+                try:
+                    return json.loads(path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue  # corrupt, .bak'ı dene
         return {
             "equity_usdt": self.config.initial_capital,
             "trades": [],            # close olmuş trade'lerin listesi
@@ -175,11 +182,57 @@ class P1cWalker:
         }
 
     def _save_state(self) -> None:
+        """Atomic write — tempfile + rename, eski state .bak'a backup.
+
+        FIX 2026-05-28 (Faz 14.27 C2-3): Önceki bug: doğrudan write_text →
+        partial write crash → JSON corruption. Şimdi: tempfile + os.replace
+        (POSIX atomic rename).
+
+        Concurrent writer korunması: fcntl.flock advisory lock (Unix).
+        """
+        import os, tempfile
         _STATE_DIR.mkdir(parents=True, exist_ok=True)
         try:
-            _STATE_FILE.write_text(json.dumps(self._state, default=str, indent=2), encoding="utf-8")
+            # Mevcut state'i .bak'a kopyala (corruption recovery için)
+            if _STATE_FILE.exists():
+                try:
+                    bak = _STATE_FILE.with_suffix(_STATE_FILE.suffix + ".bak")
+                    bak.write_bytes(_STATE_FILE.read_bytes())
+                except Exception:
+                    pass
+
+            # Atomic write: tempfile → rename
+            data = json.dumps(self._state, default=str, indent=2)
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=str(_STATE_DIR),
+                prefix=".p1c_walker_state.",
+                suffix=".tmp",
+            )
+            try:
+                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                    # Advisory lock (Unix only, no-op on Windows)
+                    try:
+                        import fcntl
+                        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                    except (ImportError, OSError):
+                        pass
+                    f.write(data)
+                    f.flush()
+                    try:
+                        os.fsync(f.fileno())
+                    except OSError:
+                        pass
+                # Atomic rename — POSIX guarantee
+                os.replace(tmp_path, _STATE_FILE)
+            except Exception:
+                # Cleanup tempfile on fail
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
         except Exception:
-            pass
+            pass  # Save fail tolerated — sonraki tick tekrar dener
 
     def state_summary(self) -> dict[str, Any]:
         return {
@@ -273,18 +326,41 @@ class P1cWalker:
             self._save_state()
 
     def _end_of_month(self) -> datetime:
+        """Bir sonraki ay'ın 1'i 00:00 UTC döndürür.
+
+        FIX 2026-05-28 (Faz 14.27 C2-1): Önceki sürümde tzinfo yoktu — naive
+        datetime döndürüyordu → isoformat() sonra fromisoformat() parse
+        edildiğinde tz bilgisi kaybolup halt expire logic kırılıyordu.
+        Şimdi: tzinfo=timezone.utc explicit.
+        """
         now = datetime.now(timezone.utc)
         if now.month == 12:
-            return now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0)
-        return now.replace(month=now.month + 1, day=1, hour=0, minute=0, second=0)
+            return now.replace(
+                year=now.year + 1, month=1, day=1,
+                hour=0, minute=0, second=0, microsecond=0,
+                tzinfo=timezone.utc,
+            )
+        return now.replace(
+            month=now.month + 1, day=1,
+            hour=0, minute=0, second=0, microsecond=0,
+            tzinfo=timezone.utc,
+        )
 
     def _rolling_dd_pct(self) -> float:
-        """Son 14g cumulative realized PnL / initial_capital."""
+        """Son 14g cumulative realized PnL / initial_capital.
+
+        FIX 2026-05-28 (Faz 14.27 C2-3 ek): close_ts naive parse edilirse
+        cutoff (tz-aware) ile karşılaştırma TypeError atar (sessizce continue).
+        Şimdi: naive parse sonrası UTC varsay.
+        """
         cutoff = datetime.now(timezone.utc) - timedelta(days=self.config.rolling_window_days)
         cum = 0.0
         for t in self._state.get("trades", []):
             try:
-                close_ts = datetime.fromisoformat(t.get("close_ts", ""))
+                close_ts_str = t.get("close_ts", "")
+                close_ts = datetime.fromisoformat(close_ts_str.replace("Z", "+00:00"))
+                if close_ts.tzinfo is None:
+                    close_ts = close_ts.replace(tzinfo=timezone.utc)
                 if close_ts >= cutoff:
                     cum += float(t.get("pnl_usdt", 0))
             except Exception:
@@ -382,7 +458,14 @@ class P1cWalker:
         self._state["mtd_pnl"] = self._state.get("mtd_pnl", 0.0) + pnl
 
         # Update 3-loss tracker
-        if pnl < 0:
+        # FIX 2026-05-28 (Faz 14.27 C2-2): Kazanç sonrası loss counter reset.
+        # Önceki bug: kazanç (pnl > 0) loss_times'ı temizlemiyordu → false
+        # positive halt riski (3 kayıp + 1 kazanç + 1 kayıp = 4 entry varsa
+        # 4-bar window'da hala 3-loss tetiklenebilirdi).
+        if pnl > 0:
+            # Kazanç → counter sıfırla
+            self._state["last_loss_times"] = []
+        elif pnl < 0:
             loss_times = self._state.setdefault("last_loss_times", [])
             loss_times.append(close_ts)
             # Keep last N+1
@@ -392,8 +475,12 @@ class P1cWalker:
             if len(loss_times) >= self.config.n_losses:
                 recent_losses = loss_times[-self.config.n_losses:]
                 try:
-                    earliest = datetime.fromisoformat(recent_losses[0])
-                    latest = datetime.fromisoformat(recent_losses[-1])
+                    earliest = datetime.fromisoformat(recent_losses[0].replace("Z", "+00:00"))
+                    latest = datetime.fromisoformat(recent_losses[-1].replace("Z", "+00:00"))
+                    if earliest.tzinfo is None:
+                        earliest = earliest.replace(tzinfo=timezone.utc)
+                    if latest.tzinfo is None:
+                        latest = latest.replace(tzinfo=timezone.utc)
                     window = (latest - earliest).total_seconds() / 3600  # hours
                     if window <= 12:  # 3 loss within any 12h window
                         release = (latest + timedelta(hours=self.config.halt_hours)).isoformat()

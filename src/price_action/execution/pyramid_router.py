@@ -200,9 +200,18 @@ class PyramidRouter:
 
         Sıralama:
           1. SL hit → pending leg'leri iptal et, erken çık.
-          2. Her pyramid trigger için: önceden işlenmediyse submit_leg.
+          2. TP fill detect (FIX C3-5) → leg-up bloke et.
+          3. Her pyramid trigger için: önceden işlenmediyse submit_leg.
+          4. Sequential constraint: leg-N FILLED olmadan leg-N+1 submit ETME.
 
         Thread-safe: pozisyon başına lock.
+
+        FIX 2026-05-28 (Faz 14.27 C3-5): Önceki bug — bracket TP fill ile
+        pyramid leg-up çakışıyordu (TP partial close pozisyon size'ı azaltır,
+        ama leg-up yeni qty ekler → mismatch). Şimdi:
+          a) TP fill detect: position.tp_partial_filled → leg-up bloke.
+          b) Sequential: leg-N PENDING/SUBMITTED iken leg-N+1 trigger olsa
+             bile submit etme (race condition guard).
         """
         with position._lock:
             # 1. SL hit → orphan cancel
@@ -210,17 +219,45 @@ class PyramidRouter:
                 self._cancel_pending_legs(position, reason="sl_hit")
                 return
 
-            # 2. Trigger detection
+            # 2. FIX C3-5: TP partial fill detect → leg-up bloke
+            # Eğer position'da herhangi bir TP filled ise pozisyon küçülmüş demek
+            # → yeni leg eklemek mismatch yaratır.
+            tp_filled = getattr(position, "tp_partial_filled", False)
+            if tp_filled:
+                log.info(
+                    "PyramidRouter.leg_up_blocked: TP partial filled — bracket vs pyramid conflict avoided. pos=%s",
+                    position.parent_position_id,
+                )
+                return
+
+            # 3. Trigger detection + sequential guard
+            prev_leg_filled = True  # leg-1 (initial entry) zaten filled
             for idx, _ in enumerate(position.pyramid_triggers):
                 leg_num = idx + 2  # leg-2, leg-3, ...
+
+                # FIX C3-5: Sequential — önceki leg FILLED değilse skip
+                if not prev_leg_filled:
+                    log.debug(
+                        "PyramidRouter.sequential_block: leg-%d skipped (leg-%d not FILLED yet)",
+                        leg_num, leg_num - 1,
+                    )
+                    break
+
                 if self._leg_already_handled(position, leg_num):
+                    # Already handled — durumuna bak (FILLED → next leg OK, PENDING → block)
+                    _lg = position.leg_for_num(leg_num)
+                    if _lg is not None:
+                        prev_leg_filled = (_lg.leg_state == "FILLED")
                     continue
+
                 if position.trigger_reached(leg_num, current_price):
                     trig_px = position.trigger_price_for_leg(leg_num)
                     if trig_px is None:
                         continue
                     try:
                         self._submit_leg(position, leg_num, trig_px, ts)
+                        # Yeni submit → FILLED değil, henüz PENDING. Sıradaki tick'te check.
+                        prev_leg_filled = False
                     except Exception as exc:
                         log.error(
                             "PyramidRouter._submit_leg FAILED: pos=%s leg=%d err=%s",

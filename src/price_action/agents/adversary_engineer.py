@@ -171,10 +171,24 @@ class AdversaryEngineerAgent(LLMAgentBase):
             }
 
         # Equity curve hesabı (additive % — compound overflow paranoyası, V14 lesson)
+        # FIX 2026-05-28 (Faz 14.27 C8): Liquidation modeli eklendi.
+        # Önceki bug: equity -%100 altına düşebiliyordu (LUNA test -%147 raporu →
+        # impossible without leverage cap). Şimdi: -100% floor + liquidation flag.
+        # Stress test'in pratik anlamı için: -%100'e ulaşırsa testi DUR + liquidated=True.
+        LIQUIDATION_FLOOR = -100.0  # %100 sermaye kaybı = total liquidation
         pnls = [float(tr.get("pnl_pct", 0.0)) for tr in in_window]
         equity = [0.0]
-        for p in pnls:
-            equity.append(equity[-1] + p)
+        liquidated = False
+        liquidation_idx: int | None = None
+        for i, p in enumerate(pnls):
+            new_eq = equity[-1] + p
+            if new_eq <= LIQUIDATION_FLOOR:
+                # Liquidation — sermayeyi sıfırla, trade'leri bitir
+                equity.append(LIQUIDATION_FLOOR)
+                liquidated = True
+                liquidation_idx = i + 1  # equity index (entry 0 + i+1 trade)
+                break
+            equity.append(new_eq)
 
         peak = equity[0]
         worst_dd = 0.0
@@ -223,7 +237,10 @@ class AdversaryEngineerAgent(LLMAgentBase):
             "recovery_days": recovery_days,
             "final_return_pct": round(final_ret, 4),
             "concave": concave,
-            "status": "ok",
+            # FIX 2026-05-28 (Faz 14.27 C8): liquidation reporting
+            "liquidated": liquidated,
+            "liquidation_at_trade": liquidation_idx,
+            "status": "liquidated" if liquidated else "ok",
         }
 
     async def daily_stress_test(
@@ -266,6 +283,8 @@ class AdversaryEngineerAgent(LLMAgentBase):
             res["passes_dd_gate"] = (
                 not math.isnan(res.get("worst_dd_pct", math.nan))
                 and res["worst_dd_pct"] <= thresholds.get("max_drawdown_pct_per_period", 0.20)
+                # FIX 2026-05-28 (Faz 14.27 C8): liquidated period = otomatik FAIL
+                and not res.get("liquidated", False)
             )
             res["passes_recovery_gate"] = (
                 res.get("recovery_days") is None

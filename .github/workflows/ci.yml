@@ -54,7 +54,61 @@ jobs:
         run: |
           pytest tests/test_kpi.py tests/test_journal.py tests/test_drift.py \
                  tests/test_postmortem.py tests/test_api.py tests/test_cli.py \
+                 tests/test_faz14_27_audit_fixes.py \
                  -v --maxfail=5
+
+  security:
+    # FIX 2026-05-28 (Faz 14.27 C7): Security scanning jobu.
+    # Önceki bug: bandit/pip-audit YOKTU → secret leak veya CVE riski silent.
+    # Bandit: Python kod güvenlik tarama (hardcoded secret, sql inj, vs).
+    # pip-audit: dependency CVE tarama (PyPI advisory DB).
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install security tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit[toml] pip-audit
+
+      - name: Bandit (kod güvenlik tarama)
+        # exit 0 ile devam — sonuçları artifact olarak yükle, MUST FAIL değil
+        # severity HIGH ise red flag (production'da blocker)
+        run: |
+          bandit -r src -ll -f txt -o bandit_report.txt --severity-level medium || true
+          cat bandit_report.txt
+          # HIGH severity bulgu varsa exit 1
+          ! grep -E "Severity: High" bandit_report.txt
+        continue-on-error: false
+
+      - name: pip-audit (CVE tarama)
+        # CVE bulgusu = soft fail (exit 0). Manual review.
+        run: |
+          pip install -e .[dev] 2>&1 | tail -5 || true
+          pip-audit --desc -f json -o pip_audit.json || true
+          pip-audit --desc -f columns || true
+        continue-on-error: true
+
+      - name: Upload security artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            bandit_report.txt
+            pip_audit.json
+          retention-days: 30
 
   pool-verify:
     # SEC54.5: SEC53 pool reproducibility gate (DQ-05 / RP-01).
