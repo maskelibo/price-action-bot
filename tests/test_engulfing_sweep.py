@@ -27,8 +27,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-# Sweep modülü
+# Sweep modülü — FIX 2026-05-28 (Faz 14.27 #2): conditional skip.
+# scripts/engulfing_param_sweep.py kaldırılmış olabilir (audit Faz 14.27 bulgusu).
+# Modül yoksa tüm test sınıfını skip et.
 sys.path.insert(0, str(ROOT))
+pytest.importorskip("scripts.engulfing_param_sweep",
+                    reason="engulfing_param_sweep.py kaldırıldı (Faz 14.27 audit)")
 from scripts.engulfing_param_sweep import (
     BONFERRONI_ALPHA,
     DEFAULTS,
