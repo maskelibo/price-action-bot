@@ -164,13 +164,36 @@ def _kill_switch_active() -> tuple[bool, str]:
         return False, ""  # bozuk dosya = halted değil (fail-safe)
 
 
+_LOG_MAX_BYTES = 20 * 1024 * 1024  # 20 MB — yıllık ~250 MB cap
+
+def _rotate_log_if_large(path) -> None:
+    """FIX 2026-05-28 (Faz 14.27): basit log rotation.
+    Log >20MB ise .1 → .2 → ... rotate. Maksimum 5 backup tutar (.5 silinir).
+    """
+    try:
+        if not path.exists() or path.stat().st_size < _LOG_MAX_BYTES:
+            return
+        for i in range(5, 0, -1):
+            old = path.with_suffix(path.suffix + f".{i}")
+            new = path.with_suffix(path.suffix + f".{i+1}")
+            if i == 5 and old.exists():
+                old.unlink()
+            elif old.exists():
+                old.rename(new)
+        path.rename(path.with_suffix(path.suffix + ".1"))
+    except Exception:
+        pass
+
+
 def log(msg: str):
     ts = datetime.now(timezone.utc).strftime('%H:%M:%S')
     line = f"[{ts}] {msg}"
     # FIX 2026-05-26 (C1): flush + fsync — crash sonrası log kaybını önler.
     # Önceki versiyon Python buffer'da bırakıyordu; SIGKILL/OOM sonrası son
     # N satır disk'e yazılmamış kalıyordu (post-mortem yapılamıyordu).
+    # FIX 2026-05-28 (Faz 14.27): log rotation — disk doldurma riski azalt.
     try:
+        _rotate_log_if_large(LOG_FILE)
         with open(LOG_FILE, 'a', encoding='utf-8') as f:
             f.write(line + "\n")
             f.flush()
@@ -1823,6 +1846,26 @@ def run_5m_mode(once: bool = False) -> None:
         log_5m(f"5M_P1C_WALKER: initialized (state={p1c_walker.state_summary()})")
     except Exception as e:
         log_5m(f"5M_P1C_WALKER_ERR: {e} — walker olmadan devam (sadece tarama)")
+
+    # FIX 2026-05-28 (Faz 14.27): 5m bot DMS — kritik güvenlik.
+    # Önceden 5m bot DMS başlatmıyordu — 5m bot eğer trade açıp donsa,
+    # 30dk timeout flatten YOK = pozisyon açıkta kalır.
+    # 5m TF için TF_DMS_PARAMS: heartbeat=10s, timeout=600s (10dk).
+    dms_5m = None
+    try:
+        from price_action.execution.dead_mans_switch import DeadMansSwitch
+        from scripts.futures_trade_daily import get_futures_exchange as _get_fx_dms_5m
+        _dms_5m_ex = _get_fx_dms_5m()
+        dms_5m = DeadMansSwitch(
+            exchange=_dms_5m_ex,
+            service_name="futures_daemon_5m",
+            tf="5m",
+            db_path=IDEMPOTENCY_DB,
+        )
+        dms_5m.start()
+        log_5m("5M_DMS: başlatıldı (tf=5m, heartbeat=10s, timeout=600s, flatten AKTİF)")
+    except Exception as e:
+        log_5m(f"5M_DMS_INIT_ERROR: {e} — DMS devre dışı, devam ediyor (RİSK!)")
 
     # SL pct min config'den oku
     # FIX 2026-05-26 (H4): config load fail → SAFE DEFAULT 1.0 (tüm sinyaller red)

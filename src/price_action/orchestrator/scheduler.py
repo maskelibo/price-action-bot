@@ -753,6 +753,104 @@ async def _job_quiet_failure_audit() -> None:
                        extra={"err": str(exc)[:200]})
 
 
+async def _job_stuck_doc_check() -> None:
+    """FIX 2026-05-28 (Faz 14.27): Stuck inbox doc detector.
+
+    Bot Monitor 27 Mayıs 23:45'te PAUSE alert yazdı (DD %43), 13+ saat ack
+    edilmedi (Risk Officer review_fail çünkü ANTHROPIC_API_KEY=placeholder
+    → Claude CLI 401). Principal'a HİÇ ulaşmadı.
+
+    Bu job her saat inbox.jsonl tarar:
+      - kill_criteria_alert + ack_at=null + age > 6h → CRIT push
+      - critique + ack_at=null + age > 12h → CRIT push
+      - başka doc + ack_at=null + age > 48h → WARN push
+
+    Tek doc başına 1 push (idempotency: doc_id hash kayıtlı, tekrar push yok).
+    """
+    try:
+        import json
+        from datetime import datetime, timezone, timedelta
+        from pathlib import Path
+
+        inbox = Path("memory/protocol/inbox.jsonl")
+        if not inbox.exists():
+            return
+
+        now = datetime.now(timezone.utc)
+        thresholds = {
+            "kill_criteria_alert": timedelta(hours=6),
+            "critique": timedelta(hours=12),
+            "default": timedelta(hours=48),
+        }
+        # Per-doc dedup (saatlik tetik → her doc 1 push)
+        stuck_state_path = Path("logs/state/stuck_docs_pushed.json")
+        stuck_state_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            pushed_already = json.loads(stuck_state_path.read_text())
+        except Exception:
+            pushed_already = {}
+
+        stuck = []
+        for line in inbox.read_text(encoding="utf-8").strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if msg.get("ack_at"):
+                continue
+            created = msg.get("created_at", "")
+            try:
+                created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            except Exception:
+                continue
+            age = now - created_dt
+            doc_id = msg.get("doc_id", "")
+            topic = msg.get("topic", "")
+            # Eşik
+            thr = thresholds.get(topic, thresholds["default"])
+            if age < thr:
+                continue
+            # Dedup — bu doc bu süre içinde push edildi mi?
+            dedup_key = f"{doc_id}:{topic}"
+            if pushed_already.get(dedup_key, 0) > 1:
+                continue   # 2+ kez push edildi, susalım
+            stuck.append((doc_id, topic, age, msg, dedup_key))
+
+        if not stuck:
+            return
+
+        try:
+            from price_action.orchestrator.notifications import push_critical
+            lines = [f"⚠️ STUCK INBOX DOCS — {len(stuck)} doc ack-timeout aştı:"]
+            for doc_id, topic, age, msg, _ in stuck[:5]:
+                lines.append(
+                    f"  - [{topic}] {doc_id} (recipient={msg.get('recipient')}, "
+                    f"age={age.total_seconds()/3600:.1f}h)"
+                )
+            lines.append("Sebep: LLM agent fail (API key, circuit breaker) veya "
+                         "Principal eylem bekliyor. Inbox: memory/protocol/inbox.jsonl")
+            push_critical("\n".join(lines), source="scheduler_stuck_doc")
+        except Exception as exc:
+            logger.warning("scheduler.stuck_doc_push_fail", extra={"err": str(exc)[:200]})
+
+        # Push counter güncelle
+        for _, _, _, _, dedup_key in stuck:
+            pushed_already[dedup_key] = pushed_already.get(dedup_key, 0) + 1
+        try:
+            stuck_state_path.write_text(json.dumps(pushed_already))
+        except Exception:
+            pass
+
+        logger.info("scheduler.stuck_doc_check_done",
+                    extra={"extra": {"n_stuck": len(stuck)}})
+
+    except Exception as exc:
+        logger.warning("scheduler.stuck_doc_check_fail", extra={"err": str(exc)[:200]})
+
+
 async def _job_check_promises() -> None:
     """FIX 2026-05-26 (Faz 14.2): Promise/Reality detector.
 
@@ -1484,6 +1582,8 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("dms_heartbeat_check", "cron", "*/5 * * * *", _job_dms_heartbeat_check),
     # FIX 2026-05-26 (Faz 14.2): Promise/Reality check (saatlik :55)
     ("check_promises", "cron", "55 * * * *", _job_check_promises),
+    # FIX 2026-05-28 (Faz 14.27): stuck inbox doc detector — 6h+ ack timeout → CRIT push
+    ("stuck_doc_check", "cron", "50 * * * *", _job_stuck_doc_check),
     # FIX 2026-05-26 (Faz 14.3): Adversary quiet failure audit (Pzr 22:30 UTC)
     ("quiet_failure_audit", "cron", "30 22 * * sun", _job_quiet_failure_audit),
     # FIX 2026-05-26 (Faz 14.4): Daily Truth Report (03:00 UTC = 06:00 TR)
