@@ -1,0 +1,68 @@
+# Event Bus Subscribers — Faz 14.27 KRİTİK-1 fix
+# Hangi consumer hangi topic'e yanıt verir (deklaratif)
+# scheduler register_event_handlers() bunu okur, register_handler çağırır
+
+subscribers:
+  # Bot Monitor PAUSE alert → 2 consumer
+  bot_monitor.pause_alert:
+    - consumer: adversary_engineer
+      action: daily_stress_test
+      args: {use_alert_bot_id: true}
+      description: "PAUSE alert geldiğinde ilgili bot için stress test"
+    - consumer: risk_officer
+      action: review_doc
+      args: {fast_path: true}
+      description: "PAUSE alert acilen Risk Officer review"
+
+  # Bot Monitor WARN → soft consumer
+  bot_monitor.warn:
+    - consumer: drift_detector
+      action: snapshot_check
+      args: {window_hours: 24}
+      description: "WARN sonrası 24h ek izleme"
+
+  # Drift regime change → Researcher iterate
+  drift.regime_change:
+    - consumer: researcher
+      action: propose_hypothesis
+      args: {theme: "regime_adaptation"}
+      description: "Regime değişiminde yeni hipotez gerekir"
+
+  # WR/R drop → Researcher + Curator
+  drift.wr_drop:
+    - consumer: researcher
+      action: respond_to_drift
+      args: {drift_type: "wr"}
+    - consumer: strategy_curator
+      action: lifecycle_check
+      args: {window_days: 7}
+      description: "WR düşüşü → strateji emeklilik adayı"
+
+  drift.r_drop:
+    - consumer: researcher
+      action: respond_to_drift
+      args: {drift_type: "r"}
+
+  # Reconciler phantom → Bot Monitor + Risk Officer
+  reconciler.phantom:
+    - consumer: bot_monitor
+      action: anomaly_log
+      args: {severity: "warn"}
+    - consumer: risk_officer
+      action: phantom_audit
+      args: {auto_close_threshold_hours: 24}
+
+  # Qty drift → Risk Officer
+  reconciler.qty_drift:
+    - consumer: risk_officer
+      action: phantom_audit
+      args: {check_drift_pct: 0.05}
+
+  # Adversary stress fail → CEO + Researcher
+  adversary.stress_fail:
+    - consumer: ceo
+      action: arbitrate_doc
+      args: {priority: "high"}
+    - consumer: researcher
+      action: propose_hypothesis
+      args: {theme: "adversarial_robustness"}

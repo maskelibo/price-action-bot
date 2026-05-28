@@ -658,16 +658,22 @@ class AnchoredVWAPReversalStrategy(Strategy):
         df["poc"] = _volume_profile_poc(df, lookback=poc_lookback, n_buckets=50)
 
         # --- AVWAP crossover flags (body rejection) ---
-        # Long: prev_close < avwap_long AND close >= avwap_long  (cross up)
+        # FIX 2026-05-28 (Faz 14.27 ORTA C1): semi-lookahead düzeltildi.
+        # Önceki bug: avwap_long t'nin kendi bar'ını dahil ediyordu (causal ama
+        # borderline). Şimdi: avwap'ı shift(1) ile karşılaştır → strict
+        # lookahead-free (t-1 kapanışı vs t-1 AVWAP).
         prev_close = df["close"].shift(1)
+        prev_avwap_long = df["avwap_long"].shift(1)
+        prev_avwap_short = df["avwap_short"].shift(1)
+        # Long: prev_close < prev_avwap AND close >= avwap_long (cross up at t)
         df["avwap_long_cross_up"] = (
-            (prev_close < df["avwap_long"]) &
+            (prev_close < prev_avwap_long) &
             (df["close"] >= df["avwap_long"])
         ).fillna(False)
 
-        # Short: prev_close > avwap_short AND close <= avwap_short  (cross down)
+        # Short: prev_close > prev_avwap AND close <= avwap_short (cross down at t)
         df["avwap_short_cross_down"] = (
-            (prev_close > df["avwap_short"]) &
+            (prev_close > prev_avwap_short) &
             (df["close"] <= df["avwap_short"])
         ).fillna(False)
 

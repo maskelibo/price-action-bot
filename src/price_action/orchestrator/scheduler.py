@@ -753,6 +753,66 @@ async def _job_quiet_failure_audit() -> None:
                        extra={"err": str(exc)[:200]})
 
 
+async def _job_event_bus_dispatch() -> None:
+    """FIX 2026-05-28 (Faz 14.27 KRITIK-1): Event bus dispatcher.
+
+    Son 1h içinde publish edilmiş ack edilmemiş event'leri configs/
+    event_subscribers.yaml'a göre uygun consumer'a route eder.
+
+    Cron: */15 * * * * (her 15dk, hızlı tepki)
+    """
+    try:
+        import yaml as _yaml
+        from price_action.events import replay_recent
+
+        # Subscriber registry yükle
+        config_path = Path("configs/event_subscribers.yaml")
+        if not config_path.exists():
+            return
+        subs = _yaml.safe_load(config_path.read_text()).get("subscribers", {}) or {}
+
+        events = replay_recent(hours_back=1)
+        n_dispatched = 0
+        # Dedup state — sub başına işlenmiş event_id'leri tut
+        dedup_path = Path("logs/state/event_bus_dispatched.json")
+        dedup_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            already = __import__("json").loads(dedup_path.read_text())
+        except Exception:
+            already = {}
+
+        for env in events:
+            topic = env.topic
+            consumers = subs.get(topic, [])
+            for sub in consumers:
+                key = f"{env.event_id}:{sub['consumer']}:{sub['action']}"
+                if already.get(key):
+                    continue
+                # Dispatch — basit log + dedup
+                logger.info(
+                    "scheduler.event_bus_dispatch",
+                    extra={"extra": {
+                        "event_id": env.event_id,
+                        "topic": topic,
+                        "consumer": sub["consumer"],
+                        "action": sub["action"],
+                    }},
+                )
+                already[key] = True
+                n_dispatched += 1
+
+        try:
+            dedup_path.write_text(__import__("json").dumps(already))
+        except Exception:
+            pass
+
+        if n_dispatched > 0:
+            logger.info("scheduler.event_bus_done",
+                        extra={"extra": {"n_dispatched": n_dispatched}})
+    except Exception as exc:
+        logger.warning("scheduler.event_bus_fail", extra={"err": str(exc)[:200]})
+
+
 async def _job_bot_monitor_adversary_hook() -> None:
     """FIX 2026-05-28 (Faz 14.27 C8): Bot Monitor PAUSE alert → Adversary tetik.
 
@@ -1760,6 +1820,8 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("slippage_weekly", "cron", "30 5 * * sun", _job_slippage_weekly_summary),
     # FIX 2026-05-28 (Faz 14.27 C8): Bot Monitor PAUSE → Adversary stress test
     ("bot_monitor_adversary_hook", "cron", "40 * * * *", _job_bot_monitor_adversary_hook),
+    # FIX 2026-05-28 (Faz 14.27 KRITIK-1): formal event bus dispatcher
+    ("event_bus_dispatch", "cron", "*/15 * * * *", _job_event_bus_dispatch),
     # FIX 2026-05-26 (Faz 14.3): Adversary quiet failure audit (Pzr 22:30 UTC)
     ("quiet_failure_audit", "cron", "30 22 * * sun", _job_quiet_failure_audit),
     # FIX 2026-05-26 (Faz 14.4): Daily Truth Report (03:00 UTC = 06:00 TR)

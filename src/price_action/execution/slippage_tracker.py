@@ -167,6 +167,33 @@ class SlippageTracker:
         fee_bps = fee_usdt / max(notional, 1e-10) * 10_000
         total_cost_bps = slippage_bps + fee_bps
 
+        # FIX 2026-05-28 (Faz 14.27 ORTA C4): outlier auto-quarantine.
+        # Slippage > 100bps = OUTLIER, ayrı alarm + log dosyası.
+        # Önceden P95/P99 hesaplanıyordu ama explicit auto-action yoktu.
+        OUTLIER_BPS_THRESHOLD = 100.0
+        if slippage_bps > OUTLIER_BPS_THRESHOLD:
+            try:
+                from price_action.orchestrator.notifications import push_critical
+                push_critical(
+                    f"⚠️ SLIPPAGE OUTLIER — {symbol} {strategy} {side} "
+                    f"{slippage_bps:.0f}bps > {OUTLIER_BPS_THRESHOLD}bps "
+                    f"(fill_id={fill_id})",
+                    source="slippage_tracker_outlier",
+                )
+            except Exception:
+                pass
+            try:
+                outlier_path = Path("logs/slippage_outliers.jsonl")
+                outlier_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(outlier_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "ts": ts.isoformat(), "fill_id": fill_id,
+                        "symbol": symbol, "strategy": strategy, "side": side,
+                        "slippage_bps": slippage_bps, "notional": notional,
+                    }) + "\n")
+            except Exception:
+                pass
+
         with self._lock:
             con = duckdb.connect(str(self._path))
             # Explicit column names: ALTER TABLE migration sonrası `tf` col tablonun

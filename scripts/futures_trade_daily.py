@@ -131,8 +131,35 @@ def get_futures_exchange():
     return ex
 
 
+# FIX 2026-05-28 (Faz 14.27 ORTA C5): Explicit schema versioning.
+# Önceki bug: schema migration implicit (CREATE TABLE IF NOT EXISTS) →
+# yeni kolon eklenmesi sessizce başarısız oluyordu eski DB'lerde.
+# Şimdi: schema_version tablosu + migration kayıt.
+_JOURNAL_SCHEMA_VERSION = 2  # Faz 14.27 — phantom_symbols + sync_mismatches eklendi
+
 def init_futures_journal():
     con = duckdb.connect(str(JOURNAL))
+    # Schema version meta tablosu
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS schema_version (
+            version INTEGER PRIMARY KEY,
+            migrated_at TIMESTAMP,
+            notes VARCHAR
+        )
+    """)
+    # Mevcut version oku
+    try:
+        cur_ver = con.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
+    except Exception:
+        cur_ver = None
+    if cur_ver is None or cur_ver < _JOURNAL_SCHEMA_VERSION:
+        # Migration kayıt
+        from datetime import datetime as _dt, timezone as _tz
+        con.execute(
+            "INSERT INTO schema_version VALUES (?, ?, ?)",
+            [_JOURNAL_SCHEMA_VERSION, _dt.now(_tz.utc),
+             f"Faz 14.27 schema v{_JOURNAL_SCHEMA_VERSION} migration"],
+        )
     con.execute("""
         CREATE TABLE IF NOT EXISTS futures_signals (
             signal_id VARCHAR PRIMARY KEY,
