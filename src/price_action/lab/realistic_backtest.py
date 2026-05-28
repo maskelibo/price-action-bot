@@ -329,11 +329,13 @@ def format_principal_summary(r: RealisticBacktestResult) -> str:
 
 if __name__ == "__main__":
     import sys
+    # FIX 2026-05-28 (audit-Y2): default eşik _thresholds.py'den
+    from price_action._thresholds import WIDESTOP_SL_PCT_DEFAULT
     # Manuel test — vsa wide-stop (canlı bot config)
     result = run_realistic_backtest(
         hypothesis_id="live-bot-baseline-vsa-widestop",
         base_strategy="vsa_climax_test",
-        sl_pct_threshold=0.025,
+        sl_pct_threshold=WIDESTOP_SL_PCT_DEFAULT,
     )
     if result is None:
         print("Backtest fail")

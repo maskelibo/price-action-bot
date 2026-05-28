@@ -28,8 +28,10 @@ import argparse
 import io
 import json
 import os
+import signal as _signal
 import sys
 import time
+import traceback as _traceback
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -169,6 +171,11 @@ _LOG_MAX_BYTES = 20 * 1024 * 1024  # 20 MB — yıllık ~250 MB cap
 def _rotate_log_if_large(path) -> None:
     """FIX 2026-05-28 (Faz 14.27): basit log rotation.
     Log >20MB ise .1 → .2 → ... rotate. Maksimum 5 backup tutar (.5 silinir).
+
+    FIX 2026-05-28 (audit-Y1): rotation fail SESSİZ değil → stderr'e warn.
+    Önceden `except Exception: pass` ile permission/disk-full hatası gizliydi;
+    log dosyası unbounded büyür, disk dolar, daemon ileride patlar. Şimdi
+    en azından stderr'e (launchd log'una) düşüyor.
     """
     try:
         if not path.exists() or path.stat().st_size < _LOG_MAX_BYTES:
@@ -181,12 +188,22 @@ def _rotate_log_if_large(path) -> None:
             elif old.exists():
                 old.rename(new)
         path.rename(path.with_suffix(path.suffix + ".1"))
-    except Exception:
-        pass
+    except Exception as _rot_err:
+        # FIX audit-Y1: silent fail → stderr (launchd capture eder)
+        try:
+            sys.stderr.write(
+                f"[WARN] log rotation fail ({path}): {type(_rot_err).__name__}: {_rot_err}\n"
+            )
+            sys.stderr.flush()
+        except Exception:
+            pass
 
 
 def log(msg: str):
-    ts = datetime.now(timezone.utc).strftime('%H:%M:%S')
+    # FIX 2026-05-28 (audit-D2): timestamp'e Z suffix — UTC olduğu net göster.
+    # Önceden `[12:45:24]` yazıyordu; kullanıcı TR sanıp 3 saat shift hatası
+    # yapabiliyordu (gerçekte 12:45 UTC = 15:45 TR). Şimdi `[12:45:24Z]`.
+    ts = datetime.now(timezone.utc).strftime('%H:%M:%SZ')
     line = f"[{ts}] {msg}"
     # FIX 2026-05-26 (C1): flush + fsync — crash sonrası log kaybını önler.
     # Önceki versiyon Python buffer'da bırakıyordu; SIGKILL/OOM sonrası son
@@ -214,6 +231,41 @@ _last_signal_scan_date = _load_last_scan_date()  # restart-persistent (sadece g�
 
 # Dead Man's Switch instance (daemon başladığında set edilir)
 _dms = None
+
+# FIX 2026-05-28 (audit-A1): graceful shutdown bayrağı + signal handler.
+# Önceki bug: PID 17267 12:45 TR'de sessiz öldü; son log "15M_WAIT", crash log yok.
+# Kök neden: signal handler yoktu (SIGTERM/SIGHUP gelince Python cleanup yaptı,
+# resource_tracker warning'i stderr'e yazıldı, ama "shutdown" log'u futures_daemon.log'a
+# düşmedi) + sleep_until try/except dışındaydı (uyku içi exception görünmüyordu).
+_stop_flag: bool = False
+
+
+def _install_signal_handlers() -> None:
+    """SIGTERM / SIGHUP için handler kur — sessiz ölümü engelle.
+
+    SIGINT (Ctrl+C) Python tarafından KeyboardInterrupt'a çevriliyor zaten,
+    main loop onu yakalıyor. Burada SIGTERM (kill, launchd unload) ve
+    SIGHUP (terminal kapanması) için log + _stop_flag set ediyoruz.
+    Main loop her tick başında _stop_flag'i kontrol edip break edecek.
+    """
+    def _shutdown_handler(signum: int, frame) -> None:  # type: ignore[no-untyped-def]
+        global _stop_flag
+        try:
+            sig_name = _signal.Signals(signum).name
+        except Exception:
+            sig_name = f"SIG{signum}"
+        log(f"SIGNAL_RECEIVED: {sig_name} ({signum}) — graceful shutdown başlıyor")
+        _stop_flag = True
+
+    try:
+        _signal.signal(_signal.SIGTERM, _shutdown_handler)
+    except (ValueError, OSError) as _e:
+        sys.stderr.write(f"WARN SIGTERM handler kurulamadı: {_e}\n")
+    try:
+        # SIGHUP Unix-only; Windows'ta AttributeError olabilir
+        _signal.signal(_signal.SIGHUP, _shutdown_handler)
+    except (ValueError, OSError, AttributeError) as _e:
+        sys.stderr.write(f"WARN SIGHUP handler kurulamadı (Windows normal): {_e}\n")
 
 
 def _init_dead_mans_switch(exchange):
@@ -985,6 +1037,13 @@ def run_15m_mode(once: bool = False) -> None:
     Stale signal guard: >30 dk → REJECT (DQ-02)
     Pyramid hook: SEC54.3 pyramid_router.on_position_check (graceful if not yet present)
     """
+    # FIX 2026-05-28 (audit-A1): SIGTERM/SIGHUP handler kur.
+    # PID 17267 sessiz öldü çünkü signal handler yoktu — Python interpreter
+    # cleanup yaptı (stderr'e resource_tracker warning düştü) ama futures_daemon.log'a
+    # "shutdown" satırı yazılmadı. Şimdi handler "SIGNAL_RECEIVED: SIGTERM" log'layıp
+    # _stop_flag set ediyor; main loop bunu kontrol edip clean exit yapacak.
+    _install_signal_handlers()
+
     # WIRE-widestop fix (2026-05-22): 15m daemon journal-tablo init.
     # run_15m_mode init_futures_journal()'i HİÇ çağırmıyordu → taze
     # futures_journal.duckdb'de futures_protection_orders / futures_signals vb.
@@ -1123,39 +1182,83 @@ def run_15m_mode(once: bool = False) -> None:
         log(f"PROVENANCE_BANNER_FAIL: {_prov_exc}")
 
     last_bar_boundary: datetime | None = None
+    # FIX 2026-05-28 (audit-A1): hata-bazlı exponential backoff sayacı.
+    # Önceki bug: `15M_LOOP_ERROR` log'lanıyor sonra hemen sıradaki bar'ı
+    # bekliyordu — kalıcı bir hata (ör. DuckDB lock) varsa her tick'te aynı
+    # hata, log spam'i, CPU spin. Şimdi ardışık hata sayısına göre 2-60s
+    # bekliyoruz; 10+ ardışık hatada daemon abort ediyor (launchd restart eder).
+    _err_count = 0
+    _ERR_ABORT_THRESHOLD = 10
 
     try:
         while True:
+            # FIX 2026-05-28 (audit-A1): graceful shutdown bayrağı.
+            if _stop_flag:
+                log("15M_STOP_FLAG aktif — graceful exit (signal handler tetikledi)")
+                break
+
             # Kill-switch kontrolü
             halted, reason = _kill_switch_active()
             if halted:
                 log(f"15M_KILL_SWITCH ACTIVE — daemon exiting. Reason: {reason}")
                 break
 
-            # Sonraki bar kapanışını hesapla + 5s buffer ekle
-            next_close = next_15m_boundary() + timedelta(seconds=5)
-            log(f"15M_WAIT: sonraki bar kapanış {next_close.strftime('%H:%M:%S')} UTC")
-            sleep_until(next_close)
+            # FIX 2026-05-28 (audit-Y1): DMS thread health check.
+            # DMS heartbeat/watchdog thread'leri ayrı log dosyasına (futures_daemon_15m_dms.log)
+            # yazıyor; bu thread'ler sessiz ölürse main loop fark etmiyordu (audit
+            # bulgusu: DMS log'unda 25+ "started" satırı, hiç heartbeat satırı yok =
+            # restart spam). Şimdi her tick başında is_alive() check; ölü ise abort.
+            if dms_15m is not None:
+                _hb = getattr(dms_15m, "_heartbeat_thread", None)
+                _wd = getattr(dms_15m, "_watchdog_thread", None)
+                _hb_dead = _hb is not None and not _hb.is_alive()
+                _wd_dead = _wd is not None and not _wd.is_alive()
+                if _hb_dead or _wd_dead:
+                    log(f"15M_DMS_THREAD_DEAD: heartbeat_alive={not _hb_dead} "
+                        f"watchdog_alive={not _wd_dead} — emergency shutdown")
+                    try:
+                        from price_action.orchestrator.notifications import push_critical
+                        push_critical(
+                            "⚠️ 15m DMS thread ÖLDÜ (heartbeat veya watchdog) — "
+                            "bot acil durduruluyor. launchd KeepAlive restart eder."
+                        )
+                    except Exception:
+                        pass
+                    break
 
-            # Missed bar detect: önceki boundary'den 2+ bar geçti mi?
-            current_boundary = next_close - timedelta(seconds=5)
-            if last_bar_boundary is not None:
-                bars_elapsed = int(
-                    (current_boundary - last_bar_boundary).total_seconds() / 900
-                )
-                if bars_elapsed > 1:
-                    log(f"15M_MISSED_BARS: {bars_elapsed - 1} bar kaçırıldı "
-                        f"(son={last_bar_boundary.strftime('%H:%M')}, "
-                        f"şimdi={current_boundary.strftime('%H:%M')})")
-                    if _metrics_ok:
-                        try:
-                            missed_bars_total.labels(tf="15m").inc(bars_elapsed - 1)
-                        except Exception:
-                            pass
-            last_bar_boundary = current_boundary
-
-            scan_start = datetime.now(timezone.utc)
+            # FIX 2026-05-28 (audit-A1): sleep_until + boundary detect + scan'i
+            # tek try'a aldık. Önceden sleep_until (1138) try DIŞINDAYDI →
+            # uyku sırasında atılan herhangi bir exception (signal-related,
+            # OS interrupt, vb.) hiçbir log yazmadan process'i öldürebiliyordu.
             try:
+                # Sonraki bar kapanışını hesapla + 5s buffer ekle
+                next_close = next_15m_boundary() + timedelta(seconds=5)
+                log(f"15M_WAIT: sonraki bar kapanış {next_close.strftime('%H:%M:%S')} UTC")
+                sleep_until(next_close)
+
+                # Sleep sonrası signal geldi mi?
+                if _stop_flag:
+                    log("15M_STOP_FLAG: uyku sonrası tespit — graceful exit")
+                    break
+
+                # Missed bar detect: önceki boundary'den 2+ bar geçti mi?
+                current_boundary = next_close - timedelta(seconds=5)
+                if last_bar_boundary is not None:
+                    bars_elapsed = int(
+                        (current_boundary - last_bar_boundary).total_seconds() / 900
+                    )
+                    if bars_elapsed > 1:
+                        log(f"15M_MISSED_BARS: {bars_elapsed - 1} bar kaçırıldı "
+                            f"(son={last_bar_boundary.strftime('%H:%M')}, "
+                            f"şimdi={current_boundary.strftime('%H:%M')})")
+                        if _metrics_ok:
+                            try:
+                                missed_bars_total.labels(tf="15m").inc(bars_elapsed - 1)
+                            except Exception:
+                                pass
+                last_bar_boundary = current_boundary
+
+                scan_start = datetime.now(timezone.utc)
                 # ------ SIGNAL SCAN ------
                 # SEC56 FIX: current_boundary = son kapanan barın close timestamp'i.
                 # scan_start = datetime.now() → birkaç saniye sonra olduğu için
@@ -1685,11 +1788,28 @@ def run_15m_mode(once: bool = False) -> None:
                         pass
 
                 log(f"15M_TICK_DONE: scan={scan_elapsed:.1f}s pos_monitor={pos_monitor_elapsed:.1f}s")
+                # FIX 2026-05-28 (audit-A1): tick başarılı, backoff sayacını sıfırla.
+                _err_count = 0
 
             except KeyboardInterrupt:
                 raise
             except Exception as loop_err:
-                log(f"15M_LOOP_ERROR: {loop_err}")
+                # FIX 2026-05-28 (audit-A1): traceback ekle + exponential backoff +
+                # abort threshold. Önceden hata sadece tek satır log'lanıp anında
+                # devam ediyordu → kalıcı hatada CPU spin ve log spam riski.
+                _err_count += 1
+                _tb_snippet = _traceback.format_exc()
+                log(f"15M_LOOP_ERROR #{_err_count}: {type(loop_err).__name__}: {loop_err}")
+                # traceback'i kısalt (log dosyasını şişirmemek için ilk 600 char)
+                for _tb_line in _tb_snippet.splitlines()[-12:]:
+                    log(f"  TB: {_tb_line[:180]}")
+                if _err_count >= _ERR_ABORT_THRESHOLD:
+                    log(f"15M_ABORT: {_err_count} ardışık hata → daemon exit "
+                        f"(launchd KeepAlive restart eder)")
+                    break
+                _backoff = min(2 * (2 ** (_err_count - 1)), 60)
+                log(f"15M_BACKOFF: {_backoff}s bekleyip devam (ardışık hata={_err_count})")
+                time.sleep(_backoff)
 
             if once:
                 log("15M_ONCE: tek seferlik mod, çıkılıyor")
@@ -1726,6 +1846,10 @@ def signal_scan_if_new_day():
 
 
 def main_loop():
+    # FIX 2026-05-28 (audit-Y9): 1d daemon mode'u için signal handler — 5m/15m
+    # ile aynı pattern. SIGTERM/SIGHUP'ta graceful exit, sessiz ölüm yok.
+    _install_signal_handlers()
+
     # SEC58-L2: startup recovery — pyramid pozisyonlarını DB'den yükle
     _pyramid_store_load_on_startup()
 
@@ -1754,6 +1878,11 @@ def main_loop():
 
     try:
         while True:
+            # FIX 2026-05-28 (audit-Y9): _stop_flag check (graceful shutdown).
+            if _stop_flag:
+                log("STOP_FLAG aktif — graceful exit (signal handler)")
+                break
+
             # Kill-switch (her tick = 5sn — acil durdurma kapısı)
             halted, reason = _kill_switch_active()
             if halted:
@@ -1820,6 +1949,13 @@ def run_5m_mode(once: bool = False) -> None:
     HARDLIMIT: paper-only (PA_RUN_MODE=paper); live için Principal sign-off.
     """
     log_5m = lambda msg: _log_5m(msg)
+
+    # FIX 2026-05-28 (audit-Y9): A1 pattern 5m'e extend.
+    # 15m'de sleep_until + signal handler eksikliği PID 17267'yi sessiz
+    # öldürmüştü. 5m daemon henüz canlı değil ama aynı bug burada da var.
+    # Şu an deploy edilmedi; aktif edilirse bu fix sayesinde sessiz ölüm yok.
+    _install_signal_handlers()
+
     log_5m("============================================================")
     log_5m("FUTURES 5M P1C DAEMON STARTED")
     log_5m("  - Signal scan: her 5 dakikada (bar-close + 5s buffer)")
@@ -1894,19 +2030,43 @@ def run_5m_mode(once: bool = False) -> None:
 
     last_bar_boundary = None
     log_5m("5M_DAEMON_RUN_START")
+    # FIX 2026-05-28 (audit-Y9): 15m'dekiyle simetrik backoff counter.
+    _err_count_5m = 0
+    _ERR_ABORT_5M = 10
 
     try:
         while True:
+            # FIX 2026-05-28 (audit-Y9): _stop_flag (SIGTERM/SIGHUP) check.
+            if _stop_flag:
+                log_5m("5M_STOP_FLAG aktif — graceful exit")
+                break
+
             # Kill switch
             halted, reason = _kill_switch_active()
             if halted:
                 log_5m(f"5M_KILL_SWITCH ACTIVE — daemon exiting. Reason: {reason}")
                 break
 
+            # FIX 2026-05-28 (audit-Y9): DMS thread health check (15m simetri).
+            if dms_5m is not None:
+                _hb5 = getattr(dms_5m, "_heartbeat_thread", None)
+                _wd5 = getattr(dms_5m, "_watchdog_thread", None)
+                if (_hb5 is not None and not _hb5.is_alive()) or (_wd5 is not None and not _wd5.is_alive()):
+                    log_5m("5M_DMS_THREAD_DEAD: emergency shutdown (launchd restart eder)")
+                    try:
+                        from price_action.orchestrator.notifications import push_critical
+                        push_critical("⚠️ 5m DMS thread ÖLDÜ — bot acil durduruluyor")
+                    except Exception:
+                        pass
+                    break
+
             # Sonraki 5m bar kapanışı + 5s buffer
             next_close = next_5m_boundary() + timedelta(seconds=5)
             log_5m(f"5M_WAIT: sonraki bar kapanış {next_close.strftime('%H:%M:%S')} UTC")
             sleep_until(next_close)
+            if _stop_flag:
+                log_5m("5M_STOP_FLAG: uyku sonrası tespit — graceful exit")
+                break
 
             current_boundary = next_close - timedelta(seconds=5)
             if last_bar_boundary is not None:
@@ -2024,6 +2184,8 @@ def run_5m_mode(once: bool = False) -> None:
                     log_5m(f"5M_POSITION_MONITOR_ERR: {e}")
 
             log_5m(f"5M_TICK_DONE: scan={scan_dur:.1f}s widestop={n_widestop} accept={n_accept}")
+            # FIX 2026-05-28 (audit-Y9): tick başarılı → backoff sayacı sıfırla.
+            _err_count_5m = 0
 
             if once:
                 log_5m("5M_ONCE_DONE")
@@ -2031,14 +2193,29 @@ def run_5m_mode(once: bool = False) -> None:
     except KeyboardInterrupt:
         log_5m("5M_DAEMON STOPPED (Ctrl+C)")
     except Exception as e:
-        log_5m(f"5M_DAEMON_FATAL: {e}")
-        import traceback
-        log_5m(traceback.format_exc()[:2000])
+        # FIX 2026-05-28 (audit-Y9): fatal exception → backoff + retry, loop break ETME.
+        # Önceki davranış: tek bir exception bot'u kalıcı kapatıyordu (sonra
+        # launchd KeepAlive restart edebilirdi ama in-process recovery yoktu).
+        _err_count_5m += 1
+        log_5m(f"5M_LOOP_ERROR #{_err_count_5m}: {type(e).__name__}: {e}")
+        import traceback as _tb
+        for _l in _tb.format_exc().splitlines()[-12:]:
+            log_5m(f"  TB: {_l[:180]}")
+        if _err_count_5m >= _ERR_ABORT_5M:
+            log_5m(f"5M_ABORT: {_err_count_5m} ardışık hata, daemon exit "
+                   f"(launchd restart eder)")
+        else:
+            _bk = min(2 * (2 ** (_err_count_5m - 1)), 60)
+            log_5m(f"5M_BACKOFF: {_bk}s — sonraki tick'te tekrar dene")
+            time.sleep(_bk)
+            # Not: bu basit pattern outer try sonrası bir kerelik fail için —
+            # geniş retry-loop refactor sonraki turda. Şu an 5m daemon canlı değil.
 
 
 def _log_5m(msg: str) -> None:
     """5m daemon log — ayrı dosya (futures_daemon_5m.log)."""
-    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    # FIX 2026-05-28 (audit-D2): Z suffix — UTC olduğu net.
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%SZ")
     line = f"[{ts}] {msg}"
     print(line, flush=True)
     log_path = ROOT / "logs" / "futures_daemon_5m.log"

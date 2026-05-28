@@ -24,7 +24,17 @@ venv/
 /data/
 !/data/.gitkeep
 !/data/README.md
+# FIX 2026-05-28 (audit-Y7): pool_manifest.json kod tarafından okunan
+# aktif-pool tek-kaynak — repo'da tutulmalı, /data/ ignore'una kurban gitmesin.
+!/data/pool_manifest.json
+# Test fixtures opsiyonel — gelecekte küçük örneklerin CI'da kullanılabilmesi için.
+!/data/test_fixtures/
 artifacts/
+# FIX 2026-05-28 (audit-F1): archive/ klasörü eski dosya saklama alanı.
+# Git history'de zaten varlar; tekrar track etmek disk'te 2× kopya doğurur +
+# eski archive dosyaları typo hook'larını trigger ediyor. Disk'te kalsın,
+# git takip etmesin.
+archive/
 reports/*
 !reports/PRODUCTION_BENCHMARK.md
 logs/

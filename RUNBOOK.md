@@ -23,7 +23,7 @@
 #    uv: https://github.com/astral-sh/uv
 
 # 2) Bağımlılıkları kur
-cd "C:\Users\koray\projeler\Price Action"
+cd /path/to/price-action-bot   # macOS/Linux: typically ~/price-action-bot
 uv sync
 
 # 3) .env hazırla
@@ -396,7 +396,7 @@ PA_PAPER_MAX_LEVERAGE=5
 ### Adım 2: Çevre Hazırlığı
 
 ```bash
-cd "C:\Users\koray\projeler\Price Action"
+cd /path/to/price-action-bot   # macOS/Linux: typically ~/price-action-bot
 
 # Loglar ve data klasörlerini oluştur (script otomatik oluşturur ama elle de yapılabilir)
 mkdir -p logs/execution logs/risk data reports/paper

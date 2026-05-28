@@ -164,22 +164,54 @@ class P1cWalker:
         FIX 2026-05-28 (Faz 14.27 C2-3): Önceki bug: JSON corruption (partial
         write crash) → tamamen sıfırdan başla → equity + trades KAYIP. Şimdi
         .bak yedek deniyor önce.
+
+        FIX 2026-05-28 (audit-A4): Hem .json hem .bak corrupt VE state file
+        zaten varsa (yani daha önce live olmuş bir bot'un state'i bozulmuşsa)
+        → initial_capital'a SESSİZ düşmek yerine CRITICAL alert + raise.
+        Sessiz $1000 fallback gerçek $5000 equity'yi 5x undersize sizing'e
+        yol açıyordu. Şimdi sistem duruyor, operator manuel intervention.
+
+        Yalnızca state file HİÇ yoksa (ilk kez başlatma) initial_capital
+        kullan — bu legitime ilk-kurulum case'i.
         """
-        for path in (_STATE_FILE, _STATE_FILE.with_suffix(_STATE_FILE.suffix + ".bak")):
+        state_file = _STATE_FILE
+        bak_file = _STATE_FILE.with_suffix(_STATE_FILE.suffix + ".bak")
+
+        # Önce .json sonra .bak — başarılı parse varsa dön
+        for path in (state_file, bak_file):
             if path.exists():
                 try:
                     return json.loads(path.read_text(encoding="utf-8"))
                 except Exception:
                     continue  # corrupt, .bak'ı dene
-        return {
-            "equity_usdt": self.config.initial_capital,
-            "trades": [],            # close olmuş trade'lerin listesi
-            "last_loss_times": [],   # son N loss timestamp'leri (3-loss halt için)
-            "halts": [],             # aktif halt'lar (release_at, reason)
-            "open_positions": {},    # symbol → position dict (per_symbol_cap için)
-            "mtd_pnl": 0.0,          # month-to-date realized PnL
-            "mtd_month": None,       # "YYYY-MM" — ay değişince reset
-        }
+
+        # State file hiç yok → ilk kurulum, initial_capital ile başla (güvenli)
+        if not state_file.exists() and not bak_file.exists():
+            return {
+                "equity_usdt": self.config.initial_capital,
+                "trades": [],
+                "last_loss_times": [],
+                "halts": [],
+                "open_positions": {},
+                "mtd_pnl": 0.0,
+                "mtd_month": None,
+            }
+
+        # State file VAR ama parse edilemiyor → CORRUPT, sessiz reset TEHLİKELİ
+        # (önceki equity bilinmiyor, initial_capital'a düşmek 5x undersize riski)
+        msg = (
+            f"P1C_WALKER_STATE_CORRUPT: hem {state_file.name} hem {bak_file.name} "
+            f"parse edilemedi. initial_capital'a sessiz reset RİSKLİ — sistem "
+            f"durdurulup manuel kurtarma gerekli. State file mtime: "
+            f"{state_file.stat().st_mtime if state_file.exists() else 'N/A'}"
+        )
+        # Telegram critical alert (best-effort, fail tolerated)
+        try:
+            from price_action.orchestrator.notifications import push_critical
+            push_critical(f"⚠️ P1c walker state CORRUPT — manuel kurtarma şart. {msg}")
+        except Exception:
+            pass
+        raise RuntimeError(msg)
 
     def _save_state(self) -> None:
         """Atomic write — tempfile + rename, eski state .bak'a backup.

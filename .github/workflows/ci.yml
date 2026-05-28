@@ -53,27 +53,105 @@ jobs:
         run: |
           mypy --install-types --non-interactive src/price_action/analytics src/price_action/ml src/price_action/api src/price_action/cli.py || true
 
-      - name: Pytest (core 6 + faz14.27)
+      # FIX 2026-05-28 (audit-Y6): core suite'e coverage enforcement eklendi.
+      # Önceki bug: pyproject.toml fail_under=70 ayarlıydı ama pytest-cov
+      # CI'de hiç çağrılmıyordu → coverage düşse de CI green. Şimdi blocking.
+      - name: Pytest (core 6 + faz14.27 + coverage gate)
         run: |
           pytest tests/test_kpi.py tests/test_journal.py tests/test_drift.py \
                  tests/test_postmortem.py tests/test_api.py tests/test_cli.py \
                  tests/test_faz14_27_audit_fixes.py \
+                 --cov=src/price_action \
+                 --cov-report=term-missing:skip-covered \
+                 --cov-report=xml \
+                 --cov-fail-under=70 \
                  -v --maxfail=5
 
-      - name: Pytest (full suite — ignore heavy deps)
-        # FIX 2026-05-28 (Faz 14.27 C7): tüm test suite
-        # Önceden sadece 6 hardcoded test (1915'ten) çalışıyordu.
-        # xgboost/talib/vectorbt requiring tests skip (CI light deps).
+      # FIX 2026-05-28 (audit-A10): full suite eskiden `|| true` + `continue-on-error: true`
+      # ikilisi ile SESSİZ FAIL ediyordu — "CI passed" yalan beyan üretiyordu.
+      # Yeni yapı:
+      #   1) `--co` (collect-only) zaten yukarıdaki `Pytest (core)` step'i içinde değil,
+      #      ama buradaki ilk `--co -q` collection-only'di → kaldırıldı (collection
+      #      her zaman geçer, yanıltıcı).
+      #   2) Gerçek pytest çağrısı dosyaya tee'lenecek, çıktı görünür.
+      #   3) `continue-on-error: true` korunuyor (full suite henüz green değil)
+      #      ama `|| true` kaldırıldı → exit code görünür hâlde job summary'e düşecek.
+      #   4) Artifact upload: test_results.txt → failure forensics.
+      - name: Pytest (full suite — INFORMATIONAL, exit code görünür)
+        id: pytest_full
         run: |
+          set +e
           pytest tests/ \
             --ignore=tests/test_ml_meta_labeler.py \
             --ignore=tests/test_xgboost_features.py \
-            -v --maxfail=20 --co -q | tail -50
-          pytest tests/ \
-            --ignore=tests/test_ml_meta_labeler.py \
-            --ignore=tests/test_xgboost_features.py \
-            --maxfail=20 -q 2>&1 | tail -30 || true
-        continue-on-error: true   # full suite henüz green değil (audit kalan)
+            --maxfail=20 -q 2>&1 | tee test_results_full.txt
+          _ec=${PIPESTATUS[0]}
+          echo "pytest_full_exit_code=$_ec" >> "$GITHUB_OUTPUT"
+          echo "----- exit code: $_ec -----"
+          if [ "$_ec" -ne 0 ]; then
+            echo "::warning::Full suite exit=$_ec (informational, not blocking core)"
+          fi
+          exit 0   # informational; core suite yukarıda blocking
+        continue-on-error: true
+
+      - name: Upload full-suite test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-suite-test-results
+          path: test_results_full.txt
+          retention-days: 14
+
+  integration-tests:
+    # FIX 2026-05-28 (audit-Y6): integration test'ler ayrı job, informational.
+    # Önceki bug: conftest.py PA_RUN_INTEGRATION yokken integration'ları SKIP
+    # ediyordu; CI'de bu env hiç set değildi → integration testler hiç
+    # koşmuyordu (silent landmine — yeni breaker entegrasyonu broken görünür
+    # ama CI green). Şimdi: ayrı job, network errors olabilir, blocking değil
+    # ama exit code ve artifact görünür.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: lint-and-test  # core PASS sonrası
+
+    env:
+      PYTHONUNBUFFERED: "1"
+      LOG_LEVEL: WARNING
+      PA_RUN_INTEGRATION: "1"
+      PA_RUN_LIVE: ""
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install deps (CI light)
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            "numpy>=1.26" "pandas>=2.2" "pyarrow>=15" "duckdb>=1.0" \
+            "pydantic>=2.7" "pydantic-settings>=2.3" "pyyaml>=6.0" \
+            "loguru>=0.7" "pytest>=8.3" "pytest-asyncio"
+      - name: Integration tests (informational, network may fail)
+        id: integration
+        continue-on-error: true
+        run: |
+          set +e
+          pytest tests/ -m integration -v --tb=short 2>&1 | tee integration_results.txt
+          _ec=${PIPESTATUS[0]}
+          echo "exit_code=$_ec" >> "$GITHUB_OUTPUT"
+          if [ "$_ec" -ne 0 ]; then
+            echo "::warning::Integration tests exit=$_ec (informational)"
+          fi
+          exit 0
+      - name: Upload integration results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: integration_results.txt
+          retention-days: 14
 
   security:
     # FIX 2026-05-28 (Faz 14.27 C7): Security scanning jobu.

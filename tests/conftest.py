@@ -81,6 +81,47 @@ def random_ohlcv() -> pd.DataFrame:
 
 
 @pytest.fixture
+def backtest_ready_ohlcv(random_ohlcv) -> pd.DataFrame:
+    """FIX 2026-05-28 (audit-Y8): backtest-ready fixture.
+
+    Audit'in tespit ettiği "feature divergence backtest/live" sorununa karşı:
+    strateji testlerinde prepare_features() inline çağırmak yerine, fixture'ı
+    feature'larla zenginleştirilmiş olarak ver. Bu sayede:
+      1) Strategy test'leri prepare_features path'i değil generate_signals
+         logic'i ölçer (gerçek hedef).
+      2) Backtest engine'in pre-compute path'ini simüle eder (production tutarlı).
+      3) Feature column'lar eksikse strategy hangi default'a düşüyor görünür.
+
+    Eklenen feature'lar: atr14, ema_fast (20), ema_slow (50), rsi14, hl_range.
+    """
+    df = random_ohlcv.copy()
+    n = len(df)
+    # ATR14 — basit gerçek formula (TR rolling mean)
+    high = df["high"].to_numpy()
+    low = df["low"].to_numpy()
+    close = df["close"].to_numpy()
+    tr = np.maximum.reduce([
+        high - low,
+        np.abs(high - np.roll(close, 1)),
+        np.abs(low - np.roll(close, 1)),
+    ])
+    tr[0] = high[0] - low[0]  # ilk bar boş wraparound — TR=range
+    df["atr14"] = pd.Series(tr).rolling(14, min_periods=1).mean().values
+    # EMA fast/slow
+    df["ema_fast"] = df["close"].ewm(span=20, adjust=False).mean()
+    df["ema_slow"] = df["close"].ewm(span=50, adjust=False).mean()
+    # RSI14 (Wilder)
+    delta = df["close"].diff()
+    gain = delta.clip(lower=0).rolling(14, min_periods=1).mean()
+    loss = (-delta.clip(upper=0)).rolling(14, min_periods=1).mean()
+    rs = gain / loss.replace(0, np.nan)
+    df["rsi14"] = (100 - (100 / (1 + rs))).fillna(50.0)
+    # Range
+    df["hl_range"] = df["high"] - df["low"]
+    return df
+
+
+@pytest.fixture
 def bullish_pin_bar_df() -> pd.DataFrame:
     """Tek bullish pin bar içeren manuel kurgu OHLCV (5 bar)."""
     bars = [

@@ -75,6 +75,15 @@ def _build_ccxt(venue: str, *, market_type: str = "future") -> Any:  # pragma: n
     return getattr(ccxt, venue)(opts)
 
 
+# FIX 2026-05-28 (audit-A8): symbol-bazlı circuit breaker state.
+# Önceki kod: max_retries=5 (default) → 16s max wait. Borsa API storm'unda
+# (3x liq, volatile event) >60s 429 yaşanır → ingest hard-fail, gelecek
+# saat tekrar dener (1h gap). Şimdi: max_retries=10 (512s max), +
+# 3 ardışık fail → o sembolü 1h skip et (diğerlerini etkilemez).
+_CB_FAILURE_COUNT: dict[str, int] = {}
+_CB_SKIP_UNTIL: dict[str, float] = {}
+
+
 def _fetch_with_retry(
     exchange: Any,
     symbol: str,
@@ -82,19 +91,50 @@ def _fetch_with_retry(
     since_ms: int,
     limit: int = 1000,
     *,
-    max_retries: int = 5,
+    max_retries: int = 10,
     base_backoff: float = 1.0,
 ) -> list[list[Any]]:  # pragma: no cover - integration
-    """`fetch_ohlcv` rate-limit guard + exponential backoff."""
+    """`fetch_ohlcv` rate-limit guard + exponential backoff + circuit breaker.
+
+    FIX 2026-05-28 (audit-A8):
+    - max_retries 5 → 10 (16s → 512s max wait, borsa storm dayanıklı)
+    - Symbol-bazlı circuit breaker: 3 ardışık fail → 1h skip
+    - Başarı → CB sayacı reset
+    """
+    import time as _t
+    cb_key = f"{getattr(exchange, 'id', 'unknown')}:{symbol}:{timeframe}"
+
+    # Circuit breaker check
+    _skip_until = _CB_SKIP_UNTIL.get(cb_key, 0.0)
+    if _skip_until > _t.time():
+        _rem = int(_skip_until - _t.time())
+        logger.bind(symbol=symbol, tf=timeframe, remaining_s=_rem).warning(
+            "ingest.circuit_open_skip"
+        )
+        raise RuntimeError(
+            f"circuit breaker open: {cb_key} (3+ ardışık fail, {_rem}s kaldı)"
+        )
+
     attempt = 0
     while True:
         try:
-            return exchange.fetch_ohlcv(symbol, timeframe=timeframe, since=since_ms, limit=limit)
+            result = exchange.fetch_ohlcv(symbol, timeframe=timeframe, since=since_ms, limit=limit)
+            # Başarı → CB sayacı sıfırla
+            _CB_FAILURE_COUNT[cb_key] = 0
+            return result
         except Exception as exc:
             cls = exc.__class__.__name__.lower()
-            transient = "ratelimit" in cls or "timeout" in cls or "ddos" in cls
+            transient = "ratelimit" in cls or "timeout" in cls or "ddos" in cls or "network" in cls
             attempt += 1
             if attempt > max_retries or not transient:
+                # Final fail → CB sayacı artır, threshold'da 1h skip
+                _CB_FAILURE_COUNT[cb_key] = _CB_FAILURE_COUNT.get(cb_key, 0) + 1
+                if _CB_FAILURE_COUNT[cb_key] >= 3:
+                    _CB_SKIP_UNTIL[cb_key] = _t.time() + 3600  # 1h skip
+                    logger.bind(
+                        symbol=symbol, tf=timeframe,
+                        consecutive_fails=_CB_FAILURE_COUNT[cb_key],
+                    ).error("ingest.circuit_open_armed")
                 logger.bind(symbol=symbol, tf=timeframe, err=str(exc)).error("ingest.fetch_fail")
                 raise
             delay = base_backoff * (2 ** (attempt - 1))
@@ -142,7 +182,15 @@ def ingest_symbol(
 
     last = store.last_ts(venue, symbol, timeframe)
     if last is not None:
-        since = last + timedelta(milliseconds=_TF_MS[timeframe])
+        # FIX 2026-05-28 (audit-A7): overlap pattern — last_ts'den 50 bar geri.
+        # Önceki bug: last + 1*tf'den başlıyordu, ccxt herhangi bir bar'ı miss
+        # ederse (rate-limit, network, exchange) gap kalıcı oluyordu (5 MISSED
+        # bar log'da görüldü). Quality check gap'i tespit ediyor ama backfill
+        # yapmıyordu. 50 bar overlap → PK dedupe ile (DELETE+INSERT pattern)
+        # otomatik gap doldurma. Network maliyeti: her incremental ingest'te
+        # ~50 row ekstra (negligible). İlk backfill (last is None) değişmedi.
+        _overlap_bars = 50
+        since = last - timedelta(milliseconds=_TF_MS[timeframe] * _overlap_bars)
     else:
         since = datetime.now(timezone.utc) - timedelta(days=365 * years)
     since_ms = _to_utc_ms(since)

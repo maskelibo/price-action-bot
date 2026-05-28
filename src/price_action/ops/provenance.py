@@ -114,7 +114,13 @@ def format_banner(provenance: dict[str, Any], *, component: str) -> str:
     if provenance.get("risk_per_trade") is not None:
         lines.append(f"  risk_per_trade:   {provenance['risk_per_trade']}")
     if provenance.get("sl_pct_min") is not None:
-        wide = "✅ WIDESTOP AKTİF" if float(provenance["sl_pct_min"] or 0) >= 0.025 else "❌ widestop yok"
+        # FIX 2026-05-28 (audit-Y2): banner threshold _thresholds.py'den.
+        from price_action._thresholds import WIDESTOP_SL_PCT_DEFAULT
+        wide = (
+            "✅ WIDESTOP AKTİF"
+            if float(provenance["sl_pct_min"] or 0) >= WIDESTOP_SL_PCT_DEFAULT
+            else "❌ widestop yok"
+        )
         lines.append(f"  sl_pct_min:       {provenance['sl_pct_min']}  ({wide})")
     if provenance.get("leverage_max") is not None:
         lines.append(f"  leverage_max:     {provenance['leverage_max']}x")

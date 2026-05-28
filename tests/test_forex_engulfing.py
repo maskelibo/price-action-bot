@@ -24,6 +24,14 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+# FIX 2026-05-28 (audit-F7): yfinance opsiyonel dep, dev/prod'da kurulu olmayabilir.
+# Önceden test'ler import time crash ediyordu — şimdi yfinance yoksa skip.
+# 7 fail (TestYfinance*, TestForexManifest, TestForexBacktestSmoke) bu sebepten.
+yfinance = pytest.importorskip(
+    "yfinance",
+    reason="yfinance opsiyonel dep — pip install yfinance ile test'ler aktif olur",
+)
+
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 

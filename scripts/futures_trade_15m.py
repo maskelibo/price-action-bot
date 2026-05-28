@@ -74,6 +74,51 @@ TF = "15m"
 _DEFAULT_PARALLEL_WORKERS = 8
 _SCAN_SYMBOL_TIMEOUT_SEC = 180  # AVWAP worst-case budget
 
+# FIX 2026-05-28 (audit-FIX-VER3-2): per-scan read_fail counter (thread-safe).
+# scan_signals_15m başında reset, _scan_symbol fail'lerinde artar, sonunda
+# sayım stderr'e yansır (launchd futures15m.stderr.log → operatör görür).
+import threading as _thr
+_READ_FAIL_LOCK = _thr.Lock()
+_READ_FAIL_COUNT: int = 0
+_READ_FAIL_SAMPLES: list[str] = []
+
+
+def _record_read_fail(sym: str, exc: Exception) -> None:
+    """Thread-safe: read_fail sayım + ilk 3 örneği topla."""
+    global _READ_FAIL_COUNT
+    with _READ_FAIL_LOCK:
+        _READ_FAIL_COUNT += 1
+        if len(_READ_FAIL_SAMPLES) < 3:
+            _READ_FAIL_SAMPLES.append(f"{sym}: {type(exc).__name__}: {str(exc)[:120]}")
+
+
+def _reset_read_fail_state() -> None:
+    """scan_signals_15m başlangıcında çağrılır."""
+    global _READ_FAIL_COUNT
+    with _READ_FAIL_LOCK:
+        _READ_FAIL_COUNT = 0
+        _READ_FAIL_SAMPLES.clear()
+
+
+def _emit_read_fail_summary(n_syms: int) -> None:
+    """scan_signals_15m sonunda — fail varsa stderr'e özet yaz."""
+    with _READ_FAIL_LOCK:
+        if _READ_FAIL_COUNT == 0:
+            return
+        msg = (
+            f"[SCAN15M_READ_FAIL] {_READ_FAIL_COUNT}/{n_syms} sembol DB read fail "
+            f"(silent — sinyaller kayıp olabilir)"
+        )
+        if _READ_FAIL_SAMPLES:
+            msg += " | örnekler: " + " || ".join(_READ_FAIL_SAMPLES[:2])
+    try:
+        import sys as _sys
+        _sys.stderr.write(msg + "\n")
+        _sys.stderr.flush()
+    except Exception:
+        pass
+
+
 def _get_parallel_workers() -> int:
     """PA_SCAN_PARALLEL_WORKERS env var ile override; default 8."""
     try:
@@ -267,6 +312,16 @@ def _scan_symbol(sym: str, target_bar_close: pd.Timestamp) -> list[dict]:
         df = store.read(sym, TF, venue="binance")
     except Exception as exc:
         logger.bind(symbol=sym, err=str(exc)).error("scan15m._scan_symbol.read_fail")
+        # FIX 2026-05-28 (audit-FIX-VER3-2): silent fail visibility.
+        # Önceki bug: read_fail sadece app.log'a düşüyordu, futures_daemon.log
+        # temiz görünüyordu → operatör "0 sinyal, latency=0.0s" görüyor
+        # "piyasa darı" sanıyordu. Gerçekte 50 sembol × her tick read fail.
+        # Şimdi: thread-safe counter, scan_signals_15m sonunda stderr'e özet
+        # (launchd futures15m.stderr.log'a düşer, operatör görür).
+        try:
+            _record_read_fail(sym, exc)
+        except Exception:
+            pass
         return sym_signals
 
     if df is None or df.empty:
@@ -408,6 +463,9 @@ def scan_signals_15m(
     """
     workers = max_workers if max_workers is not None else _get_parallel_workers()
 
+    # FIX 2026-05-28 (audit-FIX-VER3-2): read_fail counter reset her scan başında.
+    _reset_read_fail_state()
+
     # target_bar_close'u pd.Timestamp UTC'ye normalize et (comparison için)
     tbc = pd.Timestamp(target_bar_close)
     if tbc.tzinfo is None:
@@ -444,6 +502,9 @@ def scan_signals_15m(
 
     # Deterministik sıra: ts, sonra sembol alfabetik (max_workers bağımsız)
     all_signals.sort(key=lambda s: (s["ts"], s["symbol"]))
+
+    # FIX 2026-05-28 (audit-FIX-VER3-2): read_fail summary stderr → operatör görür.
+    _emit_read_fail_summary(n_syms=len(SYMBOLS))
 
     logger.bind(
         tf=TF,

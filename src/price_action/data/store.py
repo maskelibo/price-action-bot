@@ -31,8 +31,9 @@ from price_action.settings import get_settings
 # against the same file. We mitigate by maintaining a per-path singleton
 # connection guarded by an RLock; all reads/writes serialize through it.
 
-_CONN_POOL: dict[str, duckdb.DuckDBPyConnection] = {}
-_CONN_LOCKS: dict[str, threading.RLock] = {}
+_CONN_POOL: dict[str, list[duckdb.DuckDBPyConnection]] = {}
+_CONN_LOCKS: dict[str, list[threading.RLock]] = {}
+_POOL_RR_INDEX: dict[str, int] = {}  # round-robin counter
 _POOL_GUARD = threading.Lock()
 
 
@@ -42,29 +43,91 @@ def _get_pooled_connection(path: str) -> tuple[duckdb.DuckDBPyConnection, thread
     Faz 5.2 fix: 5m bot 15m bot ile aynı market.duckdb'yi okuyor; DuckDB
     exclusive lock conflict yaşıyor. PA_DUCKDB_READ_ONLY=true scan-only
     bot'lar (5m) için — birden fazla process aynı anda RO açabilir.
+
+    FIX 2026-05-28 (audit-A6): Read-only modda pool size > 1 destek (default 4).
+    Önceki bug: 8-thread signal scan tek conn + RLock üzerinden seri çalışıyordu;
+    paralelizmin faydası yoktu (scan latency 6-8s). Read-only modda DuckDB
+    aynı dosyaya birden fazla conn açabiliyor → gerçek concurrent read.
+    Write modda exclusive lock zorunlu, pool size=1 zorlanıyor.
+    PA_DUCKDB_POOL_SIZE env ile override edilebilir; Windows'ta 1'e zorla
+    (DuckDB Windows-specific lock issue'leri için defensive).
     """
     import os as _os
+    import platform as _platform
     read_only = _os.environ.get("PA_DUCKDB_READ_ONLY", "").lower() in ("1", "true", "yes")
+    # Pool size: write mode → 1 zorunlu, read mode → env (default 4)
+    if not read_only:
+        pool_size = 1
+    elif _platform.system() == "Windows":
+        pool_size = 1  # Windows DuckDB lock semantics gevşek; defensive
+    else:
+        try:
+            pool_size = max(1, int(_os.environ.get("PA_DUCKDB_POOL_SIZE", "4")))
+        except ValueError:
+            pool_size = 4
+
     with _POOL_GUARD:
         if path not in _CONN_POOL:
-            if read_only:
-                _CONN_POOL[path] = duckdb.connect(path, read_only=True)
-            else:
-                _CONN_POOL[path] = duckdb.connect(path)
-            _CONN_LOCKS[path] = threading.RLock()
-        return _CONN_POOL[path], _CONN_LOCKS[path]
+            conns: list[duckdb.DuckDBPyConnection] = []
+            locks: list[threading.RLock] = []
+            for _ in range(pool_size):
+                if read_only:
+                    conns.append(duckdb.connect(path, read_only=True))
+                else:
+                    conns.append(duckdb.connect(path))
+                locks.append(threading.RLock())
+            _CONN_POOL[path] = conns
+            _CONN_LOCKS[path] = locks
+            _POOL_RR_INDEX[path] = 0
+        # Round-robin pick
+        idx = _POOL_RR_INDEX[path] % len(_CONN_POOL[path])
+        _POOL_RR_INDEX[path] = (idx + 1) % len(_CONN_POOL[path])
+        return _CONN_POOL[path][idx], _CONN_LOCKS[path][idx]
 
 
 def reset_store_pool() -> None:
     """Test fixture'larında kullanılır — pooled bağlantıları kapat."""
     with _POOL_GUARD:
-        for con in list(_CONN_POOL.values()):
-            try:
-                con.close()
-            except Exception:  # pragma: no cover
-                pass
+        for conns in list(_CONN_POOL.values()):
+            for con in conns:
+                try:
+                    con.close()
+                except Exception:  # pragma: no cover
+                    pass
         _CONN_POOL.clear()
         _CONN_LOCKS.clear()
+        _POOL_RR_INDEX.clear()
+
+
+def exec_with_checkpoint(
+    con: duckdb.DuckDBPyConnection,
+    sql: str,
+    params: list | tuple | None = None,
+) -> None:
+    """FIX 2026-05-28 (audit-F4): merkezi WAL-safe write wrapper.
+
+    `con.execute(sql, params)` çağrısı sonrası `CHECKPOINT` çağırır.
+    Önceki bug: CHECKPOINT sadece `ohlcv.upsert()` (A5 fix) eklenmişti;
+    idempotency.mark, pyramid_store.upsert, slippage_tracker.record_fill,
+    futures_trades_closed INSERT vb. çağrılar WAL büyümesine + hard kill
+    sonrası replay riskine açıktı. Bu wrapper merkezi koruma sağlar.
+
+    Kullanım:
+        with store._conn() as con:
+            exec_with_checkpoint(con, "INSERT INTO foo VALUES (?)", [42])
+
+    Maliyet: her checkpoint ~5-50ms (DuckDB doc), kabul edilebilir.
+    Read-only conn'da no-op (CHECKPOINT zaten geçersiz olur, try-swallow).
+    """
+    if params is None:
+        con.execute(sql)
+    else:
+        con.execute(sql, params)
+    try:
+        con.execute("CHECKPOINT")
+    except Exception:
+        # Read-only mode veya tx open ise CHECKPOINT fail eder — kabul
+        pass
 
 OHLCV_COLUMNS: tuple[str, ...] = (
     "venue",
@@ -170,6 +233,14 @@ class OHLCVStore:
                 "CREATE INDEX IF NOT EXISTS idx_ohlcv_lookup "
                 "ON ohlcv (venue, symbol, timeframe, ts);"
             )
+            # FIX 2026-05-28 (audit-Y4): MAX(ts) sorguları için DESC index.
+            # last_ts() ingest tarafından her saat 50 sembol × 3 TF = 150 kez
+            # çağrılıyor. Mevcut ASC index MAX için yardımcı oluyor ama DESC
+            # doğrudan index seek yapar (~10ms → <1ms per query).
+            con.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ohlcv_last_ts "
+                "ON ohlcv (venue, symbol, timeframe, ts DESC);"
+            )
 
     # ----- Read ------------------------------------------------------
     def read(
@@ -256,6 +327,15 @@ class OHLCVStore:
                     "SELECT venue, symbol, timeframe, ts, open, high, low, close, volume FROM staging_df;"
                 )
                 con.execute("COMMIT")
+                # FIX 2026-05-28 (audit-A5): COMMIT sonrası CHECKPOINT — WAL'ı
+                # ana dosyaya flush et. DuckDB'de transaction commit ACID ama WAL
+                # büyük tutuluyor (8.5MB market.duckdb.wal görüldü) → hard kill
+                # sonrası WAL replay'i bozuk olabilir. CHECKPOINT durability garantisi.
+                # Maliyet: ingest hourly, latency artışı kabul edilebilir.
+                try:
+                    con.execute("CHECKPOINT")
+                except Exception as _ckpt_err:
+                    logger.bind(err=str(_ckpt_err)).warning("ohlcv.checkpoint_fail")
             except Exception:
                 con.execute("ROLLBACK")
                 raise
@@ -309,7 +389,25 @@ class OHLCVStore:
                 merged = merged.sort_values("ts")
             else:
                 merged = new_part.sort_values("ts")
-            merged.to_parquet(file_path, index=False)
+            # FIX 2026-05-28 (audit-A5): atomic parquet write — tmp + os.replace.
+            # Önceki kod doğrudan file_path'e yazıyordu → mid-write crash yarım
+            # parquet bırakırdı, read tarafı ParquetException atardı + dosya
+            # silinene kadar veri kaybı. Şimdi: temp file'a yaz, sonra atomic
+            # rename (POSIX guarantee). Crash anında file_path ya eski versiyon
+            # ya da tam yeni — yarı asla.
+            import os as _os
+            tmp_path = file_path.with_suffix(".parquet.tmp")
+            try:
+                merged.to_parquet(tmp_path, index=False)
+                _os.replace(tmp_path, file_path)  # atomic
+            except Exception:
+                # Cleanup tmp dosya
+                try:
+                    if tmp_path.exists():
+                        tmp_path.unlink()
+                except OSError:
+                    pass
+                raise
 
     # ----- Instruments table ----------------------------------------
     def upsert_instruments(self, rows: list[dict[str, Any]]) -> int:

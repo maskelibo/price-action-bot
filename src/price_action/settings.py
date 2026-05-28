@@ -40,7 +40,11 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     postgres_db: str = "price_action"
     postgres_user: str = "pa"
-    postgres_password: str = "changeme_in_real_env"
+    # FIX 2026-05-28 (audit-D1): default empty string (eski "changeme_in_real_env"
+    # placeholder pratikte kullanılabilir bir default'tu → docker-compose ile
+    # silent çalışıyordu, prod'a sızabilirdi). Şimdi boş; postgres bağlanmaya
+    # çalışan kod `get_postgres_dsn()` üzerinden geçecek + boşsa ValueError.
+    postgres_password: str = ""
 
     duckdb_path: Path = ROOT_DIR / "data" / "market.duckdb"
     parquet_root: Path = ROOT_DIR / "data" / "parquet"
@@ -106,6 +110,16 @@ class Settings(BaseSettings):
 
     @property
     def postgres_dsn(self) -> str:
+        # FIX 2026-05-28 (audit-D1): boş password ile DSN oluşturma → açık hata.
+        # Eski default "changeme_in_real_env" ile DSN üretilince Postgres bağlantısı
+        # "auth fail" hatası veriyordu (sebebi belirsiz). Şimdi explicit:
+        # POSTGRES_PASSWORD set edilmemiş → ValueError, sebep net.
+        if not self.postgres_password:
+            raise ValueError(
+                "POSTGRES_PASSWORD env değişkeni boş — .env veya shell environment'ta "
+                "set edilmeli (settings.py default'u artık 'changeme_in_real_env' değil, "
+                "boş string)."
+            )
         return (
             f"postgresql://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"

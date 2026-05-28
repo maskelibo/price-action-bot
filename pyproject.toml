@@ -37,7 +37,10 @@ dependencies = [
     # ML
     "scikit-learn>=1.5",
     "xgboost>=2.1",
-    "lightgbm>=4.4",
+    # FIX 2026-05-28 (audit-Y7): lightgbm KALDIRILDI — repo'da hiçbir
+    # `import lightgbm` yok (grep doğruladı). Dead dep, 80+ MB install
+    # boyutu artırıyordu, CI cache şişiyordu. Geri eklemek için gerçek
+    # kullanım gerekecek.
     "joblib>=1.4",
 
     # LLM / Agents
@@ -82,7 +85,9 @@ dev = [
     "pytest>=8.3",
     "pytest-cov>=5.0",
     "pytest-asyncio>=0.23",
-    "hypothesis>=6.108",
+    # FIX 2026-05-28 (audit-Y7): hypothesis KALDIRILDI — `import hypothesis`
+    # repo'da hiç yok (grep doğruladı). Property-based testing güzel ama
+    # kullanılmıyorsa dev install zamanını uzatıyor. Gerekirse geri eklenir.
     "ruff>=0.5",
     "mypy>=1.11",
     "ipykernel>=6.29",

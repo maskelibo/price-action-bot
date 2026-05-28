@@ -213,18 +213,31 @@ class TestDDBreakerIntegration:
         assert not any(status.values()), f"Expected no breaker, got {status}"
 
     def test_daily_breaker_triggers_at_5pct(self, tmp_path):
+        """FIX 2026-05-28 (audit-F7): SEC26.B-4 (2026-05-28) breaker'ı equity-delta'dan
+        realized-PnL-only'e geçirdi (breaker.py:318-325). Test eski semantikteydi,
+        sadece equity drop'u veriyordu. Şimdi `realized_pnl_today=-500` ile gerçek
+        realized loss simulate ediliyor.
+        """
         breaker = DDBreaker(
             config={"daily_loss_pct": 0.05, "weekly_loss_pct": 0.10, "monthly_loss_pct": 0.15},
             state_path=tmp_path / "breaker.json",
         )
         # Initialize anchor at 10000
-        acc_initial = AccountState(equity_usdt=10_000.0, free_margin_usdt=10_000.0)
+        acc_initial = AccountState(
+            equity_usdt=10_000.0,
+            free_margin_usdt=10_000.0,
+            realized_pnl_today=0.0,
+        )
         breaker.snapshot(acc_initial)
 
-        # Drop equity by exactly 5% (500 USDT) — should trigger
-        acc_loss = AccountState(equity_usdt=9_500.0, free_margin_usdt=9_500.0)
+        # Drop equity by exactly 5% — şimdi realized_pnl_today=-500 ile
+        acc_loss = AccountState(
+            equity_usdt=9_500.0,
+            free_margin_usdt=9_500.0,
+            realized_pnl_today=-500.0,  # FIX-F7: realized loss (breaker bunu kullanıyor)
+        )
         status = breaker.snapshot(acc_loss)
-        assert status["daily"], f"Daily breaker should trigger at 5% loss, got {status}"
+        assert status["daily"], f"Daily breaker should trigger at 5% realized loss, got {status}"
 
     def test_weekly_breaker_triggers_at_10pct(self, tmp_path):
         breaker = DDBreaker(

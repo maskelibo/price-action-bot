@@ -32,6 +32,18 @@
   <key>WorkingDirectory</key>
   <string>/Users/peyman/price-action-bot</string>
 
+  <!--
+    FIX 2026-05-28 (audit-FIX-VER3-1): PA_DUCKDB_READ_ONLY=true.
+    CEO sadece okuma yapıyor; default-write mode market.duckdb'ye exclusive
+    lock alır → futures15m read fail silent → 0 sinyal. RO mode lock'u önler.
+    Template ile installed plist (~/Library/LaunchAgents) senkron olsun.
+  -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PA_DUCKDB_READ_ONLY</key>
+    <string>true</string>
+  </dict>
+
   <!-- Boot anında ve load anında çalıştır -->
   <key>RunAtLoad</key>
   <true/>

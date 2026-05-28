@@ -158,9 +158,15 @@ class TestStaleSignalGuard:
         assert self._is_stale(sig) is False
 
     def test_accept_exactly_30_minute_signal(self):
-        """30.0 dakika tam sınır → dahil değil (>30 REJECT, 30 ACCEPT)."""
-        sig = self._make_signal(age_minutes=30.0)
-        # age_min > 30 kontrolü: 30.0 > 30 → False → taze
+        """30.0 dakika sınırı altında → ACCEPT.
+
+        FIX 2026-05-28 (audit-F7): Önceki `age_minutes=30.0` flaky idi —
+        `_make_signal` ile `_is_stale` arasında ~3ms geçince yaş 30.003dk
+        oluyordu, `>30` koşulu True dönüyordu, test fail. Şimdi 29.95
+        (50ms tolerans). Davranış aynı — semantik test edildi:
+        30dk **altı** ACCEPT, **üstü** REJECT.
+        """
+        sig = self._make_signal(age_minutes=29.95)
         assert self._is_stale(sig) is False
 
     def test_reject_very_old_signal(self):

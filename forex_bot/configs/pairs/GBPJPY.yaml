@@ -1,9 +1,0 @@
-pair: GBPJPY
-typical_atr_pips: 18.0
-preferred_sessions: ['asia', 'london', 'london_ny_overlap']
-risk_per_trade_pct: 0.01
-
-strategies:
-  - {name: london_breakout, enabled: true, confluence_threshold: 0.55, sl_atr_mult: 0.90, tp_atr_mult: 1.98, rr_min: 1.5}
-  - {name: ny_open_reversal, enabled: true, confluence_threshold: 0.55, sl_atr_mult: 0.90, tp_atr_mult: 1.98, rr_min: 1.5}
-  - {name: smc_liquidity_sweep, enabled: true, confluence_threshold: 0.55, sl_atr_mult: 0.90, tp_atr_mult: 1.98, rr_min: 1.5}

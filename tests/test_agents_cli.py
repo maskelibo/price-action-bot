@@ -61,6 +61,19 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
 # _find_claude_cli tests
 # ---------------------------------------------------------------------------
 
+# FIX 2026-05-28 (audit-F7): Windows path testleri non-Windows'ta `pathlib.Path()`
+# factory'sinin `os.name` monkeypatch'i tanımaması yüzünden `WindowsPath`
+# instantiate edemiyor — testler hep fail. macOS/Linux'ta bu testler
+# meaningful değil; gerçek Windows runner'da skip kalkar.
+import os as _os_modskip
+_SKIP_WIN_PATHS = pytest.mark.skipif(
+    _os_modskip.name != "nt",
+    reason="Windows path testleri sadece Windows runner'da koşar — "
+           "pathlib.Path() os.name monkeypatch'i tanımıyor (audit-F7).",
+)
+
+
+@_SKIP_WIN_PATHS
 def test_find_claude_cli_prefers_exe_on_windows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -89,6 +102,7 @@ def test_find_claude_cli_prefers_exe_on_windows(
     assert result == str(exe_path)
 
 
+@_SKIP_WIN_PATHS
 def test_find_claude_cli_falls_back_to_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

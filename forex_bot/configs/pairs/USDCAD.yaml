@@ -1,9 +1,0 @@
-pair: USDCAD
-typical_atr_pips: 8.5
-preferred_sessions: ['london_ny_overlap', 'ny']
-risk_per_trade_pct: 0.015
-
-strategies:
-  - {name: ny_open_reversal, enabled: true, confluence_threshold: 0.55, sl_atr_mult: 1.00, tp_atr_mult: 2.20, rr_min: 1.5}
-  - {name: smc_liquidity_sweep, enabled: true, confluence_threshold: 0.55, sl_atr_mult: 1.00, tp_atr_mult: 2.20, rr_min: 1.5}
-  - {name: ob_retest_continuation, enabled: true, confluence_threshold: 0.55, sl_atr_mult: 1.00, tp_atr_mult: 2.20, rr_min: 1.5}

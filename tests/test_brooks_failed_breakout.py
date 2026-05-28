@@ -285,8 +285,13 @@ class TestBullTrapShortSignal:
         # Önce atr14'i kontrol et
         atr = float(df_feat["atr14"].iloc[40])
         close = float(df_feat["close"].iloc[40])
-        if np.isnan(atr) or atr <= 0:
-            pytest.skip("atr14 NaN — warmup yeterli değil")
+        # FIX 2026-05-28 (audit-D3): skip → assert. Mevcut seed (42, 7) ile
+        # bar 40'ta ATR14 hep dolu — skip path ölü kod. Bir gün seed/formula
+        # değişip NaN gelirse silent skip yerine açık fail (regression yakala).
+        assert not np.isnan(atr) and atr > 0, (
+            f"atr14 NaN/0 bar 40'ta (warmup yetmedi mi? seed/n değişti mi?). "
+            f"Bu eski koda göre skip path'ıydı, şimdi assert. atr={atr}"
+        )
 
         df_feat.loc[40, "bull_trap_short"] = True
         df_feat.loc[40, "bull_bo_extreme"] = close + 3.0 * atr  # BO swing high
@@ -309,8 +314,10 @@ class TestBullTrapShortSignal:
 
         atr = float(df_feat["atr14"].iloc[40])
         close = float(df_feat["close"].iloc[40])
-        if np.isnan(atr) or atr <= 0:
-            pytest.skip("atr14 NaN")
+        # FIX 2026-05-28 (audit-D3): skip → assert (regression yakala).
+        assert not np.isnan(atr) and atr > 0, (
+            f"atr14 NaN/0 bar 40'ta — eski skip path artık assert. atr={atr}"
+        )
 
         df_feat.loc[40, "bull_trap_short"] = True
         df_feat.loc[40, "bull_bo_extreme"] = close + 2.5 * atr
@@ -340,8 +347,10 @@ class TestBearTrapLongSignal:
 
         atr = float(df_feat["atr14"].iloc[40])
         close = float(df_feat["close"].iloc[40])
-        if np.isnan(atr) or atr <= 0:
-            pytest.skip("atr14 NaN")
+        # FIX 2026-05-28 (audit-D3): skip → assert (regression yakala).
+        assert not np.isnan(atr) and atr > 0, (
+            f"atr14 NaN/0 bar 40'ta — eski skip path artık assert. atr={atr}"
+        )
 
         df_feat.loc[40, "bear_trap_long"] = True
         df_feat.loc[40, "bear_bo_extreme"] = close - 3.0 * atr  # BO swing low
@@ -368,8 +377,10 @@ class TestBearTrapLongSignal:
 
         atr = float(df_feat["atr14"].iloc[40])
         close_val = float(df_feat["close"].iloc[40])
-        if np.isnan(atr) or atr <= 0:
-            pytest.skip("atr14 NaN")
+        # FIX 2026-05-28 (audit-D3): skip → assert (regression yakala).
+        assert not np.isnan(atr) and atr > 0, (
+            f"atr14 NaN/0 bar 40'ta — eski skip path artık assert. atr={atr}"
+        )
 
         df_feat.loc[40, "bear_trap_long"] = True
         df_feat.loc[40, "bear_bo_extreme"] = close_val - 2.5 * atr
@@ -426,8 +437,10 @@ class TestSLTPGeometry:
 
         atr = float(df_feat["atr14"].iloc[40])
         close_val = float(df_feat["close"].iloc[40])
-        if np.isnan(atr) or atr <= 0:
-            pytest.skip("atr14 NaN")
+        # FIX 2026-05-28 (audit-D3): skip → assert (regression yakala).
+        assert not np.isnan(atr) and atr > 0, (
+            f"atr14 NaN/0 bar 40'ta — eski skip path artık assert. atr={atr}"
+        )
 
         bo_extreme = close_val + 3.0 * atr
         df_feat.loc[40, "bull_trap_short"] = True

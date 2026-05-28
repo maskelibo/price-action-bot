@@ -68,6 +68,75 @@ _CIRCUIT_WINDOW_SECONDS = int(os.environ.get("PA_CIRCUIT_WINDOW_S", "300"))  # 5
 _CIRCUIT_OPEN_SECONDS = int(os.environ.get("PA_CIRCUIT_OPEN_S", "600"))     # 10 dk
 _circuit_state: dict[str, dict[str, Any]] = {}  # agent_name → state
 
+# FIX 2026-05-28 (audit-F5): persistent circuit state — process restart sonrası restore.
+# Önceki bug: `_circuit_state` modül-level global → process exit'te kayıp.
+# 10dk cooldown ortasında launchd restart → fresh state → failing agent
+# hemen tekrar çağrılır → retry storm. Şimdi state file'a yazılır + load'da okunur.
+_CIRCUIT_STATE_FILE = Path(__file__).resolve().parents[3] / "logs" / "circuit_breaker_state.json"
+
+
+def _circuit_save_state() -> None:
+    """Mevcut circuit state'i diske yaz (best-effort, fail silently)."""
+    try:
+        import json as _json
+        _CIRCUIT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        snapshot = {}
+        for agent, st in _circuit_state.items():
+            snapshot[agent] = {
+                "failures": [t.isoformat() for t in st.get("failures", [])],
+                "open_until": st["open_until"].isoformat() if st.get("open_until") else None,
+            }
+        # Atomic write: tmp + rename
+        tmp = _CIRCUIT_STATE_FILE.with_suffix(".json.tmp")
+        tmp.write_text(_json.dumps(snapshot), encoding="utf-8")
+        tmp.replace(_CIRCUIT_STATE_FILE)
+    except Exception:
+        pass
+
+
+def _circuit_load_state() -> None:
+    """Process startup'ta state'i diskten geri yükle."""
+    if not _CIRCUIT_STATE_FILE.exists():
+        return
+    try:
+        import json as _json
+        raw = _json.loads(_CIRCUIT_STATE_FILE.read_text(encoding="utf-8"))
+        now = datetime.now(timezone.utc)
+        for agent, st in raw.items():
+            failures = []
+            for ts_str in st.get("failures", []):
+                try:
+                    failures.append(datetime.fromisoformat(ts_str))
+                except Exception:
+                    continue
+            open_until = None
+            if st.get("open_until"):
+                try:
+                    open_until = datetime.fromisoformat(st["open_until"])
+                except Exception:
+                    pass
+            # Eğer open_until geçmişse temizle (restore zamanında zaten kapanmış)
+            if open_until and open_until < now:
+                open_until = None
+                failures = []
+            _circuit_state[agent] = {"failures": failures, "open_until": open_until}
+        logger.info("agent.circuit_state_loaded", extra={"agents": len(raw)})
+    except Exception as e:
+        logger.warning("agent.circuit_state_load_fail", extra={"err": str(e)})
+
+
+# FIX 2026-05-28 (audit-F7): Lazy load — modül import'unda çağırırsam test'lerin
+# önceki state'i okumasına sebep oluyorum (`circuit_breaker_state.json` test'lerden
+# kalmış olabilir). İlk `_circuit_check` çağrısında bir kez yükle.
+_CIRCUIT_LOADED = False
+
+
+def _circuit_lazy_load() -> None:
+    global _CIRCUIT_LOADED
+    if not _CIRCUIT_LOADED:
+        _CIRCUIT_LOADED = True
+        _circuit_load_state()
+
 
 def _circuit_check(agent_name: str) -> tuple[bool, str]:
     """Returns (allow_call, reason).
@@ -76,6 +145,7 @@ def _circuit_check(agent_name: str) -> tuple[bool, str]:
         failures: [timestamps of recent failures]
         open_until: datetime when circuit re-closes (None if closed)
     """
+    _circuit_lazy_load()  # F7: ilk çağrıda 1 kez state file'dan restore
     state = _circuit_state.setdefault(agent_name, {"failures": [], "open_until": None})
     now = datetime.now(timezone.utc)
 
@@ -121,6 +191,8 @@ def _circuit_record_failure(agent_name: str) -> None:
             )
         except Exception:
             pass
+    # FIX 2026-05-28 (audit-F5): persist after each update
+    _circuit_save_state()
 
 
 def _circuit_record_success(agent_name: str) -> None:
@@ -130,6 +202,8 @@ def _circuit_record_success(agent_name: str) -> None:
         logger.info("agent.circuit_recovered", extra={"agent": agent_name})
     state["failures"] = []
     state["open_until"] = None
+    # FIX 2026-05-28 (audit-F5): persist
+    _circuit_save_state()
 
 # ----------------------------------------------------------------------
 # Prometheus metrics — best-effort
