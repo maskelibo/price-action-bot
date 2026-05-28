@@ -1,0 +1,41 @@
+# Typo detection config — Faz 14.27 C7 fix
+# Project-specific allow-list (False positives'i filtrele)
+
+[default.extend-words]
+# Türkçe komment kelimeleri
+"konfigürasyon" = "konfigürasyon"
+"sermaye" = "sermaye"
+"Pazar" = "Pazar"
+"Pazartesi" = "Pazartesi"
+"Çarşamba" = "Çarşamba"
+# Trading terimleri
+"OHLCV" = "OHLCV"
+"FVG" = "FVG"
+"ATR" = "ATR"
+"EMA" = "EMA"
+"RSI" = "RSI"
+"VWAP" = "VWAP"
+"AVWAP" = "AVWAP"
+"VSA" = "VSA"
+"SC" = "SC"  # Selling Climax
+"BC" = "BC"  # Buying Climax
+"PnL" = "PnL"
+"WR" = "WR"  # Win Rate
+"FNG" = "FNG"  # Fear & Greed
+"DD" = "DD"  # Drawdown
+"MTD" = "MTD"  # Month-To-Date
+"PO" = "PO"  # Post-Only
+
+[files]
+extend-exclude = [
+    "memory/**",
+    "reports/**",
+    "data/**",
+    "logs/**",
+    "*.parquet",
+    "*.pkl",
+    "*.duckdb",
+    "*.json",
+    "*.jsonl",
+    ".env*",
+]

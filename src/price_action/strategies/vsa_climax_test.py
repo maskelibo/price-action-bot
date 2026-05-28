@@ -801,8 +801,10 @@ class VSAClimaxTestStrategy(Strategy):
             if bool(row.get("long_confirm", False)):
                 sc_low = float(row.get("sc_low_at_test") or 0.0)
                 if np.isnan(sc_low) or sc_low <= 0:
-                    # Fallback: son close'un 2 ATR altı
-                    sc_low = close - 2.0 * atr
+                    # FIX 2026-05-28 (Faz 14.27 C1): Fallback spec'e uygun (1 ATR).
+                    # Önceki bug: 2 ATR fallback spec'teki "SC low - 1 ATR"den
+                    # sapıyordu → trade quality düşük (geniş SL = düşük R).
+                    sc_low = close - 1.0 * atr
 
                 # Giris: bu barin acilisi (bar kapatildiktan sonra sinyal)
                 entry = open_
@@ -838,7 +840,8 @@ class VSAClimaxTestStrategy(Strategy):
             if bool(row.get("short_confirm", False)):
                 bc_high = float(row.get("bc_high_at_ut") or 0.0)
                 if np.isnan(bc_high) or bc_high <= 0:
-                    bc_high = close + 2.0 * atr
+                    # FIX 2026-05-28 (Faz 14.27 C1): Fallback spec match (1 ATR).
+                    bc_high = close + 1.0 * atr
 
                 entry = open_
                 sl_price = bc_high + atr_buffer * atr

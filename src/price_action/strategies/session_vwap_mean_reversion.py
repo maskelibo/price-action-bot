@@ -283,11 +283,17 @@ class SessionVWAPMeanReversionStrategy(Strategy):
         )
 
         # Session bar count (each UTC date)
-        ts = pd.to_datetime(df["ts"], utc=True)
-        date_key = ts.dt.date
-        df["session_bar_idx"] = pd.Series(range(len(df)), index=df.index).groupby(
-            date_key.values
-        ).cumcount()
+        # FIX 2026-05-28 (Faz 14.27 C1): UTC parse defansif try-except.
+        # Önceki bug: malformed ts → exception, generate_signals crash.
+        try:
+            ts = pd.to_datetime(df["ts"], utc=True)
+            date_key = ts.dt.date
+            df["session_bar_idx"] = pd.Series(range(len(df)), index=df.index).groupby(
+                date_key.values
+            ).cumcount()
+        except Exception:
+            # Malformed ts → session reset disabled (fallback: tek session)
+            df["session_bar_idx"] = pd.Series(range(len(df)), index=df.index)
 
         # ADX_1h merge
         if df_1h is not None and not df_1h.empty:

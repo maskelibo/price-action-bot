@@ -10,6 +10,15 @@ repos:
         args: [--maxkb=2048]
       - id: check-merge-conflict
       - id: detect-private-key
+      # FIX 2026-05-28 (Faz 14.27 C7): ek pre-commit defansif kontroller
+      - id: check-toml
+      - id: check-json
+      - id: check-ast            # Python syntax doğruluğu
+      - id: debug-statements     # pdb.set_trace yakala
+      - id: name-tests-test
+        args: [--pytest-test-first]
+      - id: mixed-line-ending
+        args: [--fix=lf]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.5.7
@@ -17,3 +26,17 @@ repos:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
+
+  # FIX 2026-05-28 (Faz 14.27 C7): typo detection
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.23.6
+    hooks:
+      - id: typos
+        args: [--config, .typos.toml]
+        exclude: ^(memory/|reports/|data/|logs/)
+
+  # FIX 2026-05-28 (Faz 14.27 C7): secret scanning beyond detect-private-key
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks

@@ -414,7 +414,17 @@ def _run_sr_proximity(
     if os.getenv("PA_ENGULF_NUMBA", "0") == "1":
         use_numba = True
     if use_numba and _ENGULF_NUMBA_AVAILABLE:
-        return _sr_proximity_jit_kernel(closes, atrs, sr_bar_idx, sr_levels_arr, proximity_atr)
+        # FIX 2026-05-28 (Faz 14.27 C1): Numba JIT exception explicit log.
+        # Önceki bug: kernel exception silent → strateji körleşir, sinyal yok.
+        try:
+            return _sr_proximity_jit_kernel(closes, atrs, sr_bar_idx, sr_levels_arr, proximity_atr)
+        except Exception as _kn_exc:
+            import logging as _lg
+            _lg.getLogger(__name__).warning(
+                "engulfing.sr_proximity_jit_fail — fallback to numpy: %s",
+                str(_kn_exc)[:200],
+            )
+            # Fallback: numpy path
     return _sr_proximity_numpy(closes, atrs, sr_bar_idx, sr_levels_arr, proximity_atr)
 
 
