@@ -753,6 +753,54 @@ async def _job_quiet_failure_audit() -> None:
                        extra={"err": str(exc)[:200]})
 
 
+async def _job_active_state_refresh() -> None:
+    """FIX 2026-05-28 (Faz 14.27 — B2): active_state.md saatlik update.
+
+    Önceki bug: active_state.md sadece daily_brief'te (günde 1 kez) update
+    ediliyordu → 9h+ stale olabiliyordu (Faz D audit bulgusu).
+
+    Bu cron 25 * * * * (her saat HH:25) tetiklenir, CEO.update_active_state
+    çağırır. Inbox + decisions + breaker state yenilenir.
+    """
+    try:
+        from price_action.agents import CEOAgent
+        ceo = CEOAgent()
+        path = ceo.update_active_state()
+        logger.info(
+            "scheduler.active_state_refresh_done",
+            extra={"extra": {"path": str(path) if path else None}},
+        )
+    except Exception as exc:
+        logger.warning("scheduler.active_state_refresh_fail",
+                       extra={"err": str(exc)[:200]})
+
+
+async def _job_data_health_daily() -> None:
+    """FIX 2026-05-28 (Faz 14.27 — B1): DataEngineer günlük health check.
+
+    Önceki bug: data_engineer.py agent class HİÇ YOKTU → cron tetikleyemez,
+    memory/data_engineer/ klasörü 6+ gün boyunca güncellenmedi (Faz D audit
+    bulgusu).
+
+    Bu cron 06:30 UTC günlük (09:30 TR) tetiklenir:
+      - market.duckdb tazeligi check
+      - regime_features parquet doğruluğu
+      - reconcile trend (phantom/orphan)
+      - anomali varsa Ops Engineer'a review request
+    """
+    try:
+        from price_action.agents import DataEngineerAgent
+        de = DataEngineerAgent()
+        path = await de.daily_health_summary()
+        logger.info(
+            "scheduler.data_health_daily_done",
+            extra={"extra": {"path": str(path) if path else None}},
+        )
+    except Exception as exc:
+        logger.warning("scheduler.data_health_daily_fail",
+                       extra={"err": str(exc)[:200]})
+
+
 async def _job_stuck_doc_check() -> None:
     """FIX 2026-05-28 (Faz 14.27): Stuck inbox doc detector.
 
@@ -1584,6 +1632,10 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("check_promises", "cron", "55 * * * *", _job_check_promises),
     # FIX 2026-05-28 (Faz 14.27): stuck inbox doc detector — 6h+ ack timeout → CRIT push
     ("stuck_doc_check", "cron", "50 * * * *", _job_stuck_doc_check),
+    # FIX 2026-05-28 (Faz 14.27 — B1): DataEngineer günlük health
+    ("data_health_daily", "cron", "30 6 * * *", _job_data_health_daily),
+    # FIX 2026-05-28 (Faz 14.27 — B2): active_state.md saatlik refresh
+    ("active_state_refresh", "cron", "25 * * * *", _job_active_state_refresh),
     # FIX 2026-05-26 (Faz 14.3): Adversary quiet failure audit (Pzr 22:30 UTC)
     ("quiet_failure_audit", "cron", "30 22 * * sun", _job_quiet_failure_audit),
     # FIX 2026-05-26 (Faz 14.4): Daily Truth Report (03:00 UTC = 06:00 TR)

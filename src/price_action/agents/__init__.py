@@ -15,6 +15,7 @@ from .analyst import AnalystAgent
 from .base import LLMAgentBase, LLMResponse
 from .bot_monitor import BotMonitorAgent
 from .ceo import CEOAgent
+from .data_engineer import DataEngineerAgent
 from .lab_scientist import LabScientistAgent
 from .market_scout import MarketScoutAgent
 from .ops_engineer import OpsAgent
@@ -27,6 +28,7 @@ __all__ = [
     "AnalystAgent",
     "BotMonitorAgent",
     "CEOAgent",
+    "DataEngineerAgent",
     "LLMAgentBase",
     "LLMResponse",
     "LabScientistAgent",
