@@ -284,6 +284,40 @@ def reconcile() -> dict:
     # 3. In-sync: ikisinde de var
     stats["in_sync"] = len(exchange_symbols & journal_symbols)
 
+    # 4. FIX 2026-05-28 (Faz 14.27 C5): Open trades count sanity check.
+    # Önceki bug: bot'un journal'daki open count vs exchange position count
+    # karşılaştırılmıyordu. Her ikisini aynı sembol için karşılaştırmak
+    # journal staleness'i yakalar.
+    sync_mismatches = []
+    for sym in exchange_symbols & journal_symbols:
+        # Aynı sembol için qty doğrula
+        ex_qty = abs(float(exchange[sym].get("qty", 0)))
+        # Journal'da bu sembol için açık olan tek bir trade olmalı
+        j_match = [j for j in journal if j["symbol"] == sym]
+        if not j_match:
+            continue
+        j_qty = abs(float(j_match[0].get("fill_qty", 0)))
+        if ex_qty > 0 and j_qty > 0:
+            diff_pct = abs(ex_qty - j_qty) / max(ex_qty, j_qty)
+            if diff_pct > 0.05:  # >%5 qty drift
+                sync_mismatches.append({
+                    "symbol": sym,
+                    "exchange_qty": ex_qty,
+                    "journal_qty": j_qty,
+                    "diff_pct": round(diff_pct * 100, 2),
+                })
+    stats["sync_mismatches"] = sync_mismatches
+    if sync_mismatches:
+        try:
+            from price_action.orchestrator.notifications import push_critical
+            push_critical(
+                f"⚠️ JOURNAL/EXCHANGE QTY DRIFT — {len(sync_mismatches)} sembol "
+                f">5% qty fark: {sync_mismatches[:3]}",
+                source="reconciler_qty_drift",
+            )
+        except Exception:
+            pass
+
     return stats
 
 

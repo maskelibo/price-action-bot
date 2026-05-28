@@ -1,0 +1,59 @@
+# Drift Detector Thresholds — Faz 14.27 C8 fix
+# Önceden drift threshold'lar kod içinde implicit'di → dokümante değildi.
+# Şimdi: tek source of truth + lab.py + researcher okur.
+#
+# Drift detector workflows:
+#   Cron: scan_drift_alerts HH:45 saatlik
+#   Trigger: rolling 7g performans vs 30g baseline karşılaştırması
+#   Output: doc_type=drift_alert → researcher.respond_to_pending_drifts() → hipotez
+
+# Window konfigürasyonları
+windows:
+  recent_days: 7         # Rolling pencere (drift sinyali için)
+  baseline_days: 30      # Baseline pencere (karşılaştırma için)
+  min_trades_recent: 5   # Minimum trade sayısı (anlamlı drift için)
+  min_trades_baseline: 20
+
+# Metrik thresholds — drift "alert" tetiklemek için
+metrics:
+  # Win rate drift
+  win_rate:
+    abs_drop_pct: 10.0          # WR 7g < WR 30g - 10pp → alert
+    rel_drop_pct: 20.0          # WR 7g < WR 30g * 0.80 → alert (relative)
+
+  # R-multiple drift
+  avg_r_multiple:
+    abs_drop: 0.3               # avg_R 7g < avg_R 30g - 0.3 → alert
+    rel_drop_pct: 25.0          # avg_R 7g < avg_R 30g * 0.75 → alert
+
+  # Realized PnL drift
+  pnl_pct:
+    abs_drop_pct: 5.0           # 7g toplam PnL < -5% → alert
+    consecutive_neg_days: 4     # 4+ ardışık negatif gün → alert
+
+  # Regime drift (BTC ATR%, EMA200, FNG)
+  regime:
+    btc_atr_pct_change: 30.0    # BTC ATR%_30d 30g'lik bandın %30 dışı → alert
+    btc_ema200_dist_change: 5.0 # EMA200 mesafesi 5pp+ değişim → alert
+    fng_swing: 30               # FNG 30 punto sapma → alert
+
+# Cooldown
+cooldown:
+  max_hypotheses_per_drift: 3   # Aynı drift için max 3 hipotez (Researcher)
+  reject_cooldown_days: 7       # Reject sonrası 7g bekle
+  min_hours_between_alerts: 6   # Aynı bot için 6h içinde tekrar alert tetikleme
+
+# Reporting
+reporting:
+  daily_summary_utc_hour: 18    # Günlük drift özet (CEO brief'inde dahil)
+  weekly_report_dow: 0          # Pazar (sun): haftalık trend analizi
+  telegram_critical_on:
+    - "regime_capitulation_active"
+    - "consecutive_neg_days >= 4"
+    - "win_rate_abs_drop >= 15.0"
+
+# Faz 14.27 C8 fix referansı:
+# - Önceden kod içinde hardcoded threshold'lar vardı
+# - Bu YAML tek source of truth
+# - Lab Scientist: lab/sweep_aggregator.py drift bandını okur
+# - Researcher: researcher/respond_to_pending_drifts() bu eşikleri kullanır

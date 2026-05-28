@@ -753,6 +753,125 @@ async def _job_quiet_failure_audit() -> None:
                        extra={"err": str(exc)[:200]})
 
 
+async def _job_bot_monitor_adversary_hook() -> None:
+    """FIX 2026-05-28 (Faz 14.27 C8): Bot Monitor PAUSE alert → Adversary tetik.
+
+    Önceki bug: Bot Monitor kill_criteria_alert (PAUSE) yazıyordu ama
+    Adversary engineer'a otomatik tetik yoktu. Şimdi: inbox tarama,
+    son 6h içinde kill_criteria_alert + ack_at=null var ise Adversary
+    stress test çalıştır (alert'in işaret ettiği bot için).
+    """
+    try:
+        import json
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+        from pathlib import Path
+
+        inbox = Path("memory/protocol/inbox.jsonl")
+        if not inbox.exists():
+            return
+        now = _dt.now(_tz.utc)
+        cutoff = now - _td(hours=6)
+        pause_alerts = []
+        for line in inbox.read_text(encoding="utf-8").strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if msg.get("topic") != "kill_criteria_alert":
+                continue
+            if msg.get("ack_at"):
+                continue
+            try:
+                created = _dt.fromisoformat(
+                    msg.get("created_at", "").replace("Z", "+00:00")
+                )
+                if created < cutoff:
+                    continue
+            except Exception:
+                continue
+            pause_alerts.append(msg)
+
+        if not pause_alerts:
+            return
+
+        # Hangi bot için PAUSE alert var? Genelde doc_id'de bot_name ipucu var.
+        from price_action.agents import AdversaryEngineerAgent
+        ae = AdversaryEngineerAgent()
+        # PAUSE alert için stress test tetikle
+        for alert in pause_alerts[:3]:
+            bot_id = "futures15m"  # default
+            doc_id = alert.get("doc_id", "")
+            if "futures5m" in doc_id:
+                bot_id = "futures5m"
+            elif "v63" in doc_id or "rsi2" in doc_id:
+                bot_id = "futures15m_v63"
+            elif "v11" in doc_id or "vwap" in doc_id:
+                bot_id = "futures15m_v11"
+            try:
+                path = await ae.daily_stress_test([bot_id])
+                logger.info(
+                    "scheduler.bot_monitor_adversary_hook_done",
+                    extra={"extra": {"bot_id": bot_id, "trigger_doc": doc_id,
+                                     "report": str(path) if path else None}},
+                )
+            except Exception as exc:
+                logger.warning(
+                    "scheduler.bot_monitor_adversary_hook_fail",
+                    extra={"err": str(exc)[:200], "bot_id": bot_id},
+                )
+    except Exception as exc:
+        logger.warning("scheduler.bot_monitor_adversary_hook_outer_fail",
+                       extra={"err": str(exc)[:200]})
+
+
+async def _job_slippage_daily_summary() -> None:
+    """FIX 2026-05-28 (Faz 14.27 C4): SlippageTracker günlük özet — 23:30 UTC.
+
+    Önceki bug: daily_summary metodu vardı ama hiç tetiklenmiyordu →
+    daily_slippage_summary tablosu BOŞ → outlier detection inaktif.
+    """
+    try:
+        from price_action.execution.slippage_tracker import SlippageTracker
+        st = SlippageTracker()
+        summary = st.daily_summary()
+        logger.info("scheduler.slippage_daily_done", extra={"extra": summary})
+    except Exception as exc:
+        logger.warning("scheduler.slippage_daily_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_slippage_weekly_summary() -> None:
+    """FIX 2026-05-28 (Faz 14.27 C4): Haftalık slippage trend — Pazar 05:30 UTC.
+
+    Önceki bug: weekly raporlama hiç yoktu → slippage trend görünmez.
+    """
+    try:
+        from price_action.execution.slippage_tracker import SlippageTracker
+        st = SlippageTracker()
+        summary = st.weekly_summary()
+        # Telegram WARN if avg_slippage > prev week +20% veya outlier var
+        try:
+            change = summary["vs_previous_week"]["avg_slippage_change_pct"]
+            n_out = len(summary["outlier_fills_top10"])
+            if (change is not None and change > 20) or n_out > 5:
+                from price_action.orchestrator.notifications import push_critical
+                push_critical(
+                    f"⚠️ Weekly slippage drift — avg change={change}%, outliers={n_out}",
+                    source="scheduler_slippage_weekly",
+                )
+        except Exception:
+            pass
+        logger.info("scheduler.slippage_weekly_done", extra={"extra": {
+            "week_end": summary.get("week_end"),
+            "current_avg_bps": summary.get("current_week", {}).get("avg_slippage_bps"),
+            "outliers_n": len(summary.get("outlier_fills_top10", [])),
+        }})
+    except Exception as exc:
+        logger.warning("scheduler.slippage_weekly_fail", extra={"err": str(exc)[:200]})
+
+
 async def _job_active_state_refresh() -> None:
     """FIX 2026-05-28 (Faz 14.27 — B2): active_state.md saatlik update.
 
@@ -1636,6 +1755,11 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("data_health_daily", "cron", "30 6 * * *", _job_data_health_daily),
     # FIX 2026-05-28 (Faz 14.27 — B2): active_state.md saatlik refresh
     ("active_state_refresh", "cron", "25 * * * *", _job_active_state_refresh),
+    # FIX 2026-05-28 (Faz 14.27 C4): slippage daily + weekly
+    ("slippage_daily", "cron", "30 23 * * *", _job_slippage_daily_summary),
+    ("slippage_weekly", "cron", "30 5 * * sun", _job_slippage_weekly_summary),
+    # FIX 2026-05-28 (Faz 14.27 C8): Bot Monitor PAUSE → Adversary stress test
+    ("bot_monitor_adversary_hook", "cron", "40 * * * *", _job_bot_monitor_adversary_hook),
     # FIX 2026-05-26 (Faz 14.3): Adversary quiet failure audit (Pzr 22:30 UTC)
     ("quiet_failure_audit", "cron", "30 22 * * sun", _job_quiet_failure_audit),
     # FIX 2026-05-26 (Faz 14.4): Daily Truth Report (03:00 UTC = 06:00 TR)

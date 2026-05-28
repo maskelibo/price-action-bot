@@ -148,11 +148,52 @@ def place_post_only_with_fallback(
             except Exception:
                 return order or {}, "post_only_filled"
 
-        # Timeout -> cancel
+        # Timeout -> cancel (FIX 2026-05-28 (Faz 14.27 C3-1) — atomic guard)
+        # Önceki bug: cancel fail (network/exchange) → market fallback yine submit
+        # → double position (limit + market ikisi de fill olabilir).
+        # Şimdi: cancel sonrası order_status fetch et, gerçekten kapanmadıysa
+        # market fallback ATLA + push_critical.
+        cancel_ok = False
         try:
             exchange.cancel_order(order_id, symbol)
+            cancel_ok = True
+        except Exception as _cnc_exc:
+            try:
+                import logging as _lg
+                _lg.getLogger(__name__).warning(
+                    "post_only_router.cancel_fail",
+                    extra={"symbol": symbol, "order_id": order_id,
+                           "err": str(_cnc_exc)[:200]},
+                )
+            except Exception:
+                pass
+
+        # Cancel sonrası order status doğrula — race condition guard
+        # Eğer order hala "open" değilse (filled olmuş olabilir), market YAPMA.
+        try:
+            verify = exchange.fetch_order(order_id, symbol)
+            v_status = str(verify.get("status", "")).lower()
+            if v_status in ("closed", "filled"):
+                # Cancel race — order tam o anda fill oldu → market submit etme!
+                return verify, "post_only_filled_late"
         except Exception:
-            pass
+            pass  # Verify fail → market fallback'a güven, ama log
+
+        if not cancel_ok:
+            # Cancel fail + verify de fail → BELİRSİZ STATE. Market YAPMA, alarm.
+            try:
+                from price_action.orchestrator.notifications import push_critical
+                push_critical(
+                    f"🚨 POST-ONLY CANCEL FAIL — {symbol} {side} qty={qty} "
+                    f"order_id={order_id}. Market fallback ATLANDI (double position riski). "
+                    f"MANUEL kontrol et exchange'de bu order'ı.",
+                    source="post_only_router_cancel",
+                )
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"post_only cancel ambiguous: {symbol} order_id={order_id} — manual check"
+            )
 
     # ===== FAZ 3: Market fallback =====
     fb_client_id = (client_order_id + "_fb") if client_order_id else None

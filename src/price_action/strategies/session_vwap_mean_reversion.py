@@ -272,8 +272,15 @@ class SessionVWAPMeanReversionStrategy(Strategy):
 
         df["session_vwap"] = _session_vwap(df)
         df["vwap_dev"] = df["close"] - df["session_vwap"]
-        df["vwap_sigma"] = df["vwap_dev"].rolling(self._sigma_window,
-                                                  min_periods=self._sigma_window).std(ddof=0)
+        # FIX 2026-05-28 (Faz 14.27 C1): Sigma rolling.std(ddof=0) bar t'yi
+        # dahil ediyordu → borderline lookahead (decision t bar kapatıldığında
+        # OK ama strict causal değil). shift(1) ile geçmiş N bar'a sıfırla.
+        df["vwap_sigma"] = (
+            df["vwap_dev"]
+            .rolling(self._sigma_window, min_periods=self._sigma_window)
+            .std(ddof=0)
+            .shift(1)
+        )
 
         # Session bar count (each UTC date)
         ts = pd.to_datetime(df["ts"], utc=True)

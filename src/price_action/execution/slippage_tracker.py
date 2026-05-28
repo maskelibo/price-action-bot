@@ -397,6 +397,90 @@ class SlippageTracker:
         except Exception:
             pass
 
+    def weekly_summary(self, end_date: date | None = None, tf: str | None = None) -> dict[str, Any]:
+        """Haftalık özet (son 7 gün) — slippage trend + outlier detection.
+
+        FIX 2026-05-28 (Faz 14.27 C4): Önceden weekly raporlama yoktu.
+        Bu metod: trend (vs önceki hafta), outlier fills (>p99), maker rate drift.
+        """
+        from datetime import timedelta as _td
+        end = end_date or date.today()
+        start = end - _td(days=7)
+        prev_start = start - _td(days=7)
+        tf_filter = f"AND tf = '{tf}'" if tf else ""
+
+        with self._lock:
+            con = duckdb.connect(str(self._path))
+            # Bu hafta
+            curr = con.execute(
+                f"""SELECT
+                     COUNT(*),
+                     AVG(slippage_bps),
+                     PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY slippage_bps),
+                     PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY slippage_bps),
+                     SUM(CASE WHEN is_maker THEN 1 ELSE 0 END) * 1.0 / NULLIF(COUNT(*), 0),
+                     SUM(fee_usdt)
+                   FROM fills
+                   WHERE ts::DATE >= ? AND ts::DATE < ? {tf_filter}""",
+                [start, end],
+            ).fetchone()
+            # Geçen hafta (comparison)
+            prev = con.execute(
+                f"""SELECT
+                     COUNT(*),
+                     AVG(slippage_bps),
+                     SUM(CASE WHEN is_maker THEN 1 ELSE 0 END) * 1.0 / NULLIF(COUNT(*), 0)
+                   FROM fills
+                   WHERE ts::DATE >= ? AND ts::DATE < ? {tf_filter}""",
+                [prev_start, start],
+            ).fetchone()
+            # Outlier fills (this week, >p99)
+            p99_threshold = float(curr[3] or 0)
+            outliers = con.execute(
+                f"""SELECT symbol, strategy, side, slippage_bps, ts
+                   FROM fills
+                   WHERE ts::DATE >= ? AND ts::DATE < ? AND slippage_bps > ? {tf_filter}
+                   ORDER BY slippage_bps DESC LIMIT 10""",
+                [start, end, p99_threshold],
+            ).fetchall()
+            con.close()
+
+        n, avg_slip, p95, p99, maker_rate, total_fee = curr or (0, 0, 0, 0, 0, 0)
+        n_prev, avg_prev, maker_prev = prev or (0, 0, 0)
+        n = int(n or 0); n_prev = int(n_prev or 0)
+        avg_slip = float(avg_slip or 0); avg_prev = float(avg_prev or 0)
+        slip_delta_bps = avg_slip - avg_prev
+        slip_change_pct = (slip_delta_bps / avg_prev * 100) if avg_prev else None
+
+        return {
+            "week_end": end.isoformat(),
+            "week_start": start.isoformat(),
+            "tf": tf or "all",
+            "current_week": {
+                "n_fills": n,
+                "avg_slippage_bps": round(avg_slip, 2),
+                "p95_slippage_bps": round(float(p95 or 0), 2),
+                "p99_slippage_bps": round(p99_threshold, 2),
+                "maker_rate_pct": round(float(maker_rate or 0) * 100, 1),
+                "total_fee_usdt": round(float(total_fee or 0), 4),
+            },
+            "vs_previous_week": {
+                "n_fills_delta": n - n_prev,
+                "avg_slippage_delta_bps": round(slip_delta_bps, 2),
+                "avg_slippage_change_pct": (
+                    round(slip_change_pct, 1) if slip_change_pct is not None else None
+                ),
+                "maker_rate_delta_pct": round(
+                    (float(maker_rate or 0) - float(maker_prev or 0)) * 100, 1
+                ),
+            },
+            "outlier_fills_top10": [
+                {"symbol": o[0], "strategy": o[1], "side": o[2],
+                 "slippage_bps": round(float(o[3]), 2), "ts": str(o[4])}
+                for o in outliers
+            ],
+        }
+
     def _alarm(self, level: str, msg: str) -> None:
         """Log + Telegram (varsa, throttled)."""
         import sys
