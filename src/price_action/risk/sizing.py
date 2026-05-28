@@ -281,6 +281,21 @@ class RiskOfficer:
                 fetched_at = fetched_at_raw.to_pydatetime()
                 if fetched_at.tzinfo is None:
                     fetched_at = fetched_at.replace(tzinfo=_tz.utc)
+            elif isinstance(fetched_at_raw, str):
+                # FIX 2026-05-28 (Faz 14.27): parquet'te fetched_at string olarak
+                # yazılıyor (ISO 8601). Önceki silent fallback (datetime.now)
+                # cache'i HEP FRESH gösteriyordu → BTC capitulation halt + per-strategy
+                # regime filter etkisiz kalıyordu (SILENT BUG, 30g %43 DD'ye katkı).
+                try:
+                    fetched_at = datetime.fromisoformat(fetched_at_raw)
+                    if fetched_at.tzinfo is None:
+                        fetched_at = fetched_at.replace(tzinfo=_tz.utc)
+                except (ValueError, TypeError):
+                    # Parse fail → defensive: log + treat as MISSING
+                    self._log.bind(raw=fetched_at_raw).warning(
+                        "regime_features.fetched_at.parse_fail"
+                    )
+                    fetched_at = datetime.now(_tz.utc)  # son çare; status REJECT'a düşmesin
             else:
                 fetched_at = datetime.now(_tz.utc)
 

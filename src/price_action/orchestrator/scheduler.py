@@ -63,14 +63,31 @@ def build_scheduler() -> Any:
 async def _job_ingest_data() -> None:
     """Saatlik OHLCV ingest. Deterministik ingest_ccxt modülünü çağırır.
 
-    Hata olursa logla; scheduler'ı düşürme.
+    FIX 2026-05-28 (Faz 14.27): Önceden `run_hourly` fonksiyonu YOKTU,
+    `hasattr` False olunca SILENT SKIP → market.duckdb 6 GÜN güncellenmedi.
+    Şimdi: run_hourly eklendi + missing durumunda CRIT log + Telegram alert.
+
+    Hata olursa logla + alert; scheduler'ı düşürme.
     """
     try:
         from price_action.data import ingest_ccxt  # type: ignore[import-untyped]
 
         if hasattr(ingest_ccxt, "run_hourly"):
-            await ingest_ccxt.run_hourly()  # type: ignore[attr-defined]
+            stats = await ingest_ccxt.run_hourly()  # type: ignore[attr-defined]
+            logger.info("scheduler.ingest_data_done", extra={"extra": stats})
             return
+        # Defensive: function missing → CRITICAL (Faz 14.27 fix)
+        logger.error("scheduler.ingest_data_missing_func",
+                     extra={"extra": {"func": "run_hourly"}})
+        try:
+            from price_action.orchestrator.notifications import push_critical
+            push_critical(
+                "ingest_data SILENT FAIL: run_hourly() yok — market.duckdb stale "
+                "olabilir. Bot karar verirken eski veri kullanır.",
+                source="scheduler_ingest",
+            )
+        except Exception:
+            pass
     except Exception as exc:
         logger.warning("scheduler.ingest_skip", extra={"err": str(exc)[:200]})
 

@@ -676,20 +676,43 @@ def position_check():
                 _mark = float(p.get('markPrice', 0) or 0)
                 if _entry <= 0 or _side not in ('long', 'short'):
                     continue
-                # Sembolün açık SL emirleri (orderType=STOP_MARKET)
+                # FIX 2026-05-28 (Faz 14.27): SL emir filtresine SIDE eklendi.
+                # Önceki bug: STOP_MARKET emirleri yön bağımsız toplanıyordu →
+                # pozisyon SHORT'tan LONG'a döndüğünde eski BUY STOP emri "LONG'un
+                # SL'i" sanılıyordu (ters yön = işe yaramaz). Doğrusu:
+                #   LONG  pozisyon → SL emri SELL side'da (pozisyonu kapatır)
+                #   SHORT pozisyon → SL emri BUY  side'da (pozisyonu kapatır)
+                _expected_sl_side = 'SELL' if _side == 'long' else 'BUY'
                 _sl_orders = []   # (trigger, algoId, qty)
+                _orphan_wrong_side = []   # eski yön — iptal edilecek
                 for o in state.get('algo_orders', []) or []:
                     if (o.get('symbol') == _sym_algo
                             and str(o.get('orderType', '')).upper() == 'STOP_MARKET'):
                         _t = o.get('triggerPrice') or o.get('stopPrice')
                         _a = o.get('algoId') or o.get('algo_id')
+                        _o_side = str(o.get('side', '')).upper()
                         if _t and _a is not None:
                             try:
                                 _q = float(o.get('quantity')
                                            or o.get('origQty') or 0)
                             except (TypeError, ValueError):
                                 _q = 0.0
-                            _sl_orders.append((float(_t), _a, _q))
+                            if _o_side == _expected_sl_side:
+                                _sl_orders.append((float(_t), _a, _q))
+                            else:
+                                # Yön mismatch → eski/orphan SL, iptal et
+                                _orphan_wrong_side.append((float(_t), _a, _o_side))
+
+                # Yön mismatch SL'leri temizle (defansif)
+                for _t, _a, _wrong_side in _orphan_wrong_side:
+                    try:
+                        ex.fapiPrivateDeleteAlgoOrder(
+                            {'symbol': _sym_algo, 'algoId': _a})
+                        log(f"  PROT_WATCHDOG: {_sym_algo} ters-yön SL iptal "
+                            f"(algoId={_a}, side={_wrong_side}, pos={_side}, trigger=${_t})")
+                    except Exception as _cx:
+                        log(f"  PROT_WATCHDOG: {_sym_algo} ters-yön SL iptal "
+                            f"FAIL ({_cx}); algoId={_a}")
                 # En iyi mevcut SL (long→en yüksek, short→en düşük trigger)
                 _cur_sl = _cur_aid = None
                 _cur_sl_qty = 0.0

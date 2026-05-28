@@ -264,6 +264,10 @@ def reconcile() -> dict:
                  f"entry=${o['fill_price']:.4f} exit=${exit_px:.4f}")
 
     # 2. Phantom: borsada var, journal'da yok → alert
+    # FIX 2026-05-28 (Faz 14.27): phantom alert push_critical çalışıyor
+    # (P0-1 test ile doğrulandı, Telegram zinciri sağlam). Açık her tetikte
+    # alert tekrarlanır (idempotent). Manuel kapatma gerekli — otomatik close
+    # YOK çünkü borsadaki kullanıcı manuel pozisyon olabilir.
     phantoms = [exchange[s] for s in exchange_symbols if s not in journal_symbols]
     stats["phantoms"] = len(phantoms)
     if phantoms:
@@ -271,6 +275,11 @@ def reconcile() -> dict:
         for p in phantoms:
             _log(f"PHANTOM: {p['symbol']} {p['side']} qty={p['qty']} "
                  f"@${p['entry_price']:.4f}")
+        # Defansif: phantom sayısı > 0 her zaman ek stats field — Bot Monitor okusun
+        stats["phantom_symbols"] = [p["symbol"] for p in phantoms]
+        stats["phantom_total_notional"] = round(
+            sum(abs(float(p.get("qty", 0)) * float(p.get("entry_price", 0)))
+                for p in phantoms), 2)
 
     # 3. In-sync: ikisinde de var
     stats["in_sync"] = len(exchange_symbols & journal_symbols)

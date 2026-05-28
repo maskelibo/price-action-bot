@@ -43,32 +43,48 @@ universe:
     - LINK/USDT
     - DOT/USDT
 
+# ═══════════════════════════════════════════════════════════════════════════
+# FIX 2026-05-28 (Faz 14.27): CONFIG SCHEMA PARITY
+# Önceki bu config backtest engine (lab.py / iterate_orchestrator.py) için
+# yazılmıştı. LIVE RiskOfficer farklı schema okuyor:
+#   - position_sizing.risk_per_trade (NOT risk_pct)
+#   - concentration_limits.max_open_positions (NOT execution.max_concurrent)
+#   - drawdown_breakers.consecutive_losses (NOT execution.consecutive_loss_pause)
+#   - drawdown_breakers.daily_loss_pct (NOT execution.daily_dd_halt_pct)
+# BU YANI BACKTEST'TEKI "SİHİRLİ SOS" canlıda çalışmıyordu.
+# Şimdi düzeltildi. Eski key'ler comment olarak korundu (backtest reproduce için).
+# ═══════════════════════════════════════════════════════════════════════════
+
 execution:
-  risk_per_trade: 0.005           # %0.5 (LIVE config ile aynı)
-                                  # HALF-KELLY önerisi: 0.0025
-  max_concurrent: 8               # LIVE 16'dan azaltılmış
-  consecutive_loss_pause: 3       # 3 art arda kayıp → 1 gün halt (SİHİRLİ SOS)
-  pause_days: 1                   # halt süresi (1 gün)
-  tp_r: 3.0                       # 3R fixed TP (big winner yakalama)
+  # LIVE RiskOfficer okuyan key'ler:
+  sl_pct_min: 0.0                 # rsi2 doğası dar SL — DEĞIŞMEMELI
+                                  # vsa_climax %2.5 vardı, rsi2'de %96 trade'i keser
+  # backtest-only key'ler (yorum olarak korundu):
+  # tp_r: 3.0                     # backtest engine 3R fixed TP — bot hardcoded 1R/1.5R bracket kullanır
+  # pause_days: 1                 # backtest-only; live'da drawdown_breakers.consecutive_loss_pause_days
 
-  # ÖNEMLI: sl_pct_min YOK
-  # vsa_climax'ta widestop %2.5 vardı, rsi2'de bu filtre %96 trade'i keser
-  # rsi2 doğası dar SL — DEĞIŞMEMELI
-  sl_pct_min: 0.0
+position_sizing:
+  risk_per_trade: 0.005           # LIVE RiskOfficer okur — %0.5 (HALF-KELLY önerisi 0.0025)
+  backtest_risk_pct: 0.005        # backtest engine için yedek (lab.py okur)
+  # risk_pct: 0.005               # ESKİ KEY (backtest-only) — kaldırıldı
 
-  # DD halt'lar — loss_pause yeterli, ekstra koruma yok
-  daily_dd_halt_pct: null
-  monthly_dd_halt_pct: null
+concentration_limits:
+  max_open_positions: 8           # LIVE 16'dan azaltılmış (v63 hedefi)
+  max_per_symbol_pct: 0.20
+  max_per_category_pct: 0.40
+
+drawdown_breakers:
+  daily_loss_pct: 0.04            # bot DDBreaker okur (eski execution.daily_dd_halt_pct → null idi, default %4 zaten)
+  weekly_loss_pct: 0.08
+  monthly_loss_pct: 0.99          # essentially off (rsi2 5y backtest neg ay tolerated)
+  consecutive_losses: 3           # SİHİRLİ SOS — 3 art arda kayıp → halt (backtest +%20 ROI / -%17 DD bu mekanizma ile)
+  consecutive_loss_pause_days: 1.0
 
 signals:
   rsi_period: 2
   rsi_oversold: 10
   rsi_overbought: 90
   confirmation: engulfing_bar
-
-position_sizing:
-  risk_pct: 0.005
-  backtest_risk_pct: 0.005
 
 # RISK OFFICER REVIEW NOTLARI:
 # - Aylık ROI varyansı yüksek (std %25) — tek ay -%14 görülecek

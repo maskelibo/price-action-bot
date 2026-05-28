@@ -200,6 +200,44 @@ def _resolve_symbols(symbols_csv: str | None) -> list[tuple[str, str]]:
     return [(i.venue, i.symbol) for i in instruments]
 
 
+async def run_hourly() -> dict[str, int]:
+    """Saatlik delta ingest — scheduler tarafından çağrılır.
+
+    FIX 2026-05-28 (Faz 14.27): Önceki sürümde bu fonksiyon YOKTU. Scheduler
+    `_job_ingest_data` `hasattr(ingest_ccxt, "run_hourly")` False alıp **silent
+    skip** ediyordu → market.duckdb 6 GÜN güncellenmedi → bot stale data ile
+    backtest/regime check yapıyordu.
+
+    Bu wrapper son N gün'lük (=settings.pa_backtest_years) ingest yapar.
+    Universe'deki tüm semboller × tüm TF'ler. Idempotent (OHLCVStore upsert).
+
+    Returns:
+        {"symbols": N, "tfs": M, "ingested": K}
+    """
+    import asyncio
+    s = get_settings()
+    pairs = _resolve_symbols(None)
+    timeframes = s.timeframes_list
+    store = OHLCVStore()
+    n_done = 0
+    for v, sy in pairs:
+        for t in timeframes:
+            try:
+                # Sync ingest_symbol — async loop'u bloklamamak için thread'e at
+                stat = await asyncio.to_thread(
+                    ingest_symbol,
+                    venue=v, symbol=sy, timeframe=t,
+                    years=s.pa_backtest_years, store=store,
+                )
+                logger.bind(**stat.__dict__).info("ingest.symbol_done")
+                n_done += 1
+            except Exception as exc:
+                logger.bind(venue=v, symbol=sy, tf=t, err=str(exc)[:200]).warning(
+                    "ingest.symbol_fail"
+                )
+    return {"symbols": len(pairs), "tfs": len(timeframes), "ingested": n_done}
+
+
 @app.command("run")
 def run(
     venue: str = typer.Option("", "--venue", help="binance|bybit; boşsa universe."),

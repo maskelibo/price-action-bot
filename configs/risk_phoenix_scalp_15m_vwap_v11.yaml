@@ -17,29 +17,41 @@ description: |
 strategies_enabled:
   - session_vwap_mean_reversion
 
+# ═══════════════════════════════════════════════════════════════════════════
+# FIX 2026-05-28 (Faz 14.27): CONFIG SCHEMA PARITY
+# strategy_portfolio.* ve risk.* key'leri LIVE RiskOfficer schema'sına taşındı.
+# Backtest engine'in okuduğu eski key'ler yorum olarak korundu.
+# ═══════════════════════════════════════════════════════════════════════════
+
 execution:
   sl_pct_min: 0.0                # session_vwap dar SL, widestop YOK
-  risk_per_trade: 0.005
-  backtest_risk_pct: 0.005
   fee_bps_per_trade: 5.0
 
 position_sizing:
-  risk_per_trade: 0.005
+  risk_per_trade: 0.005          # LIVE RiskOfficer okur
+  backtest_risk_pct: 0.005       # backtest engine yedek
   use_confidence_dynamic_sizing: false
   conf_tiers:
     - {min: 0.00, max: 0.50, risk_pct: 0.005}
     - {min: 0.50, max: 1.00, risk_pct: 0.005}
 
+concentration_limits:
+  max_open_positions: 4          # SİHİRLİ SOS — v11 sıkı cap (LIVE bot DDBreaker okur)
+  max_per_symbol_pct: 0.20
+  max_per_category_pct: 0.40
+
+drawdown_breakers:
+  daily_loss_pct: 0.04
+  weekly_loss_pct: 0.08
+  monthly_loss_pct: 0.99         # essentially off
+  consecutive_losses: 2          # SİHİRLİ SOS — backtest +%12 ROI / -%15 DD bu mekanizma ile
+  consecutive_loss_pause_days: 1.0
+
+# Backtest engine için eski key'ler (lab.py / iterate_orchestrator.py okur):
 strategy_portfolio:
-  max_concurrent_positions: 4    # v11 sıkı cap
-  consecutive_loss_pause_n: 2    # SİHİRLİ SOS — DD %22 → %15
-  consecutive_loss_pause_days: 1
   pyramid_enabled: false
   strategies:
     - session_vwap_mean_reversion
 
 risk:
-  daily_dd_halt_pct: 0.04        # default
-  weekly_dd_halt_pct: 0.08
-  monthly_dd_halt_pct: 0.99      # essentially off
-  max_portfolio_notional_x_equity: 2.0   # daha sıkı
+  max_portfolio_notional_x_equity: 2.0   # bot doğrudan okumayabilir; runtime check
