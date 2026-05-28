@@ -50,6 +50,11 @@
          Backtest ref: config dosyası başlık yorumu. -->
     <key>PA_15M_CONFIG</key>
     <string>configs/risk_phoenix_scalp_15m_widestop_vsa2.yaml</string>
+    <!-- FIX 2026-05-28 (Faz 14.27): market.duckdb read-only mode — ingest
+         cron'un write yapabilmesi için. Önceki bug: LIVE bot exclusive lock
+         tutuyordu → ingest 6 gün silent fail → market data stale. -->
+    <key>PA_DUCKDB_READ_ONLY</key>
+    <string>true</string>
   </dict>
 
   <key>RunAtLoad</key>

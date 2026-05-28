@@ -28,6 +28,8 @@ export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 export PA_RUN_MODE="${PA_RUN_MODE:-paper}"
 export PA_5M_CONFIG="${PA_5M_CONFIG:-configs/risk_phoenix_scalp_5m_p1c.yaml}"
 export TZ="UTC"
+# FIX 2026-05-28 (Faz 14.27): market.duckdb read-only — ingest cron lock-free
+export PA_DUCKDB_READ_ONLY="true"
 
 # 4) Pre-flight check (loga yazılır)
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] futures5m starting"

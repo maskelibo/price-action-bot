@@ -39,6 +39,9 @@
     <string>configs/risk_phoenix_scalp_15m_rsi2_v63.yaml</string>
     <key>PA_BOT_NAME</key>
     <string>rsi2</string>
+    <!-- FIX 2026-05-28 (Faz 14.27): read-only mode → ingest cron lock-free -->
+    <key>PA_DUCKDB_READ_ONLY</key>
+    <string>true</string>
   </dict>
 
   <key>RunAtLoad</key>
