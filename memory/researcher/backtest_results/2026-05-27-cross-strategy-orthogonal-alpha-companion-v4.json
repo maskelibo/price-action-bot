@@ -1,0 +1,159 @@
+{
+  "hypothesis_id": "2026-05-27-cross-strategy-orthogonal-alpha-companion-v4",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-27-cross-strategy-orthogonal-alpha-companion-v4.md",
+  "extracted_at": "2026-05-27T10:30:20.330239+00:00",
+  "spec": {
+    "type": "analysis",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [
+      "|\u03b2| \u2264 0.30",
+      "IR_resid \u2265 0.60",
+      "Residual Ljung-Box p \u2265 0.05",
+      "R\u00b2 \u2264 0.10",
+      "sharpe_standalone_oos \u2265 0.80",
+      "annual_combo \u2265 25%",
+      "sharpe_combo improvement \u2265 20%",
+      "maxdd_combo increase \u2264 +4pp",
+      "DSR \u2265 0.45",
+      "family-wise p < 1.9e-4"
+    ],
+    "executable": false,
+    "reason_if_not": "Cross-strategy orthogonal alpha analysis (OLS \u03b2 + residual IR decomposition) across 66 candidates against vsa_climax_test \u2014 not a param sweep; requires correlation/regression analytics infrastructure beyond standard sweep runner."
+  },
+  "result": {
+    "status": "OK",
+    "type": "analysis",
+    "n_strategies_compared": 6,
+    "min_sample_size": 500,
+    "correlation_matrix": {
+      "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 1.0,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 0.0482,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 0.0218,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 0.0264,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.097,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0407
+      },
+      "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0482,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 1.0,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.029,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 0.0072,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.1029,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0498
+      },
+      "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0218,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": -0.029,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 1.0,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.081,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": 0.0033,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0801
+      },
+      "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0264,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 0.0072,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.081,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 1.0,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.0102,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0613
+      },
+      "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": -0.097,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": -0.1029,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 0.0033,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.0102,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": 1.0,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": 0.0596
+      },
+      "vsa_climax_test-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": -0.0407,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": -0.0498,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.0801,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.0613,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": 0.0596,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": 1.0
+      }
+    },
+    "low_correlation_pairs": [
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0482
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "rho": 0.0218
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0264
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.097
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0407
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "rho": -0.029
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0072
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.1029
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0498
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.081
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": 0.0033
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0801
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.0102
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0613
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0596
+      }
+    ],
+    "n_low_corr_pairs": 15,
+    "partial_note": "PARTIAL \u2014 sadece unconditional Pearson hesapland\u0131. Hipotez tam ko\u015fum i\u00e7in ekstra pipeline ister: Cross-strategy orthogonal alpha analysis (OLS \u03b2 + residual IR decomposition) across 66 candidates against vsa_climax_test \u2014 not a param sweep; requires correlation/regression analytics infrastructure beyond standard sweep runner."
+  }
+}

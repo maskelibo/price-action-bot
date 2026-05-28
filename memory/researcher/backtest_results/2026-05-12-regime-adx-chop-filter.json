@@ -1,0 +1,57 @@
+{
+  "hypothesis_id": "HYP-REGIME-001",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-12-regime-adx-chop-filter.md",
+  "extracted_at": "2026-05-27T07:00:25.962418+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": null,
+    "param_grid": {
+      "adx_threshold_pair": [
+        [
+          18,
+          22
+        ],
+        [
+          20,
+          25
+        ],
+        [
+          22,
+          28
+        ]
+      ],
+      "bbw_pctile_threshold_pair": [
+        [
+          30,
+          40
+        ],
+        [
+          25,
+          50
+        ]
+      ],
+      "half_risk_multiplier": [
+        0.3,
+        0.5
+      ]
+    },
+    "accept_gates": [
+      "3y rolling 13 pencere ortalamasinda DD reduction >= 15 pp (mevcut -65% -> hedef -45% ile -50%)",
+      "ROI kaybi <= 10% (mevcut +57% -> hedef +50% ile +60%)",
+      "Min pencere DD >= -55%",
+      "Sub-Nisan 2026 pencere PnL iyilesmesi >= +$2K (mevcut -$4.2K -> >= $0)",
+      "Walk-forward 12 dilim, >= 8 dilim DD daralmasi gostermeli",
+      "Bonferroni-corrected p < 0.05 (n=12 config kombinasyonu)",
+      "Shuffle baseline p < 0.01 (gercek DD reduction >= 95 percentile null)",
+      "Symbol-out CV: ortalama DD reduction sapmasi <= 20%",
+      "Stress check: LUNA/FTX/2024-08/Sub-Nis 2026 olaylarinda mutlak DD <= -30%",
+      "IS/OOS Sharpe farki <= 40% (overfit kontrolu)"
+    ],
+    "executable": false,
+    "reason_if_not": "Overlay-type hipotez (regime filter post-processor); mevcut sweep runner Top 10 strateji ciktilarini regime_state() ile post-filtreleyip risk scaling uygulayan replay mekanizmasini desteklemiyor. ADX(14, Wilder) ve BBW pctile hesabi + trade-level approval pipeline'i yeni infra gerektiriyor. DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Overlay-type hipotez (regime filter post-processor); mevcut sweep runner Top 10 strateji ciktilarini regime_state() ile post-filtreleyip risk scaling uygulayan replay mekanizmasini desteklemiyor. ADX(14, Wilder) ve BBW pctile hesabi + trade-level approval pipeline'i yeni infra gerektiriyor. DEFERRED."
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "hypothesis_id": "2026-05-12-htf-momentum-mtf-confluence",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-12-htf-momentum-mtf-confluence.md",
+  "extracted_at": "2026-05-27T07:30:11.257534+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "roc_window_weeks": [
+        4,
+        8,
+        13
+      ],
+      "rsi_pullback_threshold": [
+        40,
+        45,
+        50
+      ],
+      "body_ratio": [
+        0.5,
+        0.55,
+        0.6
+      ]
+    },
+    "accept_gates": [
+      "annualized_net_return > +30%",
+      "max_dd < 30%",
+      "walk_forward_13_windows >= 12 positive",
+      "sharpe_3y_rolling > 1.0",
+      "portfolio_sharpe_uplift >= +5%",
+      "correlation_top10 < 0.50",
+      "trade_frequency 30-100/year",
+      "stress_periods (LUNA, FTX, ATH dump, Yen carry) >= -10%"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: 3-TF cascade (1W ROC + 4H pullback + 1D trigger) requires new htf_momentum_cascade.py module and multi-timeframe data alignment (1W/4H/1D). Mevcut backtest motorumuz tek-TF (1D) bazl\u0131; multi-TF resample + alignment helper'lar\u0131 yok. DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: 3-TF cascade (1W ROC + 4H pullback + 1D trigger) requires new htf_momentum_cascade.py module and multi-timeframe data alignment (1W/4H/1D). Mevcut backtest motorumuz tek-TF (1D) bazl\u0131; multi-TF resample + alignment helper'lar\u0131 yok. DEFERRED."
+  }
+}

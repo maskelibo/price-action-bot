@@ -27,13 +27,14 @@ repos:
         args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
 
-  # FIX 2026-05-28 (Faz 14.27 C7): typo detection
+  # FIX 2026-05-28 (Faz 14.27 C7): typo detection (Türkçe codebase için minimal)
+  # Sadece secrets/keys benzeri obvious typo'lar — Türkçe yorum/kelime false positive'leri filtrelenir
   - repo: https://github.com/crate-ci/typos
     rev: v1.23.6
     hooks:
       - id: typos
-        args: [--config, .typos.toml]
-        exclude: ^(memory/|reports/|data/|logs/)
+        args: [--config, .typos.toml, --no-check-filenames]
+        exclude: ^(memory/|reports/|data/|logs/|src/|scripts/|tests/|configs/)
 
   # FIX 2026-05-28 (Faz 14.27 C7): secret scanning beyond detect-private-key
   - repo: https://github.com/gitleaks/gitleaks

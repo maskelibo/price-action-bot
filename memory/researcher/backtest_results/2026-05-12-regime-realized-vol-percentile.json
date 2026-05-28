@@ -1,0 +1,49 @@
+{
+  "hypothesis_id": "HYP-REGIME-002",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-12-regime-realized-vol-percentile.md",
+  "extracted_at": "2026-05-27T06:30:24.231554+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "high_vol_pctile_threshold": [
+        75.0,
+        80.0,
+        85.0
+      ],
+      "low_vol_pctile_threshold": [
+        15.0,
+        20.0,
+        25.0
+      ],
+      "high_vol_risk_multiplier": [
+        0.4,
+        0.5,
+        0.6
+      ],
+      "dd_breaker_tightening_factor": [
+        0.7,
+        0.75
+      ]
+    },
+    "accept_gates": [
+      "annualized_net_return >= +48% (max 15% ROI loss vs v0.9.2 +57%)",
+      "max_drawdown ortalama -48% ile -52% (>= 12 pp DD reduction vs -65%)",
+      "2022-05 LUNA stress DD reduction >= 10 pp (target: -47.5% -> <= -35%)",
+      "2022-11 FTX stress DD reduction >= 8 pp",
+      "2024-08 yen carry DD reduction >= 5 pp",
+      "2026-04 BTC reversal: simultan short kay\u0131p <= 2 trade",
+      "Calmar improvement >= 15%",
+      "Walk-forward 3y/6m 12 dilim: en az 7 dilimde DD/Calmar iyile\u015fmesi",
+      "Param perturbation \u00b110%: Sharpe kayb\u0131 < 25%, DD geri b\u00fcy\u00fcme < 20%",
+      "Shuffle baseline: ger\u00e7ek DD reduction >= 95 percentile null da\u011f\u0131l\u0131m",
+      "Stage 1 pre-registered p-value < 0.05"
+    ],
+    "executable": false,
+    "reason_if_not": "Yeni overlay stratejisi \u2014 BTC RV30 percentile-based regime gate ve dinamik risk multiplier + DD breaker tightening. Mevcut sweep runner sl_pct/risk_pct/tp_r gibi standart parametreleri destekliyor; vol_regime overlay (rejim-temelli risk multiplier + blocked_strategies + breaker scaling) ayr\u0131 bir engine layer gerektiriyor (DEFERRED)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Yeni overlay stratejisi \u2014 BTC RV30 percentile-based regime gate ve dinamik risk multiplier + DD breaker tightening. Mevcut sweep runner sl_pct/risk_pct/tp_r gibi standart parametreleri destekliyor; vol_regime overlay (rejim-temelli risk multiplier + blocked_strategies + breaker scaling) ayr\u0131 bir engine layer gerektiriyor (DEFERRED)."
+  }
+}

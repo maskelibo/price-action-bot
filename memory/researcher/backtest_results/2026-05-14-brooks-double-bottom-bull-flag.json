@@ -1,0 +1,45 @@
+{
+  "hypothesis_id": "2026-05-14-brooks-db-bull-flag",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-14-brooks-double-bottom-bull-flag.md",
+  "extracted_at": "2026-05-27T05:30:19.686010+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "K": [
+        20,
+        30
+      ],
+      "J": [
+        5,
+        8
+      ],
+      "C": [
+        4,
+        6
+      ],
+      "rng_atr": [
+        3.0,
+        4.0,
+        5.0
+      ]
+    },
+    "accept_gates": [
+      "n_min >= 200",
+      "WR_min >= 0.45",
+      "mR_min >= 0.10",
+      "p_shuffle < 0.05",
+      "max_R < 10",
+      "per_sym_pos >= 6/11",
+      "symout_dev < 30%",
+      "bonferroni_alpha = 0.05/k",
+      "honest_R_clip: hold_d>60 -> R<=1.0"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Brooks Double Bottom Bull Flag / Double Top Bear Flag yepyeni bir pattern detector gerektirir (fractal pivot + price-equality + tight flag + breakout). Mevcut 4 stratejiden hi\u00e7biriyle e\u015fle\u015fmiyor; backtest motoru hen\u00fcz bu hipotezi ko\u015fturamaz (DEFERRED)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Brooks Double Bottom Bull Flag / Double Top Bear Flag yepyeni bir pattern detector gerektirir (fractal pivot + price-equality + tight flag + breakout). Mevcut 4 stratejiden hi\u00e7biriyle e\u015fle\u015fmiyor; backtest motoru hen\u00fcz bu hipotezi ko\u015fturamaz (DEFERRED)."
+  }
+}

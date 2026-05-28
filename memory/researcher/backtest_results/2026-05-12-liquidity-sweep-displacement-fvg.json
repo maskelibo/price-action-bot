@@ -1,0 +1,25 @@
+{
+  "hypothesis_id": "2026-05-12-liquidity-sweep-displacement-fvg",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-12-liquidity-sweep-displacement-fvg.md",
+  "extracted_at": "2026-05-27T07:00:37.489865+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "net_annual_return > +25%",
+      "max_dd < 30%",
+      "walk_forward 12/13 windows positive",
+      "profit_factor >= 1.2",
+      "win_rate > baseline (~48%)",
+      "DSR p < 0.002 (Bonferroni 9 params x 3 grid)",
+      "correlation with equal_highs_sweep < 0.50"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: novel ICT/SMC liquidity sweep + displacement + FVG mitigation entry logic. Mevcut backtest motoru (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) bu sinyal mant\u0131\u011f\u0131n\u0131 ko\u015fturamaz \u2014 yeni signal detector + FVG tracking + mitigation entry pipeline gerekir. DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: novel ICT/SMC liquidity sweep + displacement + FVG mitigation entry logic. Mevcut backtest motoru (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) bu sinyal mant\u0131\u011f\u0131n\u0131 ko\u015fturamaz \u2014 yeni signal detector + FVG tracking + mitigation entry pipeline gerekir. DEFERRED."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-27-cross-strategy-companion-seed-abort-v7",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-27-cross-strategy-companion-seed-abort-v7.md",
+  "extracted_at": "2026-05-27T22:30:09.340050+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort meta-doc, status REJECTED pre-test. v5 freeze moratoryumu 2026-08-25'e kadar aktif; yeni hipotez tan\u0131m\u0131, parametre grid'i veya backtest edilebilir spec yok. Researcher self-throttle circuit breaker doc'u \u2014 ko\u015fturulacak bir \u015fey i\u00e7ermiyor."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort meta-doc, status REJECTED pre-test. v5 freeze moratoryumu 2026-08-25'e kadar aktif; yeni hipotez tan\u0131m\u0131, parametre grid'i veya backtest edilebilir spec yok. Researcher self-throttle circuit breaker doc'u \u2014 ko\u015fturulacak bir \u015fey i\u00e7ermiyor."
+  }
+}

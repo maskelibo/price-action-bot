@@ -1,0 +1,43 @@
+{
+  "hypothesis_id": "2026-05-14-high-tight-flag",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-14-high-tight-flag.md",
+  "extracted_at": "2026-05-27T04:30:29.408695+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "pole_window_days": [
+        28,
+        35,
+        42
+      ],
+      "pole_return": [
+        0.5,
+        0.6,
+        0.75
+      ],
+      "flag_pullback": [
+        0.2,
+        0.25,
+        0.3
+      ]
+    },
+    "accept_gates": [
+      "n_trade >= 30",
+      "WR > 0.40",
+      "mR > +0.10",
+      "shuffle p < 0.10",
+      "WF 3y rolling negative windows <= 4",
+      "symbol concentration <= 60%",
+      "regime split: positive in >=2 regimes",
+      "IS/OOS Sharpe drop <= 50%",
+      "ensemble retest ROI delta >= +1pp"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: HTF (pole + tight flag + breakout) detection not implemented in current backtest engine; requires new detector src/price_action/strategies/high_tight_flag.py"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: HTF (pole + tight flag + breakout) detection not implemented in current backtest engine; requires new detector src/price_action/strategies/high_tight_flag.py"
+  }
+}

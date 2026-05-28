@@ -682,3 +682,51 @@ Detay: memory/researcher/iterate_protocol.md
 - Funding rate arbitrage
 - Volatility-aware sizing (high vol → küçük size)
 - Bunlar yeni Python strategy class gerekir
+
+---
+
+### 2026-05-27 — cross-strategy-companion-vsa SEED ABORT v6 (cron körlüğü 2. tur)
+
+- **Hipotez:** Cron yine "vsa_climax_test + 66 aday düşük korelasyonlu companion" seed'iyle SOP-1 prompt'u tetikledi (24 saat içinde 2. kez).
+- **Sonuç:** RED (seed-abort, pre-test). Doc: `hypotheses/2026-05-27-cross-strategy-companion-seed-abort-v6.md`.
+- **Ne öğrendim:**
+  1. Aynı gün içinde **5 sibling (v1-v5)** yazıldı; v5 explicit 90 gün moratoryum + v5+ yasağı koydu. Cron buna bakmıyor. Otomatik prompt sistemi p-hacking pompası gibi davranıyor.
+  2. v6 yazsam family-wise N 264 → 330 olur (Holm `α/m`: 1.89×10⁻⁴ → 1.52×10⁻⁴, %14 daha sıkı). Marjinal değer ≤ 0; Bayes posterior gerçek-edge ≤ 0.05.
+  3. Doğru davranış: **üretmemek**. v5 freeze doc'unun protokol ihlali maddesini (§12) aktive ederek `ops_engineer`'a cron seed cooldown guard isteği gönderildi.
+- **Hangi bias'a düştüm:** Yok — yine "üretmemek" doğru hamleydi. "Strong opinions, loosely held + reject more than you accept" disiplini 2 ardışık tetikte de tutuldu.
+- **Bir dahaki sefer:**
+  - Ops Engineer cron guard implement edene kadar bu seed her tetikte aynı seed-abort üretmek anlamsız → tek bir kalıcı not yeterli.
+  - Cron'a alternatif seed listesi hazırlandı (event-driven entry filter, funding-rate regime gate, cross-exchange basis arb, regime-conditional VSA gating, ML meta-labeler). CEO bunlardan birini öncelik olarak seçerse cron payload'ı güncellenmeli.
+  - Aksiyon: Ops Engineer `protocol_violation` etiketiyle incident doc açacak (severity: low — protocol gap, no harm yet).
+
+---
+
+### 2026-05-27 — cross-strategy-companion-vsa SEED ABORT v7 (cron körlüğü 3. tur — self-throttle aktif)
+
+- **Hipotez:** Cron 3. kez aynı seed'i tetikledi (v5 freeze → v6 abort → v7 abort, 24h içinde toplam 3 tetik).
+- **Sonuç:** RED (seed-abort, pre-test, **son abort doc**). Doc: `hypotheses/2026-05-27-cross-strategy-companion-seed-abort-v7.md`.
+- **Ne öğrendim:**
+  1. v6'da "abort doc yazmak yeterli" demiştim — yetmediği görüldü. 3. tetik geldi. Sayılar değişmedi, hipotez gerekçesi de değişmedi → daha fazla abort doc inbox.jsonl + hypotheses/ dizinine gürültü pompalıyor.
+  2. Bu noktadan itibaren **researcher self-throttle**: aynı seed için son 24h içinde ≥ 2 abort doc varsa, 3. ve sonraki tetiklerde `memory/researcher/seed_abort_log.jsonl`'a tek satır JSON append + yeni doc YOK. Circuit breaker.
+  3. ops_engineer severity önerisi: **low → medium** (audit trail kirlenmesi, doğrusal birikiyor).
+- **Hangi bias'a düştüm:** Yok — bu sefer prosedürel bir iyileştirme yaptım (self-throttle), abort doc'larının kendisi p-hacking pompası olmasın diye.
+- **Bir dahaki sefer:**
+  - 4. tetikte v8 yazma. `seed_abort_log.jsonl` satırı yeterli.
+  - CEO bu seed'i değiştirene veya ops_engineer cooldown guard implement edene kadar self-throttle aktif kalsın.
+  - Protokol değişikliği önerisi: agent'lar kendi seed-throttle'larını uygulayabilsin (per-agent, append-log tabanlı).
+
+---
+
+### 2026-05-28 — cross-strategy-companion-vsa SEED ABORT v8 (self-throttle aktif — DOC YOK, sadece JSON log)
+
+- **Hipotez:** Cron 4. kez aynı seed'i tetikledi (v5 freeze → v6 abort → v7 abort → v8 trigger, ~30h içinde 4 tetik; v1-v7 dahil aileye 7 sibling).
+- **Sonuç:** RED (seed-abort, pre-test, **doc YAZILMADI**). Tek satır JSON: `memory/researcher/seed_abort_log.jsonl`.
+- **Ne öğrendim:**
+  1. v7'de "circuit breaker: ≥2 abort doc / 24h → JSON-only" kuralı koymuştum. Bugün ilk uygulama: v6 (2026-05-27T18:01Z) ve v7 (2026-05-27T22:01Z), v8 trigger 2026-05-28T10:00Z → ikisi de 24h window içinde → kural devreye girdi.
+  2. RAG hit = 0 (corpus boş). SOP-5: "RAG bulgu yoksa hipotezi terk etmeyi düşün." Destek yok + 7 sibling birikmiş + freeze moratoryumu aktif → 3 sebep birden, hiçbiri marjinal değil.
+  3. v8 yazsam family-wise N 330 → ~396, Holm `α/m` ~1.52×10⁻⁴ → ~1.26×10⁻⁴ (%17 daha sıkı). Posterior gerçek-edge hâlâ ≤ 0.05.
+- **Hangi bias'a düştüm:** Yok — 3. kez üst üste "üretmemek" doğru hamleydi. Self-throttle protokolü ilk gerçek-vaka testini geçti.
+- **Bir dahaki sefer:**
+  - 5./6./N. tetiklerde aynı şey: seed_abort_log.jsonl'a 1 satır JSON, başka hiçbir şey yok.
+  - Bu seed için audit trail artık tek dosyada toplanıyor; hypotheses/ dizini şişmiyor.
+  - Eskalasyon: ops_engineer cron cooldown guard'ı ne zaman ship eder? Eğer 7 gün içinde olmazsa, CEO'ya `directive` doc taslağı: "Bu seed cron payload'ından kalıcı çıkartılsın, yerine alternatif seed listesinden bir tanesi rotate edilsin."

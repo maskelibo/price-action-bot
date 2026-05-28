@@ -1,0 +1,23 @@
+{
+  "hypothesis_id": "2026-05-09-fear-greed-sentiment",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-09-fear-greed-sentiment.md",
+  "extracted_at": "2026-05-27T09:00:16.719149+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "annual_return > 20%",
+      "sharpe > 0.6",
+      "max_drawdown < 35%",
+      "win_rate > 45%",
+      "trade_count >= 30"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: F&G Index d\u0131\u015f veri kayna\u011f\u0131 (alternative.me API) gerektirir; mevcut backtest motoru OHLCV tabanl\u0131 oldu\u011fundan F&G sentiment feed entegrasyonu olmadan ko\u015fturulamaz (DEFERRED)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: F&G Index d\u0131\u015f veri kayna\u011f\u0131 (alternative.me API) gerektirir; mevcut backtest motoru OHLCV tabanl\u0131 oldu\u011fundan F&G sentiment feed entegrasyonu olmadan ko\u015fturulamaz (DEFERRED)"
+  }
+}

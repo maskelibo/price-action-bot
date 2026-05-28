@@ -1,0 +1,26 @@
+{
+  "hypothesis_id": "2026-05-14-grimes-abc-two-leg",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-14-grimes-abc-two-leg-pullback.md",
+  "extracted_at": "2026-05-27T05:00:19.962893+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "n_min >= 150",
+      "WR_min >= 0.45",
+      "mR_min >= +0.15",
+      "p_shuffle < 0.05",
+      "max_R < 10",
+      "per_sym_pos >= 6/11",
+      "symout_dev < 30%",
+      "orthogonality_jaccard_vs_brooks_h2_l2 < 0.30"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Grimes ABC two-leg pullback yeni bir pattern detector gerektirir (A\u2192a\u2192B\u2192c state machine, Fib retracement gate, B-pivot reclaim trigger). Mevcut 4 strateji'den hi\u00e7biri bu mant\u0131\u011f\u0131 \u00e7al\u0131\u015ft\u0131rmaz; src/price_action/strategies/grimes_abc_two_leg.py hen\u00fcz mevcut de\u011fil \u2014 DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Grimes ABC two-leg pullback yeni bir pattern detector gerektirir (A\u2192a\u2192B\u2192c state machine, Fib retracement gate, B-pivot reclaim trigger). Mevcut 4 strateji'den hi\u00e7biri bu mant\u0131\u011f\u0131 \u00e7al\u0131\u015ft\u0131rmaz; src/price_action/strategies/grimes_abc_two_leg.py hen\u00fcz mevcut de\u011fil \u2014 DEFERRED."
+  }
+}

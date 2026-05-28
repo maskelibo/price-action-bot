@@ -1,0 +1,156 @@
+{
+  "hypothesis_id": "researcher-20260527T173000-cross-strategy-freeze-meta-protocol-v5",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-27-cross-strategy-freeze-meta-protocol-v5.md",
+  "extracted_at": "2026-05-27T14:30:14.519825+00:00",
+  "spec": {
+    "type": "analysis",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [
+      "p_holm_min \u2264 0.05/264 (Bonferroni threshold 1.89e-4)",
+      "n_passing_pairs \u2264 1 (XOR korunur)",
+      "combo net annual \u2265 25%",
+      "combo Sharpe uplift \u2265 20% vs vsa standalone",
+      "combo MaxDD \u2264 -19.48% (vsa baseline -15.48% + 4pp)",
+      "DSR \u2265 0.45 (Bailey-LdP, m=264)",
+      "bootstrap FWER (Romano-Wolf, 10000 reps, block=20) confirms Holm result"
+    ],
+    "executable": false,
+    "reason_if_not": "Meta-protocol analysis hypothesis: requires Holm-Bonferroni FWER correction across 4 frozen sibling hypotheses (v1-v4) \u00d7 66 frozen candidate strategies = 264 tests, with Romano-Wolf block-bootstrap (10000 reps). Not a parameter sweep \u2014 no param grid to run. Depends on prior sibling results (v1-v4) being computed first; current sweep runner cannot execute multi-hypothesis FWER meta-analysis."
+  },
+  "result": {
+    "status": "OK",
+    "type": "analysis",
+    "n_strategies_compared": 6,
+    "min_sample_size": 500,
+    "correlation_matrix": {
+      "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 1.0,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 0.0482,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 0.0218,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 0.0264,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.097,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0407
+      },
+      "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0482,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 1.0,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.029,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 0.0072,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.1029,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0498
+      },
+      "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0218,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": -0.029,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 1.0,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.081,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": 0.0033,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0801
+      },
+      "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0264,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 0.0072,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.081,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 1.0,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.0102,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0613
+      },
+      "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": -0.097,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": -0.1029,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 0.0033,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.0102,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": 1.0,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": 0.0596
+      },
+      "vsa_climax_test-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": -0.0407,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": -0.0498,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.0801,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.0613,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": 0.0596,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": 1.0
+      }
+    },
+    "low_correlation_pairs": [
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0482
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "rho": 0.0218
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0264
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.097
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0407
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "rho": -0.029
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0072
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.1029
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0498
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.081
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": 0.0033
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0801
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.0102
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0613
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0596
+      }
+    ],
+    "n_low_corr_pairs": 15,
+    "partial_note": "PARTIAL \u2014 sadece unconditional Pearson hesapland\u0131. Hipotez tam ko\u015fum i\u00e7in ekstra pipeline ister: Meta-protocol analysis hypothesis: requires Holm-Bonferroni FWER correction across 4 frozen sibling hypotheses (v1-v4) \u00d7 66 frozen candidate strategies = 264 tests, with Romano-Wolf block-bootstrap (10000 reps). Not a parameter sweep \u2014 no param grid to run. Depends on prior sibling results (v1-v4) being computed first; current sweep runner cannot execute multi-hypothesis FWER meta-analysis."
+  }
+}

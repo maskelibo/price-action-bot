@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-09-llm-generated-batch1",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-09-llm-generated-batch1.md",
+  "extracted_at": "2026-05-27T08:00:34.850473+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Batch hipotez dok\u00fcman\u0131 3+ yeni strateji (HYP-NEW-1 Wyckoff Spring + VSA stopping volume, HYP-NEW-2 Engulfing + OBV slope confluence, HYP-NEW-3 Brooks ii + Naked POC) tan\u0131ml\u0131yor \u2014 yeni signal logic, yeni indikat\u00f6r kombinasyonlar\u0131 (OBV slope, Naked POC, ii pattern, Wyckoff Spring detection) gerektirir. Mevcut 4 strateji'nin parametre sweep'i de\u011fil; backtest motoru bu sinyalleri hen\u00fcz ko\u015fturamaz. Her hipotez ayr\u0131 pre-registration + detector implementasyonu ile ba\u011f\u0131ms\u0131z test edilmeli (DEFERRED)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Batch hipotez dok\u00fcman\u0131 3+ yeni strateji (HYP-NEW-1 Wyckoff Spring + VSA stopping volume, HYP-NEW-2 Engulfing + OBV slope confluence, HYP-NEW-3 Brooks ii + Naked POC) tan\u0131ml\u0131yor \u2014 yeni signal logic, yeni indikat\u00f6r kombinasyonlar\u0131 (OBV slope, Naked POC, ii pattern, Wyckoff Spring detection) gerektirir. Mevcut 4 strateji'nin parametre sweep'i de\u011fil; backtest motoru bu sinyalleri hen\u00fcz ko\u015fturamaz. Her hipotez ayr\u0131 pre-registration + detector implementasyonu ile ba\u011f\u0131ms\u0131z test edilmeli (DEFERRED)."
+  }
+}

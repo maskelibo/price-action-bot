@@ -1,0 +1,25 @@
+{
+  "hypothesis_id": "btc_eth_pairs_cointegration_v1",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-09-btc-eth-pairs-cointegration.md",
+  "extracted_at": "2026-05-27T09:30:12.248497+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "3y_backtest_sharpe >= 0.5",
+      "cointegration_break_pct <= 40",
+      "correlation_with_engulfing <= 0.3",
+      "net_pnl > 0",
+      "annual_sharpe >= 1.0",
+      "win_rate >= 0.55",
+      "max_drawdown < 0.25"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: statistical arbitrage pairs trading (BTC-ETH cointegration) is a brand-new strategy class not supported by the existing backtest engine (no current pairs/spread infrastructure, requires Engle-Granger ADF, rolling OLS hedge ratio, dollar-neutral two-leg execution). DEFERRED until pairs engine implemented."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: statistical arbitrage pairs trading (BTC-ETH cointegration) is a brand-new strategy class not supported by the existing backtest engine (no current pairs/spread infrastructure, requires Engle-Granger ADF, rolling OLS hedge ratio, dollar-neutral two-leg execution). DEFERRED until pairs engine implemented."
+  }
+}

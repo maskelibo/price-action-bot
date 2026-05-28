@@ -1,0 +1,43 @@
+{
+  "hypothesis_id": "2026-05-14-three-push-wedge-fade",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-14-three-push-wedge-fade.md",
+  "extracted_at": "2026-05-27T04:01:26.351202+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "lookback": [
+        20,
+        30,
+        40
+      ],
+      "marginal_gain_max": [
+        0.03,
+        0.05,
+        0.08
+      ],
+      "body_ratio_max": [
+        0.3,
+        0.4,
+        0.5
+      ]
+    },
+    "accept_gates": [
+      "n>=150",
+      "WR>0.35",
+      "mR>+0.10",
+      "shuffle_p<0.05",
+      "max_R<10",
+      "single_side<80%",
+      "hold_median<=20d",
+      "symbol_out_cv_dev<=30%",
+      "margin_gain_bar_count==0"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: three-push wedge multi-bar pattern requires custom vekt\u00f6rize pivot detection module (src/price_action/strategies/three_push_wedge_fade.py) \u2014 backtest engine hen\u00fcz bu strategy class'\u0131n\u0131 ko\u015fturamaz, DEFERRED until implementation"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: three-push wedge multi-bar pattern requires custom vekt\u00f6rize pivot detection module (src/price_action/strategies/three_push_wedge_fade.py) \u2014 backtest engine hen\u00fcz bu strategy class'\u0131n\u0131 ko\u015fturamaz, DEFERRED until implementation"
+  }
+}

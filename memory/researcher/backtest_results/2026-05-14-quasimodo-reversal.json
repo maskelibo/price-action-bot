@@ -1,0 +1,28 @@
+{
+  "hypothesis_id": "2026-05-14-quasimodo-reversal",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-14-quasimodo-reversal.md",
+  "extracted_at": "2026-05-27T04:30:09.784036+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "n_trade >= 50",
+      "WR > 0.35",
+      "mR > +0.10",
+      "shuffle baseline p < 0.10 (50 shuffle, real annualized >= 90th percentile)",
+      "WF 3y rolling 13 windows: negative windows <= 4",
+      "IS/OOS Sharpe drop <= 50%",
+      "Symbol-out CV: mean annualized change <= 50% on 1-symbol drop",
+      "Ensemble retest: ROI delta >= 0 OR DD delta <= 0",
+      "Lookahead audit: no t+1/t+2 leakage in pivot detection",
+      "Bonferroni alpha = 0.017 per test (3 candidate sprint)"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Quasimodo 5-pivot reversal yeni signal logic gerektirir (fractal_n=2 pivot detection + 5-pivot zincir validation + bearish/bullish QM mirror). Mevcut backtest motoru bu stratejiyi hen\u00fcz ko\u015fturamaz \u2014 src/price_action/strategies/quasimodo_reversal.py implementasyonu gerekli. DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Quasimodo 5-pivot reversal yeni signal logic gerektirir (fractal_n=2 pivot detection + 5-pivot zincir validation + bearish/bullish QM mirror). Mevcut backtest motoru bu stratejiyi hen\u00fcz ko\u015fturamaz \u2014 src/price_action/strategies/quasimodo_reversal.py implementasyonu gerekli. DEFERRED."
+  }
+}

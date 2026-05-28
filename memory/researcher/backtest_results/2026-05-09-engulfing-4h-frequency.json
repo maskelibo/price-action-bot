@@ -1,0 +1,45 @@
+{
+  "hypothesis_id": "2026-05-09-engulfing-4h-frequency",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-09-engulfing-4h-frequency.md",
+  "extracted_at": "2026-05-27T09:00:26.019409+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "engulfing_continuation",
+    "param_grid": {
+      "ema_200_lookback": [
+        1200
+      ],
+      "ema_50_lookback": [
+        300
+      ],
+      "ema_20_lookback": [
+        120
+      ],
+      "kaufman_er_period": [
+        84
+      ],
+      "pullback_window": [
+        60
+      ],
+      "atr_period": [
+        14
+      ],
+      "body_ratio_min": [
+        0.6
+      ]
+    },
+    "accept_gates": [
+      "DSR >= 0.35",
+      "win_rate >= 0.38",
+      "sharpe >= 0.30",
+      "cagr >= 0.25",
+      "maxdd <= 0.30"
+    ],
+    "executable": false,
+    "reason_if_not": "REJECTED \u2014 backtest tamamlanm\u0131\u015f, verdict REJECT (DSR=0.0, win rate 33.8% < 38%, negative Sharpe). Yeniden ko\u015fturulmaya gerek yok; tek bir parametre konfig\u00fcrasyonu oldu\u011fu i\u00e7in sweep niteli\u011fi de yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED \u2014 backtest tamamlanm\u0131\u015f, verdict REJECT (DSR=0.0, win rate 33.8% < 38%, negative Sharpe). Yeniden ko\u015fturulmaya gerek yok; tek bir parametre konfig\u00fcrasyonu oldu\u011fu i\u00e7in sweep niteli\u011fi de yok."
+  }
+}

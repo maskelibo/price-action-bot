@@ -1,0 +1,40 @@
+{
+  "hypothesis_id": "2026-05-14-turtle-soup-20day-failed-breakout-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-14-turtle-soup-20day-failed-breakout-v2.md",
+  "extracted_at": "2026-05-27T04:00:14.767366+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "lookback": [
+        15,
+        20,
+        25
+      ],
+      "body_ratio_min": [
+        0.3,
+        0.4,
+        0.5
+      ],
+      "atr_min": [
+        0.005,
+        0.01
+      ]
+    },
+    "accept_gates": [
+      "n >= 200",
+      "mR >= 0.10",
+      "WR >= 0.45",
+      "shuffle_p < 0.05",
+      "max_R < 10",
+      "symbol_out_cv_max_dev < 0.30",
+      "per_symbol_positive_mR >= 6/11"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Turtle Soup yepyeni bir mean-reversion strategy (src/price_action/strategies/turtle_soup_20d.py yaz\u0131lacak). Mevcut 4 base_strategy'den biri de\u011fil; backtest motoru hipotezi mevcut runner ile ko\u015fturamaz \u2014 DEFERRED until strategy module implemented."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Turtle Soup yepyeni bir mean-reversion strategy (src/price_action/strategies/turtle_soup_20d.py yaz\u0131lacak). Mevcut 4 base_strategy'den biri de\u011fil; backtest motoru hipotezi mevcut runner ile ko\u015fturamaz \u2014 DEFERRED until strategy module implemented."
+  }
+}

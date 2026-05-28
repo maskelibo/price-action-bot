@@ -1,0 +1,23 @@
+{
+  "hypothesis_id": "engulfing-1d-4h-confluence",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-08-engulfing-1d-4h-confluence.md",
+  "extracted_at": "2026-05-27T10:00:08.047245+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": "engulfing_continuation",
+    "param_grid": null,
+    "accept_gates": [
+      "annual_net_return > 0.68 (Production A baseline)",
+      "MaxDD <= Production A MaxDD",
+      "win_rate >= baseline engulfing win rate",
+      "4h-confirmed signals win_rate > 4h-unconfirmed signals win_rate",
+      "sample integrity preserved (trade count reduction < 40%)"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: multi-timeframe confluence logic (1d engulfing + 4h Brooks always-in flip detection) requires new signal layer beyond existing param sweep runner; DEFERRED until MTF backtest engine support is implemented"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: multi-timeframe confluence logic (1d engulfing + 4h Brooks always-in flip detection) requires new signal layer beyond existing param sweep runner; DEFERRED until MTF backtest engine support is implemented"
+  }
+}

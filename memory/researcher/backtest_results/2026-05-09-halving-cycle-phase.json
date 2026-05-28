@@ -1,0 +1,21 @@
+{
+  "hypothesis_id": "halving-cycle-phase",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-09-halving-cycle-phase.md",
+  "extracted_at": "2026-05-27T08:30:30.159847+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": "engulfing_continuation",
+    "param_grid": null,
+    "accept_gates": [
+      "Sharpe fark\u0131 > 0.2 (engulfing+halving vs engulfing solo)",
+      "DD d\u00fc\u015f\u00fcyor",
+      "Per-phase breakdown raporlanabilir"
+    ],
+    "executable": false,
+    "reason_if_not": "Makro sizing filtresi (halving phase) \u2014 engulfing stratejisinin \u00fcst\u00fcne metadata ekleyen yeni bir overlay/wrapper. Mevcut sweep runner parametre grid'i de\u011fil, yeni bir sizing fonksiyonu (compute_halving_phase + phase_to_size_factor) gerektiriyor. Ayr\u0131ca istatistiksel \u00f6rneklem N=16 global / N=1 d\u00f6ng\u00fc \u00e7ok k\u00fc\u00e7\u00fck; backtest motoru hen\u00fcz halving-phase aware sizing'i ko\u015fturamaz (DEFERRED)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Makro sizing filtresi (halving phase) \u2014 engulfing stratejisinin \u00fcst\u00fcne metadata ekleyen yeni bir overlay/wrapper. Mevcut sweep runner parametre grid'i de\u011fil, yeni bir sizing fonksiyonu (compute_halving_phase + phase_to_size_factor) gerektiriyor. Ayr\u0131ca istatistiksel \u00f6rneklem N=16 global / N=1 d\u00f6ng\u00fc \u00e7ok k\u00fc\u00e7\u00fck; backtest motoru hen\u00fcz halving-phase aware sizing'i ko\u015fturamaz (DEFERRED)."
+  }
+}

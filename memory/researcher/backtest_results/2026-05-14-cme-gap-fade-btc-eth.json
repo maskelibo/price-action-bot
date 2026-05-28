@@ -1,0 +1,26 @@
+{
+  "hypothesis_id": "2026-05-14-cme-gap-fade-btc-eth",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-14-cme-gap-fade-btc-eth.md",
+  "extracted_at": "2026-05-27T05:30:08.033225+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "n_trade >= 80",
+      "mR >= +0.10",
+      "WR >= 45%",
+      "sumR > +10 (5y)",
+      "ensemble annual uplift >= +2pp",
+      "ensemble DD <= baseline + 3pp absolute",
+      "walk-forward >= 9/13 windows positive",
+      "p < 0.05 vs random shuffle baseline"
+    ],
+    "executable": false,
+    "reason_if_not": "Yeni strateji tan\u0131m\u0131 (CMEGapFadeStrategy) \u2014 Monday-only gap fade logic, 1d TF, weekend_return hesab\u0131 ve gap-fill TP1 mant\u0131\u011f\u0131 mevcut backtest motoru/sweep runner kapsam\u0131nda de\u011fil. Yeni signal class src/price_action/strategies/cme_gap_fade.py implementasyonu gerekiyor (DEFERRED)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Yeni strateji tan\u0131m\u0131 (CMEGapFadeStrategy) \u2014 Monday-only gap fade logic, 1d TF, weekend_return hesab\u0131 ve gap-fill TP1 mant\u0131\u011f\u0131 mevcut backtest motoru/sweep runner kapsam\u0131nda de\u011fil. Yeni signal class src/price_action/strategies/cme_gap_fade.py implementasyonu gerekiyor (DEFERRED)."
+  }
+}

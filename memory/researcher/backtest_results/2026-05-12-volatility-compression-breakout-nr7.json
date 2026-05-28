@@ -1,0 +1,27 @@
+{
+  "hypothesis_id": "2026-05-12-volatility-compression-breakout-nr7",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-12-volatility-compression-breakout-nr7.md",
+  "extracted_at": "2026-05-27T06:00:37.483026+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "net_annual_return > +25%",
+      "max_dd < 25%",
+      "walk_forward_13w >= 12 positive",
+      "sharpe_3y_rolling > 1.1",
+      "profit_factor > 1.6",
+      "win_rate > 55%",
+      "trade_freq 20-50/year",
+      "corr_top10 < 0.25",
+      "corr_brooks_failed_breakout <= 0"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: NR7 + ATR ratio + TTR compression breakout with bracket order is a novel multi-bar pattern not implemented in current backtest engine (DEFERRED)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: NR7 + ATR ratio + TTR compression breakout with bracket order is a novel multi-bar pattern not implemented in current backtest engine (DEFERRED)"
+  }
+}

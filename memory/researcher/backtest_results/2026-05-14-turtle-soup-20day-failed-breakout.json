@@ -1,0 +1,26 @@
+{
+  "hypothesis_id": "2026-05-14-turtle-soup-20day-failed-breakout",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-14-turtle-soup-20day-failed-breakout.md",
+  "extracted_at": "2026-05-27T03:30:28.121892+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "n_trade >= 150",
+      "mR >= +0.20",
+      "WR >= 45%",
+      "sumR > +50",
+      "correlation vs donchian_breakout: rho < -0.2",
+      "ensemble uplift >= +3pp annual",
+      "ensemble DD <= baseline +3pp",
+      "walk-forward: at least 10/13 windows positive"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Turtle Soup 20D failed breakout requires new detector (src/price_action/strategies/turtle_soup_20d.py, TurtleSoup20DStrategy) not yet implemented in backtest engine. DEFERRED until signal_chief implements vectorized detector."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Turtle Soup 20D failed breakout requires new detector (src/price_action/strategies/turtle_soup_20d.py, TurtleSoup20DStrategy) not yet implemented in backtest engine. DEFERRED until signal_chief implements vectorized detector."
+  }
+}

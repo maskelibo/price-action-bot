@@ -1,0 +1,38 @@
+{
+  "hypothesis_id": "hyp-2026-05-14-vol-d2-sow-effort-down",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-14-vol-d2-sow-effort-down.md",
+  "extracted_at": "2026-05-27T03:30:09.540980+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": null,
+    "param_grid": {
+      "spread_atr_mult": [
+        1.0,
+        1.2,
+        1.5
+      ],
+      "vol_sma_mult": [
+        1.5,
+        2.0,
+        2.5
+      ]
+    },
+    "accept_gates": [
+      "n >= 200",
+      "mR >= +0.10",
+      "WR >= 45%",
+      "shuffle p < 0.05 (n=2000)",
+      "max_R < 10",
+      "Symbol-out CV: max |dev| < 30%",
+      "Per-symbol positive mR: at least 6/11",
+      "OOS mR >= +0.05 and sign aligned with IS",
+      "Bonferroni alpha = 0.00556"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: VSA SOW Effort-to-Move-Down is a new standalone strategy (src/price_action/strategies/vsa_sow_effort_down.py, pattern_id=vsa_sow_short) not in the existing 4-strategy backtest engine; DEFERRED until strategy module implemented"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: VSA SOW Effort-to-Move-Down is a new standalone strategy (src/price_action/strategies/vsa_sow_effort_down.py, pattern_id=vsa_sow_short) not in the existing 4-strategy backtest engine; DEFERRED until strategy module implemented"
+  }
+}

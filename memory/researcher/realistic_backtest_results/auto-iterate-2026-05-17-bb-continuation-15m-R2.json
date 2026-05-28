@@ -1,0 +1,42 @@
+{
+  "target": "2026-05-17-bb-continuation-15m",
+  "round": 2,
+  "ran_at": "2026-05-27T12:15:00.033076+00:00",
+  "results": [
+    {
+      "status": "ERROR",
+      "err": "No module named 'iterate_rsi2_variants'",
+      "trace": "Traceback (most recent call last):\n  File \"/Users/peyman/price-action-bot/src/price_action/lab/iterate_orchestrator.py\", line 223, in run_variant_for_strategy\n    from iterate_rsi2_variants import _exit_with_be, _load_ohlcv, _compute_metrics, SYMBOLS\nModuleNotFoundError: No module named 'iterate_rsi2_variants'\n",
+      "variant_name": "R2_v7_concurrent6",
+      "round": 2
+    },
+    {
+      "status": "ERROR",
+      "err": "No module named 'iterate_rsi2_variants'",
+      "trace": "Traceback (most recent call last):\n  File \"/Users/peyman/price-action-bot/src/price_action/lab/iterate_orchestrator.py\", line 223, in run_variant_for_strategy\n    from iterate_rsi2_variants import _exit_with_be, _load_ohlcv, _compute_metrics, SYMBOLS\nModuleNotFoundError: No module named 'iterate_rsi2_variants'\n",
+      "variant_name": "R2_v8_concurrent4_pause3",
+      "round": 2
+    },
+    {
+      "status": "ERROR",
+      "err": "No module named 'iterate_rsi2_variants'",
+      "trace": "Traceback (most recent call last):\n  File \"/Users/peyman/price-action-bot/src/price_action/lab/iterate_orchestrator.py\", line 223, in run_variant_for_strategy\n    from iterate_rsi2_variants import _exit_with_be, _load_ohlcv, _compute_metrics, SYMBOLS\nModuleNotFoundError: No module named 'iterate_rsi2_variants'\n",
+      "variant_name": "R2_v9_pause2",
+      "round": 2
+    },
+    {
+      "status": "ERROR",
+      "err": "No module named 'iterate_rsi2_variants'",
+      "trace": "Traceback (most recent call last):\n  File \"/Users/peyman/price-action-bot/src/price_action/lab/iterate_orchestrator.py\", line 223, in run_variant_for_strategy\n    from iterate_rsi2_variants import _exit_with_be, _load_ohlcv, _compute_metrics, SYMBOLS\nModuleNotFoundError: No module named 'iterate_rsi2_variants'\n",
+      "variant_name": "R2_v10_monthly0.12",
+      "round": 2
+    },
+    {
+      "status": "ERROR",
+      "err": "No module named 'iterate_rsi2_variants'",
+      "trace": "Traceback (most recent call last):\n  File \"/Users/peyman/price-action-bot/src/price_action/lab/iterate_orchestrator.py\", line 223, in run_variant_for_strategy\n    from iterate_rsi2_variants import _exit_with_be, _load_ohlcv, _compute_metrics, SYMBOLS\nModuleNotFoundError: No module named 'iterate_rsi2_variants'\n",
+      "variant_name": "R2_v11_tp2.0",
+      "round": 2
+    }
+  ]
+}

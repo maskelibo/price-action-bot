@@ -1,0 +1,23 @@
+{
+  "hypothesis_id": "hyp-2026-05-14-rsi2-extreme-fade",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-14-rsi2-extreme-fade.md",
+  "extracted_at": "2026-05-27T04:01:33.863881+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "n_trade >= 150",
+      "WR > 0.35",
+      "mR > +0.10",
+      "shuffle p < 0.05",
+      "max_R < 10"
+    ],
+    "executable": false,
+    "reason_if_not": "New strategy (RSI2 extreme fade with EMA200 trend filter + 5d-low) \u2014 not one of the 4 existing base strategies. Already archived RED after SEC23 OOS validation failed (mR=+0.050, p=0.363). Engine cannot run this without implementing rsi2_extreme_fade.py detector."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "New strategy (RSI2 extreme fade with EMA200 trend filter + 5d-low) \u2014 not one of the 4 existing base strategies. Already archived RED after SEC23 OOS validation failed (mR=+0.050, p=0.363). Engine cannot run this without implementing rsi2_extreme_fade.py detector."
+  }
+}

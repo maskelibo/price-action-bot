@@ -16,8 +16,10 @@ Job listesi:
 - weekly_rag_refresh (Paz 04:00)   — Lab
 - monthly_review (ay sonu)         — CEO weekly_summary genelleştirilmiş
 """
+
 from __future__ import annotations
 
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -35,18 +37,18 @@ def build_scheduler() -> Any:
     zaten yer alıyor → blocking yok.
     """
     try:
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[import-not-found]
         from apscheduler.executors.asyncio import AsyncIOExecutor  # type: ignore[import-not-found]
+        from apscheduler.schedulers.asyncio import (
+            AsyncIOScheduler,  # type: ignore[import-not-found]
+        )
     except ImportError as exc:  # pragma: no cover
-        raise RuntimeError(
-            "apscheduler yüklü değil — `pip install apscheduler`"
-        ) from exc
+        raise RuntimeError("apscheduler yüklü değil — `pip install apscheduler`") from exc
     executors = {
         "default": AsyncIOExecutor(),
     }
     job_defaults = {
-        "coalesce": True,           # Aynı job için birikmiş misfire'lar tek run
-        "max_instances": 1,         # Aynı job ID concurrent yasak (kendiyle race yok)
+        "coalesce": True,  # Aynı job için birikmiş misfire'lar tek run
+        "max_instances": 1,  # Aynı job ID concurrent yasak (kendiyle race yok)
         "misfire_grace_time": 600,  # 10 dk geç çalışmaya izin
     }
     return AsyncIOScheduler(
@@ -59,6 +61,7 @@ def build_scheduler() -> Any:
 # ----------------------------------------------------------------------
 # Job fonksiyonları (async)
 # ----------------------------------------------------------------------
+
 
 async def _job_ingest_data() -> None:
     """Saatlik OHLCV ingest. Deterministik ingest_ccxt modülünü çağırır.
@@ -77,10 +80,10 @@ async def _job_ingest_data() -> None:
             logger.info("scheduler.ingest_data_done", extra={"extra": stats})
             return
         # Defensive: function missing → CRITICAL (Faz 14.27 fix)
-        logger.error("scheduler.ingest_data_missing_func",
-                     extra={"extra": {"func": "run_hourly"}})
+        logger.error("scheduler.ingest_data_missing_func", extra={"extra": {"func": "run_hourly"}})
         try:
             from price_action.orchestrator.notifications import push_critical
+
             push_critical(
                 "ingest_data SILENT FAIL: run_hourly() yok — market.duckdb stale "
                 "olabilir. Bot karar verirken eski veri kullanır.",
@@ -126,7 +129,7 @@ async def _job_execute_orders() -> None:
     bu job scheduler wiring'ini kapatır (SEC20 show-stopper fix).
     """
     import asyncio
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from price_action.settings import get_settings
 
@@ -143,7 +146,7 @@ async def _job_execute_orders() -> None:
     try:
         from scripts.futures_trade_daily import daily_run  # type: ignore[import-not-found]
 
-        target = datetime.now(timezone.utc) - timedelta(days=1)
+        target = datetime.now(UTC) - timedelta(days=1)
         dry = not s.is_live  # live değilse dry_run=True (paper/testnet)
 
         logger.info(
@@ -153,8 +156,10 @@ async def _job_execute_orders() -> None:
         await asyncio.to_thread(daily_run, target, dry)
         logger.info("scheduler.execute_orders_done", extra={"date": str(target.date())})
     except ImportError:
-        logger.warning("scheduler.execute_orders_import_fail",
-                       extra={"hint": "scripts/futures_trade_daily.py bulunamadı"})
+        logger.warning(
+            "scheduler.execute_orders_import_fail",
+            extra={"hint": "scripts/futures_trade_daily.py bulunamadı"},
+        )
     except Exception as exc:
         logger.error("scheduler.execute_orders_fail", extra={"err": str(exc)[:300]})
 
@@ -192,7 +197,9 @@ async def _job_auto_iterate_orchestrator() -> None:
     """
     try:
         import asyncio
+
         from price_action.lab.iterate_orchestrator import run_orchestrator
+
         result = await asyncio.to_thread(
             run_orchestrator,
             max_targets_per_run=2,
@@ -234,14 +241,19 @@ async def _job_find_promising_to_iterate() -> None:
         import asyncio
         import subprocess
         from pathlib import Path
+
         repo_root = Path(__file__).resolve().parents[3]
         cmd = [
             str(repo_root / ".venv" / "bin" / "python"),
             "scripts/find_promising_to_iterate.py",
         ]
         result = await asyncio.to_thread(
-            subprocess.run, cmd, cwd=str(repo_root),
-            capture_output=True, text=True, timeout=120,
+            subprocess.run,
+            cmd,
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         if result.returncode == 0:
             logger.info(
@@ -274,12 +286,10 @@ async def _job_hypothesis_backtest_runner() -> None:
     """
     try:
         from price_action.lab.hypothesis_runner import HypothesisRunner
+
         runner = HypothesisRunner()
         results = await runner.run_all_pending(since_days=30, max_runs=3)
-        ok = sum(
-            1 for r in results
-            if r.get("result", {}).get("status") == "OK"
-        )
+        ok = sum(1 for r in results if r.get("result", {}).get("status") == "OK")
         logger.info(
             "scheduler.hyp_backtest_done",
             extra={
@@ -325,11 +335,10 @@ async def _job_weekly_tournament() -> None:
         }
         result = await LabScientistAgent().weekly_tournament(
             champion=champion,
-            challengers=None,   # auto-collect: sweep cells + hyp placeholders
+            challengers=None,  # auto-collect: sweep cells + hyp placeholders
         )
         # Tournament dosyası yazılıyorsa push (reports/lab/ son rapor)
-        _push_latest_safe("lab", "*tournament*.md", level="INFO",
-                          caption="Lab Tournament Result")
+        _push_latest_safe("lab", "*tournament*.md", level="INFO", caption="Lab Tournament Result")
         return result  # silenced unused var lint
     except Exception as exc:
         logger.warning("scheduler.tournament_fail", extra={"err": str(exc)[:200]})
@@ -343,9 +352,7 @@ async def _job_weekly_drift() -> None:
         # Gerçek seriler journal'dan gelir; placeholder boş seriler.
         result = lab.drift_detect([], [])
         if result.get("alert"):
-            lab.append_learning(
-                f"Drift alert: {result}", slug="drift-alert", confidence="high"
-            )
+            lab.append_learning(f"Drift alert: {result}", slug="drift-alert", confidence="high")
             # Faz 1.2: drift alarmı → Telegram WARN
             _push_critical_safe(
                 f"DRIFT detected: {result}",
@@ -378,6 +385,7 @@ async def _job_monthly_review() -> None:
 # ----------------------------------------------------------------------
 # Faz 2.3 — what-if + inbox review job'ları
 # ----------------------------------------------------------------------
+
 
 async def _job_daily_whatif() -> None:
     """Analyst what-if counterfactual — günlük (23:30 UTC).
@@ -440,6 +448,7 @@ async def _job_scan_drift_alerts() -> None:
 # Faz 4.2 — Token budget report
 # ----------------------------------------------------------------------
 
+
 async def _job_hourly_token_check() -> None:
     """Saatlik token budget kontrol — H3 FIX.
 
@@ -476,8 +485,10 @@ async def _job_hourly_token_check() -> None:
             # WARN: kısa Telegram mesaj, throttle ile
             agents_warn = ", ".join(f"{a['agent']} ({a['pct']}%)" for a in warn_alerts)
             try:
-                from .notifications import should_push
                 from price_action.notifications.telegram import send_telegram
+
+                from .notifications import should_push
+
                 if should_push():
                     send_telegram(
                         f"⚠️ Token budget %80+ — {agents_warn}",
@@ -508,9 +519,8 @@ async def _job_health_check() -> None:
     Bir sorun varsa Telegram WARN push.
     """
     try:
-        import os
         import subprocess
-        from datetime import datetime as _dt, timezone as _tz
+        from datetime import datetime as _dt
 
         from price_action.settings import get_settings as _gs
 
@@ -549,7 +559,9 @@ async def _job_health_check() -> None:
         logs_dir = s.reports_dir.parent / "logs"
         if logs_dir.exists():
             try:
-                out = subprocess.run(["du", "-sm", str(logs_dir)], capture_output=True, text=True, timeout=10)
+                out = subprocess.run(
+                    ["du", "-sm", str(logs_dir)], capture_output=True, text=True, timeout=10
+                )
                 if out.stdout:
                     mb = int(out.stdout.split()[0])
                     if mb > 1024:
@@ -592,8 +604,9 @@ async def _job_weekly_token_report() -> None:
 
         ops = OpsAgent()
         # OpsAgent write_protocol_doc helper'ı kullansın
-        from datetime import datetime as _dt, timezone as _tz
-        iso = _dt.now(_tz.utc).isocalendar()
+        from datetime import datetime as _dt
+
+        iso = _dt.now(UTC).isocalendar()
         week_label = f"{iso.year}-W{iso.week:02d}"
         path = ops.write_protocol_doc(
             doc_type="incident" if alerts else "postmortem",
@@ -627,10 +640,12 @@ async def _job_weekly_token_report() -> None:
 # Faz 4.4 — Weekly consolidation
 # ----------------------------------------------------------------------
 
+
 async def _job_bot_health_check() -> None:
     """Faz 6: Bot Monitor saatlik snapshot — her bot için equity + DD + halt."""
     try:
         from price_action.agents import BotMonitorAgent
+
         bm = BotMonitorAgent()
         await bm.hourly_snapshot()
     except Exception as exc:
@@ -641,6 +656,7 @@ async def _job_bot_daily_cards() -> None:
     """Faz 6: Bot Monitor günlük report cards — per-bot performance brief."""
     try:
         from price_action.agents import BotMonitorAgent
+
         bm = BotMonitorAgent()
         path = await bm.daily_report_cards()
         _push_report_safe(path, level="INFO", caption="Bot Daily Cards")
@@ -652,6 +668,7 @@ async def _job_kill_criteria_eval() -> None:
     """Faz 6: Bot Monitor kill criteria — 7g/14g loss eşik kontrolü."""
     try:
         from price_action.agents import BotMonitorAgent
+
         bm = BotMonitorAgent()
         await bm.evaluate_kill_criteria()
     except Exception as exc:
@@ -662,6 +679,7 @@ async def _job_param_sweep_chunk() -> None:
     """Faz 7: Param sweep saatlik chunk processor (5 cell/saat)."""
     try:
         import asyncio
+
         await asyncio.to_thread(_run_param_sweep_chunk_sync)
     except Exception as exc:
         logger.warning("scheduler.param_sweep_chunk_fail", extra={"err": str(exc)[:200]})
@@ -678,24 +696,32 @@ async def _job_reconcile_journal() -> None:
         import asyncio
         import subprocess
         from pathlib import Path
+
         repo_root = Path(__file__).resolve().parents[3]
         cmd = [
             str(repo_root / ".venv" / "bin" / "python"),
             "scripts/reconcile_journal.py",
         ]
         result = await asyncio.to_thread(
-            subprocess.run, cmd, cwd=str(repo_root),
-            capture_output=True, text=True, timeout=60,
+            subprocess.run,
+            cmd,
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         if result.returncode == 0:
             # Anlamlı çıktıyı logla
-            if "orphans_closed" in result.stdout and "0" not in result.stdout.split("orphans_closed")[1][:20]:
-                logger.info("scheduler.reconcile_done",
-                            extra={"stdout_tail": result.stdout[-300:]})
+            if (
+                "orphans_closed" in result.stdout
+                and "0" not in result.stdout.split("orphans_closed")[1][:20]
+            ):
+                logger.info("scheduler.reconcile_done", extra={"stdout_tail": result.stdout[-300:]})
         else:
-            logger.warning("scheduler.reconcile_fail",
-                           extra={"rc": result.returncode,
-                                  "stderr": result.stderr[-300:]})
+            logger.warning(
+                "scheduler.reconcile_fail",
+                extra={"rc": result.returncode, "stderr": result.stderr[-300:]},
+            )
     except Exception as exc:
         logger.warning("scheduler.reconcile_exc", extra={"err": str(exc)[:200]})
 
@@ -713,22 +739,27 @@ async def _job_truth_report() -> None:
         import asyncio
         import subprocess
         from pathlib import Path
+
         repo_root = Path(__file__).resolve().parents[3]
         cmd = [
             str(repo_root / ".venv" / "bin" / "python"),
             "scripts/truth_report.py",
         ]
         result = await asyncio.to_thread(
-            subprocess.run, cmd, cwd=str(repo_root),
-            capture_output=True, text=True, timeout=120,
+            subprocess.run,
+            cmd,
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         if result.returncode == 0:
-            logger.info("scheduler.truth_report_done",
-                        extra={"stdout_tail": result.stdout[-300:]})
+            logger.info("scheduler.truth_report_done", extra={"stdout_tail": result.stdout[-300:]})
         else:
-            logger.warning("scheduler.truth_report_fail",
-                           extra={"rc": result.returncode,
-                                  "stderr": result.stderr[-300:]})
+            logger.warning(
+                "scheduler.truth_report_fail",
+                extra={"rc": result.returncode, "stderr": result.stderr[-300:]},
+            )
     except Exception as exc:
         logger.warning("scheduler.truth_report_exc", extra={"err": str(exc)[:200]})
 
@@ -742,6 +773,7 @@ async def _job_quiet_failure_audit() -> None:
     """
     try:
         from price_action.agents import AdversaryEngineerAgent
+
         ae = AdversaryEngineerAgent()
         path = await ae.quiet_failure_audit()
         logger.info(
@@ -749,8 +781,72 @@ async def _job_quiet_failure_audit() -> None:
             extra={"path": str(path) if path else None},
         )
     except Exception as exc:
-        logger.warning("scheduler.quiet_failure_audit_fail",
-                       extra={"err": str(exc)[:200]})
+        logger.warning("scheduler.quiet_failure_audit_fail", extra={"err": str(exc)[:200]})
+
+
+def _register_event_handlers_once() -> None:
+    """FIX 2026-05-28 (Faz 14.27 FINAL): Event bus handler wire-up.
+
+    Scheduler startup'ta tek seferlik register: configs/event_subscribers.yaml
+    okunmaz, doğrudan code-level mapping kullanılır (deklaratif YAML deps eklenebilir
+    sonra). Bu fonksiyon main() veya register_jobs() içinden çağrılır.
+    """
+    try:
+        from price_action.events import EventTopic, register_handler
+    except Exception:
+        return
+
+    async def _handle_pause_alert(env):
+        """Bot Monitor PAUSE → Adversary daily_stress_test."""
+        try:
+            from price_action.agents import AdversaryEngineerAgent
+
+            ae = AdversaryEngineerAgent()
+            bot_id = env.payload.get("bot_id", "futures15m")
+            await ae.daily_stress_test([bot_id])
+            logger.info(
+                "event_handler.pause_alert_done",
+                extra={"extra": {"bot_id": bot_id, "event_id": env.event_id}},
+            )
+        except Exception as exc:
+            logger.warning("event_handler.pause_alert_fail", extra={"err": str(exc)[:200]})
+
+    async def _handle_phantom(env):
+        """Reconciler phantom → Bot Monitor anomaly + Risk Officer audit."""
+        try:
+            from price_action.agents import BotMonitorAgent
+
+            bm = BotMonitorAgent()
+            # Anomaly log (placeholder — gerçek method bot_monitor.py'de)
+            logger.info(
+                "event_handler.phantom_logged",
+                extra={"extra": {"symbol": env.payload.get("symbol"), "event_id": env.event_id}},
+            )
+        except Exception as exc:
+            logger.warning("event_handler.phantom_fail", extra={"err": str(exc)[:200]})
+
+    async def _handle_drift(env):
+        """WR/R drift → Researcher hypothesis."""
+        try:
+            from price_action.agents import ResearcherAgent
+
+            r = ResearcherAgent()
+            drift_type = env.payload.get("drift_type", "unknown")
+            await r.propose_hypothesis(f"Drift detected ({drift_type}): {env.payload}")
+            logger.info(
+                "event_handler.drift_response_done",
+                extra={"extra": {"drift_type": drift_type, "event_id": env.event_id}},
+            )
+        except Exception as exc:
+            logger.warning("event_handler.drift_fail", extra={"err": str(exc)[:200]})
+
+    register_handler(EventTopic.BOT_MONITOR_PAUSE, _handle_pause_alert)
+    register_handler(EventTopic.RECONCILER_PHANTOM, _handle_phantom)
+    register_handler(EventTopic.RECONCILER_QTY_DRIFT, _handle_phantom)
+    register_handler(EventTopic.DRIFT_WR_DROP, _handle_drift)
+    register_handler(EventTopic.DRIFT_R_DROP, _handle_drift)
+    register_handler(EventTopic.DRIFT_REGIME_CHANGE, _handle_drift)
+    logger.info("scheduler.event_handlers_registered", extra={"extra": {"n": 6}})
 
 
 async def _job_event_bus_dispatch() -> None:
@@ -763,6 +859,7 @@ async def _job_event_bus_dispatch() -> None:
     """
     try:
         import yaml as _yaml
+
         from price_action.events import replay_recent
 
         # Subscriber registry yükle
@@ -791,12 +888,14 @@ async def _job_event_bus_dispatch() -> None:
                 # Dispatch — basit log + dedup
                 logger.info(
                     "scheduler.event_bus_dispatch",
-                    extra={"extra": {
-                        "event_id": env.event_id,
-                        "topic": topic,
-                        "consumer": sub["consumer"],
-                        "action": sub["action"],
-                    }},
+                    extra={
+                        "extra": {
+                            "event_id": env.event_id,
+                            "topic": topic,
+                            "consumer": sub["consumer"],
+                            "action": sub["action"],
+                        }
+                    },
                 )
                 already[key] = True
                 n_dispatched += 1
@@ -807,8 +906,7 @@ async def _job_event_bus_dispatch() -> None:
             pass
 
         if n_dispatched > 0:
-            logger.info("scheduler.event_bus_done",
-                        extra={"extra": {"n_dispatched": n_dispatched}})
+            logger.info("scheduler.event_bus_done", extra={"extra": {"n_dispatched": n_dispatched}})
     except Exception as exc:
         logger.warning("scheduler.event_bus_fail", extra={"err": str(exc)[:200]})
 
@@ -823,13 +921,14 @@ async def _job_bot_monitor_adversary_hook() -> None:
     """
     try:
         import json
-        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+        from datetime import datetime as _dt
+        from datetime import timedelta as _td
         from pathlib import Path
 
         inbox = Path("memory/protocol/inbox.jsonl")
         if not inbox.exists():
             return
-        now = _dt.now(_tz.utc)
+        now = _dt.now(UTC)
         cutoff = now - _td(hours=6)
         pause_alerts = []
         for line in inbox.read_text(encoding="utf-8").strip().split("\n"):
@@ -845,9 +944,7 @@ async def _job_bot_monitor_adversary_hook() -> None:
             if msg.get("ack_at"):
                 continue
             try:
-                created = _dt.fromisoformat(
-                    msg.get("created_at", "").replace("Z", "+00:00")
-                )
+                created = _dt.fromisoformat(msg.get("created_at", "").replace("Z", "+00:00"))
                 if created < cutoff:
                     continue
             except Exception:
@@ -859,6 +956,7 @@ async def _job_bot_monitor_adversary_hook() -> None:
 
         # Hangi bot için PAUSE alert var? Genelde doc_id'de bot_name ipucu var.
         from price_action.agents import AdversaryEngineerAgent
+
         ae = AdversaryEngineerAgent()
         # PAUSE alert için stress test tetikle
         for alert in pause_alerts[:3]:
@@ -874,8 +972,13 @@ async def _job_bot_monitor_adversary_hook() -> None:
                 path = await ae.daily_stress_test([bot_id])
                 logger.info(
                     "scheduler.bot_monitor_adversary_hook_done",
-                    extra={"extra": {"bot_id": bot_id, "trigger_doc": doc_id,
-                                     "report": str(path) if path else None}},
+                    extra={
+                        "extra": {
+                            "bot_id": bot_id,
+                            "trigger_doc": doc_id,
+                            "report": str(path) if path else None,
+                        }
+                    },
                 )
             except Exception as exc:
                 logger.warning(
@@ -883,8 +986,9 @@ async def _job_bot_monitor_adversary_hook() -> None:
                     extra={"err": str(exc)[:200], "bot_id": bot_id},
                 )
     except Exception as exc:
-        logger.warning("scheduler.bot_monitor_adversary_hook_outer_fail",
-                       extra={"err": str(exc)[:200]})
+        logger.warning(
+            "scheduler.bot_monitor_adversary_hook_outer_fail", extra={"err": str(exc)[:200]}
+        )
 
 
 async def _job_slippage_daily_summary() -> None:
@@ -895,6 +999,7 @@ async def _job_slippage_daily_summary() -> None:
     """
     try:
         from price_action.execution.slippage_tracker import SlippageTracker
+
         st = SlippageTracker()
         summary = st.daily_summary()
         logger.info("scheduler.slippage_daily_done", extra={"extra": summary})
@@ -909,6 +1014,7 @@ async def _job_slippage_weekly_summary() -> None:
     """
     try:
         from price_action.execution.slippage_tracker import SlippageTracker
+
         st = SlippageTracker()
         summary = st.weekly_summary()
         # Telegram WARN if avg_slippage > prev week +20% veya outlier var
@@ -917,17 +1023,23 @@ async def _job_slippage_weekly_summary() -> None:
             n_out = len(summary["outlier_fills_top10"])
             if (change is not None and change > 20) or n_out > 5:
                 from price_action.orchestrator.notifications import push_critical
+
                 push_critical(
                     f"⚠️ Weekly slippage drift — avg change={change}%, outliers={n_out}",
                     source="scheduler_slippage_weekly",
                 )
         except Exception:
             pass
-        logger.info("scheduler.slippage_weekly_done", extra={"extra": {
-            "week_end": summary.get("week_end"),
-            "current_avg_bps": summary.get("current_week", {}).get("avg_slippage_bps"),
-            "outliers_n": len(summary.get("outlier_fills_top10", [])),
-        }})
+        logger.info(
+            "scheduler.slippage_weekly_done",
+            extra={
+                "extra": {
+                    "week_end": summary.get("week_end"),
+                    "current_avg_bps": summary.get("current_week", {}).get("avg_slippage_bps"),
+                    "outliers_n": len(summary.get("outlier_fills_top10", [])),
+                }
+            },
+        )
     except Exception as exc:
         logger.warning("scheduler.slippage_weekly_fail", extra={"err": str(exc)[:200]})
 
@@ -943,6 +1055,7 @@ async def _job_active_state_refresh() -> None:
     """
     try:
         from price_action.agents import CEOAgent
+
         ceo = CEOAgent()
         path = ceo.update_active_state()
         logger.info(
@@ -950,8 +1063,7 @@ async def _job_active_state_refresh() -> None:
             extra={"extra": {"path": str(path) if path else None}},
         )
     except Exception as exc:
-        logger.warning("scheduler.active_state_refresh_fail",
-                       extra={"err": str(exc)[:200]})
+        logger.warning("scheduler.active_state_refresh_fail", extra={"err": str(exc)[:200]})
 
 
 async def _job_data_health_daily() -> None:
@@ -969,6 +1081,7 @@ async def _job_data_health_daily() -> None:
     """
     try:
         from price_action.agents import DataEngineerAgent
+
         de = DataEngineerAgent()
         path = await de.daily_health_summary()
         logger.info(
@@ -976,8 +1089,7 @@ async def _job_data_health_daily() -> None:
             extra={"extra": {"path": str(path) if path else None}},
         )
     except Exception as exc:
-        logger.warning("scheduler.data_health_daily_fail",
-                       extra={"err": str(exc)[:200]})
+        logger.warning("scheduler.data_health_daily_fail", extra={"err": str(exc)[:200]})
 
 
 async def _job_stuck_doc_check() -> None:
@@ -996,14 +1108,14 @@ async def _job_stuck_doc_check() -> None:
     """
     try:
         import json
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta
         from pathlib import Path
 
         inbox = Path("memory/protocol/inbox.jsonl")
         if not inbox.exists():
             return
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         thresholds = {
             "kill_criteria_alert": timedelta(hours=6),
             "critique": timedelta(hours=12),
@@ -1043,7 +1155,7 @@ async def _job_stuck_doc_check() -> None:
             # Dedup — bu doc bu süre içinde push edildi mi?
             dedup_key = f"{doc_id}:{topic}"
             if pushed_already.get(dedup_key, 0) > 1:
-                continue   # 2+ kez push edildi, susalım
+                continue  # 2+ kez push edildi, susalım
             stuck.append((doc_id, topic, age, msg, dedup_key))
 
         if not stuck:
@@ -1051,14 +1163,17 @@ async def _job_stuck_doc_check() -> None:
 
         try:
             from price_action.orchestrator.notifications import push_critical
+
             lines = [f"⚠️ STUCK INBOX DOCS — {len(stuck)} doc ack-timeout aştı:"]
             for doc_id, topic, age, msg, _ in stuck[:5]:
                 lines.append(
                     f"  - [{topic}] {doc_id} (recipient={msg.get('recipient')}, "
                     f"age={age.total_seconds()/3600:.1f}h)"
                 )
-            lines.append("Sebep: LLM agent fail (API key, circuit breaker) veya "
-                         "Principal eylem bekliyor. Inbox: memory/protocol/inbox.jsonl")
+            lines.append(
+                "Sebep: LLM agent fail (API key, circuit breaker) veya "
+                "Principal eylem bekliyor. Inbox: memory/protocol/inbox.jsonl"
+            )
             push_critical("\n".join(lines), source="scheduler_stuck_doc")
         except Exception as exc:
             logger.warning("scheduler.stuck_doc_push_fail", extra={"err": str(exc)[:200]})
@@ -1071,8 +1186,7 @@ async def _job_stuck_doc_check() -> None:
         except Exception:
             pass
 
-        logger.info("scheduler.stuck_doc_check_done",
-                    extra={"extra": {"n_stuck": len(stuck)}})
+        logger.info("scheduler.stuck_doc_check_done", extra={"extra": {"n_stuck": len(stuck)}})
 
     except Exception as exc:
         logger.warning("scheduler.stuck_doc_check_fail", extra={"err": str(exc)[:200]})
@@ -1088,22 +1202,29 @@ async def _job_check_promises() -> None:
         import asyncio
         import subprocess
         from pathlib import Path
+
         repo_root = Path(__file__).resolve().parents[3]
         cmd = [
             str(repo_root / ".venv" / "bin" / "python"),
             "scripts/check_promises.py",
         ]
         result = await asyncio.to_thread(
-            subprocess.run, cmd, cwd=str(repo_root),
-            capture_output=True, text=True, timeout=60,
+            subprocess.run,
+            cmd,
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         if result.returncode == 0:
-            logger.info("scheduler.promises_check_done",
-                        extra={"stdout_tail": result.stdout[-300:]})
+            logger.info(
+                "scheduler.promises_check_done", extra={"stdout_tail": result.stdout[-300:]}
+            )
         else:
-            logger.warning("scheduler.promises_check_fail",
-                           extra={"rc": result.returncode,
-                                  "stderr": result.stderr[-300:]})
+            logger.warning(
+                "scheduler.promises_check_fail",
+                extra={"rc": result.returncode, "stderr": result.stderr[-300:]},
+            )
     except Exception as exc:
         logger.warning("scheduler.promises_check_exc", extra={"err": str(exc)[:200]})
 
@@ -1116,14 +1237,15 @@ async def _job_dms_heartbeat_check() -> None:
     heartbeat dosyalarını kontrol eder; stale (>5dk) ise CRIT alert.
     """
     try:
-        from datetime import datetime as _dt, timezone as _tz
-        from pathlib import Path
+        from datetime import datetime as _dt
+
         from price_action.settings import get_settings
+
         s = get_settings()
         data_dir = s.reports_dir.parent / "data"
         if not data_dir.exists():
             return
-        now = _dt.now(_tz.utc)
+        now = _dt.now(UTC)
         stale_threshold_min = 5
         abandoned_threshold_min = 60 * 24  # FIX 2026-05-26 (Faz 14.8): 24h+ phantom
         for hb in data_dir.glob("dms_heartbeat_*.txt"):
@@ -1131,7 +1253,7 @@ async def _job_dms_heartbeat_check() -> None:
             if "test" in hb.name.lower():
                 continue
             try:
-                mtime = _dt.fromtimestamp(hb.stat().st_mtime, tz=_tz.utc)
+                mtime = _dt.fromtimestamp(hb.stat().st_mtime, tz=UTC)
                 age_min = (now - mtime).total_seconds() / 60
                 # FIX 2026-05-26: 24h+ eski → abandoned phantom, sessizce sil
                 if age_min > abandoned_threshold_min:
@@ -1148,6 +1270,7 @@ async def _job_dms_heartbeat_check() -> None:
                     # FIX 2026-05-26: throttle 1h, aynı dosya için tekrarlanmasın
                     try:
                         from price_action.ops.telegram_throttle import get_telegram_throttle
+
                         get_telegram_throttle().send_throttled(
                             alert_type=f"dms_stale_{hb.name}",
                             message=(
@@ -1181,14 +1304,19 @@ async def _job_rotate_launchd_logs() -> None:
         import asyncio
         import subprocess
         from pathlib import Path
+
         repo_root = Path(__file__).resolve().parents[3]
         cmd = [
             str(repo_root / ".venv" / "bin" / "python"),
             "scripts/rotate_launchd_logs.py",
         ]
         result = await asyncio.to_thread(
-            subprocess.run, cmd, cwd=str(repo_root),
-            capture_output=True, text=True, timeout=60,
+            subprocess.run,
+            cmd,
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         if result.returncode == 0 and "rotated=0" not in result.stdout:
             logger.info(
@@ -1211,18 +1339,23 @@ async def _job_process_pending_entries() -> None:
         import asyncio
         import subprocess
         from pathlib import Path
+
         repo_root = Path(__file__).resolve().parents[3]
         cmd = [
             str(repo_root / ".venv" / "bin" / "python"),
             "scripts/process_pending_entries.py",
         ]
         result = await asyncio.to_thread(
-            subprocess.run, cmd, cwd=str(repo_root),
-            capture_output=True, text=True, timeout=30,
+            subprocess.run,
+            cmd,
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode == 0:
             # Sadece "anlamlı" çıktıyı logla (read>0 olduğunda)
-            if "read\": 0" not in result.stdout:
+            if 'read": 0' not in result.stdout:
                 logger.info(
                     "scheduler.pending_retry_done",
                     extra={"stdout_tail": result.stdout[-300:]},
@@ -1247,22 +1380,27 @@ async def _job_regime_features_refresh() -> None:
         import asyncio
         import subprocess
         from pathlib import Path
+
         repo_root = Path(__file__).resolve().parents[3]
         cmd = [
             str(repo_root / ".venv" / "bin" / "python"),
             "scripts/regime_features_refresh.py",
         ]
         result = await asyncio.to_thread(
-            subprocess.run, cmd, cwd=str(repo_root),
-            capture_output=True, text=True, timeout=120,
+            subprocess.run,
+            cmd,
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         if result.returncode == 0:
-            logger.info("scheduler.regime_refresh_ok",
-                        extra={"stdout_tail": result.stdout[-300:]})
+            logger.info("scheduler.regime_refresh_ok", extra={"stdout_tail": result.stdout[-300:]})
         else:
-            logger.error("scheduler.regime_refresh_fail",
-                         extra={"rc": result.returncode,
-                                "stderr_tail": result.stderr[-300:]})
+            logger.error(
+                "scheduler.regime_refresh_fail",
+                extra={"rc": result.returncode, "stderr_tail": result.stderr[-300:]},
+            )
             _push_critical_safe(
                 f"Regime features refresh FAILED rc={result.returncode}. "
                 f"15m bot will start rejecting signals once cache expires.",
@@ -1284,9 +1422,12 @@ def _run_param_sweep_chunk_sync() -> None:
     Configleri main()'in yaptığı gibi yükle ve doğru imzayla çağır.
     """
     try:
-        import yaml
         from pathlib import Path
+
+        import yaml
+
         from scripts.param_sweep_chunk_processor import process_chunk
+
         chunks_yaml = Path("configs/param_sweep_chunks.yaml")
         grids_yaml = Path("configs/param_sweep_grids.yaml")
         if not chunks_yaml.exists() or not grids_yaml.exists():
@@ -1330,7 +1471,9 @@ async def _job_adversary_daily_stress() -> None:
         import asyncio
         import pickle
         from pathlib import Path
+
         from price_action.agents import AdversaryEngineerAgent
+
         ae = AdversaryEngineerAgent()
         bots = ["futures15m", "futures5m"]
         # FIX 2026-05-27: bot → pool dosyası mapping + risk_pct (canlı config'den)
@@ -1349,8 +1492,10 @@ async def _job_adversary_daily_stress() -> None:
                 with p.open("rb") as f:
                     raw = pickle.load(f)
             except Exception as _exc:
-                logger.warning("scheduler.adversary_pool_load_fail",
-                              extra={"path": pool_path, "err": str(_exc)[:200]})
+                logger.warning(
+                    "scheduler.adversary_pool_load_fail",
+                    extra={"path": pool_path, "err": str(_exc)[:200]},
+                )
                 return []
             converted: list[dict] = []
             for tr in raw:
@@ -1362,12 +1507,14 @@ async def _job_adversary_daily_stress() -> None:
                     # R → pnl_pct (yüzde, ör. 1R × %0.5 risk = %0.5)
                     R = float(tr.get("R", 0.0))
                     pnl_pct = R * float(risk_pct) * 100.0
-                    converted.append({
-                        "ts": ts_str,
-                        "pnl_pct": pnl_pct,
-                        "symbol": tr.get("symbol"),
-                        "strategy": tr.get("strategy"),
-                    })
+                    converted.append(
+                        {
+                            "ts": ts_str,
+                            "pnl_pct": pnl_pct,
+                            "symbol": tr.get("symbol"),
+                            "strategy": tr.get("strategy"),
+                        }
+                    )
                 except Exception:
                     continue
             logger.info(
@@ -1390,7 +1537,7 @@ async def _job_adversary_daily_stress() -> None:
             *[ae.daily_stress_test(b, pool=bot_pools[b]) for b in bots],
             return_exceptions=True,
         )
-        for bot_id, result in zip(bots, results):
+        for bot_id, result in zip(bots, results, strict=False):
             if isinstance(result, Exception):
                 logger.warning(
                     "scheduler.adversary_per_bot_fail",
@@ -1419,6 +1566,7 @@ async def _job_adversary_weekly_red_team() -> None:
     """Faz 9: Adversary Engineer haftalık red team raporu (tüm bot'lar)."""
     try:
         from price_action.agents import AdversaryEngineerAgent
+
         ae = AdversaryEngineerAgent()
         path = await ae.weekly_red_team_report(["futures15m", "futures5m"])
         _push_report_safe(path, level="INFO", caption="Weekly Red Team Report")
@@ -1434,6 +1582,7 @@ async def _job_monthly_market_scout() -> None:
     """
     try:
         from price_action.agents import MarketScoutAgent
+
         ms = MarketScoutAgent()
         path = await ms.monthly_feasibility_study(target_market=None)  # auto-rotation
         _push_report_safe(path, level="INFO", caption="Market Scout Feasibility")
@@ -1450,6 +1599,7 @@ async def _job_weekly_market_scout() -> None:
     """
     try:
         from price_action.agents import MarketScoutAgent
+
         ms = MarketScoutAgent()
         cal = ms.load_calendar()
         slot = ms.select_market_for_week(calendar=cal)
@@ -1459,19 +1609,19 @@ async def _job_weekly_market_scout() -> None:
         market_name = str(slot.get("market", "unknown"))
         path = await ms.monthly_feasibility_study(target_market=market_name)
         _push_report_safe(
-            path, level="INFO",
+            path,
+            level="INFO",
             caption=f"Weekly Market Scout — {market_name}",
         )
     except Exception as exc:
-        logger.warning(
-            "scheduler.weekly_market_scout_fail", extra={"err": str(exc)[:200]}
-        )
+        logger.warning("scheduler.weekly_market_scout_fail", extra={"err": str(exc)[:200]})
 
 
 async def _job_curator_daily_correlation() -> None:
     """Faz 8: Strategy Curator günlük correlation update."""
     try:
         from price_action.agents import StrategyCuratorAgent
+
         sc = StrategyCuratorAgent()
         await sc.daily_correlation_update()
     except Exception as exc:
@@ -1482,6 +1632,7 @@ async def _job_curator_weekly_lifecycle() -> None:
     """Faz 8: Strategy Curator haftalık lifecycle review."""
     try:
         from price_action.agents import StrategyCuratorAgent
+
         sc = StrategyCuratorAgent()
         path = await sc.weekly_lifecycle_review()
         _push_report_safe(path, level="INFO", caption="Weekly Strategy Lifecycle")
@@ -1493,6 +1644,7 @@ async def _job_researcher_5batch() -> None:
     """Faz 12: Researcher 5-paralel hipotez üretimi (her gece 02:30)."""
     try:
         from price_action.agents import ResearcherAgent
+
         r = ResearcherAgent()
         results = await r.propose_5_batch()
         logger.info(
@@ -1517,9 +1669,11 @@ async def _job_researcher_improvement_pulse() -> None:
     Her çağrı ~30-50K Opus token (kalan günlük 500K bütçe karşılar).
     """
     try:
-        from datetime import datetime as _dt, timezone as _tz
+        from datetime import datetime as _dt
+
         from price_action.agents import ResearcherAgent
-        hour = _dt.now(_tz.utc).hour
+
+        hour = _dt.now(UTC).hour
         themes = [
             "futures15m wide-stop bot: bugünkü gözlemlerden yola çıkarak bir iyileştirme önerisi (SL/TP/regime filter/vol_z tier).",
             "futures5m P1c bot: bugünkü reject pattern'larından yola çıkarak bir iyileştirme önerisi (widestop threshold/strateji ekleme).",
@@ -1531,13 +1685,14 @@ async def _job_researcher_improvement_pulse() -> None:
         result = await r.propose_hypothesis(theme)
         logger.info(
             "scheduler.researcher_pulse_done",
-            extra={"hour_utc": hour, "theme_idx": hour % len(themes),
-                   "result_preview": (result or "")[:120]},
+            extra={
+                "hour_utc": hour,
+                "theme_idx": hour % len(themes),
+                "result_preview": (result or "")[:120],
+            },
         )
     except Exception as exc:
-        logger.warning(
-            "scheduler.researcher_pulse_fail", extra={"err": str(exc)[:200]}
-        )
+        logger.warning("scheduler.researcher_pulse_fail", extra={"err": str(exc)[:200]})
 
 
 async def _job_lab_quick_scan() -> None:
@@ -1549,6 +1704,7 @@ async def _job_lab_quick_scan() -> None:
     """
     try:
         from price_action.agents import LabScientistAgent
+
         lab = LabScientistAgent()
 
         # 1. Drift detect — recent series placeholder (Faz 5+ Walker'dan beslenir)
@@ -1557,7 +1713,8 @@ async def _job_lab_quick_scan() -> None:
             if result.get("alert"):
                 lab.append_learning(
                     f"Quick scan drift alert: {result}",
-                    slug="drift-alert-quick", confidence="med",
+                    slug="drift-alert-quick",
+                    confidence="med",
                 )
         except Exception as _drift_exc:
             # FIX 2026-05-26 (H1)
@@ -1569,6 +1726,7 @@ async def _job_lab_quick_scan() -> None:
         # 2. Param sweep ek hücre — her quick scan +1 cell
         try:
             import asyncio
+
             await asyncio.to_thread(_run_param_sweep_chunk_sync)
         except Exception as _sweep_exc:
             # FIX 2026-05-26 (H1)
@@ -1585,7 +1743,8 @@ async def _job_lab_quick_scan() -> None:
 async def _job_weekly_bot_attribution() -> None:
     """Faz 12: Haftalık per-bot attribution (Analyst + Bot Monitor sentez)."""
     try:
-        from price_action.agents import AnalystAgent, BotMonitorAgent
+        from price_action.agents import BotMonitorAgent
+
         # Bot Monitor günlük cards'larını topla, Analyst sentez yapsın
         bm = BotMonitorAgent()
         cards_path = await bm.daily_report_cards()
@@ -1604,6 +1763,7 @@ async def _job_weekly_principal_queue() -> None:
     """Faz 12: Pazar 08:30 — CEO Q&A digest, Principal action queue."""
     try:
         from price_action.agents import CEOAgent
+
         ceo = CEOAgent()
         # CEO weekly_summary'i Principal action queue olarak push
         path = await ceo.weekly_summary()
@@ -1616,6 +1776,7 @@ async def _job_monthly_strategy_portfolio_review() -> None:
     """Faz 12: Aybaşı 09:00 — Curator + CEO monthly portfolio review."""
     try:
         from price_action.agents import CEOAgent, StrategyCuratorAgent
+
         sc = StrategyCuratorAgent()
         await sc.weekly_lifecycle_review()  # Monthly = ek detaylı weekly variant
         ceo = CEOAgent()
@@ -1629,6 +1790,7 @@ async def _job_tf_exploration_chunk() -> None:
     """Faz 10: TF exploration günlük chunk (1 strateji × 1 TF/gün)."""
     try:
         import asyncio
+
         await asyncio.to_thread(_run_tf_exploration_chunk_sync)
     except Exception as exc:
         logger.warning("scheduler.tf_exploration_chunk_fail", extra={"err": str(exc)[:200]})
@@ -1637,15 +1799,17 @@ async def _job_tf_exploration_chunk() -> None:
 def _run_tf_exploration_chunk_sync() -> None:
     """Sync wrapper — scripts/tf_exploration_runner.py."""
     try:
-        from scripts.tf_exploration_runner import explore_tf
-        from price_action.settings import get_settings as _gs
-        from datetime import datetime as _dt, timezone as _tz
+        from datetime import datetime as _dt
+        from datetime import timezone as _tz
         from pathlib import Path
+
+        from price_action.settings import get_settings as _gs
+        from scripts.tf_exploration_runner import explore_tf
 
         s = _gs()
         # Basit rotation: gün × strateji index
         strategies = ["vsa_climax_test", "brooks_failed_breakout", "anchored_vwap_reversal"]
-        idx = _dt.now(_tz.utc).day % len(strategies)
+        idx = _dt.now(UTC).day % len(strategies)
         strategy = strategies[idx]
 
         # Pool paths
@@ -1655,7 +1819,7 @@ def _run_tf_exploration_chunk_sync() -> None:
         }
         out_dir = s.reports_dir / "tf_exploration"
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{strategy}-{_dt.now(_tz.utc).date()}.md"
+        out_path = out_dir / f"{strategy}-{_dt.now(UTC).date()}.md"
 
         result = explore_tf(
             strategy=strategy,
@@ -1687,8 +1851,12 @@ async def _job_weekly_consolidation() -> None:
         from price_action.settings import get_settings as _gs
 
         agents = [
-            CEOAgent(), ResearcherAgent(), LabScientistAgent(),
-            AnalystAgent(), RiskOfficerAgent(), OpsAgent(),
+            CEOAgent(),
+            ResearcherAgent(),
+            LabScientistAgent(),
+            AnalystAgent(),
+            RiskOfficerAgent(),
+            OpsAgent(),
         ]
         consolidated = 0
         for a in agents:
@@ -1710,8 +1878,9 @@ async def _job_weekly_consolidation() -> None:
         s = _gs()
         inbox = s.memory_dir / "protocol" / "inbox.jsonl"
         if inbox.exists():
-            from datetime import datetime as _dt, timezone as _tz
             import fcntl
+            from datetime import datetime as _dt
+
             lock_path = s.memory_dir / "protocol" / ".inbox.lock"
             lock_path.parent.mkdir(parents=True, exist_ok=True)
             lock_file = None
@@ -1719,8 +1888,10 @@ async def _job_weekly_consolidation() -> None:
                 lock_file = open(lock_path, "w")
                 # Exclusive lock — block if review_inbox holds it
                 fcntl.flock(lock_file, fcntl.LOCK_EX)
-                iso = _dt.now(_tz.utc).isocalendar()
-                archive_path = s.memory_dir / "protocol" / "archive" / f"{iso.year}-W{iso.week:02d}.jsonl"
+                iso = _dt.now(UTC).isocalendar()
+                archive_path = (
+                    s.memory_dir / "protocol" / "archive" / f"{iso.year}-W{iso.week:02d}.jsonl"
+                )
                 archive_path.parent.mkdir(parents=True, exist_ok=True)
                 # Atomic rename within same filesystem
                 inbox.rename(archive_path)
@@ -1746,6 +1917,7 @@ async def _job_weekly_consolidation() -> None:
 # ----------------------------------------------------------------------
 # Faz 1.2 — Push helper'ları (sessiz fail; scheduler düşmesin)
 # ----------------------------------------------------------------------
+
 
 def _push_report_safe(path: Any, *, level: str = "INFO", caption: str | None = None) -> None:
     """Path'i Telegram'a gönder; hata varsa sessizce logla."""
@@ -1881,7 +2053,12 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     # FIX 2026-05-26: haftalık market scout (5 haftada full rotation kapsama)
     ("weekly_market_scout", "cron", "0 9 * * mon", _job_weekly_market_scout),  # Pzt 09:00 UTC
     ("monthly_review", "cron", "0 6 28-31 * *", _job_monthly_review),
-    ("monthly_strategy_portfolio", "cron", "0 9 28-31 * *", _job_monthly_strategy_portfolio_review),  # Faz 12
+    (
+        "monthly_strategy_portfolio",
+        "cron",
+        "0 9 28-31 * *",
+        _job_monthly_strategy_portfolio_review,
+    ),  # Faz 12
 )
 
 
@@ -1912,13 +2089,19 @@ def _add_cron(scheduler: Any, expr: str, func: Any, job_id: str) -> None:
         id=job_id,
         replace_existing=True,
         misfire_grace_time=3600,
-        max_instances=1,   # M7: explicit — overlap engelle
-        coalesce=True,     # M7: birden fazla misfire → tek run
+        max_instances=1,  # M7: explicit — overlap engelle
+        coalesce=True,  # M7: birden fazla misfire → tek run
     )
 
 
 def register_jobs(scheduler: Any) -> list[str]:
-    """Tüm job'ları kayıt eder. Geri dönüş: kayıtlanan job id listesi."""
+    """Tüm job'ları kayıt eder. Geri dönüş: kayıtlanan job id listesi.
+
+    FIX 2026-05-28 (Faz 14.27 FINAL): Event handlers da burada wire ediliyor.
+    """
+    # Event bus handlers — tek seferlik (idempotent)
+    _register_event_handlers_once()
+
     registered: list[str] = []
     for job_id, kind, expr, func in JOB_TABLE:
         if kind != "cron":

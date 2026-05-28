@@ -1,5 +1,5 @@
 {
-  "last_scan": "2026-05-27T10:00:59.910672+00:00",
+  "last_scan": "2026-05-28T03:05:00.063159+00:00",
   "n_candidates": 5,
   "candidates": [
     {
@@ -11,8 +11,8 @@
       "annualized": 188.51585930788124,
       "neg_months": 21,
       "total_months": 61,
-      "existing_iterate_versions": 0,
-      "next_version": 2,
+      "existing_iterate_versions": 1,
+      "next_version": 3,
       "source_file": "hyp-2026-05-14-rsi2-extreme-fade.realistic.json"
     },
     {

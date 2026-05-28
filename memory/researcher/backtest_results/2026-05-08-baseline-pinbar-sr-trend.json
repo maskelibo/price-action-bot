@@ -1,0 +1,28 @@
+{
+  "hypothesis_id": "H-001",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-08-baseline-pinbar-sr-trend.md",
+  "extracted_at": "2026-05-27T10:00:32.128415+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "annualized_net_return > 0.50",
+      "sharpe_ratio > 1.0",
+      "max_drawdown < 0.25",
+      "profit_factor > 1.4",
+      "p_value_bonferroni < 0.005",
+      "p_value_shuffle < 0.01",
+      "is_sharpe >= 0.5",
+      "oos_sharpe >= 0.7",
+      "is_oos_sharpe_gap <= 0.50",
+      "walk_forward_positive_slices >= 0.50"
+    ],
+    "executable": false,
+    "reason_if_not": "Yeni strateji tan\u0131m\u0131 (pin bar + S/R + 1W EMA50 trend filter 1D timeframe). Mevcut 4 base strateji (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) i\u00e7inde pin bar @ S/R detector yok \u2014 backtest motoru bu hipotezi ko\u015fturamaz (DEFERRED)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Yeni strateji tan\u0131m\u0131 (pin bar + S/R + 1W EMA50 trend filter 1D timeframe). Mevcut 4 base strateji (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) i\u00e7inde pin bar @ S/R detector yok \u2014 backtest motoru bu hipotezi ko\u015fturamaz (DEFERRED)."
+  }
+}

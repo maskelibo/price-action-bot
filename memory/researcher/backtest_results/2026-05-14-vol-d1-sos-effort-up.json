@@ -1,0 +1,39 @@
+{
+  "hypothesis_id": "2026-05-14-vol-d1-sos-effort-up",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-14-vol-d1-sos-effort-up.md",
+  "extracted_at": "2026-05-27T03:30:20.316814+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": {
+      "spread_atr_mult": [
+        1.0,
+        1.2,
+        1.5
+      ],
+      "vol_sma_mult": [
+        1.5,
+        2.0,
+        2.5
+      ]
+    },
+    "accept_gates": [
+      "n >= 200",
+      "mR >= +0.10",
+      "WR >= 45%",
+      "shuffle p < 0.05",
+      "max_R < 10",
+      "symbol_out_cv_max_dev < 30%",
+      "per_symbol_positive_mR >= 6/11",
+      "OOS mR >= +0.05 with same sign",
+      "correlation_with_volume_expansion < 0.5",
+      "bonferroni_alpha < 0.00556"
+    ],
+    "executable": false,
+    "reason_if_not": "Yeni strateji dosyas\u0131 (vsa_sos_effort_up.py) gerektiriyor \u2014 mevcut backtest motoru bu pattern_id'yi hen\u00fcz ko\u015fturamaz; ayr\u0131ca SOS logic vsa_climax_test'ten farkl\u0131 (geni\u015f up bar + \u00fcst \u00e7eyrek kapan\u0131\u015f + 3-bar HH breakout + climactic vol), param_sweep runner direkt apply edemez. DEFERRED until strategy implementation."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Yeni strateji dosyas\u0131 (vsa_sos_effort_up.py) gerektiriyor \u2014 mevcut backtest motoru bu pattern_id'yi hen\u00fcz ko\u015fturamaz; ayr\u0131ca SOS logic vsa_climax_test'ten farkl\u0131 (geni\u015f up bar + \u00fcst \u00e7eyrek kapan\u0131\u015f + 3-bar HH breakout + climactic vol), param_sweep runner direkt apply edemez. DEFERRED until strategy implementation."
+  }
+}

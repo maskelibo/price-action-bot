@@ -1,0 +1,44 @@
+{
+  "hypothesis_id": "2026-05-12-btc-dominance-asymmetric-veto",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-12-regime-btc-dominance-trend-veto.md",
+  "extracted_at": "2026-05-27T07:00:10.998183+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": null,
+    "param_grid": {
+      "btcd_slope_threshold": [
+        0.02,
+        0.03,
+        0.05
+      ],
+      "lookback": [
+        21,
+        30,
+        45
+      ],
+      "alt_short_half_risk_multiplier": [
+        0.4,
+        0.5,
+        0.6
+      ]
+    },
+    "accept_gates": [
+      "3y rolling DD reduction >= 8pp",
+      "ROI loss <= 15%",
+      "2026-02-16 + 2026-04-21 combined improvement >= $3K",
+      "BTC.D regime sanity check passes (BTC_DOMINANT windows confirm BTC outperformance)",
+      "Stage 1 p < 0.05",
+      "Shuffle baseline p < 0.01",
+      ">= 7 of 12 walk-forward slices show DD reduction",
+      "Symbol-out CV: alt-short effect stable across 11 symbols",
+      "BTC-only invariance (BTC trades identical pre/post overlay)",
+      "Bonferroni correction n=27"
+    ],
+    "executable": false,
+    "reason_if_not": "Overlay hypothesis requires BTC.D (BTC dominance) daily series data and a cross-asset overlay backtest replay framework \u2014 current backtest engine processes single-symbol OHLCV strategies and has no BTC.D data pipeline or apply-on-top overlay replay capability. Also not tied to one of the 4 base strategies (applies across TOP_10)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Overlay hypothesis requires BTC.D (BTC dominance) daily series data and a cross-asset overlay backtest replay framework \u2014 current backtest engine processes single-symbol OHLCV strategies and has no BTC.D data pipeline or apply-on-top overlay replay capability. Also not tied to one of the 4 base strategies (applies across TOP_10)."
+  }
+}

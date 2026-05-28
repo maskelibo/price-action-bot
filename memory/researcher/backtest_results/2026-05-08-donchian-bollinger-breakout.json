@@ -1,0 +1,26 @@
+{
+  "hypothesis_id": "H-005",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-08-donchian-bollinger-breakout.md",
+  "extracted_at": "2026-05-27T10:00:19.104168+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "annualized_net_return > 0.40",
+      "sharpe > 0.8",
+      "max_dd < 0.45",
+      "profit_factor > 1.3",
+      "signal_correlation_vs_engulfing < 0.35",
+      "win_rate > 0.25",
+      "oos_is_ratio >= 0.50",
+      "at_least_7_of_10_symbols_positive_pnl"
+    ],
+    "executable": false,
+    "reason_if_not": "Yeni strateji tan\u0131m\u0131 (Donchian55 breakout + Bollinger Squeeze + Kaufman ER filter). Mevcut 4 base_strategy'den hi\u00e7biri de\u011fil; backtest motorumuz bu signal logic'i hen\u00fcz ko\u015fturamaz (DEFERRED \u2014 signal_chief taraf\u0131ndan detector implementasyonu gerekli)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Yeni strateji tan\u0131m\u0131 (Donchian55 breakout + Bollinger Squeeze + Kaufman ER filter). Mevcut 4 base_strategy'den hi\u00e7biri de\u011fil; backtest motorumuz bu signal logic'i hen\u00fcz ko\u015fturamaz (DEFERRED \u2014 signal_chief taraf\u0131ndan detector implementasyonu gerekli)."
+  }
+}

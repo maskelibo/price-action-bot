@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "funding_rate_mean_reversion",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-08-funding-rate-mean-reversion.md",
+  "extracted_at": "2026-05-27T09:30:39.328162+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Yeni strateji tan\u0131m\u0131 (funding rate mean-reversion); mevcut backtest motoru bu hipotezi ko\u015fturamaz (DEFERRED). Funding rate veri ak\u0131\u015f\u0131 ve \u00f6zel strateji mod\u00fcl\u00fc gerekiyor."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Yeni strateji tan\u0131m\u0131 (funding rate mean-reversion); mevcut backtest motoru bu hipotezi ko\u015fturamaz (DEFERRED). Funding rate veri ak\u0131\u015f\u0131 ve \u00f6zel strateji mod\u00fcl\u00fc gerekiyor."
+  }
+}
