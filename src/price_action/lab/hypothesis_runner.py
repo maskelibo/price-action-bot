@@ -219,6 +219,11 @@ class HypothesisRunner:
             sl_multipliers = [float(x) / sl_pct_base for x in grid["sl_pct"]]
         elif "sl_multiplier" in grid:
             sl_multipliers = [float(x) for x in grid["sl_multiplier"]]
+        elif "atr_stop_multiplier" in grid:
+            # FIX 2026-05-29: researcher stop-mesafesi grid'ini "atr_stop_multiplier"
+            # diye adlandırıyor → eskiden tanınmıyordu → else [1.0]'a düşüp sweep'i
+            # TEK hücreye indiriyordu (n_cells_evaluated=1). ATR-bazlı stop = sl_multiplier.
+            sl_multipliers = [float(x) for x in grid["atr_stop_multiplier"]]
         else:
             sl_multipliers = [1.0]  # default
 

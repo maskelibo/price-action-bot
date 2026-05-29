@@ -196,23 +196,33 @@ def apply_cell(
     else:
         max_drawdown_R = 0.0
 
-    # 3b) Annualized sharpe — sharpe_like sqrt(n) ile şişer; gerçek
-    # annualized ölçüm için trade rate gerek. Pool entry_ts span'ından
-    # trade/yıl bul → annualize.
+    # 3b) Annualized Sharpe — DÜRÜST takvim-günü yöntemi.
+    # FIX 2026-05-29: önceki (mean_R/std_R)*sqrt(trades_per_year) ŞİŞİYORDU —
+    # 8 sembolde EŞZAMANLI trade'leri "bağımsız ardışık bahis" sayıp √6814≈82x
+    # çarpıyordu → Sharpe 17-38 (imkansız; gerçek dünyada en iyi ~2-3).
+    # Doğru yöntem (05-28 F3 konvansiyonu, ppy=365): per-trade R'leri ENTRY
+    # GÜNÜNE göre topla → günlük getiri serisi (boş günler 0 = atıl sermaye) →
+    # Sharpe × sqrt(365). Eşzamanlılık aynı güne düşer, şişme biter.
+    # trades_per_year bilgi amaçlı raporlanmaya devam eder.
     if n > 1 and std_R > 0:
-        ts_series = sub["entry_ts"].to_numpy()
-        ts_min = ts_series.min()
-        ts_max = ts_series.max()
+        ts_series = pd.to_datetime(sub["entry_ts"].to_numpy())
         span_seconds = float(
-            (pd.Timestamp(ts_max) - pd.Timestamp(ts_min)).total_seconds()
+            (pd.Timestamp(ts_series.max()) - pd.Timestamp(ts_series.min())).total_seconds()
         )
-        year_seconds = 365.25 * 86400.0
-        span_years = max(span_seconds / year_seconds, 1e-6)
+        span_years = max(span_seconds / (365.25 * 86400.0), 1e-6)
         trades_per_year = n / span_years
-        # Annualized Sharpe = (mean_R / std_R) * sqrt(trades_per_year)
-        # NOT: bu R cinsinden Sharpe; equity-curve Sharpe için risk_pct
-        # ile R → $ → equity returns dönüşümü gerek (sonra).
-        sharpe_annualized = (mean_R / std_R) * math.sqrt(trades_per_year)
+        daily_R = (
+            pd.Series(new_R, index=ts_series).groupby(pd.Grouper(freq="D")).sum()
+        )
+        if len(daily_R) > 1:
+            full_idx = pd.date_range(
+                daily_R.index.min(), daily_R.index.max(), freq="D"
+            )
+            daily_R = daily_R.reindex(full_idx, fill_value=0.0)
+        d_std = float(daily_R.std(ddof=1))
+        sharpe_annualized = (
+            float(daily_R.mean()) / d_std * math.sqrt(365.0) if d_std > 0 else 0.0
+        )
     else:
         trades_per_year = 0.0
         sharpe_annualized = 0.0
