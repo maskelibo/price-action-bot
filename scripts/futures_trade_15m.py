@@ -66,6 +66,9 @@ SIGNAL_MAX_AGE_MIN = 30  # 2 × 15m bar — bu süreden eskisi REJECT
 SYMBOLS: list[str] = [
     "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "ADA/USDT",
     "AVAX/USDT", "LINK/USDT", "DOT/USDT", "DOGE/USDT", "XRP/USDT",
+    # DEPLOY 2026-05-29: sembol evreni genişletme (likit, +%41 pozisyon backtest).
+    # ZEC/NEAR/FIL/XLM — 15m verisi market.duckdb'de taze (ingest15m + snapshot).
+    "ZEC/USDT", "NEAR/USDT", "FIL/USDT", "XLM/USDT",
 ]
 
 TF = "15m"

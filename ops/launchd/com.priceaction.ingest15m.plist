@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.priceaction.ingest15m</string>
+
+  <!--
+    DEPLOY 2026-05-29: 15m live ingest, her 5 dakika.
+    scripts/ingest_15m_live.py — 14 sembol, son 10 bar incremental upsert.
+
+    DEPO-AYIRMA: market_ingest.duckdb'ye yazar (force_write=True), market.duckdb'ye
+    DEĞİL. market.duckdb tazeliğini scheduler `market_snapshot` job (:05) atomik
+    file-replace ile sağlar. Bu job market.duckdb'ye DOKUNMAZ → lock contention yok.
+
+    Windows->Mac göçünde (05-22) bu besleme cron'u taşınmadı → 15m veri 6 gün bayat
+    kaldı → 48 regime_cache_stale + 12 correlation_gate_hard_block reddi. Bu job onu onarir.
+
+    Neden launchd (cron değil): macOS'te kullanici cron'u güvenilmez (login session,
+    PATH, env). launchd doğru yol — StartInterval + RunAtLoad deterministik.
+
+    Load:    launchctl bootstrap gui/501 ~/Library/LaunchAgents/com.priceaction.ingest15m.plist
+    Unload:  launchctl bootout gui/501 ~/Library/LaunchAgents/com.priceaction.ingest15m.plist
+    Manual:  launchctl kickstart gui/501/com.priceaction.ingest15m
+    Test:    .venv/bin/python scripts/ingest_15m_live.py
+  -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/peyman/price-action-bot/.venv/bin/python</string>
+    <string>-u</string>
+    <string>scripts/ingest_15m_live.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/peyman/price-action-bot</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONPATH</key>
+    <string>/Users/peyman/price-action-bot/src</string>
+    <key>TZ</key>
+    <string>UTC</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+    <!-- NOT: PA_DUCKDB_READ_ONLY set EDILMEZ. ingest_15m_live.py market_ingest.duckdb'ye
+         force_write=True ile yazar (env bypass). market.duckdb'ye direkt yazmaz. -->
+  </dict>
+
+  <!-- Her 5 dakika (300 s). Scheduler hourly ingest (:00) ile çakışsa bile aynı
+       hedef dosya idempotent upsert — veri kaybı yok; DuckDB single-writer reddi
+       olursa job exit 1 ile fail-loud, sonraki tick'te tazeler. -->
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/ingest15m.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/ingest15m.stderr.log</string>
+
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>4096</integer>
+  </dict>
+</dict>
+</plist>

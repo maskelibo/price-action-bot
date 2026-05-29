@@ -14,20 +14,23 @@
 #     (~74% more raw wide-stop VSA signals). avgR dilutes only slightly
 #     (+1.96 -> +1.80 standalone, but pool-level WR same/better).
 #
-# HONEST BACKTEST (taker +55bps, +full pool rebuild on market.duckdb, 2026-05-23):
-#   5y aggregate (vs widestop v1 in parens):
-#     continuous-curve DD  -17.00%   (v1: -20.21%)   -- BETTER by 3.21pp
-#     monthly-mean ROI     +17.56%   (v1: +13.38%)  -- BETTER by 4.18pp
-#     negative months      0/61      (v1: 2/61)     -- BETTER, perfect
-#     worst-month return   +2.37%    (v1: -4.26%)   -- BETTER, no losing month
-#     annual (compound)    +485.6%   (v1: +302.2%)  -- BETTER by 183pp
-#   Yearly v2 vs v1 (aylik mean): every year v2 wins by +2.27..+6.91pp.
-#
-# OOS (2024-11 -> 2026-05, train/OOS split):
-#     v2 OOS DD -16.36%, aylik +19.30%, neg 0/19, ann +545.9%
-#     v1 OOS DD -17.10%, aylik +16.76%, neg 0/19, ann +406.7%
-#     PASS — improvement consistent across train AND OOS, no overfit signature
-#     (unlike v2/v3 drop-style ablation which failed OOS).
+# DÜZELTME 2026-05-29 (honest re-run, EXACT deployed config, production_replay):
+#   Aşağıdaki 2026-05-23 başlıkları ŞİŞİKTİ — düzeltilmiş dürüst rakamlar:
+#     monthly-mean ROI     +13.46%  (eski iddia +17.56% — +4.1pp şişikti)
+#     monthly-MEDIAN ROI   +13.09%
+#     IS +13.49% / OOS +13.40%  -- overfit YOK (mükemmel IS≈OOS tutarlılık) ✓
+#     continuous-curve DD  -15.5%   (eski -17.00% TUTUCUYDU, şişme yok)
+#     negative months      2-3/61   (eski iddia "0/61" GERÇEK DEĞİL)
+#     worst-month return   -1.14%   (zararsız; eski "+2.37% no losing month" YANLIŞ)
+#     annual (compound)    +257% (55bps) .. +343% (15bps)  -- eski +485.6%
+#         REPRODUCE EDİLEMEDİ (muhtemelen pyramid-ON ablasyonu / farklı pool-rebuild)
+#     winner-skew: top-5% trade = kârın ~%65'i, AMA ex-top5 hâlâ +%11.99/ay → edge sağlam
+#   GERÇEK BEKLENTİ BANDI: aylık +%11-13.5, DD -%15 ila -21. Çekirdek edge GERÇEK
+#   ve OOS-tutarlı; şişen sadece yıllık-compound headline ve "0 neg ay" mührüydü.
+#   Detay: 5 commit'lik honest-audit, RESUME_2026-05-29.md "Bot inflation denetimi".
+# -----------------------------------------------------------------------------
+# (ESKİ — 2026-05-23 ŞİŞİK başlıklar, kayıt için):
+#   monthly-mean +17.56%, neg 0/61, worst +2.37%, annual +485.6%, OOS aylik +19.30%
 #
 # REALISTIC SCALING CAVEAT: backtest math is internally consistent but won't
 # survive linear projection to $1M+ capital. Liquidity/market-impact frictions
@@ -180,7 +183,8 @@ stop_loss:
     method: atr_chandelier
     atr_period: 14
     # DIFF vs 1d: 3.0 → 2.0 (scalp'te runner daha kısa sürer)
-    multiplier: 2.0
+    # FIX 2026-05-29 (deploy): 2.0 → 3.0 (winner-let-run; runner'a daha geniş trail).
+    multiplier: 3.0
     activate_after_R: 1.0
 
 take_profit:
@@ -308,6 +312,11 @@ strategy_portfolio:
     - DOT/USDT
     - DOGE/USDT
     - XRP/USDT
+    # FIX 2026-05-29 (deploy): 10 → 14. ZEC/NEAR/FIL/XLM eklendi (15m ingest universe parity).
+    - ZEC/USDT
+    - NEAR/USDT
+    - FIL/USDT
+    - XLM/USDT
   strategies:
     # Phoenix 1d stratejilerinin 15m uyumluluğu Signal Chief audit'e bağlı.
     # Şimdi PLACEHOLDER — Phase 2 PASS sonrası aktif edilir.

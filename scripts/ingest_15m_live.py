@@ -35,10 +35,12 @@ sys.path.insert(0, str(ROOT / "src"))
 from price_action.data.quality import run_quality_checks, write_daily_manifest
 from price_action.data.store import OHLCVStore
 from price_action.logging_config import logger
+from price_action.settings import get_settings
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-# 10 sembol — futures_trade_daily.py SYMBOLS ile aynı universe.
+# 14 sembol — futures_trade_daily.py SYMBOLS ile aynı universe.
+# 2026-05-29 (deploy): 10 → 14. ZEC/NEAR/FIL/XLM eklendi (config 14 sembol parity).
 SYMBOLS: list[str] = [
     "BTC/USDT",
     "ETH/USDT",
@@ -50,6 +52,10 @@ SYMBOLS: list[str] = [
     "DOT/USDT",
     "DOGE/USDT",
     "XRP/USDT",
+    "ZEC/USDT",
+    "NEAR/USDT",
+    "FIL/USDT",
+    "XLM/USDT",
 ]
 
 TF = "15m"
@@ -161,7 +167,13 @@ def main() -> None:  # pragma: no cover - integration
     - Quality manifest güncellenir.
     """
     t0 = time.perf_counter()
-    store = OHLCVStore()
+    # DEPO-AYIRMA (2026-05-29): market.duckdb'ye DİREKT YAZMA (lock contention =
+    # DMS-kill incident). ingest, market_ingest.duckdb'ye yazar (force_write=True
+    # → PA_DUCKDB_READ_ONLY env bypass). Tüketici (daemon) market.duckdb'yi RO okur;
+    # scheduler `market_snapshot` job (:05) atomik file-replace ile market.duckdb'yi
+    # tazeler. Bu script SADECE writer; snapshot scheduler'ın işi.
+    s = get_settings()
+    store = OHLCVStore(path=s.ingest_duckdb_path, force_write=True)
     quality_reports = []
     errors: list[str] = []
 

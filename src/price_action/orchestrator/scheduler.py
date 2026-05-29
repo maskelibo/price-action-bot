@@ -2230,7 +2230,10 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     # SNAPSHOT 2026-05-29: market_ingest → market.duckdb, :05 (ingest sonrası, decouple)
     ("market_snapshot", "cron", "5 * * * *", _job_market_snapshot),
     # FIX 2026-05-25: regime features daily refresh (was missing — caused regime_cache_stale)
-    ("regime_features_refresh", "cron", "1 0 * * *", _job_regime_features_refresh),  # 00:01 UTC
+    # FIX 2026-05-29 (deploy): daily (00:01) → every 4h (00:01,04:01,...). Daily refresh
+    # left cache >6h stale by afternoon → regime_cache_stale HARD_REJECT (48 occurrences
+    # observed in live log). 4h cadence keeps fetched_at age < 4h, under reject gate.
+    ("regime_features_refresh", "cron", "1 */4 * * *", _job_regime_features_refresh),  # :01 her 4h UTC
     # FIX 2026-05-26 (H6): pending entry retry processor (her 60s)
     ("process_pending_entries", "cron", "* * * * *", _job_process_pending_entries),
     # FIX 2026-05-26 (M1): launchd log rotation (saatlik :50)
