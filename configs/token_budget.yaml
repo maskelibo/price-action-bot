@@ -30,7 +30,7 @@ daily_limits:
 
   # En kritik düşünme (Opus 4.7 kalıyor)
   ceo: 2000000            # 2M (stabil)
-  researcher: 6000000     # 3M → 6M (hypothesis runner LLM extract spike)
+  researcher: 12000000    # 6M → 12M (2026-05-29: %86 doldu, headroom; 429 session-limit AYRI)
   adversary_engineer: 500000  # 500k stabil
 
   # Sonnet'e geçenler
@@ -55,7 +55,7 @@ daily_limits:
 # Haftalık tüm-agent toplam limiti
 # Yeni dailies × 7 (Faz 14.19):
 #   2 + 6 + 0.5 + 8 + 1.5 + 0.3 + 0.4 + 4 + 0.2 + 0.06 + 0.4 = 23.36M × 7 ≈ 164M
-weekly_limit_total: 200000000  # 100M → 200M (Faz 14.19)
+weekly_limit_total: 250000000  # 200M → 250M (2026-05-29: researcher 6M→12M sonrası headroom)
 
 # Alarm seviyeleri (sıkı tut, erken uyarı)
 alert_threshold_pct: 75

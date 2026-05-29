@@ -654,7 +654,7 @@ class LLMAgentBase(abc.ABC):
         # FIX 2026-05-26 (M4): timeout bounds check — geçersiz değer instant
         # fail loop'a sebep olurdu (PA_CLI_TIMEOUT_S=0 → instant timeout → retry).
         try:
-            timeout_s = float(os.getenv("PA_CLI_TIMEOUT_S", "180"))
+            timeout_s = float(os.getenv("PA_CLI_TIMEOUT_S", "300"))
         except (ValueError, TypeError):
             timeout_s = 180.0
         # Bounds: minimum 30s (subprocess overhead), maximum 1800s (30dk)

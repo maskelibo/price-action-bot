@@ -108,17 +108,33 @@ class ResearcherAgent(LLMAgentBase):
             from datetime import datetime, timezone
             # Haftalık rotation — gün × 5 ile farklı seed seti
             day = datetime.now(timezone.utc).timetuple().tm_yday
+            # REVIZE 2026-05-29: OHLCV-türevli price-action temaları.
+            # Önceki bank'ta funding-rate / OI / BTC-dominance / FOMC-CPI /
+            # cross-strategy temaları "evren-dışı veri" (bizde ingest YOK) →
+            # researcher hepsini SOP-5 seed-abort ediyordu (0 test-edilebilir
+            # hipotez). Bunlar elimizdeki OHLCV ile test edilebilir PA temalarıyla
+            # değiştirildi (detector kütüphanesi + kanıtlı brooks_failed_breakout
+            # edge'iyle uyumlu). Korunanlar: vol-regime, time-of-day, confluence,
+            # liquidity-grab, weekend-gap (hepsi OHLCV-türevli).
+            # REVIZE-2 2026-05-29: hypothesis_runner sadece 4 TANINAN base
+            # stratejiyi otomatik backtest eder (vsa_climax_test, brooks_failed_breakout,
+            # anchored_vwap_reversal, engulfing_continuation) + param_sweep tipi.
+            # Yeni-pattern hipotezleri executable=false (detector yok). Bu yüzden
+            # bank'ın ÇOĞU bu 4 stratejinin param-sweep'i (base != null → AUTO-BACKTEST
+            # kapanır); kalanı discovery (PROPOSED → Signal Chief implementasyonu).
             theme_bank = [
+                # AUTO-BACKTESTABLE — tanınan stratejilerin param-sweep'leri
+                "brooks_failed_breakout: ATR stop-distance parameter sweep",
+                "brooks_failed_breakout: confirmation-window parameter sweep",
+                "vsa_climax_test: volume-z threshold parameter sweep",
+                "vsa_climax_test: wide-stop sl_pct_min parameter sweep",
+                "anchored_vwap_reversal: entry-band distance parameter sweep",
+                "engulfing_continuation: confluence-score threshold sweep",
+                # DISCOVERY — yeni-pattern (PROPOSED → Signal Chief)
                 "Volatility regime sizing optimization",
-                "Cross-strategy correlation reduction",
-                "Funding rate alt-data filter",
                 "Time-of-day session bias",
                 "Multi-symbol confluence opportunities",
-                "OI/volume divergence patterns",
-                "Liquidity grab + reversal setup",
-                "BTC dominance shift triggers",
-                "Weekend gap fill statistics",
-                "FOMC/CPI event pre-positioning",
+                "Pin bar rejection at support/resistance",
             ]
             # 5 sliding theme
             start = (day * 5) % len(theme_bank)
