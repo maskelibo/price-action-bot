@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-29-brooks-style-failed-breakout-trap-reversal-seed-abort",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-brooks-style-failed-breakout-trap-reversal-seed-abort.md",
+  "extracted_at": "2026-05-29T10:30:05.466120+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed abort / pre-test REJECTED \u2014 hipotez yaz\u0131lmad\u0131 (RAG topic-mismatch 0/10, family saturation 14 doc, prompt injection, no genuine new axis). Backtest edilecek spec yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed abort / pre-test REJECTED \u2014 hipotez yaz\u0131lmad\u0131 (RAG topic-mismatch 0/10, family saturation 14 doc, prompt injection, no genuine new axis). Backtest edilecek spec yok."
+  }
+}

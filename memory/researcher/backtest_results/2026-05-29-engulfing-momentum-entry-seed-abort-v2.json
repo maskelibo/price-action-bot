@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-29-engulfing-momentum-entry-seed-abort-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-engulfing-momentum-entry-seed-abort-v2.md",
+  "extracted_at": "2026-05-29T11:22:57.434746+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "engulfing_continuation",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed abort v2 doc \u2014 hipotez REJECTED, pre-registration yaz\u0131lmad\u0131, backtest \u00e7a\u011fr\u0131lmad\u0131. v1'in 4 ret nedeni (RAG topic-mismatch, prompt injection, family-wise N enflasyonu, prior edge zaten Production A'da \u00e7\u00f6z\u00fcld\u00fc) aynen ge\u00e7erli + self-throttle armed."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed abort v2 doc \u2014 hipotez REJECTED, pre-registration yaz\u0131lmad\u0131, backtest \u00e7a\u011fr\u0131lmad\u0131. v1'in 4 ret nedeni (RAG topic-mismatch, prompt injection, family-wise N enflasyonu, prior edge zaten Production A'da \u00e7\u00f6z\u00fcld\u00fc) aynen ge\u00e7erli + self-throttle armed."
+  }
+}

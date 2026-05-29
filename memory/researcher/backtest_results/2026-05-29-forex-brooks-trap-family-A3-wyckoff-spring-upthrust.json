@@ -1,0 +1,24 @@
+{
+  "hypothesis_id": "2026-05-29-forex-brooks-trap-family-A3-wyckoff-spring-upthrust",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-forex-brooks-trap-family-A3-wyckoff-spring-upthrust.md",
+  "extracted_at": "2026-05-29T00:00:14.094336+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "IS net mR >= +0.10",
+      "OOS > 0",
+      "shuffle p < 0.05",
+      "BH-FDR pass",
+      "n_IS >= 30",
+      "corr vs brooks < +0.6 OR mR >= brooks"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy (Wyckoff spring/upthrust on EUR/USD 4H range context) \u2014 backtest motoru hen\u00fcz bu hipotezi ko\u015fturamaz (DEFERRED). Ayr\u0131ca hipotez TESTED + KILL verdict alm\u0131\u015f (IS mR=-0.222, OOS=-0.524, shuffle p=0.991)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy (Wyckoff spring/upthrust on EUR/USD 4H range context) \u2014 backtest motoru hen\u00fcz bu hipotezi ko\u015fturamaz (DEFERRED). Ayr\u0131ca hipotez TESTED + KILL verdict alm\u0131\u015f (IS mR=-0.222, OOS=-0.524, shuffle p=0.991)."
+  }
+}

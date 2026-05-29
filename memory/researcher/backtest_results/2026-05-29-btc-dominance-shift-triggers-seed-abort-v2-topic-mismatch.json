@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-29-btc-dominance-shift-triggers-seed-abort-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-btc-dominance-shift-triggers-seed-abort-v2-topic-mismatch.md",
+  "extracted_at": "2026-05-29T09:50:00.485881+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed abort doc (status: REJECTED) \u2014 pre-test reddedildi, hipotez yaz\u0131lmad\u0131, kod yok. RAG topic-mismatch + universe out-of-scope (BTC.D external) + curve-fit magnet. Backtest \u00e7al\u0131\u015fmad\u0131, ko\u015fturulabilir spec yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed abort doc (status: REJECTED) \u2014 pre-test reddedildi, hipotez yaz\u0131lmad\u0131, kod yok. RAG topic-mismatch + universe out-of-scope (BTC.D external) + curve-fit magnet. Backtest \u00e7al\u0131\u015fmad\u0131, ko\u015fturulabilir spec yok."
+  }
+}

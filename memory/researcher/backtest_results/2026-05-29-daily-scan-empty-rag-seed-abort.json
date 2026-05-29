@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-29-daily-scan-empty-rag-seed-abort",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-daily-scan-empty-rag-seed-abort.md",
+  "extracted_at": "2026-05-29T02:30:09.873150+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed abort doc \u2014 pre-test REJECTED; RAG=0, i\u00e7sel premise tutars\u0131zl\u0131\u011f\u0131, curve-fit/p-hacking riski (family-wise N=14). Hipotez yaz\u0131lmam\u0131\u015f, ko\u015fturulacak parametre grid yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed abort doc \u2014 pre-test REJECTED; RAG=0, i\u00e7sel premise tutars\u0131zl\u0131\u011f\u0131, curve-fit/p-hacking riski (family-wise N=14). Hipotez yaz\u0131lmam\u0131\u015f, ko\u015fturulacak parametre grid yok."
+  }
+}

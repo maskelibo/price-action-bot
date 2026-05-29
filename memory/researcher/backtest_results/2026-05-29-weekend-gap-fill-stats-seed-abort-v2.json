@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-29-weekend-gap-fill-stats-seed-abort-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-weekend-gap-fill-stats-seed-abort-v2.md",
+  "extracted_at": "2026-05-29T03:00:10.933762+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "LLM extract failed: claude CLI rc=1: {\"type\":\"result\",\"subtype\":\"success\",\"is_error\":true,\"api_error_status\":429,\"durati"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "LLM extract failed: claude CLI rc=1: {\"type\":\"result\",\"subtype\":\"success\",\"is_error\":true,\"api_error_status\":429,\"durati"
+  }
+}

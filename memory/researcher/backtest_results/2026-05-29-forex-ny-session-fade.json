@@ -1,0 +1,23 @@
+{
+  "hypothesis_id": "2026-05-29-forex-ny-session-fade",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-forex-ny-session-fade.md",
+  "extracted_at": "2026-05-28T23:30:11.215814+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "IS net mR >= +0.10",
+      "OOS > 0",
+      "shuffle p < 0.05",
+      "n_IS >= 30",
+      ">=2/3 regimes positive"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: NY-session fade is a novel session-boundary mean-reversion edge family on EUR/USD 4H, distinct from the 4 existing strategies; backtest engine has no matching signal logic. Also already TESTED with VERDICT=KILL on 2026-05-29."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: NY-session fade is a novel session-boundary mean-reversion edge family on EUR/USD 4H, distinct from the 4 existing strategies; backtest engine has no matching signal logic. Also already TESTED with VERDICT=KILL on 2026-05-29."
+  }
+}

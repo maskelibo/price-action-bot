@@ -1,0 +1,66 @@
+{
+  "hypothesis_id": "2026-05-29-brooks-3fx-vol-targeting-risk-engineering",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-brooks-3fx-vol-targeting-risk-engineering.md",
+  "extracted_at": "2026-05-29T01:00:27.133983+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": {
+      "vol_lookback": [
+        10,
+        20,
+        40,
+        60
+      ],
+      "target_monthly_vol": [
+        0.06,
+        0.08,
+        0.1,
+        0.12
+      ],
+      "vol_floor_cap": [
+        [
+          0.25,
+          3
+        ],
+        [
+          0.33,
+          2.5
+        ],
+        [
+          0.5,
+          2
+        ]
+      ],
+      "max_concurrent": [
+        2,
+        3,
+        4,
+        6
+      ],
+      "total_open_risk_cap": [
+        0.03,
+        0.05,
+        0.08,
+        null
+      ],
+      "weighting": [
+        "equal_notional",
+        "risk_parity_inverse_vol"
+      ]
+    },
+    "accept_gates": [
+      "matched_maxdd_sharpe_uplift_bootstrap_95ci_lower_gt_0",
+      "oos_direction_preserved",
+      "bh_fdr_multiple_testing_correction",
+      "median_return_not_degraded_more_than_2pp",
+      "vol_targeting_marginal_beyond_concurrency_cap"
+    ],
+    "executable": false,
+    "reason_if_not": "Vol-targeting + risk-parity weighting + concurrent-risk cap mevcut sweep runner'da desteklenmiyor; per-trade risk_pct'i causal-vol-scale ile \u00e7arpan ve portfolio-level concurrency/weighting uygulayan \u00f6zel orkestrat\u00f6r gerektirir (scripts/brooks_portfolio_3fx.py \u00fcst\u00fcne yeni risk-engineering katman\u0131)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Vol-targeting + risk-parity weighting + concurrent-risk cap mevcut sweep runner'da desteklenmiyor; per-trade risk_pct'i causal-vol-scale ile \u00e7arpan ve portfolio-level concurrency/weighting uygulayan \u00f6zel orkestrat\u00f6r gerektirir (scripts/brooks_portfolio_3fx.py \u00fcst\u00fcne yeni risk-engineering katman\u0131)."
+  }
+}

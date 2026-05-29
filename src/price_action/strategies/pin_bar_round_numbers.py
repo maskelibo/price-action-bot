@@ -59,6 +59,13 @@ _DEFAULT_ROUND_GRIDS: dict[str, float] = {
     "LINK": 5.0,
     "UNI":  1.0,
     "ATOM": 5.0,
+    # --- FX big-figure (50-pip) magnet grids (HYP-2026-05-29-forex-4h-pa Block 1) ---
+    # _symbol_base("EUR/USD") -> "EUR", "GBP/USD" -> "GBP", "USD/JPY" -> "USD".
+    # FX round-number psychology = 00/50 big figures. EUR/USD pip=0.0001,
+    # 50-pip grid = 0.0050. JPY-quoted pip=0.01, 50-pip = 0.50.
+    "EUR":  0.0050,
+    "GBP":  0.0050,
+    "USD":  0.50,    # USD/JPY (USD base, JPY quote, pip=0.01)
 }
 
 _FALLBACK_GRID = 1.0  # bilinmeyen semboller için

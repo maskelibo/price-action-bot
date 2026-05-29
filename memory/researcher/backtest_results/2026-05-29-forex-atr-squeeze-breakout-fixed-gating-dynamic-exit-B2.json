@@ -1,0 +1,25 @@
+{
+  "hypothesis_id": "2026-05-29-forex-atr-squeeze-breakout-fixed-gating-dynamic-exit-B2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-forex-atr-squeeze-breakout-fixed-gating-dynamic-exit-B2.md",
+  "extracted_at": "2026-05-29T01:00:07.663699+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "IS net mR >= +0.10",
+      "OOS net mR > 0",
+      "shuffle p < 0.05",
+      "BH-FDR pass",
+      "n_IS >= 30",
+      ">= 2/3 regimes positive",
+      "runner > 2R-twin (if both negative, exit not the issue)"
+    ],
+    "executable": false,
+    "reason_if_not": "New strategy (ATR-squeeze coil + Donchian20 breakout with dynamic trailing exit) on EUR/USD 4H \u2014 distinct signal logic and state-machine exit not covered by existing 4-strategy backtest engine; also already TESTED externally with verdict ITERATE-UNDERPOWERED \u2192 effectively KILL (n_IS=5, family too rare on 4H)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "New strategy (ATR-squeeze coil + Donchian20 breakout with dynamic trailing exit) on EUR/USD 4H \u2014 distinct signal logic and state-machine exit not covered by existing 4-strategy backtest engine; also already TESTED externally with verdict ITERATE-UNDERPOWERED \u2192 effectively KILL (n_IS=5, family too rare on 4H)."
+  }
+}

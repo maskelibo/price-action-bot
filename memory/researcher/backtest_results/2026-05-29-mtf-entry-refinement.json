@@ -1,0 +1,44 @@
+{
+  "hypothesis_id": "2026-05-29-mtf-entry-refinement",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-mtf-entry-refinement.md",
+  "extracted_at": "2026-05-29T02:00:12.720407+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": {
+      "variant": [
+        "V1_pullback",
+        "V2_subTF_confirm",
+        "V3_narrow_stop"
+      ],
+      "sub_tf": [
+        "1h",
+        "30m",
+        "15m"
+      ],
+      "pullback_depth": [
+        0.382,
+        0.5
+      ],
+      "refinement_window_N": [
+        6,
+        12
+      ]
+    },
+    "accept_gates": [
+      "OOS mean R > baseline-resim mean R (en az bir variant\u00d7TF kombinasyonu)",
+      "IS\u2192OOS Sharpe decay < 30%",
+      "OOS robust monthly median > baseline",
+      "BH-FDR d\u00fczeltmesi sonras\u0131 anlaml\u0131l\u0131k korunur",
+      "Skip oran\u0131 < 50% veya top5_share \u2265 baseline (sa\u011f-kuyruk korunur)",
+      "Shuffle null OOS'ta yenilir",
+      "IS'te en az bir variant baseline-resim'i ge\u00e7er (stop criterion)"
+    ],
+    "executable": false,
+    "reason_if_not": "MTF entry refinement (sub-TF pullback/confirm/narrow-stop) mevcut backtest engine'inde desteklenmiyor. Engine sinyal bar open giri\u015fi yap\u0131yor; sub-TF re-timing logic + apples-to-apples baseline-resim exit modeli yeni implementation gerektiriyor. DEFERRED \u2014 Researcher manuel script geli\u015ftirmeli."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "MTF entry refinement (sub-TF pullback/confirm/narrow-stop) mevcut backtest engine'inde desteklenmiyor. Engine sinyal bar open giri\u015fi yap\u0131yor; sub-TF re-timing logic + apples-to-apples baseline-resim exit modeli yeni implementation gerektiriyor. DEFERRED \u2014 Researcher manuel script geli\u015ftirmeli."
+  }
+}

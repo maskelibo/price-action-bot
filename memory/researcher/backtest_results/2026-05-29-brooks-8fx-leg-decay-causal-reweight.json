@@ -1,0 +1,200 @@
+{
+  "hypothesis_id": "HYP-2026-05-29-brooks-8fx-leg-decay-causal-reweight",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-brooks-8fx-leg-decay-causal-reweight.md",
+  "extracted_at": "2026-05-29T02:37:05.991388+00:00",
+  "spec": {
+    "type": "analysis",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [
+      "\u0394robMed(OOS) >= +1pp VEYA \u0394moSharpe(OOS) >= +0.05",
+      "neg-ay% artmamal\u0131",
+      "DD k\u00f6t\u00fcle\u015fmemeli",
+      "decay slope p<0.05 (en az bir bacakta) \u2014 H0-a falsification",
+      "reweight IS'te e\u015fit-a\u011f\u0131rl\u0131\u011f\u0131 ge\u00e7meli (\u0394robMed_IS >= 0)",
+      "t\u00fcm varyantlar (N, freq, skor tipi) raporlanmal\u0131 \u2014 multiple-testing not"
+    ],
+    "executable": false,
+    "reason_if_not": "Causal reweight analizi \u2014 mevcut sweep runner param_grid bazl\u0131 \u00e7al\u0131\u015f\u0131r; bu hipotez trade-level pkl \u00fczerinde quarterly causal rebalansing + rolling-window slope testi gerektirir, \u00f6zel analiz scripti \u015fart (production_replay engine + custom reweight logic)."
+  },
+  "result": {
+    "status": "OK",
+    "type": "analysis",
+    "n_strategies_compared": 7,
+    "min_sample_size": 500,
+    "correlation_matrix": {
+      "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 1.0,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 0.0482,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 0.0218,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 0.0264,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": 0.0601,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.097,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0407
+      },
+      "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0482,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 1.0,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.029,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 0.0072,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": 0.0142,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.1029,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0498
+      },
+      "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0218,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": -0.029,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 1.0,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.081,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": 0.0686,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": 0.0033,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0801
+      },
+      "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0264,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 0.0072,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.081,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 1.0,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": 0.0409,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.0102,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0613
+      },
+      "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0601,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 0.0142,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 0.0686,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 0.0409,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": 1.0,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.0004,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0064
+      },
+      "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": -0.097,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": -0.1029,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 0.0033,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.0102,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": -0.0004,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": 1.0,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": 0.0596
+      },
+      "vsa_climax_test-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": -0.0407,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": -0.0498,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.0801,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.0613,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": -0.0064,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": 0.0596,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": 1.0
+      }
+    },
+    "low_correlation_pairs": [
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0482
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "rho": 0.0218
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0264
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030",
+        "rho": 0.0601
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.097
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0407
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "rho": -0.029
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0072
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030",
+        "rho": 0.0142
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.1029
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0498
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.081
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030",
+        "rho": 0.0686
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": 0.0033
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0801
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030",
+        "rho": 0.0409
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.0102
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0613
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.0004
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0064
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0596
+      }
+    ],
+    "n_low_corr_pairs": 21,
+    "partial_note": "PARTIAL \u2014 sadece unconditional Pearson hesapland\u0131. Hipotez tam ko\u015fum i\u00e7in ekstra pipeline ister: Causal reweight analizi \u2014 mevcut sweep runner param_grid bazl\u0131 \u00e7al\u0131\u015f\u0131r; bu hipotez trade-level pkl \u00fczerinde quarterly causal rebalansing + rolling-window slope testi gerektirir, \u00f6zel analiz scripti \u015fart (production_replay engine + custom reweight logic)."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-29-fomc-cpi-event-pre-positioning-seed-abort",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-fomc-cpi-event-pre-positioning-seed-abort.md",
+  "extracted_at": "2026-05-29T03:30:10.078352+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "REJECTED_PRE_TEST seed-abort doc; backtest \u00e7al\u0131\u015ft\u0131r\u0131lmad\u0131, kod yaz\u0131lmad\u0131. 3 ba\u011f\u0131ms\u0131z blocker: RAG=0 (SOP-5 hard fire), data universe out-of-scope (FOMC/CPI event timestamps yok), power problemi (100 event vs 96 cell grid). Out-of-universe data dependency + Data Engineer ticket gerekli."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED_PRE_TEST seed-abort doc; backtest \u00e7al\u0131\u015ft\u0131r\u0131lmad\u0131, kod yaz\u0131lmad\u0131. 3 ba\u011f\u0131ms\u0131z blocker: RAG=0 (SOP-5 hard fire), data universe out-of-scope (FOMC/CPI event timestamps yok), power problemi (100 event vs 96 cell grid). Out-of-universe data dependency + Data Engineer ticket gerekli."
+  }
+}

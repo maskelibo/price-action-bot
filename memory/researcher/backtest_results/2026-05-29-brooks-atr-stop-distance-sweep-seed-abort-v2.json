@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-29-brooks-atr-stop-distance-sweep-seed-abort-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-brooks-atr-stop-distance-sweep-seed-abort-v2.md",
+  "extracted_at": "2026-05-29T13:39:49.899128+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort doc (status: REJECTED) \u2014 duplicate of v1 pre-reg from same day; no new substantive grid or gates. Audit/throttle artifact only, not a runnable hypothesis."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort doc (status: REJECTED) \u2014 duplicate of v1 pre-reg from same day; no new substantive grid or gates. Audit/throttle artifact only, not a runnable hypothesis."
+  }
+}

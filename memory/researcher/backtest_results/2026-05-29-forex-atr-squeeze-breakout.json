@@ -1,0 +1,23 @@
+{
+  "hypothesis_id": "2026-05-29-forex-atr-squeeze-breakout",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-forex-atr-squeeze-breakout.md",
+  "extracted_at": "2026-05-29T00:30:24.684860+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "IS net mR >= +0.10",
+      "OOS net mR > 0",
+      "shuffle p < 0.05",
+      "n_IS >= 30",
+      ">=2/3 regimes positive"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: ATR-contraction squeeze + Donchian20 breakout is a novel signal logic (volatility-regime gated breakout) not present in the existing 4-strategy library; backtest engine cannot run this hypothesis without a new detector implementation. Additionally, the hypothesis is already TESTED with verdict KILL-UNDERPOWERED (design flaw: squeeze and breakout conditions self-exclude); a corrected NEW hypothesis with pre-breakout squeeze gating at t-1..t-3 would require fresh pre-registration."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: ATR-contraction squeeze + Donchian20 breakout is a novel signal logic (volatility-regime gated breakout) not present in the existing 4-strategy library; backtest engine cannot run this hypothesis without a new detector implementation. Additionally, the hypothesis is already TESTED with verdict KILL-UNDERPOWERED (design flaw: squeeze and breakout conditions self-exclude); a corrected NEW hypothesis with pre-breakout squeeze gating at t-1..t-3 would require fresh pre-registration."
+  }
+}

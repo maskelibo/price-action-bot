@@ -1,0 +1,24 @@
+{
+  "hypothesis_id": "2026-05-29-forex-4h-pa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-forex-4h-pa.md",
+  "extracted_at": "2026-05-28T21:30:11.065646+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "per-trade mean R >= +0.10 (net of spread+swap)",
+      "walk-forward OOS Sharpe >= 0.4",
+      "beats label-shuffle null at p < 0.05",
+      "edge survives gross->net spread+swap haircut",
+      "edge present in >=2 of 3 stress regimes (range/trend)",
+      "round-number variant edge not dependent on hand-picked FX grids"
+    ],
+    "executable": false,
+    "reason_if_not": "DEFERRED: new_strategy (Forex 4H mean-reversion PA bundle on EUR/USD Dukascopy). Backtest motoru hen\u00fcz ko\u015fturamaz - data pipeline in flight (data/forex_market.duckdb PENDING), FX round-number grids _DEFAULT_ROUND_GRIDS'e eklenmemi\u015f, ATR floor crypto-tuned (0.003 vs gerekli 0.0008), session window filter ve weekend-flat logic yok. Status: PRE-REGISTERED (DESIGN ONLY)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "DEFERRED: new_strategy (Forex 4H mean-reversion PA bundle on EUR/USD Dukascopy). Backtest motoru hen\u00fcz ko\u015fturamaz - data pipeline in flight (data/forex_market.duckdb PENDING), FX round-number grids _DEFAULT_ROUND_GRIDS'e eklenmemi\u015f, ATR floor crypto-tuned (0.003 vs gerekli 0.0008), session window filter ve weekend-flat logic yok. Status: PRE-REGISTERED (DESIGN ONLY)."
+  }
+}

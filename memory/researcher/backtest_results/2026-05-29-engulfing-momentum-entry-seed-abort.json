@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-29-engulfing-momentum-entry-seed-abort",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-29-engulfing-momentum-entry-seed-abort.md",
+  "extracted_at": "2026-05-29T11:22:50.673787+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "engulfing_continuation",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed REJECTED pre-registration a\u015famas\u0131nda. RAG topic-mismatch (10/10 off-topic), prompt injection (Hard-Limit z\u0131tt\u0131 'curve-fit \u015f\u00fcphesi yarat'), family-wise N enflasyonu (aile i\u00e7i 6 varyant), prior edge zaten \u00e7\u00f6z\u00fcld\u00fc (Production A +%68/y\u0131l). Hipotez yaz\u0131lmad\u0131, backtest \u00e7a\u011fr\u0131lmad\u0131."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed REJECTED pre-registration a\u015famas\u0131nda. RAG topic-mismatch (10/10 off-topic), prompt injection (Hard-Limit z\u0131tt\u0131 'curve-fit \u015f\u00fcphesi yarat'), family-wise N enflasyonu (aile i\u00e7i 6 varyant), prior edge zaten \u00e7\u00f6z\u00fcld\u00fc (Production A +%68/y\u0131l). Hipotez yaz\u0131lmad\u0131, backtest \u00e7a\u011fr\u0131lmad\u0131."
+  }
+}
