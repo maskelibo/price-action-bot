@@ -37,7 +37,9 @@ _POOL_RR_INDEX: dict[str, int] = {}  # round-robin counter
 _POOL_GUARD = threading.Lock()
 
 
-def _get_pooled_connection(path: str) -> tuple[duckdb.DuckDBPyConnection, threading.RLock]:
+def _get_pooled_connection(
+    path: str, *, force_write: bool = False
+) -> tuple[duckdb.DuckDBPyConnection, threading.RLock]:
     """Pooled connection. PA_DUCKDB_READ_ONLY=true ise read_only modunda aç.
 
     Faz 5.2 fix: 5m bot 15m bot ile aynı market.duckdb'yi okuyor; DuckDB
@@ -51,10 +53,22 @@ def _get_pooled_connection(path: str) -> tuple[duckdb.DuckDBPyConnection, thread
     Write modda exclusive lock zorunlu, pool size=1 zorlanıyor.
     PA_DUCKDB_POOL_SIZE env ile override edilebilir; Windows'ta 1'e zorla
     (DuckDB Windows-specific lock issue'leri için defensive).
+
+    FIX 2026-05-28 (depo-ayirma): ``force_write=True`` → PA_DUCKDB_READ_ONLY
+    env'i YOK SAYILIR ve bu path write mode (pool_size=1) açılır. Bu, CEO
+    daemon (read-only env) içinde çalışan ingest job'ının ayrı bir yazılabilir
+    dosyaya (market_ingest.duckdb) yazabilmesi için. force_write=False (default)
+    davranışı BYTE-IDENTICAL — geriye dönük uyum kritik. force_write'lı path'ler
+    ayrı dosya olduğundan, aynı path'in hem RO hem write pool'da olması mümkün
+    değil (path başına tek pool entry; market_ingest.duckdb sadece force_write
+    ile açılır).
     """
     import os as _os
     import platform as _platform
-    read_only = _os.environ.get("PA_DUCKDB_READ_ONLY", "").lower() in ("1", "true", "yes")
+    if force_write:
+        read_only = False
+    else:
+        read_only = _os.environ.get("PA_DUCKDB_READ_ONLY", "").lower() in ("1", "true", "yes")
     # Pool size: write mode → 1 zorunlu, read mode → env (default 4)
     if not read_only:
         pool_size = 1
@@ -197,10 +211,27 @@ class OHLCVStore:
         self,
         duckdb_path: Path | None = None,
         parquet_root: Path | None = None,
+        *,
+        path: Path | None = None,
+        force_write: bool = False,
     ) -> None:
+        """OHLCV store.
+
+        Params:
+            duckdb_path: (geriye dönük) DuckDB dosya yolu.
+            path: ``duckdb_path`` için alias (depo-ayirma fix'i ile eklendi).
+                  İkisi de verilirse ``path`` öncelik alır.
+            force_write: True ise PA_DUCKDB_READ_ONLY env'i YOK SAYILIR ve
+                  bağlantı write mode (exclusive, pool_size=1) açılır. CEO
+                  daemon (read-only env) içindeki ingest job'ının
+                  market_ingest.duckdb'ye yazabilmesi için. Default False →
+                  mevcut davranış byte-identical.
+        """
         s = get_settings()
-        self.duckdb_path: Path = Path(duckdb_path) if duckdb_path else s.duckdb_path
+        chosen = path if path is not None else duckdb_path
+        self.duckdb_path: Path = Path(chosen) if chosen else s.duckdb_path
         self.parquet_root: Path = Path(parquet_root) if parquet_root else s.parquet_root
+        self.force_write: bool = force_write
         self.duckdb_path.parent.mkdir(parents=True, exist_ok=True)
         self.parquet_root.mkdir(parents=True, exist_ok=True)
         self._ensure_schema()
@@ -217,14 +248,18 @@ class OHLCVStore:
         altında havuz çalışıyor.
         """
         path = str(self.duckdb_path)
-        con, lock = _get_pooled_connection(path)
+        con, lock = _get_pooled_connection(path, force_write=self.force_write)
         with lock:
             yield con
 
     def _ensure_schema(self) -> None:
-        # Faz 5.2: read_only mode'da DDL çalıştırma — schema zaten var varsayılır
+        # Faz 5.2: read_only mode'da DDL çalıştırma — schema zaten var varsayılır.
+        # depo-ayirma fix: force_write=True ise read-only env'i yok say, DDL koş
+        # (market_ingest.duckdb ilk seed'de boş olabilir → schema gerekir).
         import os as _os
-        if _os.environ.get("PA_DUCKDB_READ_ONLY", "").lower() in ("1", "true", "yes"):
+        if (not self.force_write) and _os.environ.get(
+            "PA_DUCKDB_READ_ONLY", ""
+        ).lower() in ("1", "true", "yes"):
             return
         with self._conn() as con:
             con.execute(_OHLCV_DDL)

@@ -47,6 +47,15 @@ class Settings(BaseSettings):
     postgres_password: str = ""
 
     duckdb_path: Path = ROOT_DIR / "data" / "market.duckdb"
+    # FIX 2026-05-28 (depo-ayirma): Ingest yazıcısı için ayrı DuckDB dosyası.
+    # KÖK SORUN: CEO daemon market.duckdb'yi PA_DUCKDB_READ_ONLY=true açıyor
+    # (silent-fail fix); ama saatlik OHLCV ingest AYNI process'te yazmak istiyor
+    # → "Cannot DELETE on read-only" → market.duckdb donuyor. Çözüm: ingest
+    # ayrı bir yazılabilir dosyaya (market_ingest.duckdb) yazar, sonra atomik
+    # FILE-kopya snapshot ile market.duckdb tazeленir. Tüketiciler (regime/lab/
+    # backtest/drift) hâlâ duckdb_path (market.duckdb) okur — single source of
+    # truth korunur, paylaşılan değiştirilebilir dosya çakışması yok olur.
+    ingest_duckdb_path: Path = ROOT_DIR / "data" / "market_ingest.duckdb"
     parquet_root: Path = ROOT_DIR / "data" / "parquet"
     chroma_path: Path = ROOT_DIR / "knowledge" / "index"
 

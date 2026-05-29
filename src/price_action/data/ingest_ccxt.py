@@ -248,7 +248,90 @@ def _resolve_symbols(symbols_csv: str | None) -> list[tuple[str, str]]:
     return [(i.venue, i.symbol) for i in instruments]
 
 
-async def run_hourly() -> dict[str, int]:
+def _snapshot_ingest_to_consumer(ingest_path, consumer_path) -> dict[str, Any]:
+    """Atomik FILE-kopya snapshot: market_ingest.duckdb → market.duckdb.
+
+    FIX 2026-05-28 (depo-ayirma): Ingest, ayrı yazılabilir dosyaya
+    (market_ingest.duckdb) yazar. Tüketiciler (CEO daemon read-only env)
+    market.duckdb okur. Bu fonksiyon, ingest'in bittiği anda kaynak dosyayı
+    HEDEF'e atomik olarak kopyalar.
+
+    NEDEN DUCKDB WRITE DEĞİL SAF FILE-KOPYA: read-only env içindeki process
+    market.duckdb'ye DuckDB-write açamaz ("Cannot DELETE on read-only").
+    Ama dosya sistemi seviyesinde kopya + os.replace HER process'te çalışır
+    (file permission var). Tüketici conn'lar dosyayı RO açtığı için, atomik
+    replace sırasında ya eski ya yeni tam dosyayı görürler — yarım asla.
+
+    Adımlar:
+      1. WAL flush garantisi: kaynağı CHECKPOINT'li kapat (run_hourly sonu).
+      2. Mevcut market.duckdb → market.duckdb.bak (yedek).
+      3. market_ingest.duckdb → market.duckdb.snap.tmp (FILE kopya).
+      4. os.replace(tmp, market.duckdb) — atomik (POSIX rename).
+
+    Returns:
+        {"snapshotted": bool, "bytes": int, "newest_bar": str|None, "error": str|None}
+    """
+    import os as _os
+    import shutil as _shutil
+    from pathlib import Path as _Path
+
+    ingest_path = _Path(ingest_path)
+    consumer_path = _Path(consumer_path)
+    result: dict[str, Any] = {
+        "snapshotted": False, "bytes": 0, "newest_bar": None, "error": None
+    }
+    try:
+        if not ingest_path.exists():
+            result["error"] = f"ingest_path yok: {ingest_path}"
+            logger.bind(**result).error("ingest.snapshot_no_source")
+            return result
+
+        # 2) .bak yedek (mevcut market.duckdb varsa)
+        if consumer_path.exists():
+            bak_path = consumer_path.with_suffix(consumer_path.suffix + ".bak")
+            try:
+                _shutil.copy2(consumer_path, bak_path)
+            except Exception as bak_exc:  # pragma: no cover - defensive
+                logger.bind(err=str(bak_exc)).warning("ingest.snapshot_bak_fail")
+
+        # 3) FILE kopya → temp (aynı dizinde ki os.replace atomik olsun)
+        tmp_path = consumer_path.with_suffix(consumer_path.suffix + ".snap.tmp")
+        try:
+            _shutil.copy2(ingest_path, tmp_path)
+            # 4) atomik replace
+            _os.replace(tmp_path, consumer_path)
+        except Exception:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+            raise
+
+        result["snapshotted"] = True
+        result["bytes"] = consumer_path.stat().st_size
+        # newest bar bilgi amaçlı (RO oku, ayrı conn — pool kirletme)
+        try:
+            import duckdb as _ddb
+            _c = _ddb.connect(str(consumer_path), read_only=True)
+            try:
+                _row = _c.execute("SELECT MAX(ts) FROM ohlcv").fetchone()
+                if _row and _row[0] is not None:
+                    result["newest_bar"] = str(_row[0])
+            finally:
+                _c.close()
+        except Exception:
+            pass
+        logger.bind(**{k: result[k] for k in ("bytes", "newest_bar")}).info(
+            "ingest.snapshot_done"
+        )
+    except Exception as exc:
+        result["error"] = str(exc)[:300]
+        logger.bind(err=result["error"]).error("ingest.snapshot_fail")
+    return result
+
+
+async def run_hourly() -> dict[str, Any]:
     """Saatlik delta ingest — scheduler tarafından çağrılır.
 
     FIX 2026-05-28 (Faz 14.27): Önceki sürümde bu fonksiyon YOKTU. Scheduler
@@ -256,17 +339,24 @@ async def run_hourly() -> dict[str, int]:
     skip** ediyordu → market.duckdb 6 GÜN güncellenmedi → bot stale data ile
     backtest/regime check yapıyordu.
 
+    FIX 2026-05-28 (depo-ayirma): Ingest artık market.duckdb'ye DEĞİL,
+    market_ingest.duckdb'ye yazar (force_write=True → read-only env'i bypass).
+    Ingest bittiğinde atomik FILE-kopya snapshot ile market.duckdb tazeленir.
+    Bu, CEO daemon read-only env çakışmasını ("Cannot DELETE on read-only")
+    kökten çözer: yazıcı ve okuyucu artık AYRI dosyada.
+
     Bu wrapper son N gün'lük (=settings.pa_backtest_years) ingest yapar.
     Universe'deki tüm semboller × tüm TF'ler. Idempotent (OHLCVStore upsert).
 
     Returns:
-        {"symbols": N, "tfs": M, "ingested": K}
+        {"symbols": N, "tfs": M, "ingested": K, "snapshot": {...}}
     """
     import asyncio
     s = get_settings()
     pairs = _resolve_symbols(None)
     timeframes = s.timeframes_list
-    store = OHLCVStore()
+    # depo-ayirma: ayrı yazılabilir dosya + read-only env bypass
+    store = OHLCVStore(path=s.ingest_duckdb_path, force_write=True)
     n_done = 0
     for v, sy in pairs:
         for t in timeframes:
@@ -283,7 +373,17 @@ async def run_hourly() -> dict[str, int]:
                 logger.bind(venue=v, symbol=sy, tf=t, err=str(exc)[:200]).warning(
                     "ingest.symbol_fail"
                 )
-    return {"symbols": len(pairs), "tfs": len(timeframes), "ingested": n_done}
+
+    # Atomik snapshot: market_ingest.duckdb → market.duckdb (tüketiciler tazelensin)
+    snap = await asyncio.to_thread(
+        _snapshot_ingest_to_consumer, s.ingest_duckdb_path, s.duckdb_path
+    )
+    return {
+        "symbols": len(pairs),
+        "tfs": len(timeframes),
+        "ingested": n_done,
+        "snapshot": snap,
+    }
 
 
 @app.command("run")

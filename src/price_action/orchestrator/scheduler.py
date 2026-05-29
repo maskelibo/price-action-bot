@@ -95,6 +95,29 @@ async def _job_ingest_data() -> None:
         logger.warning("scheduler.ingest_skip", extra={"err": str(exc)[:200]})
 
 
+async def _job_market_snapshot() -> None:
+    """SNAPSHOT 2026-05-29: market_ingest.duckdb → market.duckdb (atomik file-copy).
+
+    Ayrı job çünkü run_hourly tüm sembolleri tarayıp uzun/cancelled olabiliyor →
+    sondaki snapshot'a ulaşamıyor → market.duckdb donuyor. Bu hafif job ingest'ten
+    BAĞIMSIZ her saat :05'te snapshot'lar (market_ingest'te ne varsa consumer'a
+    taşır). run_hourly sonundaki snapshot da backstop olarak kalır.
+    """
+    try:
+        import asyncio
+
+        from price_action.data.ingest_ccxt import _snapshot_ingest_to_consumer
+        from price_action.settings import get_settings
+
+        s = get_settings()
+        res = await asyncio.to_thread(
+            _snapshot_ingest_to_consumer, s.ingest_duckdb_path, s.duckdb_path
+        )
+        logger.info("scheduler.market_snapshot_done", extra={"extra": res})
+    except Exception as exc:
+        logger.warning("scheduler.market_snapshot_fail", extra={"err": str(exc)[:200]})
+
+
 async def _job_daily_research() -> None:
     """Researcher: günlük hipotez taraması."""
     try:
@@ -364,7 +387,28 @@ async def _job_weekly_drift() -> None:
 
 async def _job_weekly_rag_refresh() -> None:
     try:
+        import asyncio
+
         from price_action.agents import LabScientistAgent
+
+        # EMPTY-CORPUS GUARD 2026-05-29 (Ops): haftalık rag_refresh incremental
+        # (since_days=7) — boş corpus'u ASLA backfill edemez ("0 yeni doc" deyip
+        # geçer). Corpus boşsa (hiç gerçek ingest çalışmadıysa) önce tam ingest
+        # yap; yoksa Researcher RAG=0 ile her hipotezi self-abort eder (SOP-5).
+        from price_action.rag.ingest import gather_items, ingest_items, load_seeds
+        from price_action.rag.store import RAGStore
+
+        _RAG_EMPTY_THRESHOLD = 50
+        _n = RAGStore().count()
+        if _n < _RAG_EMPTY_THRESHOLD:
+            logger.warning(
+                "scheduler.rag_corpus_empty_backfill",
+                extra={"count": _n, "threshold": _RAG_EMPTY_THRESHOLD},
+            )
+            _seeds = load_seeds()
+            _items = await asyncio.to_thread(gather_items, _seeds)
+            _stats = await asyncio.to_thread(ingest_items, _items, _seeds)
+            logger.info("scheduler.rag_backfill_done", extra={"stats": _stats})
 
         await LabScientistAgent().rag_refresh(since_days=7)
         # Faz 1.2: RAG refresh raporu — sessiz başarı, sadece hata push
@@ -1298,6 +1342,218 @@ async def _job_dms_heartbeat_check() -> None:
         logger.warning("scheduler.dms_check_fail", extra={"err": str(exc)[:200]})
 
 
+# FIX 2026-05-28 (depo-ayirma + freshness): kritik feed staleness watchdog.
+# Throttle state'i process-ömründe module-level dict'te tutulur (her cron run'da
+# yeni instance yaratıp last_sent sıfırlamak yanlış olurdu). feed başına son
+# alarm zamanı.
+_FRESHNESS_LAST_ALERT: dict[str, float] = {}
+
+
+def _freshness_should_alert(key: str, throttle_s: float) -> bool:
+    """feed başına throttle. True → şimdi alarm gönder (ve zaman damgala)."""
+    import time as _t
+    now = _t.time()
+    last = _FRESHNESS_LAST_ALERT.get(key, 0.0)
+    if now - last >= throttle_s:
+        _FRESHNESS_LAST_ALERT[key] = now
+        return True
+    return False
+
+
+def _check_freshness(now=None) -> list[dict[str, Any]]:
+    """Saf, side-effect-free kontrol — test edilebilir.
+
+    Her kritik feed için (kaynak, yaş, SLA, ihlal mi) hesaplar. Alarm GÖNDERMEZ;
+    sadece ihlal listesini döner. _job_freshness_watchdog bunu çağırıp throttle'lı
+    alarm üretir. SLA'lar:
+      - market.duckdb newest bar  > 2h  → freshness_market_stale
+      - RAG corpus count          < 50  → freshness_rag_empty
+      - regime_features_latest    > 6h  → freshness_regime_stale
+      - futures daemon heartbeat  > 20m → freshness_futures_hb_stale
+
+    Returns: ihlal dict listesi. Her dict: {alert_type, level, message, key}.
+    """
+    from datetime import datetime as _dt
+    from pathlib import Path as _Path
+
+    if now is None:
+        now = _dt.now(UTC)
+    violations: list[dict[str, Any]] = []
+
+    try:
+        from price_action.settings import get_settings as _gs
+        s = _gs()
+        data_dir = _Path(s.duckdb_path).parent
+    except Exception:
+        from pathlib import Path as _P
+        data_dir = _P(__file__).resolve().parents[3] / "data"
+        s = None
+
+    # --- 1) market.duckdb newest bar > 2h --------------------------------
+    try:
+        market_db = _Path(s.duckdb_path) if s is not None else data_dir / "market.duckdb"
+        if not market_db.exists():
+            violations.append({
+                "alert_type": "freshness_market_stale", "level": "CRITICAL",
+                "key": "market_stale",
+                "message": f"market.duckdb YOK: {market_db}",
+            })
+        else:
+            import duckdb as _ddb
+            _c = _ddb.connect(str(market_db), read_only=True)
+            try:
+                _row = _c.execute("SELECT MAX(ts) FROM ohlcv").fetchone()
+            finally:
+                _c.close()
+            newest = _row[0] if _row else None
+            if newest is None:
+                violations.append({
+                    "alert_type": "freshness_market_stale", "level": "CRITICAL",
+                    "key": "market_stale", "message": "market.duckdb ohlcv boş (MAX(ts)=NULL)",
+                })
+            else:
+                if getattr(newest, "tzinfo", None) is None:
+                    from datetime import timezone as _tz
+                    newest = newest.replace(tzinfo=_tz.utc)
+                age_h = (now - newest).total_seconds() / 3600
+                if age_h > 2.0:
+                    violations.append({
+                        "alert_type": "freshness_market_stale", "level": "CRITICAL",
+                        "key": "market_stale",
+                        "message": (
+                            f"market.duckdb BAYAT: newest bar {newest} "
+                            f"({age_h:.1f}h önce, SLA 2h). Ingest/snapshot durmuş olabilir → "
+                            f"tüm downstream (regime/lab/backtest/drift) eski veri okuyor."
+                        ),
+                    })
+    except Exception as exc:
+        violations.append({
+            "alert_type": "freshness_market_stale", "level": "CRITICAL",
+            "key": "market_stale", "message": f"market.duckdb kontrol hatası: {str(exc)[:200]}",
+        })
+
+    # --- 2) RAG corpus count < 50 ----------------------------------------
+    try:
+        from price_action.rag.store import RAGStore
+        n = RAGStore().count()
+        if n < 50:
+            violations.append({
+                "alert_type": "freshness_rag_empty", "level": "CRITICAL",
+                "key": "rag_empty",
+                "message": (
+                    f"RAG corpus DÜŞÜK: {n} doküman (<50). Researcher/Lab boş RAG ile "
+                    f"hipotez üretiyorsa kalite çöker — embedding/index kayıp olabilir."
+                ),
+            })
+    except Exception as exc:
+        violations.append({
+            "alert_type": "freshness_rag_empty", "level": "WARNING",
+            "key": "rag_empty", "message": f"RAG corpus kontrol hatası: {str(exc)[:200]}",
+        })
+
+    # --- 3) regime_features_latest.parquet > 6h --------------------------
+    try:
+        rp = data_dir / "regime_features_latest.parquet"
+        if not rp.exists():
+            violations.append({
+                "alert_type": "freshness_regime_stale", "level": "WARNING",
+                "key": "regime_stale", "message": "regime_features_latest.parquet YOK",
+            })
+        else:
+            from datetime import timezone as _tz
+            mtime = _dt.fromtimestamp(rp.stat().st_mtime, tz=_tz.utc)
+            age_h = (now - mtime).total_seconds() / 3600
+            if age_h > 6.0:
+                violations.append({
+                    "alert_type": "freshness_regime_stale", "level": "WARNING",
+                    "key": "regime_stale",
+                    "message": (
+                        f"regime_features_latest.parquet BAYAT: {age_h:.1f}h "
+                        f"(SLA 6h). regime_features_refresh cron'u çalışmıyor olabilir."
+                    ),
+                })
+    except Exception as exc:
+        violations.append({
+            "alert_type": "freshness_regime_stale", "level": "WARNING",
+            "key": "regime_stale", "message": f"regime parquet kontrol hatası: {str(exc)[:200]}",
+        })
+
+    # --- 4) futures daemon heartbeat > 20dk ------------------------------
+    try:
+        from datetime import timezone as _tz
+        for hb_name in ("dms_heartbeat_futures_daemon_15m.txt",
+                        "dms_heartbeat_futures_daemon_5m.txt"):
+            hb = data_dir / hb_name
+            if not hb.exists():
+                violations.append({
+                    "alert_type": "freshness_futures_hb_stale", "level": "CRITICAL",
+                    "key": f"futures_hb_{hb_name}",
+                    "message": f"futures daemon heartbeat YOK: {hb_name}",
+                })
+                continue
+            mtime = _dt.fromtimestamp(hb.stat().st_mtime, tz=_tz.utc)
+            age_m = (now - mtime).total_seconds() / 60
+            if age_m > 20.0:
+                violations.append({
+                    "alert_type": "freshness_futures_hb_stale", "level": "CRITICAL",
+                    "key": f"futures_hb_{hb_name}",
+                    "message": (
+                        f"futures daemon DONMUŞ olabilir: {hb_name} heartbeat "
+                        f"{age_m:.0f}dk eski (SLA 20dk)."
+                    ),
+                })
+    except Exception as exc:
+        violations.append({
+            "alert_type": "freshness_futures_hb_stale", "level": "WARNING",
+            "key": "futures_hb_err", "message": f"futures hb kontrol hatası: {str(exc)[:200]}",
+        })
+
+    return violations
+
+
+async def _job_freshness_watchdog() -> None:
+    """FIX 2026-05-28 (depo-ayirma + freshness): kritik feed staleness watchdog.
+
+    Her saat (:12) tüm kritik feed'lerin tazeligini SLA'ya göre kontrol eder.
+    İhlalde GÜRÜLTÜLÜ alarm (yeni alert_type'lar — mevcut muted tiplerle
+    çakışmaz). Throttle feed başına 4h (spam önle, ama gerçek incident kaçmaz).
+
+    YENİ alert_type'lar (mute listesinde DEĞİL):
+      freshness_market_stale, freshness_rag_empty,
+      freshness_regime_stale, freshness_futures_hb_stale
+
+    Mevcut muted/ayrı tipler (dms_stale_, regime_cache_stale_warn,
+    scheduler_stuck_doc, promise_detector) DOKUNULMAZ — onları yeniden açmaz.
+    """
+    try:
+        violations = await __import__("asyncio").to_thread(_check_freshness)
+        if not violations:
+            logger.info("scheduler.freshness_ok")
+            return
+        _THROTTLE_S = 4 * 3600  # feed başına 4h
+        for v in violations:
+            key = v.get("key", v["alert_type"])
+            if not _freshness_should_alert(key, _THROTTLE_S):
+                continue
+            try:
+                from price_action.ops.telegram_throttle import get_telegram_throttle
+                get_telegram_throttle().send_throttled(
+                    alert_type=v["alert_type"],
+                    message="🚨 FRESHNESS: " + v["message"],
+                    level=v.get("level", "CRITICAL"),
+                )
+            except Exception:
+                _push_critical_safe(
+                    "FRESHNESS: " + v["message"], source="freshness_watchdog"
+                )
+            logger.error(
+                "scheduler.freshness_violation",
+                extra={"alert_type": v["alert_type"], "msg": v["message"][:200]},
+            )
+    except Exception as exc:
+        logger.warning("scheduler.freshness_watchdog_fail", extra={"err": str(exc)[:200]})
+
+
 async def _job_rotate_launchd_logs() -> None:
     """FIX 2026-05-26 (M1): launchd log rotation (size + retention)."""
     try:
@@ -1971,6 +2227,8 @@ def _push_latest_safe(
 JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     # (id, kind, expr, func)
     ("ingest_data", "cron", "0 * * * *", _job_ingest_data),  # saatlik :00
+    # SNAPSHOT 2026-05-29: market_ingest → market.duckdb, :05 (ingest sonrası, decouple)
+    ("market_snapshot", "cron", "5 * * * *", _job_market_snapshot),
     # FIX 2026-05-25: regime features daily refresh (was missing — caused regime_cache_stale)
     ("regime_features_refresh", "cron", "1 0 * * *", _job_regime_features_refresh),  # 00:01 UTC
     # FIX 2026-05-26 (H6): pending entry retry processor (her 60s)
@@ -1979,6 +2237,11 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("rotate_launchd_logs", "cron", "50 * * * *", _job_rotate_launchd_logs),
     # FIX 2026-05-26 (M5): DMS heartbeat staleness check (her 5dk)
     ("dms_heartbeat_check", "cron", "*/5 * * * *", _job_dms_heartbeat_check),
+    # FIX 2026-05-28 (depo-ayirma + freshness): kritik feed staleness watchdog.
+    # Saatlik :12 (ingest :00 + snapshot bittikten sonra çalışsın). Yeni
+    # alert_type'lar (freshness_*) — mevcut muted tiplerle çakışmaz.
+    # NOT (cutover): bu cron daemon reload edilince AKTİF olur — Principal onayı.
+    ("freshness_watchdog", "cron", "12 * * * *", _job_freshness_watchdog),
     # FIX 2026-05-26 (Faz 14.2): Promise/Reality check (saatlik :55)
     ("check_promises", "cron", "55 * * * *", _job_check_promises),
     # FIX 2026-05-28 (Faz 14.27): stuck inbox doc detector — 6h+ ack timeout → CRIT push
