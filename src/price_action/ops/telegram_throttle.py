@@ -26,12 +26,12 @@ Usage (integration):
   throttle = get_telegram_throttle()  # PA_TELEGRAM_THROTTLE_TF env var okur
   throttle.send_throttled("slippage_warning", "Slip %15 hit", level="WARNING")
 """
+
 from __future__ import annotations
 
 import os
 import threading
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 from price_action.logging_config import logger
 from price_action.notifications.telegram import send_critical, send_telegram
@@ -40,13 +40,24 @@ from price_action.notifications.telegram import send_critical, send_telegram
 class TelegramThrottle:
     """Alarm throttle engine — TF-adaptive window, excess buffered."""
 
+    # MUTE 2026-05-28 (Ops): alert_type prefixes silenced in paper/research mode.
+    # Reversible: empty this set (or set env PA_TELEGRAM_UNMUTE=1) to restore.
+    #   - "dms_stale_"           → DMS heartbeat staleness (no live orders in paper)
+    #   - "regime_cache_stale_warn" → regime cache WARN (NOT the REJECT alert)
+    # NOTE: "regime_cache_stale_reject" is deliberately ABSENT → real trading
+    #       protection (signals rejected) keeps alerting.
+    _MUTED_ALERT_PREFIXES = (
+        "dms_stale_",
+        "regime_cache_stale_warn",
+    )
+
     # TF → throttle window (seconds)
     TF_WINDOW_MAP = {
-        "1d": 3600,    # 1 hour — avoid SL spam on volatile days
-        "1h": 1800,    # 30 min
-        "15m": 600,    # 10 min — scalp standard (SEC54 ME-02 audit)
-        "5m": 300,     # 5 min
-        "1m": 180,     # 3 min
+        "1d": 3600,  # 1 hour — avoid SL spam on volatile days
+        "1h": 1800,  # 30 min
+        "15m": 600,  # 10 min — scalp standard (SEC54 ME-02 audit)
+        "5m": 300,  # 5 min
+        "1m": 180,  # 3 min
     }
 
     def __init__(self, window_seconds: int | None = None, timeframe: str = "15m") -> None:
@@ -110,16 +121,27 @@ class TelegramThrottle:
             True if message was sent immediately.
             False if buffered or no-op (Telegram down).
         """
-        now = datetime.now(timezone.utc)
+        # MUTE 2026-05-28 (Ops): paper/research-mode false-positive alarms.
+        # These alert_types are non-actionable in paper mode (no live orders to
+        # protect, refresh jobs not scheduled) and were flooding Telegram.
+        # Trading-protective REJECT/HARD_REJECT alerts (regime_cache_stale_reject)
+        # are NOT muted — only the WARN-level staleness notice. Reversible:
+        # set PA_TELEGRAM_UNMUTE=1 env var, or delete _MUTED_ALERT_PREFIXES.
+        if os.environ.get("PA_TELEGRAM_UNMUTE", "").strip().lower() not in ("1", "true", "yes"):
+            for _muted in self._MUTED_ALERT_PREFIXES:
+                if alert_type.startswith(_muted):
+                    self._log.bind(alert_type=alert_type, level=level).info(
+                        "telegram_throttle.muted_paper_fp"
+                    )
+                    return False
+
+        now = datetime.now(UTC)
 
         with self._lock:
             last = self.last_sent.get(alert_type)
 
             # Check if within window
-            within_window = (
-                last is not None
-                and (now - last).total_seconds() < self.window_seconds
-            )
+            within_window = last is not None and (now - last).total_seconds() < self.window_seconds
 
             if within_window:
                 # Buffer the message
@@ -139,9 +161,7 @@ class TelegramThrottle:
         # Send outside lock to avoid blocking
         sent = self._send_impl(message, level)
         if sent:
-            self._log.bind(alert_type=alert_type, level=level).info(
-                "telegram_throttle.sent"
-            )
+            self._log.bind(alert_type=alert_type, level=level).info("telegram_throttle.sent")
         return sent
 
     def flush_digest(self) -> int:
@@ -181,9 +201,7 @@ class TelegramThrottle:
                     message_count=len(messages),
                 ).info("telegram_throttle.digest_sent")
             else:
-                self._log.bind(alert_type=alert_type).warning(
-                    "telegram_throttle.digest_failed"
-                )
+                self._log.bind(alert_type=alert_type).warning("telegram_throttle.digest_failed")
 
         return sent_count
 
@@ -234,14 +252,11 @@ class TelegramThrottle:
         else:
             composite_key = alert_type
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         with self._lock:
             last = self.last_sent.get(composite_key)
-            within_window = (
-                last is not None
-                and (now - last).total_seconds() < window_sec
-            )
+            within_window = last is not None and (now - last).total_seconds() < window_sec
 
             if within_window:
                 # Buffer

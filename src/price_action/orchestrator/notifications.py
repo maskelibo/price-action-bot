@@ -18,6 +18,7 @@ should_push(env_var="PA_CEO_PUSH_TELEGRAM") -> bool
 Hiçbir fonksiyon hata fırlatmaz — sessiz fail + WARN log (Telegram down
 production'ı durdurmamalı).
 """
+
 from __future__ import annotations
 
 import os
@@ -30,6 +31,18 @@ from price_action.notifications.telegram import send_critical, send_telegram
 # 2800 char Telegram limit'in altında, 4096 hard limit'in çok altında —
 # Markdown escape'ten sonra biraz şişer.
 _DEFAULT_MAX_CHARS = 2800
+
+# MUTE 2026-05-28 (Ops): push_critical sources silenced in paper/research mode.
+# These are cosmetic/false-positive in current state (scheduled agents not
+# running, stale ack'd docs from 05-26). NOT trading alarms.
+# IMPORTANT: only non-trading bookkeeping sources here. Real crisis sources
+# (risk_officer, dd_breaker, exchange_halt, flash_crash, correlation, etc.)
+# are deliberately absent so they keep paging.
+# Reversible: empty this set, or set env PA_CRIT_UNMUTE=1.
+_MUTED_CRIT_SOURCES = {
+    "scheduler_stuck_doc",
+    "promise_detector",
+}
 
 
 def should_push(env_var: str = "PA_CEO_PUSH_TELEGRAM") -> bool:
@@ -174,6 +187,7 @@ def push_report(
     if use_throttle:
         try:
             from price_action.ops.telegram_throttle import get_telegram_throttle
+
             throttle = get_telegram_throttle()
         except Exception as exc:
             logger.warning(
@@ -247,6 +261,7 @@ def notify_position_open(
     msg = "\n".join(lines)
     try:
         from price_action.notifications.telegram import send_telegram
+
         return send_telegram(msg, level="INFO", parse_mode=None)
     except Exception as exc:
         logger.warning("notify_position_open_fail", extra={"err": str(exc)[:200]})
@@ -278,9 +293,14 @@ def notify_position_close(
     emoji = "🎉" if is_win else "❌"
     label = "KAR" if is_win else "ZARAR"
     reason_map = {
-        "tp": "TP HIT", "sl": "SL HIT", "be": "BE EXIT",
-        "be_hit": "BE EXIT", "tp_hit": "TP HIT", "sl_hit": "SL HIT",
-        "time": "TIME EXIT", "force": "MANUAL/FORCE",
+        "tp": "TP HIT",
+        "sl": "SL HIT",
+        "be": "BE EXIT",
+        "be_hit": "BE EXIT",
+        "tp_hit": "TP HIT",
+        "sl_hit": "SL HIT",
+        "time": "TIME EXIT",
+        "force": "MANUAL/FORCE",
         "flatten": "DMS FLATTEN",
     }
     reason_str = reason_map.get(close_reason.lower(), close_reason.upper())
@@ -305,6 +325,7 @@ def notify_position_close(
     msg = "\n".join(lines)
     try:
         from price_action.notifications.telegram import send_telegram
+
         level = "INFO" if is_win else "WARNING"
         return send_telegram(msg, level=level, parse_mode=None)
     except Exception as exc:
@@ -338,6 +359,15 @@ def push_critical(
     bool
         True: gönderildi. False: skip veya fail.
     """
+    # MUTE 2026-05-28 (Ops): silence non-actionable bookkeeping CRIT sources.
+    if source in _MUTED_CRIT_SOURCES and os.environ.get(
+        "PA_CRIT_UNMUTE", ""
+    ).strip().lower() not in ("1", "true", "yes"):
+        logger.info(
+            "notifications.crit_muted_paper_fp",
+            extra={"source": source, "preview": message[:200]},
+        )
+        return False
     if os.environ.get("PA_LLM_DRY_RUN", "").lower() in ("1", "true", "yes"):
         logger.warning(
             "notifications.crit_dry_run",
@@ -360,6 +390,7 @@ def push_critical(
 # ----------------------------------------------------------------------
 # Convenience: scheduler/agent çağrı kalıpları
 # ----------------------------------------------------------------------
+
 
 def push_report_if_recent(
     dir_path: Path | str,
