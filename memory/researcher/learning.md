@@ -961,3 +961,34 @@ Detay: memory/researcher/iterate_protocol.md
 - METHOD WIN: ran REAL engine with exit-config on constructor knobs (no hand-coded exit) → ATR
   computed natively per-TF → MTF-v1 sub-TF-ATR artifact impossible by construction. GATE1 repro
   bit-identical before trusting any variant (Feynman pre-check).
+
+## 2026-05-29 — CRYPTO WINNER-LET-RUN exit opt (vsa_climax_test 15m) — GENUINE EDGE (forex transfer WORKED)
+- Forex brooks-8FX-4H winner-let-run (trail 1.5->3.0, time-exit KEPT) crypto'ya TRANSFER edildi.
+  GERÇEK engine, exit constructor knob (hand-coded/reblend exit YOK; widestop'un reblend_close_pct
+  analitik exit'i de KULLANILMADI — forex v1 onunla battı). ATR trail native 15m -> MTF artefakt imkansız.
+- WINNER: runner_trail_mult 1.5->3.0 (time-force-exit 30bar KORUNDU). OOS aylık-medyan +8.83->+14.0%
+  (+5.2pp, ~+58% rel), 5y medyan +7.28->+12.20%, Sharpe +1.60->+1.85, neg ay 2->0, **DD -13.7 ve
+  win% 48% DEĞİŞMEDEN**. Monotone yüzey, IS->OOS decay ~%16, year-by-year 6/6 yıl baseline'ı yener,
+  symbol-out CV 0/10 negatif fold, paired sign-flip null p=0.00005. NOT overfit. TERFİ ADAYI (Lab'e).
+- MEKANİZMA FOREX'TEN FARKLI: forex'te top5-share BÜYÜDÜ; crypto'da top5-share DÜŞTÜ (-7%) çünkü kazanç
+  GENİŞ-tabanlı (orta-kazanan gövdesi şişti). Ama paired: aynı trade meanΔ+0.53R, top-decile winner
+  max 15.3->19.0R BÜYÜDÜ. DERS: "winner-let-run" mutlaka top5-share'i artırmaz; mean/median/Sharpe-up
+  + DD-flat + win%-flat + paired-positive yeterli. top5-share kriterini tek-başına kapı yapma.
+- KNOB-TRANSFER ASİMETRİSİ: trail-genişliği transfer ETTİ; force_exit_from_entry crypto'da ZARARLI
+  (mR->~0, DD-25.7%, neg 33-36/61) — forex'te yardım etmişti. Entry'den force-clock 15m'de winner kesiyor.
+  Bir forex knob'unun işe yaraması diğerinin de yarayacağını GARANTİ ETMEZ; her knob ayrı test.
+- TUZAKLAR TEYİT (tekrarlanmadı): V1b no-time-exit mR+4.35 GÖRÜNÜR ama Sharpe DÜŞER (1.60->1.06)
+  = stuck-trade artefakt (forex AUD-143R kuzeni); time/EMA force-exit HER ZAMAN açık. V2/V3 partial
+  söküm sağ-skew'i öldürdü (top5->18-21%, DD->-60%, neg 44-48/61) — forex dersi crypto'da da geçerli.
+- REPRODUCIBILITY BULGUSU (Feynman): deployed sec53_15m_pool_v11_vsa2_top4.pkl ARTIK current HEAD'den
+  reproduce EDİLMİYOR (kod drift: Faz 14.27 C1 fallback + audit; kanonik builder BTC 8002 vs cached 7952,
+  mean|ΔR|~0.8). realistic_backtest.py'nin +1.04 baseline'ı STALE poola dayalı. Bu yüzden anchor olarak
+  stale pool DEĞİL current-code baseline kullanıldı (pure apples-to-apples). ÖNERİ: Lab pool'u rebuild
+  + verify_sec53_pool SHA güncelle; live deploy öncesi pool↔kod parity şart.
+- METHOD BUG yakalandı (kendimi kandırma): pre-reg shuffle_p (kendi-array bootstrap vs kendi-mean) ~0.49
+  veriyordu = HİÇBİR ŞEY test etmiyor (construction'la p≈0.5). BH-FDR=NONE bu yüzden anlamsızdı, varyant
+  aleyhine KANIT DEĞİL. Doğru null = PAIRED SIGN-FLIP (delta üzerinde) -> p=0.00005. Null'ı her zaman
+  paired/sign-flip kur; tek-array bootstrap mean-edge testi için GEÇERSİZ.
+- DEPLOY WIRING (Lab'e not): production_replay trail UYGULAMAZ (pre-baked R okur). Trail GATHER-time
+  engine knob'u. Deploy = (a) pool'u trail_mult=3.0 ile rebuild, (b) live chandelier trail
+  (stop_loss.trailing.multiplier 2.0) -> 3.0 hizala. force_exit_from_entry KAPALI kalsın.
