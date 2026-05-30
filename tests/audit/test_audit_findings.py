@@ -125,6 +125,15 @@ def test_chief_coverage_gap_map():
     assert "research.backtest" in findings[0].title
 
 
+def test_chief_empty_controls_is_not_a_gap():
+    # Faz 3: sahip+denetçi var ama controls boş → bulgu DEĞİL (backlog metriği)
+    universe = {
+        "data.snapshot": {"owner_agent": "data_engineer", "auditor": "audit_data",
+                          "controls": []},
+    }
+    assert coverage_gap(universe) == []
+
+
 # ---------------------------------------------------------------------------
 # 5b. CT-RES-01 — Sharpe annualization şişmesi (research)
 # ---------------------------------------------------------------------------

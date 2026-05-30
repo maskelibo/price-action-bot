@@ -58,6 +58,9 @@ memory/**/episodic/*.jsonl
 memory/protocol/inbox.jsonl
 memory/protocol/archive/
 
+# İç denetim findings register — runtime state (dashboard reports/audit/ zaten ignore)
+memory/audit/findings_register.jsonl
+
 # Active state ledger — CEO her brief'te last_updated günceller, git spam yapar.
 # Schema git'li (template), runtime value git'siz.
 memory/shared/active_state.md

@@ -117,7 +117,10 @@ class AuditExecutionAgent(AuditAgentBase):
             logger.warning("audit_execution.journal_read_fail", extra={"err": str(exc)[:160]})
             return {}
 
-    def _exchange_open_positions(self) -> dict[str, float]:
+    def _exchange_open_positions(self) -> dict[str, float] | None:
+        """Borsadaki açık pozisyonlar. Sorgu BAŞARISIZ olursa None (boş {} DEĞİL) →
+        denetçi 'borsa boş' ile 'borsaya ulaşamadım'ı karıştırıp yanlış-pozitif
+        (phantom) üretmesin."""
         try:
             import sys
 
@@ -135,17 +138,21 @@ class AuditExecutionAgent(AuditAgentBase):
             return out
         except Exception as exc:
             logger.warning("audit_execution.exchange_read_fail", extra={"err": str(exc)[:160]})
-            return {}
+            return None  # ulaşılamadı → audit edilemez (skip)
 
     # ------------------------------------------------------------------
     # Günlük kontrol-review
     # ------------------------------------------------------------------
     def run_ct_exe_01(self) -> Finding | None:
-        """Gerçek journal + borsa verisini çekip CT-EXE-01 deterministik çekirdeğini koşar."""
-        return ct_exe_01_journal_drift(
-            self._journal_open_positions(),
-            self._exchange_open_positions(),
-        )
+        """Gerçek journal + borsa verisini çekip CT-EXE-01 deterministik çekirdeğini koşar.
+
+        Borsaya ulaşılamazsa (None) audit edilemez → None döner (yanlış-pozitif üretme).
+        """
+        exch = self._exchange_open_positions()
+        if exch is None:
+            logger.info("audit_execution.ct_exe_01_skip", extra={"reason": "exchange_unreachable"})
+            return None
+        return ct_exe_01_journal_drift(self._journal_open_positions(), exch)
 
     async def daily_control_review(self) -> list[Any]:
         """Tüm execution kontrol-testlerini koş, bulguları emit et. Path listesi döner."""

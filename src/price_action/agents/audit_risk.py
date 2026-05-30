@@ -131,16 +131,30 @@ class AuditRiskAgent(AuditAgentBase):
                 or defaults.get("account_equity_usdt")
                 or 10000.0
             )
-            # Raporlanan DD: sistemin ŞU AN ne ürettiğini sıfır-baz ile simüle et
-            # (regression guard — fix geri alınırsa şişme tekrar yakalanır).
-            cum, run = [], 0.0
-            for p in pnl:
-                run += p
-                cum.append(run)
-            reported = _drawdown(cum)  # eğer kod sıfır-baz'a dönerse bu raporlanır
-            # Not: fix aktifken sistem real-base üretir; burada reported'ı bağımsız
-            # ölçüyoruz — gerçek entegrasyonda bot_monitor çıktısı okunur.
+            # BAĞIMSIZ DENETİM: bot_monitor'ın YAZDIĞI DD'yi (2. hat çıktısı) oku,
+            # bağımsız hesapla, karşılaştır. Rapor yoksa audit edilemez → None
+            # (yanlış-pozitif üretme). Rapor formatı: "Rolling 30d MaxDD: %X".
+            reported = self._latest_reported_dd()
+            if reported is None:
+                return None
             return ct_rsk_01_maxdd_base(pnl, acct, reported)
+        except Exception as exc:
+            logger.warning("audit_risk.ct_rsk_01_fail", extra={"err": str(exc)[:160]})
+            return None
+
+    def _latest_reported_dd(self) -> float | None:
+        """En yeni bot_monitor raporundan 'Rolling 30d MaxDD: %X' değerini parse et."""
+        try:
+            import re
+            rdir = self._repo_root() / "reports" / "bot_monitor"
+            if not rdir.exists():
+                return None
+            files = sorted(rdir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+            for fp in files[:10]:
+                m = re.search(r"Rolling 30d MaxDD:\s*%?([0-9.]+)", fp.read_text(encoding="utf-8"))
+                if m:
+                    return float(m.group(1)) / 100.0  # % → kesir
+            return None
         except Exception as exc:
             logger.warning("audit_risk.ct_rsk_01_fail", extra={"err": str(exc)[:160]})
             return None

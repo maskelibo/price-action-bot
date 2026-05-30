@@ -38,8 +38,9 @@ def coverage_gap(universe_processes: dict[str, dict[str, Any]]) -> list[Finding]
             missing.append("1. hat sahibi (owner_agent) YOK")
         if not spec.get("auditor"):
             missing.append("3. hat denetçisi (auditor) YOK")
-        if not (spec.get("controls") or []):
-            missing.append("kontrol-testi (controls) YOK")
+        # NOT: boş `controls` tek başına bulgu DEĞİL (Faz 3) — bu bir backlog
+        # metriğidir (dashboard 'controls coverage %'). Sadece sahip/denetçi
+        # eksikliği gerçek kapsama açığıdır (uncovered_process).
         if not missing:
             continue
         findings.append(
@@ -147,3 +148,113 @@ class AuditChiefAgent(AuditAgentBase):
             tags=["audit", "assurance", "principal_escalation"],
         )
         return path
+
+    # ------------------------------------------------------------------
+    # Faz 3 — controls coverage metriği + dashboard + tam-koşu orkestrasyon
+    # ------------------------------------------------------------------
+    def controls_coverage(self) -> dict[str, Any]:
+        """Kaç sürecin kontrol-testi var (backlog metriği — boş controls bulgu değil)."""
+        procs = self._load_universe()
+        total = len(procs)
+        with_controls = sum(1 for p in procs.values() if (p.get("controls") or []))
+        by_domain: dict[str, dict[str, int]] = {}
+        for p in procs.values():
+            d = p.get("domain", "?")
+            slot = by_domain.setdefault(d, {"total": 0, "covered": 0})
+            slot["total"] += 1
+            if p.get("controls") or []:
+                slot["covered"] += 1
+        return {
+            "total": total,
+            "with_controls": with_controls,
+            "pct": round(100.0 * with_controls / total, 1) if total else 0.0,
+            "by_domain": by_domain,
+        }
+
+    def build_dashboard(self) -> Any:
+        """reports/audit/dashboard.md — açık/kapalı/overdue/recurrence + kapsama + controls %."""
+        summ = self.register_summary()
+        cov = self.controls_coverage()
+        gaps = self.run_coverage_gap()  # gerçek kapsama açığı (sahip/denetçi yok)
+        latest = self._latest_state()
+        # severity'ye göre açık bulgular
+        open_rows = [r for r in latest.values() if r.get("status") in ("OPEN", "REOPENED")]
+        open_rows.sort(key=lambda r: r.get("severity", ""), reverse=True)
+
+        dom_lines = "\n".join(
+            f"  - {d}: {s['covered']}/{s['total']} süreç kontrol-testli"
+            for d, s in sorted(cov["by_domain"].items())
+        )
+        open_lines = "\n".join(
+            f"  - [{r.get('severity', '?').upper()}] {r.get('finding_id')} "
+            f"({r.get('control_id')}, owner={r.get('owner')}, status={r.get('status')})"
+            for r in open_rows[:20]
+        ) or "  - (açık bulgu yok)"
+
+        body = (
+            "# İç Denetim — Dashboard\n\n"
+            "## Findings register\n"
+            f"- Toplam: {summ['total']} | Açık: {summ['open']} | "
+            f"Overdue: {summ['overdue']} | Tekrar eden (sistemik): {summ['recurring']}\n"
+            f"- Severity (açık): {summ['by_severity']}\n\n"
+            "## Açık bulgular\n"
+            f"{open_lines}\n\n"
+            "## Üç-hat kapsama\n"
+            f"- Gerçek kapsama açığı (sahip/denetçi yok): {len(gaps)}\n"
+            f"- Kontrol-testi kapsamı (backlog): {cov['with_controls']}/{cov['total']} "
+            f"süreç (%{cov['pct']})\n"
+            f"{dom_lines}\n\n"
+            "## Notlar\n"
+            "- 'Kontrol-testi kapsamı' boş-controls süreçleri backlog'dur (Faz 3'te "
+            "kontrol-testi kazanacak) — bulgu değil.\n"
+            "- Tekrar eden (recurrence>0) bulgular sistemik kontrol-tasarım açığıdır.\n"
+        )
+        path = self.write_protocol_doc(
+            doc_type="audit_report",
+            body=body,
+            slug="dashboard",
+            target_dir=self._audit_reports_dir(),
+            status="FINAL",
+            confidence="high",
+            requested_review_from=[],
+            tags=["audit", "dashboard"],
+        )
+        return path
+
+    async def run_full_audit(self) -> dict[str, Any]:
+        """On-demand TAM denetim turu: 5 domain denetçisi + kapsama + dashboard.
+
+        Her domain denetçisini koşturup bulguları emit eder, sonra dashboard'u günceller.
+        Döner: {domain: emitted_count, ...} + dashboard path.
+        """
+        from price_action.agents import (
+            AuditDataAgent,
+            AuditExecutionAgent,
+            AuditOpsAgent,
+            AuditResearchAgent,
+            AuditRiskAgent,
+        )
+
+        results: dict[str, Any] = {}
+        domain_agents = [
+            ("execution", AuditExecutionAgent),
+            ("risk", AuditRiskAgent),
+            ("data", AuditDataAgent),
+            ("research", AuditResearchAgent),
+            ("ops", AuditOpsAgent),
+        ]
+        for label, cls in domain_agents:
+            try:
+                emitted = await cls().daily_control_review()
+                results[label] = len(emitted)
+            except Exception as exc:
+                logger.warning("audit_chief.full_audit_domain_fail",
+                               extra={"label": label, "err": str(exc)[:160]})
+                results[label] = -1
+        # kapsama açığı bulguları (sahip/denetçi yok)
+        try:
+            results["coverage_gaps"] = len([self.emit_finding(f) for f in self.run_coverage_gap()])
+        except Exception:
+            results["coverage_gaps"] = 0
+        results["dashboard"] = str(self.build_dashboard())
+        return results
