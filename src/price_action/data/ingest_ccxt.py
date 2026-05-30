@@ -10,12 +10,14 @@ Davranış:
     - 429 hatasında exponential backoff.
     - DuckDB upsert + parquet write.
 """
+
 from __future__ import annotations
 
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pandas as pd
 import typer
@@ -27,6 +29,36 @@ from price_action.logging_config import logger
 from price_action.settings import get_settings
 
 app = typer.Typer(add_completion=False, help="OHLCV ingest CLI")
+
+
+# FIX 2026-05-30: Saatlik delta ingest evreni — CANLI trading universe
+# (configs/risk_phoenix_scalp_15m_widestop_vsa2.yaml strategy_portfolio.symbols
+# + scripts/futures_trade_15m.py ile aynı 14 sembol; BTC regime için zaten dahil).
+# Geniş all_liquid backfill (3538 sembol) saatlik DEĞİL — ayrı/manuel iş.
+# Override: env PA_INGEST_HOURLY_SYMBOLS="binance:BTC/USDT,binance:ETH/USDT,..."
+_HOURLY_TRADING_SYMBOLS: tuple[str, ...] = (
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "BNB/USDT",
+    "ADA/USDT",
+    "AVAX/USDT",
+    "LINK/USDT",
+    "DOT/USDT",
+    "DOGE/USDT",
+    "XRP/USDT",
+    "ZEC/USDT",
+    "NEAR/USDT",
+    "FIL/USDT",
+    "XLM/USDT",
+    # DEPLOY 2026-05-30: trading evreni 19'a çıktı; saatlik 1d/1w ingest de
+    # paralel güncellendi (audit_data CT-DAT-01 bu boşluğu yakaladı).
+    "TRX/USDT",
+    "UNI/USDT",
+    "ATOM/USDT",
+    "AAVE/USDT",
+    "ALGO/USDT",
+)
 
 
 _TF_MS: dict[str, int] = {
@@ -52,11 +84,13 @@ class IngestStats:
 
 def _to_utc_ms(dt: datetime) -> int:
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return int(dt.timestamp() * 1000)
 
 
-def _build_ccxt(venue: str, *, market_type: str = "future") -> Any:  # pragma: no cover - integration
+def _build_ccxt(
+    venue: str, *, market_type: str = "future"
+) -> Any:  # pragma: no cover - integration
     """ccxt exchange instance kur.
 
     DQ-04 FIX (SEC54.5): Futures endpoint zorunlu.
@@ -102,6 +136,7 @@ def _fetch_with_retry(
     - Başarı → CB sayacı reset
     """
     import time as _t
+
     cb_key = f"{getattr(exchange, 'id', 'unknown')}:{symbol}:{timeframe}"
 
     # Circuit breaker check
@@ -111,9 +146,7 @@ def _fetch_with_retry(
         logger.bind(symbol=symbol, tf=timeframe, remaining_s=_rem).warning(
             "ingest.circuit_open_skip"
         )
-        raise RuntimeError(
-            f"circuit breaker open: {cb_key} (3+ ardışık fail, {_rem}s kaldı)"
-        )
+        raise RuntimeError(f"circuit breaker open: {cb_key} (3+ ardışık fail, {_rem}s kaldı)")
 
     attempt = 0
     while True:
@@ -132,7 +165,8 @@ def _fetch_with_retry(
                 if _CB_FAILURE_COUNT[cb_key] >= 3:
                     _CB_SKIP_UNTIL[cb_key] = _t.time() + 3600  # 1h skip
                     logger.bind(
-                        symbol=symbol, tf=timeframe,
+                        symbol=symbol,
+                        tf=timeframe,
                         consecutive_fails=_CB_FAILURE_COUNT[cb_key],
                     ).error("ingest.circuit_open_armed")
                 logger.bind(symbol=symbol, tf=timeframe, err=str(exc)).error("ingest.fetch_fail")
@@ -153,7 +187,9 @@ def _ohlcv_to_df(
 ) -> pd.DataFrame:
     rows = list(raw)
     if not rows:
-        return pd.DataFrame(columns=["venue", "symbol", "timeframe", "ts", "open", "high", "low", "close", "volume"])
+        return pd.DataFrame(
+            columns=["venue", "symbol", "timeframe", "ts", "open", "high", "low", "close", "volume"]
+        )
     df = pd.DataFrame(rows, columns=["ts_ms", "open", "high", "low", "close", "volume"])
     df["ts"] = pd.to_datetime(df["ts_ms"], unit="ms", utc=True)
     df["venue"] = venue
@@ -192,7 +228,7 @@ def ingest_symbol(
         _overlap_bars = 50
         since = last - timedelta(milliseconds=_TF_MS[timeframe] * _overlap_bars)
     else:
-        since = datetime.now(timezone.utc) - timedelta(days=365 * years)
+        since = datetime.now(UTC) - timedelta(days=365 * years)
     since_ms = _to_utc_ms(since)
 
     pages = 0
@@ -277,9 +313,7 @@ def _snapshot_ingest_to_consumer(ingest_path, consumer_path) -> dict[str, Any]:
 
     ingest_path = _Path(ingest_path)
     consumer_path = _Path(consumer_path)
-    result: dict[str, Any] = {
-        "snapshotted": False, "bytes": 0, "newest_bar": None, "error": None
-    }
+    result: dict[str, Any] = {"snapshotted": False, "bytes": 0, "newest_bar": None, "error": None}
     try:
         if not ingest_path.exists():
             result["error"] = f"ingest_path yok: {ingest_path}"
@@ -313,6 +347,7 @@ def _snapshot_ingest_to_consumer(ingest_path, consumer_path) -> dict[str, Any]:
         # newest bar bilgi amaçlı (RO oku, ayrı conn — pool kirletme)
         try:
             import duckdb as _ddb
+
             _c = _ddb.connect(str(consumer_path), read_only=True)
             try:
                 _row = _c.execute("SELECT MAX(ts) FROM ohlcv").fetchone()
@@ -322,9 +357,7 @@ def _snapshot_ingest_to_consumer(ingest_path, consumer_path) -> dict[str, Any]:
                 _c.close()
         except Exception:
             pass
-        logger.bind(**{k: result[k] for k in ("bytes", "newest_bar")}).info(
-            "ingest.snapshot_done"
-        )
+        logger.bind(**{k: result[k] for k in ("bytes", "newest_bar")}).info("ingest.snapshot_done")
     except Exception as exc:
         result["error"] = str(exc)[:300]
         logger.bind(err=result["error"]).error("ingest.snapshot_fail")
@@ -345,15 +378,29 @@ async def run_hourly() -> dict[str, Any]:
     Bu, CEO daemon read-only env çakışmasını ("Cannot DELETE on read-only")
     kökten çözer: yazıcı ve okuyucu artık AYRI dosyada.
 
-    Bu wrapper son N gün'lük (=settings.pa_backtest_years) ingest yapar.
-    Universe'deki tüm semboller × tüm TF'ler. Idempotent (OHLCVStore upsert).
+    FIX 2026-05-30 (alarm-temizlik): Önceden `_resolve_symbols(None)` →
+    `build_universe()` = **3538 all_liquid sembol × 2 TF = 7076 ingest/saat**,
+    her biri 5 yıllık. Bot sadece 14 sembol trade ediyor → 3500+ illiquid/
+    delisted sembol per-symbol fail (24h'de ~20k `ingest.symbol_fail`) + iş
+    saatlerce sürüp CEO restart'ında `CancelledError` ile düşüyordu. Saatlik
+    ingest'in işi CANLI veriyi taze tutmak (trading evreni + regime), evren-
+    çapında backfill DEĞİL (o ayrı/manuel/tek-seferlik bir iş). Şimdi:
+    trading evreniyle sınırlı (env `PA_INGEST_HOURLY_SYMBOLS` ile override).
 
     Returns:
         {"symbols": N, "tfs": M, "ingested": K, "snapshot": {...}}
     """
     import asyncio
+    import os
+
     s = get_settings()
-    pairs = _resolve_symbols(None)
+    # Saatlik delta yalnızca CANLI-ilgili semboller (trading evreni + regime
+    # için BTC). Geniş araştırma backfill'i ayrı bir işin sorumluluğu.
+    _hourly_csv = os.environ.get("PA_INGEST_HOURLY_SYMBOLS", "").strip()
+    if _hourly_csv:
+        pairs = _resolve_symbols(_hourly_csv)
+    else:
+        pairs = _resolve_symbols(",".join(_HOURLY_TRADING_SYMBOLS))
     timeframes = s.timeframes_list
     # depo-ayirma: ayrı yazılabilir dosya + read-only env bypass
     store = OHLCVStore(path=s.ingest_duckdb_path, force_write=True)
@@ -364,8 +411,11 @@ async def run_hourly() -> dict[str, Any]:
                 # Sync ingest_symbol — async loop'u bloklamamak için thread'e at
                 stat = await asyncio.to_thread(
                     ingest_symbol,
-                    venue=v, symbol=sy, timeframe=t,
-                    years=s.pa_backtest_years, store=store,
+                    venue=v,
+                    symbol=sy,
+                    timeframe=t,
+                    years=s.pa_backtest_years,
+                    store=store,
                 )
                 logger.bind(**stat.__dict__).info("ingest.symbol_done")
                 n_done += 1
@@ -378,6 +428,15 @@ async def run_hourly() -> dict[str, Any]:
     snap = await asyncio.to_thread(
         _snapshot_ingest_to_consumer, s.ingest_duckdb_path, s.duckdb_path
     )
+    # FIX 2026-05-30: saatlik ingest bitti → market_ingest write-lock'unu bırak.
+    # CEO uzun-ömürlü; pooled conn açık kalırsa ingest15m (5dk launchd) lock
+    # çakışıp exit 1 verir. Kapatınca lock serbest, conn lazily yeniden açılır.
+    try:
+        from price_action.data.store import close_pool_for_path
+
+        await asyncio.to_thread(close_pool_for_path, s.ingest_duckdb_path)
+    except Exception as exc:  # pragma: no cover
+        logger.warning("ingest.pool_close_fail", extra={"err": str(exc)[:200]})
     return {
         "symbols": len(pairs),
         "tfs": len(timeframes),
@@ -407,9 +466,7 @@ def run(
     reports = []
     for v, sy in pairs:
         for t in timeframes:
-            stat = ingest_symbol(
-                venue=v, symbol=sy, timeframe=t, years=n_years, store=store
-            )
+            stat = ingest_symbol(venue=v, symbol=sy, timeframe=t, years=n_years, store=store)
             logger.bind(**stat.__dict__).info("ingest.symbol_done")
             df = store.read(sy, t, venue=v)
             reports.append(run_quality_checks(df, venue=v, symbol=sy, timeframe=t))

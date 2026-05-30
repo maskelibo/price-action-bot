@@ -29,8 +29,14 @@ daily_limits:
   # Diğerleri stabil, dokunmuyorum. Max Pro içinde, gerçek $ yok.
 
   # En kritik düşünme (Opus 4.7 kalıyor)
-  ceo: 2000000            # 2M (stabil)
-  researcher: 12000000    # 6M → 12M (2026-05-29: %86 doldu, headroom; 429 session-limit AYRI)
+  ceo: 3000000            # 2M → 3M (2026-05-30: 24h %94 (1.88M); inbox backlog
+                          # işleme + brief/arbitrate/weekly spike. Runaway değil.)
+  researcher: 25000000    # 12M → 25M (2026-05-30: 24h gerçek peak 13.9M legit
+                          # = 5-batch + pulse + hyp-backtest LLM-extract spike +
+                          # gündüz manuel ağır araştırma. 12M CRIT yanlış-pozitifti
+                          # (Max Pro, gerçek $ yok → kanarya SADECE runaway için).
+                          # 25M = legit peak'in ~1.8x; gerçek infinite-loop runaway
+                          # (sürekli 1M+/saat) hâlâ tetikler.
   adversary_engineer: 500000  # 500k stabil
 
   # Sonnet'e geçenler
@@ -55,7 +61,8 @@ daily_limits:
 # Haftalık tüm-agent toplam limiti
 # Yeni dailies × 7 (Faz 14.19):
 #   2 + 6 + 0.5 + 8 + 1.5 + 0.3 + 0.4 + 4 + 0.2 + 0.06 + 0.4 = 23.36M × 7 ≈ 164M
-weekly_limit_total: 250000000  # 200M → 250M (2026-05-29: researcher 6M→12M sonrası headroom)
+weekly_limit_total: 350000000  # 250M → 350M (2026-05-30: researcher 12M→25M ile
+                               # dailies toplamı ~42M/gün × 7 ≈ 296M; 350M headroom)
 
 # Alarm seviyeleri (sıkı tut, erken uyarı)
 alert_threshold_pct: 75

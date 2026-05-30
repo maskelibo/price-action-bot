@@ -317,6 +317,12 @@ strategy_portfolio:
     - NEAR/USDT
     - FIL/USDT
     - XLM/USDT
+    # DEPLOY 2026-05-30: 14 → 19. TRX/UNI/ATOM/AAVE/ALGO (vsa+brooks 5y backtest-kanıtlı).
+    - TRX/USDT
+    - UNI/USDT
+    - ATOM/USDT
+    - AAVE/USDT
+    - ALGO/USDT
   strategies:
     # Phoenix 1d stratejilerinin 15m uyumluluğu Signal Chief audit'e bağlı.
     # Şimdi PLACEHOLDER — Phase 2 PASS sonrası aktif edilir.

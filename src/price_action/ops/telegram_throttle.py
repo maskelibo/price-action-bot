@@ -40,16 +40,15 @@ from price_action.notifications.telegram import send_critical, send_telegram
 class TelegramThrottle:
     """Alarm throttle engine — TF-adaptive window, excess buffered."""
 
-    # MUTE 2026-05-28 (Ops): alert_type prefixes silenced in paper/research mode.
-    # Reversible: empty this set (or set env PA_TELEGRAM_UNMUTE=1) to restore.
-    #   - "dms_stale_"           → DMS heartbeat staleness (no live orders in paper)
-    #   - "regime_cache_stale_warn" → regime cache WARN (NOT the REJECT alert)
-    # NOTE: "regime_cache_stale_reject" is deliberately ABSENT → real trading
-    #       protection (signals rejected) keeps alerting.
-    _MUTED_ALERT_PREFIXES = (
-        "dms_stale_",
-        "regime_cache_stale_warn",
-    )
+    # UNMUTE 2026-05-30 (Ops): mute list emptied after root causes resolved.
+    # The 2026-05-28 mutes (dms_stale_, regime_cache_stale_warn) were a band-aid
+    # for the market.duckdb freeze + daily-only regime refresh. Post-deploy
+    # (regime 4h cadence + store decouple + fresh DMS heartbeat) those conditions
+    # no longer fire: freshness_watchdog went GREEN 2026-05-29 20:12Z, DMS
+    # heartbeat updates every second. Leaving them muted would silently swallow
+    # a future genuine recurrence (daemon crash, RAG empty). Infra kept intact —
+    # re-add a prefix here to mute again. PA_TELEGRAM_UNMUTE=1 still forces send.
+    _MUTED_ALERT_PREFIXES: tuple[str, ...] = ()
 
     # TF → throttle window (seconds)
     TF_WINDOW_MAP = {

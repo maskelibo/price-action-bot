@@ -31,20 +31,20 @@ Davranış:
     - 15m OHLCV: ingest_15m_live.py cron'u tarafından zaten yazılmış olmalı.
     - NaN forward-fill YOK. Eksik bar NaN olarak kalır.
 """
+
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
-
-import os
 
 os.environ["PA_LOG_QUIET"] = "1"
 import warnings
+
 warnings.filterwarnings("ignore")
 
 import duckdb
@@ -55,6 +55,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from dotenv import load_dotenv
+
 load_dotenv(ROOT / ".env", override=False)
 
 from price_action.logging_config import logger
@@ -64,11 +65,30 @@ SIGNAL_MAX_AGE_MIN = 30  # 2 × 15m bar — bu süreden eskisi REJECT
 
 # ── Config ────────────────────────────────────────────────────────────────────
 SYMBOLS: list[str] = [
-    "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "ADA/USDT",
-    "AVAX/USDT", "LINK/USDT", "DOT/USDT", "DOGE/USDT", "XRP/USDT",
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "BNB/USDT",
+    "ADA/USDT",
+    "AVAX/USDT",
+    "LINK/USDT",
+    "DOT/USDT",
+    "DOGE/USDT",
+    "XRP/USDT",
     # DEPLOY 2026-05-29: sembol evreni genişletme (likit, +%41 pozisyon backtest).
     # ZEC/NEAR/FIL/XLM — 15m verisi market.duckdb'de taze (ingest15m + snapshot).
-    "ZEC/USDT", "NEAR/USDT", "FIL/USDT", "XLM/USDT",
+    "ZEC/USDT",
+    "NEAR/USDT",
+    "FIL/USDT",
+    "XLM/USDT",
+    # DEPLOY 2026-05-30: yerleşik likit genişletme (14→19). vsa+brooks backtest
+    # 5y: hepsi mean_R baseline'a yakın/üstü, totR pozitif (TRX +0.378, UNI/ATOM/
+    # AAVE/ALGO +0.29..+0.34). Meme/hisse/emtia değil, gerçek-kullanım coinleri.
+    "TRX/USDT",
+    "UNI/USDT",
+    "ATOM/USDT",
+    "AAVE/USDT",
+    "ALGO/USDT",
 ]
 
 TF = "15m"
@@ -81,6 +101,7 @@ _SCAN_SYMBOL_TIMEOUT_SEC = 180  # AVWAP worst-case budget
 # scan_signals_15m başında reset, _scan_symbol fail'lerinde artar, sonunda
 # sayım stderr'e yansır (launchd futures15m.stderr.log → operatör görür).
 import threading as _thr
+
 _READ_FAIL_LOCK = _thr.Lock()
 _READ_FAIL_COUNT: int = 0
 _READ_FAIL_SAMPLES: list[str] = []
@@ -116,6 +137,7 @@ def _emit_read_fail_summary(n_syms: int) -> None:
             msg += " | örnekler: " + " || ".join(_READ_FAIL_SAMPLES[:2])
     try:
         import sys as _sys
+
         _sys.stderr.write(msg + "\n")
         _sys.stderr.flush()
     except Exception:
@@ -129,6 +151,7 @@ def _get_parallel_workers() -> int:
         return max(1, val)
     except (ValueError, TypeError):
         return _DEFAULT_PARALLEL_WORKERS
+
 
 _BOT_NAME = os.environ.get("PA_BOT_NAME", "phoenix").lower()
 if _BOT_NAME == "phoenix":
@@ -147,6 +170,7 @@ print(f"[futures_trade_15m] BOT={_BOT_NAME} | journal={JOURNAL.name} | risk={RIS
 
 
 # ── Journal init ───────────────────────────────────────────────────────────────
+
 
 def init_15m_journal() -> None:
     con = duckdb.connect(str(JOURNAL))
@@ -192,19 +216,19 @@ def init_15m_journal() -> None:
 # Bu sayede aynı daemon farklı PA_15M_CONFIG ile farklı strateji subset koşturur.
 
 _STRATEGY_CATALOG = {
-    "vsa_climax_test":             "VSAClimaxTestStrategy",
-    "brooks_failed_breakout":      "BrooksFailedBreakoutStrategy",
-    "anchored_vwap_reversal":      "AnchoredVWAPReversalStrategy",
-    "engulfing_continuation":      "EngulfingContinuationStrategy",
-    "rsi2_extreme_fade":           "RSI2ExtremeFadeStrategy",
+    "vsa_climax_test": "VSAClimaxTestStrategy",
+    "brooks_failed_breakout": "BrooksFailedBreakoutStrategy",
+    "anchored_vwap_reversal": "AnchoredVWAPReversalStrategy",
+    "engulfing_continuation": "EngulfingContinuationStrategy",
+    "rsi2_extreme_fade": "RSI2ExtremeFadeStrategy",
     "session_vwap_mean_reversion": "SessionVWAPMeanReversionStrategy",
 }
 
 _DEFAULT_4 = [
-    ("vsa_climax_test",          "VSAClimaxTestStrategy"),
-    ("brooks_failed_breakout",   "BrooksFailedBreakoutStrategy"),
-    ("anchored_vwap_reversal",   "AnchoredVWAPReversalStrategy"),
-    ("engulfing_continuation",   "EngulfingContinuationStrategy"),
+    ("vsa_climax_test", "VSAClimaxTestStrategy"),
+    ("brooks_failed_breakout", "BrooksFailedBreakoutStrategy"),
+    ("anchored_vwap_reversal", "AnchoredVWAPReversalStrategy"),
+    ("engulfing_continuation", "EngulfingContinuationStrategy"),
 ]
 
 
@@ -214,12 +238,15 @@ def _resolve_strategies_15m() -> list[tuple[str, str]]:
     Default: 4'lü top set (vsa+brooks+anchored+engulfing).
     """
     import os
+
     cfg_path = os.environ.get("PA_15M_CONFIG", "")
     if not cfg_path:
         return _DEFAULT_4
     try:
-        import yaml
         from pathlib import Path as _P
+
+        import yaml
+
         path = _P(cfg_path)
         if not path.is_absolute():
             path = _P(__file__).resolve().parents[1] / cfg_path
@@ -242,7 +269,7 @@ def _resolve_strategies_15m() -> list[tuple[str, str]]:
 _TOP_4_15M = _resolve_strategies_15m()
 
 
-def _fetch_fresh_bars_ccxt(sym: str, n_bars: int = 50) -> Optional[pd.DataFrame]:
+def _fetch_fresh_bars_ccxt(sym: str, n_bars: int = 50) -> pd.DataFrame | None:
     """SEC56 FIX: ccxt'ten doğrudan 15m bar çek (ingest bypass).
 
     DuckDB'deki veri stale olduğunda kullanılır. OHLCVStore'a yazmaz —
@@ -252,13 +279,14 @@ def _fetch_fresh_bars_ccxt(sym: str, n_bars: int = 50) -> Optional[pd.DataFrame]
     """
     try:
         import ccxt as _ccxt
-        ex = _ccxt.binance({
-            "enableRateLimit": True,
-            "options": {"defaultType": "future"},
-        })
-        since_ms = int(
-            (datetime.now(timezone.utc) - timedelta(minutes=n_bars * 15)).timestamp() * 1000
+
+        ex = _ccxt.binance(
+            {
+                "enableRateLimit": True,
+                "options": {"defaultType": "future"},
+            }
         )
+        since_ms = int((datetime.now(UTC) - timedelta(minutes=n_bars * 15)).timestamp() * 1000)
         raw = ex.fetch_ohlcv(sym, timeframe=TF, since=since_ms, limit=n_bars)
         if not raw:
             return None
@@ -349,7 +377,7 @@ def _scan_symbol(sym: str, target_bar_close: pd.Timestamp) -> list[dict]:
     df["vol_z_pre"] = 0
 
     # SEC56 FIX: data freshness guard — ingest cron durmuşsa ccxt'ten taze bar çek
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(UTC)
     last_store_ts = df["ts"].iloc[-1]
     if last_store_ts.tzinfo is None:
         last_store_ts = last_store_ts.tz_localize("UTC")
@@ -422,18 +450,20 @@ def _scan_symbol(sym: str, target_bar_close: pd.Timestamp) -> list[dict]:
                     sig_ts = sig_ts.tz_localize("UTC")
                 # Sadece son bar kapanışında emit edilenleri al
                 if abs((sig_ts - last_bar_ts).total_seconds()) < 60:
-                    sym_signals.append({
-                        "ts": sig_ts,
-                        "bar_close_ts": last_bar_ts,
-                        "symbol": sym,
-                        "strategy": module_name,
-                        "side": sig.direction,
-                        "entry_price": last_close,
-                        "sl_price": sig.sl_price,
-                        "tp_price": sig.tp_price,
-                        "confluence": sig.confluence_score,
-                        "signal_obj": sig,
-                    })
+                    sym_signals.append(
+                        {
+                            "ts": sig_ts,
+                            "bar_close_ts": last_bar_ts,
+                            "symbol": sym,
+                            "strategy": module_name,
+                            "side": sig.direction,
+                            "entry_price": last_close,
+                            "sl_price": sig.sl_price,
+                            "tp_price": sig.tp_price,
+                            "confluence": sig.confluence_score,
+                            "signal_obj": sig,
+                        }
+                    )
         except Exception as exc:
             logger.bind(module=module_name, symbol=sym, err=str(exc)).warning(
                 "scan15m.symbol_strategy_fail"
@@ -444,7 +474,7 @@ def _scan_symbol(sym: str, target_bar_close: pd.Timestamp) -> list[dict]:
 
 def scan_signals_15m(
     target_bar_close: datetime,
-    max_workers: Optional[int] = None,
+    max_workers: int | None = None,
 ) -> list[dict]:
     """target_bar_close öncesindeki 15m barları tara, sinyal üret.
 
@@ -486,10 +516,7 @@ def scan_signals_15m(
                 logger.bind(symbol=sym, err=str(exc)).error("scan15m.sequential_fail")
     else:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            future_map = {
-                pool.submit(_scan_symbol, sym, tbc): sym
-                for sym in SYMBOLS
-            }
+            future_map = {pool.submit(_scan_symbol, sym, tbc): sym for sym in SYMBOLS}
             for fut in as_completed(future_map):
                 sym = future_map[fut]
                 try:
@@ -520,6 +547,7 @@ def scan_signals_15m(
 
 # ── Stale signal guard (DQ-02) ────────────────────────────────────────────────
 
+
 def filter_stale_signals(signals: list[dict], now_utc: datetime) -> tuple[list[dict], int]:
     """SIGNAL_MAX_AGE_MIN aşan sinyalleri REJECT et.
 
@@ -533,6 +561,7 @@ def filter_stale_signals(signals: list[dict], now_utc: datetime) -> tuple[list[d
     """
     try:
         from price_action.api.prometheus_metrics import stale_signal_reject_total
+
         has_metric = True
     except Exception:
         has_metric = False
@@ -575,17 +604,20 @@ def filter_stale_signals(signals: list[dict], now_utc: datetime) -> tuple[list[d
 
 # ── Main run ──────────────────────────────────────────────────────────────────
 
+
 def run_15m(dry_run: bool = False) -> None:
     init_15m_journal()
 
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(UTC)
 
     # Son kapanan 15m bar (floor to 15m boundary)
     minutes_since_epoch = int(now_utc.timestamp() // 60)
     bar_floor_min = (minutes_since_epoch // 15) * 15
-    last_bar_close = datetime.fromtimestamp(bar_floor_min * 60, tz=timezone.utc)
+    last_bar_close = datetime.fromtimestamp(bar_floor_min * 60, tz=UTC)
 
-    print(f"[15m] now={now_utc.strftime('%H:%M:%S')} UTC  last_bar_close={last_bar_close.strftime('%H:%M')} UTC")
+    print(
+        f"[15m] now={now_utc.strftime('%H:%M:%S')} UTC  last_bar_close={last_bar_close.strftime('%H:%M')} UTC"
+    )
 
     # 1. Sinyal tara
     signals = scan_signals_15m(last_bar_close)
@@ -614,24 +646,25 @@ def run_15m(dry_run: bool = False) -> None:
     # 3. RiskOfficer evaluate + order submit
     # Delegating to futures_trade_daily.submit_to_futures (same exchange setup,
     # same journal pattern) to avoid code duplication — 15m specific journal path.
+    import yaml
+
+    from scripts.futures_trade_daily import (
+        fetch_futures_state,
+        get_futures_exchange,
+        place_protection_orders,
+        setup_leverage,
+    )
+    from scripts.lib.cooldown import filter_signals_by_cooldown
     from scripts.lib.risk_integration import (
         build_futures_account_state,
         build_returns_df,
         build_signal_from_scan,
         load_risk_officer,
     )
-    import ccxt, yaml
-    from scripts.futures_trade_daily import (
-        get_futures_exchange,
-        fetch_futures_state,
-        setup_leverage,
-        place_protection_orders,
-    )
-    from scripts.lib.cooldown import filter_signals_by_cooldown
 
     risk_officer = load_risk_officer(yaml_path=RISK_YAML, breaker_state_path=BREAKER_STATE)
 
-    with open(RISK_YAML, "r", encoding="utf-8") as f:
+    with open(RISK_YAML, encoding="utf-8") as f:
         risk_cfg = yaml.safe_load(f) or {}
 
     exchange = get_futures_exchange()
@@ -648,8 +681,10 @@ def run_15m(dry_run: bool = False) -> None:
     if cooldown_days > 0:
         n_before = len(signals)
         signals = filter_signals_by_cooldown(
-            signals, cooldown_days=cooldown_days,
-            journal_path=JOURNAL, table="futures_15m_signals",
+            signals,
+            cooldown_days=cooldown_days,
+            journal_path=JOURNAL,
+            table="futures_15m_signals",
         )
         if len(signals) < n_before:
             print(f"[COOLDOWN] {n_before - len(signals)} sinyal cooldown reject")
@@ -670,7 +705,8 @@ def run_15m(dry_run: bool = False) -> None:
 
             signal_obj = build_signal_from_scan(s, venue="binance", timeframe="15m")
             decision = risk_officer.evaluate(
-                signal_obj, account,
+                signal_obj,
+                account,
                 market_price=cur_px,
                 returns_df=returns_df,
             )
@@ -682,10 +718,26 @@ def run_15m(dry_run: bool = False) -> None:
                 con.execute(
                     "INSERT INTO futures_15m_signals VALUES "
                     "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (sig_id, s["ts"], s["bar_close_ts"], sym, s["strategy"], s["side"],
-                     float(s["sl_price"]), float(s["tp_price"]), float(s["confluence"]),
-                     0, f"reject:{reject_reason}", None, None, None, None, None,
-                     round(age_min, 1), None),
+                    (
+                        sig_id,
+                        s["ts"],
+                        s["bar_close_ts"],
+                        sym,
+                        s["strategy"],
+                        s["side"],
+                        float(s["sl_price"]),
+                        float(s["tp_price"]),
+                        float(s["confluence"]),
+                        0,
+                        f"reject:{reject_reason}",
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        round(age_min, 1),
+                        None,
+                    ),
                 )
                 continue
 
@@ -697,14 +749,32 @@ def run_15m(dry_run: bool = False) -> None:
 
             if margin > state["available_balance"] * 0.9:
                 rejected += 1
-                print(f"  [SKIP-MARGIN] {sym} need=${margin:.2f}, have=${state['available_balance']:.2f}")
+                print(
+                    f"  [SKIP-MARGIN] {sym} need=${margin:.2f}, have=${state['available_balance']:.2f}"
+                )
                 con.execute(
                     "INSERT INTO futures_15m_signals VALUES "
                     "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (sig_id, s["ts"], s["bar_close_ts"], sym, s["strategy"], s["side"],
-                     float(s["sl_price"]), float(s["tp_price"]), float(s["confluence"]),
-                     leverage_used, "reject:broker_margin", None, None, None, notional, margin,
-                     round(age_min, 1), None),
+                    (
+                        sig_id,
+                        s["ts"],
+                        s["bar_close_ts"],
+                        sym,
+                        s["strategy"],
+                        s["side"],
+                        float(s["sl_price"]),
+                        float(s["tp_price"]),
+                        float(s["confluence"]),
+                        leverage_used,
+                        "reject:broker_margin",
+                        None,
+                        None,
+                        None,
+                        notional,
+                        margin,
+                        round(age_min, 1),
+                        None,
+                    ),
                 )
                 continue
 
@@ -723,23 +793,44 @@ def run_15m(dry_run: bool = False) -> None:
             )
 
             con.execute(
-                "INSERT INTO futures_15m_signals VALUES "
-                "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (sig_id, s["ts"], s["bar_close_ts"], sym, s["strategy"], s["side"],
-                 float(s["sl_price"]), float(s["tp_price"]), float(s["confluence"]),
-                 leverage_used, "filled", str(order["id"]), avg_px, filled_qty,
-                 notional, margin, round(age_min, 1), None),
+                "INSERT INTO futures_15m_signals VALUES " "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    sig_id,
+                    s["ts"],
+                    s["bar_close_ts"],
+                    sym,
+                    s["strategy"],
+                    s["side"],
+                    float(s["sl_price"]),
+                    float(s["tp_price"]),
+                    float(s["confluence"]),
+                    leverage_used,
+                    "filled",
+                    str(order["id"]),
+                    avg_px,
+                    filled_qty,
+                    notional,
+                    margin,
+                    round(age_min, 1),
+                    None,
+                ),
             )
 
             # Protection orders
             prot = place_protection_orders(
-                exchange, sym, s["side"], filled_qty,
-                float(s["tp_price"]), float(s["sl_price"]),
+                exchange,
+                sym,
+                s["side"],
+                filled_qty,
+                float(s["tp_price"]),
+                float(s["sl_price"]),
                 entry_price=avg_px,
             )
             if prot["status"] == "placed":
                 mode = prot.get("mode", "single_target")
-                print(f"    [PROTECT-{mode.upper()}] tp=${prot['tp_price']:.4f} sl=${prot['sl_price']:.4f}")
+                print(
+                    f"    [PROTECT-{mode.upper()}] tp=${prot['tp_price']:.4f} sl=${prot['sl_price']:.4f}"
+                )
             else:
                 print(f"    [PROTECT-ERR] {prot.get('reason')}")
 
@@ -747,17 +838,34 @@ def run_15m(dry_run: bool = False) -> None:
             rejected += 1
             print(f"  [ERR] {sym}: {type(exc).__name__}: {str(exc)[:100]}")
             con.execute(
-                "INSERT INTO futures_15m_signals VALUES "
-                "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (sig_id, s["ts"], s["bar_close_ts"], sym, s["strategy"], s["side"],
-                 float(s["sl_price"]), float(s["tp_price"]), float(s["confluence"]),
-                 3, "error", None, None, None, None, None, round(age_min, 1),
-                 str(exc)[:200]),
+                "INSERT INTO futures_15m_signals VALUES " "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    sig_id,
+                    s["ts"],
+                    s["bar_close_ts"],
+                    sym,
+                    s["strategy"],
+                    s["side"],
+                    float(s["sl_price"]),
+                    float(s["tp_price"]),
+                    float(s["confluence"]),
+                    3,
+                    "error",
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    round(age_min, 1),
+                    str(exc)[:200],
+                ),
             )
 
     con.commit()
     con.close()
-    print(f"\n[15m RESULT] submitted={submitted}  rejected={rejected}  total={len(signals) + n_stale}")
+    print(
+        f"\n[15m RESULT] submitted={submitted}  rejected={rejected}  total={len(signals) + n_stale}"
+    )
 
 
 if __name__ == "__main__":

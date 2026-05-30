@@ -18,9 +18,16 @@
 #   auto_pause          — false → asla otomatik pause (sadece öneri)
 #   alert_channel       — telegram | slack | email (downstream notifier okur)
 
+# account_equity_usdt — hesabın baz sermayesi. cum_loss_*_pct ve
+# max_drawdown_pct bu değere ORANLANIR (config'in vaadi: "fraction of
+# starting equity"). FIX 2026-05-30: önceden bu yoktu; metrikler sıfır-bazlı
+# kümülatif PnL eğrisinden hesaplanıyordu → %43 gibi ŞİŞMİŞ yanlış-pozitif
+# PAUSE alarmı (zirve kümülatif kâra oran, hesap büyüklüğüne değil). Paper
+# hesap = 10000 USDT (logs/execution/paper_state_faz6.json).
 bots:
   futures15m:
     journal: data/futures_journal.duckdb
+    account_equity_usdt: 10000.0
     kill_thresholds:
       cum_loss_7d_pct: 0.10
       cum_loss_14d_pct: 0.15
@@ -28,6 +35,7 @@ bots:
       consecutive_losses: 7
   futures5m:
     journal: data/futures_journal_5m.duckdb
+    account_equity_usdt: 10000.0
     kill_thresholds:
       cum_loss_7d_pct: 0.08
       cum_loss_14d_pct: 0.12
@@ -39,3 +47,4 @@ defaults:
   warn_hold_hours: 24
   auto_pause: false   # Sadece öneri, Principal manuel onay
   alert_channel: telegram
+  account_equity_usdt: 10000.0  # per-bot override yoksa bu kullanılır

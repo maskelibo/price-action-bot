@@ -118,7 +118,9 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF"]
-ignore = ["E501"]
+# RUF001/002/003: "ambiguous unicode" — Türkçe harfleri (ı İ ş ç ğ ö) yanlış-pozitif
+# olarak işaretliyor. Kod tabanı Türkçe-öncelikli (yorum/docstring) → ignore.
+ignore = ["E501", "RUF001", "RUF002", "RUF003"]
 
 [tool.mypy]
 python_version = "3.11"

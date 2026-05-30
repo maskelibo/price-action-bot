@@ -21,11 +21,12 @@ Hard limits (memory disciplin):
     ❌ Survivorship bias (delisted semboller silinmez)
     ❌ TZ karışıklığı (tüm ts UTC-aware)
 """
+
 from __future__ import annotations
 
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -56,11 +57,17 @@ SYMBOLS: list[str] = [
     "NEAR/USDT",
     "FIL/USDT",
     "XLM/USDT",
+    # DEPLOY 2026-05-30: 14 → 19 (TRX/UNI/ATOM/AAVE/ALGO, backtest-kanıtlı).
+    "TRX/USDT",
+    "UNI/USDT",
+    "ATOM/USDT",
+    "AAVE/USDT",
+    "ALGO/USDT",
 ]
 
 TF = "15m"
 TF_MS = 15 * 60 * 1000  # 15 dakika ms cinsinden
-LOOKBACK_BARS = 10       # son 10 bar → 150 dakika pencere
+LOOKBACK_BARS = 10  # son 10 bar → 150 dakika pencere
 
 # Venue priority: Binance önce, Bybit fallback
 VENUE_PRIORITY = ["binance", "bybit"]
@@ -71,6 +78,7 @@ BASE_BACKOFF_S = 1.0
 
 # ── Exchange builder ───────────────────────────────────────────────────────────
 
+
 def _build_exchange(venue: str) -> Any:  # pragma: no cover - integration
     """ccxt futures exchange instance.
 
@@ -80,13 +88,16 @@ def _build_exchange(venue: str) -> Any:  # pragma: no cover - integration
 
     if not hasattr(ccxt, venue):
         raise ValueError(f"ccxt: bilinmeyen venue {venue!r}")
-    return getattr(ccxt, venue)({
-        "enableRateLimit": True,
-        "options": {"defaultType": "future"},
-    })
+    return getattr(ccxt, venue)(
+        {
+            "enableRateLimit": True,
+            "options": {"defaultType": "future"},
+        }
+    )
 
 
 # ── Fetch with retry ──────────────────────────────────────────────────────────
+
 
 def _fetch_ohlcv(
     exchange: Any,
@@ -113,6 +124,7 @@ def _fetch_ohlcv(
 
 # ── Ingest single symbol ───────────────────────────────────────────────────────
 
+
 def ingest_symbol_15m(
     symbol: str,
     store: OHLCVStore,
@@ -130,9 +142,7 @@ def ingest_symbol_15m(
     import pandas as pd
 
     # Son barın başlangıç zamanı: şimdi - (LOOKBACK_BARS * 15dk)
-    since_ms = int(
-        (datetime.now(timezone.utc) - timedelta(minutes=LOOKBACK_BARS * 15)).timestamp() * 1000
-    )
+    since_ms = int((datetime.now(UTC) - timedelta(minutes=LOOKBACK_BARS * 15)).timestamp() * 1000)
 
     raw = _fetch_ohlcv(exchange, symbol, since_ms, limit=LOOKBACK_BARS)
     if not raw:
@@ -157,6 +167,7 @@ def ingest_symbol_15m(
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+
 
 def main() -> None:  # pragma: no cover - integration
     """15m live ingest entry point.
@@ -186,7 +197,6 @@ def main() -> None:  # pragma: no cover - integration
                 exchange = _build_exchange(venue)
                 written = ingest_symbol_15m(symbol, store, exchange, venue)
                 # Quality check — anomali işaretle, ham veri koru.
-                import pandas as pd
                 df = store.read(symbol, TF, venue=venue)
                 if not df.empty:
                     qr = run_quality_checks(df, venue=venue, symbol=symbol, timeframe=TF)

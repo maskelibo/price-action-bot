@@ -8,20 +8,21 @@ Parquet partitioning:
 
 Tüm zamanlar UTC, tz-aware.
 """
+
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import duckdb
 import pandas as pd
 
 from price_action.logging_config import logger
 from price_action.settings import get_settings
-
 
 # =====================================================================
 # Connection pool — Windows DuckDB lock-safety
@@ -35,6 +36,66 @@ _CONN_POOL: dict[str, list[duckdb.DuckDBPyConnection]] = {}
 _CONN_LOCKS: dict[str, list[threading.RLock]] = {}
 _POOL_RR_INDEX: dict[str, int] = {}  # round-robin counter
 _POOL_GUARD = threading.Lock()
+
+
+def _connect_write_with_retry(
+    path: str,
+    *,
+    max_wait_s: float = 45.0,
+) -> duckdb.DuckDBPyConnection:
+    """Write-mode connect with bounded retry on cross-process lock conflict.
+
+    FIX 2026-05-30: market_ingest.duckdb birden çok yazıcı process'e açık
+    (CEO run_hourly + launchd ingest15m (5dk) + snapshot). DuckDB single-writer
+    olduğu için biri lock'u tutarken diğeri "Conflicting lock is held in ...
+    by user" IOException atıyordu → ingest15m exit 1. Burada bounded
+    exponential backoff ile bekleriz; lock kısa süreli (saatlik ingest ~65s,
+    snapshot ~1s) olduğundan retry penceresi yeterli. Kalıcı çakışmada
+    (deadlock/zombie) yine atar — sessiz veri kaybı yok.
+    """
+    import time as _time
+
+    deadline = _time.monotonic() + max_wait_s
+    delay = 0.5
+    last_exc: Exception | None = None
+    while True:
+        try:
+            return duckdb.connect(path)
+        except Exception as exc:
+            msg = str(exc)
+            if "Conflicting lock" not in msg and "Could not set lock" not in msg:
+                raise  # farklı bir hata — retry etme
+            last_exc = exc
+            if _time.monotonic() >= deadline:
+                logger.warning(
+                    "store.write_lock_retry_exhausted",
+                    extra={"path": path, "waited_s": round(max_wait_s, 1)},
+                )
+                raise
+            _time.sleep(delay)
+            delay = min(delay * 1.6, 5.0)
+    # unreachable
+    if last_exc:  # pragma: no cover
+        raise last_exc
+
+
+def close_pool_for_path(path: str) -> None:
+    """Belirli bir path'in pooled bağlantılarını kapat → cross-process lock bırak.
+
+    FIX 2026-05-30: CEO (uzun-ömürlü) run_hourly market_ingest.duckdb'yi
+    force_write açınca pooled conn process ömrü boyunca lock'u TUTUYORDU →
+    ingest15m (5dk) hiç yazamıyordu. run_hourly/snapshot bitince bu path'i
+    kapatarak lock'u serbest bırakırız; bir sonraki erişimde lazily yeniden açılır.
+    """
+    with _POOL_GUARD:
+        conns = _CONN_POOL.pop(path, [])
+        _CONN_LOCKS.pop(path, None)
+        _POOL_RR_INDEX.pop(path, None)
+    for con in conns:
+        try:
+            con.close()
+        except Exception:  # pragma: no cover
+            pass
 
 
 def _get_pooled_connection(
@@ -65,6 +126,7 @@ def _get_pooled_connection(
     """
     import os as _os
     import platform as _platform
+
     if force_write:
         read_only = False
     else:
@@ -88,7 +150,13 @@ def _get_pooled_connection(
                 if read_only:
                     conns.append(duckdb.connect(path, read_only=True))
                 else:
-                    conns.append(duckdb.connect(path))
+                    # FIX 2026-05-30: write-mode cross-process lock retry.
+                    # market_ingest.duckdb'ye birden fazla process yazar
+                    # (CEO run_hourly + launchd ingest15m + snapshot). DuckDB
+                    # single-writer → çakışan process lock "Conflicting lock"
+                    # IOException atıp ingest15m'i exit 1 ediyordu. Bounded
+                    # retry+backoff: kısa contention'ı bekle, kalıcıysa yine at.
+                    conns.append(_connect_write_with_retry(path))
                 locks.append(threading.RLock())
             _CONN_POOL[path] = conns
             _CONN_LOCKS[path] = locks
@@ -142,6 +210,7 @@ def exec_with_checkpoint(
     except Exception:
         # Read-only mode veya tx open ise CHECKPOINT fail eder — kabul
         pass
+
 
 OHLCV_COLUMNS: tuple[str, ...] = (
     "venue",
@@ -257,9 +326,12 @@ class OHLCVStore:
         # depo-ayirma fix: force_write=True ise read-only env'i yok say, DDL koş
         # (market_ingest.duckdb ilk seed'de boş olabilir → schema gerekir).
         import os as _os
-        if (not self.force_write) and _os.environ.get(
-            "PA_DUCKDB_READ_ONLY", ""
-        ).lower() in ("1", "true", "yes"):
+
+        if (not self.force_write) and _os.environ.get("PA_DUCKDB_READ_ONLY", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        ):
             return
         with self._conn() as con:
             con.execute(_OHLCV_DDL)
@@ -385,14 +457,7 @@ class OHLCVStore:
     # ----- Parquet partition ----------------------------------------
     def _partition_dir(self, venue: str, symbol: str, tf: str, year: int, month: int) -> Path:
         sym_safe = symbol.replace("/", "_")
-        return (
-            self.parquet_root
-            / venue
-            / sym_safe
-            / tf
-            / f"year={year:04d}"
-            / f"month={month:02d}"
-        )
+        return self.parquet_root / venue / sym_safe / tf / f"year={year:04d}" / f"month={month:02d}"
 
     def _write_parquet(self, df: pd.DataFrame) -> None:
         if df.empty:
@@ -431,6 +496,7 @@ class OHLCVStore:
             # rename (POSIX guarantee). Crash anında file_path ya eski versiyon
             # ya da tam yeni — yarı asla.
             import os as _os
+
             tmp_path = file_path.with_suffix(".parquet.tmp")
             try:
                 merged.to_parquet(tmp_path, index=False)
@@ -497,7 +563,7 @@ class OHLCVStore:
             return None
         ts = row[0]
         if isinstance(ts, datetime) and ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
+            ts = ts.replace(tzinfo=UTC)
         return ts
 
     def symbols(self, venue: str | None = None, tf: str | None = None) -> list[str]:

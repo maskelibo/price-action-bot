@@ -9,12 +9,13 @@ HARD LIMIT (`agents/bot_monitor.md` §Hard Limits):
 - Otomatik PAUSE YOK — WARN → 24h hold → PAUSE öneri (manuel onay şart).
 - Bu modül scheduler.py'a kendisini register etmez; orchestrator entegre eder.
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -22,10 +23,10 @@ from price_action.logging_config import logger
 
 from .base import LLMAgentBase
 
-
 # ---------------------------------------------------------------------------
 # Module-level helpers (testable without instantiating the agent)
 # ---------------------------------------------------------------------------
+
 
 def _calc_drawdown(equity_series: list[float]) -> float:
     """Equity serisinden max drawdown (kesir, pozitif sayı).
@@ -94,9 +95,8 @@ def _evaluate_threshold_breach(
         breached.append(f"cum_loss_pct={cum_loss_pct:.4f}>thr={thresholds['cum_loss_pct']:.4f}")
     if "max_drawdown_pct" in thresholds and dd_pct > thresholds["max_drawdown_pct"]:
         breached.append(f"max_drawdown_pct={dd_pct:.4f}>thr={thresholds['max_drawdown_pct']:.4f}")
-    if (
-        "consecutive_losses" in thresholds
-        and consecutive_losses >= int(thresholds["consecutive_losses"])
+    if "consecutive_losses" in thresholds and consecutive_losses >= int(
+        thresholds["consecutive_losses"]
     ):
         breached.append(
             f"consecutive_losses={consecutive_losses}>=thr={int(thresholds['consecutive_losses'])}"
@@ -127,6 +127,7 @@ def _count_consecutive_losses(trades_chrono: list[dict[str, Any]]) -> int:
 # Agent
 # ---------------------------------------------------------------------------
 
+
 class BotMonitorAgent(LLMAgentBase):
     """Saatlik snapshot + günlük report card + kill-criteria evaluator.
 
@@ -138,8 +139,8 @@ class BotMonitorAgent(LLMAgentBase):
     name: ClassVar[str] = "bot_monitor"
     default_model: ClassVar[str] = "claude-haiku-4-5-20251001"
     allowed_tools: ClassVar[tuple[str, ...]] = (
-        "read_file",   # journal DuckDB + config yaml
-        "sql_query",   # DuckDB SELECT (read-only)
+        "read_file",  # journal DuckDB + config yaml
+        "sql_query",  # DuckDB SELECT (read-only)
         "write_report",  # snapshot / card / alert md
     )
 
@@ -185,6 +186,7 @@ class BotMonitorAgent(LLMAgentBase):
             return {"bots": {}, "defaults": {}}
         try:
             import yaml
+
             return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         except Exception as exc:
             logger.warning(
@@ -250,7 +252,7 @@ class BotMonitorAgent(LLMAgentBase):
                     # 00:00 UTC sınırında false-positive "0 trade" alert riskini
                     # eliminer eder.
                     if since.tzinfo is not None:
-                        since_naive = since.astimezone(timezone.utc).replace(tzinfo=None)
+                        since_naive = since.astimezone(UTC).replace(tzinfo=None)
                     else:
                         since_naive = since
                     rows = con.execute(
@@ -275,11 +277,21 @@ class BotMonitorAgent(LLMAgentBase):
                         """
                     ).fetchall()
                 cols = [
-                    "trade_id", "ts_open", "ts_close", "sym", "side", "strategy",
-                    "entry_price", "exit_price", "qty",
-                    "realized_pnl_usdt", "realized_r", "win", "close_reason",
+                    "trade_id",
+                    "ts_open",
+                    "ts_close",
+                    "sym",
+                    "side",
+                    "strategy",
+                    "entry_price",
+                    "exit_price",
+                    "qty",
+                    "realized_pnl_usdt",
+                    "realized_r",
+                    "win",
+                    "close_reason",
                 ]
-                return [dict(zip(cols, r)) for r in rows]
+                return [dict(zip(cols, r, strict=False)) for r in rows]
             finally:
                 con.close()
         except Exception as exc:
@@ -299,7 +311,9 @@ class BotMonitorAgent(LLMAgentBase):
         return _calc_attribution(trades)
 
     @staticmethod
-    def _equity_curve(trades_chrono: list[dict[str, Any]], starting_equity: float = 0.0) -> list[float]:
+    def _equity_curve(
+        trades_chrono: list[dict[str, Any]], starting_equity: float = 0.0
+    ) -> list[float]:
         """cum_sum realized_pnl_usdt — equity curve."""
         eq = starting_equity
         out: list[float] = []
@@ -352,13 +366,15 @@ class BotMonitorAgent(LLMAgentBase):
         # ---- Check 1: stale no-trade ---------------------------------
         if last_trade is None:
             # 30 günde 0 trade
-            alerts.append({
-                "bot": bot_name,
-                "severity": "warn",
-                "kind": "stale_no_trades",
-                "message": f"{bot_name}: son 30 günde HİÇ trade yok.",
-                "evidence": {"n_trades_30d": 0},
-            })
+            alerts.append(
+                {
+                    "bot": bot_name,
+                    "severity": "warn",
+                    "kind": "stale_no_trades",
+                    "message": f"{bot_name}: son 30 günde HİÇ trade yok.",
+                    "evidence": {"n_trades_30d": 0},
+                }
+            )
         else:
             ts_close = last_trade.get("ts_close")
             if ts_close:
@@ -366,35 +382,42 @@ class BotMonitorAgent(LLMAgentBase):
                     last_close = self._to_utc(ts_close)
                     hours_since = (now - last_close).total_seconds() / 3600.0
                     if hours_since >= no_trade_crit_hours:
-                        alerts.append({
-                            "bot": bot_name,
-                            "severity": "crit",
-                            "kind": "stale_no_trades",
-                            "message": (
-                                f"{bot_name}: {hours_since:.1f} saattir hiç trade yok "
-                                f"(eşik CRIT={no_trade_crit_hours}h). "
-                                f"Reject pattern'ı kontrol et."
-                            ),
-                            "evidence": {"hours_since_last_trade": round(hours_since, 1)},
-                        })
+                        alerts.append(
+                            {
+                                "bot": bot_name,
+                                "severity": "crit",
+                                "kind": "stale_no_trades",
+                                "message": (
+                                    f"{bot_name}: {hours_since:.1f} saattir hiç trade yok "
+                                    f"(eşik CRIT={no_trade_crit_hours}h). "
+                                    f"Reject pattern'ı kontrol et."
+                                ),
+                                "evidence": {"hours_since_last_trade": round(hours_since, 1)},
+                            }
+                        )
                     elif hours_since >= no_trade_warn_hours:
-                        alerts.append({
-                            "bot": bot_name,
-                            "severity": "warn",
-                            "kind": "stale_no_trades",
-                            "message": (
-                                f"{bot_name}: {hours_since:.1f} saattir trade yok "
-                                f"(eşik WARN={no_trade_warn_hours}h)."
-                            ),
-                            "evidence": {"hours_since_last_trade": round(hours_since, 1)},
-                        })
+                        alerts.append(
+                            {
+                                "bot": bot_name,
+                                "severity": "warn",
+                                "kind": "stale_no_trades",
+                                "message": (
+                                    f"{bot_name}: {hours_since:.1f} saattir trade yok "
+                                    f"(eşik WARN={no_trade_warn_hours}h)."
+                                ),
+                                "evidence": {"hours_since_last_trade": round(hours_since, 1)},
+                            }
+                        )
                 except Exception as _ts_exc:
                     # FIX 2026-05-26 (H1): ts parse hatası görünür olsun
                     # (corruption/encoding bug işareti olabilir)
                     logger.warning(
                         "bot_monitor.blind_spot_ts_parse_fail",
-                        extra={"bot": bot_name, "ts_raw": str(ts_close)[:50],
-                               "err": str(_ts_exc)[:200]},
+                        extra={
+                            "bot": bot_name,
+                            "ts_raw": str(ts_close)[:50],
+                            "err": str(_ts_exc)[:200],
+                        },
                     )
 
         # ---- Check 2: uniform tech reject ----------------------------
@@ -425,11 +448,7 @@ class BotMonitorAgent(LLMAgentBase):
                     m = re.match(r"^\[(\d{2}):(\d{2}):(\d{2})\]", line)
                     if not m:
                         continue
-                    line_sec = (
-                        int(m.group(1)) * 3600
-                        + int(m.group(2)) * 60
-                        + int(m.group(3))
-                    )
+                    line_sec = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
                     if last_ts_sec is None:
                         last_ts_sec = line_sec
                     else:
@@ -456,22 +475,24 @@ class BotMonitorAgent(LLMAgentBase):
                     top_reason, top_count = max(rejects.items(), key=lambda x: x[1])
                     ratio = top_count / total_rejects
                     if ratio >= uniform_reject_threshold:
-                        alerts.append({
-                            "bot": bot_name,
-                            "severity": "crit",
-                            "kind": "uniform_tech_reject",
-                            "message": (
-                                f"{bot_name}: son {reject_window_minutes}dk içinde "
-                                f"{total_rejects} non-widestop reject'in %{ratio*100:.0f}'i "
-                                f"`{top_reason}` (teknik bug muhtemel)."
-                            ),
-                            "evidence": {
-                                "reason": top_reason,
-                                "count": top_count,
-                                "total_non_widestop_rejects": total_rejects,
-                                "widestop_rejects": widestop_count,
-                            },
-                        })
+                        alerts.append(
+                            {
+                                "bot": bot_name,
+                                "severity": "crit",
+                                "kind": "uniform_tech_reject",
+                                "message": (
+                                    f"{bot_name}: son {reject_window_minutes}dk içinde "
+                                    f"{total_rejects} non-widestop reject'in %{ratio*100:.0f}'i "
+                                    f"`{top_reason}` (teknik bug muhtemel)."
+                                ),
+                                "evidence": {
+                                    "reason": top_reason,
+                                    "count": top_count,
+                                    "total_non_widestop_rejects": total_rejects,
+                                    "widestop_rejects": widestop_count,
+                                },
+                            }
+                        )
             except Exception as exc:
                 logger.warning(
                     "bot_monitor.blind_spot_log_parse_fail",
@@ -485,11 +506,14 @@ class BotMonitorAgent(LLMAgentBase):
         """Bot adından launchd stderr log path'i türet."""
         try:
             from price_action.settings import get_settings
+
             s = get_settings()
             candidates = [
                 s.reports_dir.parent / "logs" / "launchd" / f"{bot_name}.stderr.log",
                 s.reports_dir.parent / "logs" / "launchd" / f"{bot_name}.stdout.log",
-                s.reports_dir.parent / "logs" / f"futures_daemon{'_5m' if '5m' in bot_name else ''}.log",
+                s.reports_dir.parent
+                / "logs"
+                / f"futures_daemon{'_5m' if '5m' in bot_name else ''}.log",
             ]
             for p in candidates:
                 if p.exists():
@@ -514,7 +538,7 @@ class BotMonitorAgent(LLMAgentBase):
         """
         cfg = self._load_config()
         bots = cfg.get("bots") or {}
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         since_30d = now - timedelta(days=30)
 
         lines: list[str] = [f"# Bot Snapshot — {now.strftime('%Y-%m-%d %H:00 UTC')}", ""]
@@ -526,8 +550,15 @@ class BotMonitorAgent(LLMAgentBase):
             ok = self._check_postgres_journal(journal)
             trades = self._read_trades(journal, since=since_30d) if ok else []
             equity = self._equity_curve(trades)
-            current_equity = equity[-1] if equity else 0.0
-            dd30 = self._calc_drawdown(equity)
+            current_equity = equity[-1] if equity else 0.0  # cum realized PnL (gösterim)
+            # FIX 2026-05-30: DD gerçek hesap equity'sine oranlı (kill-criteria
+            # ile aynı). Sıfır-bazlı eğri DD'yi zirve-kâra oranlayıp şişiriyordu.
+            _acct_eq = float(
+                bot_cfg.get("account_equity_usdt")
+                or (cfg.get("defaults") or {}).get("account_equity_usdt")
+                or 10000.0
+            )
+            dd30 = self._calc_drawdown(self._equity_curve(trades, starting_equity=_acct_eq))
             # Son 24h P&L
             cutoff_24h = now - timedelta(hours=24)
             pnl_24h = sum(
@@ -576,6 +607,7 @@ class BotMonitorAgent(LLMAgentBase):
         if crit_alerts:
             try:
                 from price_action.orchestrator.notifications import push_critical
+
                 msg = f"BOT BLIND-SPOT — {len(crit_alerts)} CRIT alert(s):\n" + "\n".join(
                     f"- {a['message']}" for a in crit_alerts
                 )
@@ -613,13 +645,13 @@ class BotMonitorAgent(LLMAgentBase):
         Yeni: önce isoformat parse, sonra tz check.
         """
         if isinstance(ts, datetime):
-            return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
+            return ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts.astimezone(UTC)
         try:
             parsed = datetime.fromisoformat(str(ts))
             # tz-aware ise UTC'ye dönüştür, tz-naive ise UTC ata
             if parsed.tzinfo is not None:
-                return parsed.astimezone(timezone.utc)
-            return parsed.replace(tzinfo=timezone.utc)
+                return parsed.astimezone(UTC)
+            return parsed.replace(tzinfo=UTC)
         except Exception as _ts_exc:
             # FIX 2026-05-26 (H1): ts parse fail → now() döndürüyor (kabul edilebilir
             # fallback) ama corruption pattern'ı izlemek için log'a yaz
@@ -627,17 +659,17 @@ class BotMonitorAgent(LLMAgentBase):
                 "bot_monitor._to_utc_parse_fail",
                 extra={"ts_raw": str(ts)[:50], "err": str(_ts_exc)[:120]},
             )
-            return datetime.now(timezone.utc)
+            return datetime.now(UTC)
 
     def _heartbeat_check(self, bot_name: str) -> bool:
         """`data/dms_heartbeat_*{bot_name}*.txt` son 1h içinde update mı?"""
         data_dir = self.settings.reports_dir.parent / "data"
         if not data_dir.exists():
             return False
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+        cutoff = datetime.now(UTC) - timedelta(hours=1)
         for hb in data_dir.glob(f"dms_heartbeat_*{bot_name}*.txt"):
             try:
-                mtime = datetime.fromtimestamp(hb.stat().st_mtime, tz=timezone.utc)
+                mtime = datetime.fromtimestamp(hb.stat().st_mtime, tz=UTC)
                 if mtime >= cutoff:
                     return True
             except OSError:
@@ -669,9 +701,15 @@ class BotMonitorAgent(LLMAgentBase):
             last_accept_ts: str | None
         """
         out: dict[str, Any] = {
-            "scans": 0, "signals_total": 0, "rejects_widestop": 0,
-            "rejects_tech": {}, "accepts": 0, "avg_latency_s": 0.0,
-            "errors": 0, "last_signal_ts": None, "last_accept_ts": None,
+            "scans": 0,
+            "signals_total": 0,
+            "rejects_widestop": 0,
+            "rejects_tech": {},
+            "accepts": 0,
+            "avg_latency_s": 0.0,
+            "errors": 0,
+            "last_signal_ts": None,
+            "last_accept_ts": None,
         }
         if not log_path or not log_path.exists():
             return out
@@ -743,7 +781,10 @@ class BotMonitorAgent(LLMAgentBase):
             if top[1] / max(total_rejects, 1) >= 0.5:
                 return "ANOMALI", f"Teknik reject baskın: {top[0]} ({top[1]}/{total_rejects})"
         if flow.get("rejects_widestop", 0) >= signals * 0.8:
-            return "NORMAL_FILTRE", f"Sinyaller widestop filtreyi geçmedi ({flow['rejects_widestop']}/{signals}) - tasarım gereği"
+            return (
+                "NORMAL_FILTRE",
+                f"Sinyaller widestop filtreyi geçmedi ({flow['rejects_widestop']}/{signals}) - tasarım gereği",
+            )
         return "İZLE", f"{signals} sinyal, {total_rejects} reject, 0 trade"
 
     # ------------------------------------------------------------------
@@ -759,7 +800,7 @@ class BotMonitorAgent(LLMAgentBase):
         """
         cfg = self._load_config()
         bots = cfg.get("bots") or {}
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         since_24h = now - timedelta(hours=24)
         since_7d = now - timedelta(days=7)
 
@@ -812,13 +853,18 @@ class BotMonitorAgent(LLMAgentBase):
             # Blind-spot alerts (mevcut detect_blind_spots'tan)
             last_trade = trades_24h[-1] if trades_24h else (trades_7d[-1] if trades_7d else None)
             blind_alerts = self.detect_blind_spots(
-                bot_name, trades=trades_7d, last_trade=last_trade,
-                now=now, log_path=log_path,
+                bot_name,
+                trades=trades_7d,
+                last_trade=last_trade,
+                now=now,
+                log_path=log_path,
             )
             hours_since_trade = None
             if last_trade and last_trade.get("ts_close"):
                 try:
-                    hours_since_trade = (now - self._to_utc(last_trade["ts_close"])).total_seconds() / 3600.0
+                    hours_since_trade = (
+                        now - self._to_utc(last_trade["ts_close"])
+                    ).total_seconds() / 3600.0
                 except Exception:
                     pass
             verdict, verdict_reason = self._verdict_from_flow(flow, n_24h, hours_since_trade)
@@ -851,9 +897,7 @@ class BotMonitorAgent(LLMAgentBase):
                 f"Teknik reject: {sum(flow['rejects_tech'].values())}"
             )
             if flow["rejects_tech"]:
-                top_reasons = sorted(
-                    flow["rejects_tech"].items(), key=lambda x: -x[1]
-                )[:3]
+                top_reasons = sorted(flow["rejects_tech"].items(), key=lambda x: -x[1])[:3]
                 sections.append("- En sık teknik reject sebepleri:")
                 for reason, count in top_reasons:
                     sections.append(f"  - `{reason}`: {count} kez")
@@ -891,26 +935,29 @@ class BotMonitorAgent(LLMAgentBase):
                 sections.append("- Attribution (7g, top-10):")
                 sections.extend(attr_lines)
 
-            per_bot_summary_inputs.append({
-                "bot": bot_name,
-                "verdict": verdict,
-                "verdict_reason": verdict_reason,
-                "pnl_24h": pnl_24h,
-                "pnl_7d": pnl_7d,
-                "wr_24h": wr_24h,
-                "n_24h": n_24h,
-                "dd_7d": dd_7d,
-                "hours_since_trade": hours_since_trade,
-                "scans_24h": flow["scans"],
-                "signals_24h": flow["signals_total"],
-                "rejects_widestop": flow["rejects_widestop"],
-                "rejects_tech_total": sum(flow["rejects_tech"].values()),
-                "top_tech_reject": (
-                    max(flow["rejects_tech"].items(), key=lambda x: x[1])[0]
-                    if flow["rejects_tech"] else None
-                ),
-                "blind_spot_alerts": [a["message"] for a in blind_alerts],
-            })
+            per_bot_summary_inputs.append(
+                {
+                    "bot": bot_name,
+                    "verdict": verdict,
+                    "verdict_reason": verdict_reason,
+                    "pnl_24h": pnl_24h,
+                    "pnl_7d": pnl_7d,
+                    "wr_24h": wr_24h,
+                    "n_24h": n_24h,
+                    "dd_7d": dd_7d,
+                    "hours_since_trade": hours_since_trade,
+                    "scans_24h": flow["scans"],
+                    "signals_24h": flow["signals_total"],
+                    "rejects_widestop": flow["rejects_widestop"],
+                    "rejects_tech_total": sum(flow["rejects_tech"].values()),
+                    "top_tech_reject": (
+                        max(flow["rejects_tech"].items(), key=lambda x: x[1])[0]
+                        if flow["rejects_tech"]
+                        else None
+                    ),
+                    "blind_spot_alerts": [a["message"] for a in blind_alerts],
+                }
+            )
             sections.append("")
 
         # FIX 2026-05-26: Haiku actionable özet (verdict + action items)
@@ -975,7 +1022,9 @@ class BotMonitorAgent(LLMAgentBase):
             # Corruption tespit edildi — yedekle (overwrite etmeden önce
             # forensic için), sonra boş dict dön
             try:
-                backup_path = p.parent / f"{p.stem}.corrupt.{int(datetime.now(timezone.utc).timestamp())}.json"
+                backup_path = (
+                    p.parent / f"{p.stem}.corrupt.{int(datetime.now(UTC).timestamp())}.json"
+                )
                 p.rename(backup_path)
                 logger.error(
                     "bot_monitor.warn_state_corrupt",
@@ -998,16 +1047,23 @@ class BotMonitorAgent(LLMAgentBase):
         p = self._warn_state_path()
         try:
             import tempfile
+
             with tempfile.NamedTemporaryFile(
-                mode="w", encoding="utf-8", delete=False,
-                dir=str(p.parent), prefix=".warn_state_tmp_", suffix=".json",
+                mode="w",
+                encoding="utf-8",
+                delete=False,
+                dir=str(p.parent),
+                prefix=".warn_state_tmp_",
+                suffix=".json",
             ) as tmp:
                 json.dump(state, tmp, indent=2, default=str)
                 tmp.flush()
                 import os as _os
+
                 _os.fsync(tmp.fileno())
                 tmp_name = tmp.name
             import os as _os
+
             _os.replace(tmp_name, str(p))
         except Exception as exc:
             logger.warning(
@@ -1030,7 +1086,7 @@ class BotMonitorAgent(LLMAgentBase):
         warn_hold_hours = int(defaults.get("warn_hold_hours", 24))
         warn_first = bool(defaults.get("warn_first", True))
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         warn_state = self._load_warn_state()
         alert_paths: list[Path] = []
         alerts_summary: list[str] = []
@@ -1045,30 +1101,42 @@ class BotMonitorAgent(LLMAgentBase):
             since_14d = now - timedelta(days=14)
             trades_14d = self._read_trades(journal, since=since_14d)
 
-            equity_7d = self._equity_curve(trades_7d)
-            # cum loss 7d / 14d (basit: realized PnL toplamı negatif mi)
+            # FIX 2026-05-30: tüm kayıp/DD metrikleri GERÇEK hesap equity'sine
+            # oranlanır (config vaadi: "fraction of starting equity"). Önceden
+            # sıfır-bazlı kümülatif PnL eğrisi kullanılıyordu → DD = zirve-kâra
+            # oran (örn +100$ yapıp 43$ geri verince "%43"), hesap büyüklüğüne
+            # değil → ŞİŞMİŞ yanlış-pozitif PAUSE alarmı. acct_eq baseline ile
+            # 10000$'lık hesapta o 43$ = %0.43 (gerçek).
+            acct_eq = float(
+                bot_cfg.get("account_equity_usdt") or defaults.get("account_equity_usdt") or 10000.0
+            )
+            # cum loss 7d / 14d — hesap equity'sine oranlı realized loss
             cum_pnl_7d = sum(float(t.get("realized_pnl_usdt", 0) or 0) for t in trades_7d)
             cum_pnl_14d = sum(float(t.get("realized_pnl_usdt", 0) or 0) for t in trades_14d)
-            # Approx starting equity = current equity - cum_pnl (relative loss pct)
-            current_equity = equity_7d[-1] if equity_7d else 0.0
-            # Test/empty journal'da bot equity baseline yok → mutlak loss pct
-            # için 1.0 baseline kullanırız (cum_pnl negatifse pct = -pnl);
-            # threshold pct < 1 olduğundan büyük loss'larda doğru tetikler.
-            baseline = max(abs(current_equity - cum_pnl_7d), 1.0)
-            cum_loss_7d_pct = max(0.0, -cum_pnl_7d / baseline)
-            baseline_14d = max(abs((equity_7d[-1] if equity_7d else 0.0) - cum_pnl_14d), 1.0)
-            cum_loss_14d_pct = max(0.0, -cum_pnl_14d / baseline_14d)
+            cum_loss_7d_pct = max(0.0, -cum_pnl_7d / acct_eq)
+            cum_loss_14d_pct = max(0.0, -cum_pnl_14d / acct_eq)
 
-            dd30 = self._calc_drawdown(self._equity_curve(self._read_trades(journal, since=now - timedelta(days=30))))
+            # 30g rolling MaxDD — equity eğrisi GERÇEK sermayeden başlar
+            # (acct_eq + cumsum(pnl)), böylece DD hesap büyüklüğüne oranlıdır.
+            dd30 = self._calc_drawdown(
+                self._equity_curve(
+                    self._read_trades(journal, since=now - timedelta(days=30)),
+                    starting_equity=acct_eq,
+                )
+            )
             consec = _count_consecutive_losses(trades_14d)
 
             # Eşik komparasyon
             breaches: list[str] = []
-            if "cum_loss_7d_pct" in thresholds and cum_loss_7d_pct > float(thresholds["cum_loss_7d_pct"]):
+            if "cum_loss_7d_pct" in thresholds and cum_loss_7d_pct > float(
+                thresholds["cum_loss_7d_pct"]
+            ):
                 breaches.append(
                     f"cum_loss_7d_pct={cum_loss_7d_pct:.4f} > thr={float(thresholds['cum_loss_7d_pct']):.4f}"
                 )
-            if "cum_loss_14d_pct" in thresholds and cum_loss_14d_pct > float(thresholds["cum_loss_14d_pct"]):
+            if "cum_loss_14d_pct" in thresholds and cum_loss_14d_pct > float(
+                thresholds["cum_loss_14d_pct"]
+            ):
                 breaches.append(
                     f"cum_loss_14d_pct={cum_loss_14d_pct:.4f} > thr={float(thresholds['cum_loss_14d_pct']):.4f}"
                 )
@@ -1076,7 +1144,9 @@ class BotMonitorAgent(LLMAgentBase):
                 breaches.append(
                     f"max_drawdown_pct={dd30:.4f} > thr={float(thresholds['max_drawdown_pct']):.4f}"
                 )
-            if "consecutive_losses" in thresholds and consec >= int(thresholds["consecutive_losses"]):
+            if "consecutive_losses" in thresholds and consec >= int(
+                thresholds["consecutive_losses"]
+            ):
                 breaches.append(
                     f"consecutive_losses={consec} >= thr={int(thresholds['consecutive_losses'])}"
                 )
@@ -1088,7 +1158,8 @@ class BotMonitorAgent(LLMAgentBase):
                 # Clear varsa
                 if first_warn_at:
                     body = self._build_alert_body(
-                        bot_name, "CLEAR",
+                        bot_name,
+                        "CLEAR",
                         breaches=[],
                         cum_loss_7d_pct=cum_loss_7d_pct,
                         cum_loss_14d_pct=cum_loss_14d_pct,
@@ -1114,7 +1185,8 @@ class BotMonitorAgent(LLMAgentBase):
             if not first_warn_at and warn_first:
                 # İlk WARN
                 body = self._build_alert_body(
-                    bot_name, "WARN",
+                    bot_name,
+                    "WARN",
                     breaches=breaches,
                     cum_loss_7d_pct=cum_loss_7d_pct,
                     cum_loss_14d_pct=cum_loss_14d_pct,
@@ -1148,7 +1220,8 @@ class BotMonitorAgent(LLMAgentBase):
                 elapsed_h = (now - first_dt).total_seconds() / 3600.0
                 if elapsed_h >= warn_hold_hours:
                     body = self._build_alert_body(
-                        bot_name, "PAUSE",
+                        bot_name,
+                        "PAUSE",
                         breaches=breaches,
                         cum_loss_7d_pct=cum_loss_7d_pct,
                         cum_loss_14d_pct=cum_loss_14d_pct,
@@ -1195,9 +1268,9 @@ class BotMonitorAgent(LLMAgentBase):
     def _parse_iso(s: str) -> datetime:
         try:
             dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
         except Exception:
-            return datetime.now(timezone.utc)
+            return datetime.now(UTC)
 
     def _build_alert_body(
         self,
@@ -1211,7 +1284,7 @@ class BotMonitorAgent(LLMAgentBase):
         consec: int,
         recommendation: str,
     ) -> str:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Source query hash for reproducibility
         h = hashlib.sha256(
             f"{bot_name}|{cum_loss_7d_pct}|{cum_loss_14d_pct}|{dd30}|{consec}|{now.isoformat()}".encode()

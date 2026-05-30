@@ -1,0 +1,275 @@
+# Denetim Evreni (Audit Universe) — İç Denetim Departmanı (3. savunma hattı).
+#
+# audit_chief sahibi. TÜM denetçiler READ eder. Her işleyiş/süreç burada bir
+# denetçiye + risk derecesine + cadence'e + kontrol-test listesine haritalanır.
+# audit_chief haftalık KAPSAMA-BOŞLUĞU taraması koşar: eksik (owner_agent/auditor/
+# controls) olan süreç = uncovered_process bulgusu. ("Açıkta kalan var mı?")
+#
+# Şema (process başına): domain, owner_agent (1. hat), auditor (3. hat),
+#   inherent_risk (critical|high|med|low), cadence (daily|weekly), controls [CT-...].
+#
+# FAZ 2: ~50 işleyişin tamamı. controls'u olmayan satırlar Faz 3'te kontrol-testi
+# kazanacak (şimdilik 'controls: []' → kapsama taraması bunları "kontrol eksik" işaretler,
+# bu BİLİNÇLİ bir backlog sinyalidir).
+
+meta:
+  owner: audit_chief
+  framework: "IIA Three Lines Model + COSO Internal Control"
+  reviewed: 2026-05-30
+  phase: 2
+
+processes:
+  # ============ VERİ (audit_data) ============
+  data.ingest_ccxt_hourly:
+    domain: data
+    owner_agent: data_engineer
+    auditor: audit_data
+    inherent_risk: high
+    cadence: daily
+    controls: [CT-DAT-01]      # ingest↔trading evreni (3538-vs-14 / 14-vs-19)
+  data.ingest_15m_live:
+    domain: data
+    owner_agent: data_engineer
+    auditor: audit_data
+    inherent_risk: high
+    cadence: daily
+    controls: []               # (Faz 3) 15m freshness/gap kontrolü
+  data.quality_checks:
+    domain: data
+    owner_agent: data_engineer
+    auditor: audit_data
+    inherent_risk: med
+    cadence: daily
+    controls: []
+  data.market_snapshot:
+    domain: data
+    owner_agent: data_engineer
+    auditor: audit_data
+    inherent_risk: high
+    cadence: daily
+    controls: []               # (Faz 3) snapshot atomiklik + freshness
+  data.duckdb_storage:
+    domain: data
+    owner_agent: data_engineer
+    auditor: audit_data
+    inherent_risk: high
+    cadence: daily
+    controls: [CT-DAT-04]      # ÖNGÖRÜ: DuckDB kilit/bozulma (ingest15m exit-1)
+  data.rag_corpus:
+    domain: data
+    owner_agent: data_engineer
+    auditor: audit_data
+    inherent_risk: low
+    cadence: weekly
+    controls: []
+  data.alt_data:
+    domain: data
+    owner_agent: data_engineer
+    auditor: audit_data
+    inherent_risk: low
+    cadence: weekly
+    controls: []
+
+  # ============ RİSK + PORTFÖY (audit_risk) ============
+  risk.sizing:
+    domain: risk
+    owner_agent: risk_officer
+    auditor: audit_risk
+    inherent_risk: critical
+    cadence: daily
+    controls: []               # (Faz 3) Kelly-cap + config tutarlılık
+  risk.breaker_killcriteria:
+    domain: risk
+    owner_agent: risk_officer
+    auditor: audit_risk
+    inherent_risk: critical
+    cadence: daily
+    controls: [CT-RSK-01]      # MaxDD baz hatası (%43 şişme)
+  risk.gates:
+    domain: risk
+    owner_agent: risk_officer
+    auditor: audit_risk
+    inherent_risk: critical
+    cadence: daily
+    controls: []               # (Faz 3) correlation/concentration exception oranı
+  risk.regime_filter:
+    domain: risk
+    owner_agent: risk_officer
+    auditor: audit_risk
+    inherent_risk: high
+    cadence: daily
+    controls: []               # (Faz 3) regime cache freshness + eşik tutarlılık
+  portfolio.allocator:
+    domain: risk
+    owner_agent: portfolio_manager
+    auditor: audit_risk
+    inherent_risk: high
+    cadence: daily
+    controls: []
+  ops.paper_gate:
+    domain: risk
+    owner_agent: ops_engineer
+    auditor: audit_risk
+    inherent_risk: med
+    cadence: daily
+    controls: []
+
+  # ============ EXECUTION + DAEMON (audit_execution) ============
+  execution.reconcile_journal:
+    domain: execution
+    owner_agent: execution_chief
+    auditor: audit_execution
+    inherent_risk: critical
+    cadence: daily
+    controls: [CT-EXE-01]      # journal↔borsa drift (XLM/NEAR)
+  execution.order_manager:
+    domain: execution
+    owner_agent: execution_chief
+    auditor: audit_execution
+    inherent_risk: critical
+    cadence: daily
+    controls: []
+  execution.post_only_router:
+    domain: execution
+    owner_agent: execution_chief
+    auditor: audit_execution
+    inherent_risk: high
+    cadence: daily
+    controls: []
+  execution.pyramid_router:
+    domain: execution
+    owner_agent: execution_chief
+    auditor: audit_execution
+    inherent_risk: high
+    cadence: daily
+    controls: []
+  execution.idempotency:
+    domain: execution
+    owner_agent: execution_chief
+    auditor: audit_execution
+    inherent_risk: critical
+    cadence: daily
+    controls: []               # (Faz 3) çift-emir koruması testi
+  execution.slippage_tracker:
+    domain: execution
+    owner_agent: execution_chief
+    auditor: audit_execution
+    inherent_risk: med
+    cadence: daily
+    controls: []               # (Faz 3) TF-bütçe ihlali
+  execution.dead_mans_switch:
+    domain: execution
+    owner_agent: execution_chief
+    auditor: audit_execution
+    inherent_risk: critical
+    cadence: daily
+    controls: []               # (Faz 3) heartbeat fail-safe
+  execution.ccxt_live_paper:
+    domain: execution
+    owner_agent: execution_chief
+    auditor: audit_execution
+    inherent_risk: critical
+    cadence: daily
+    controls: []
+  daemon.futures_15m:
+    domain: execution
+    owner_agent: execution_chief
+    auditor: audit_execution
+    inherent_risk: high
+    cadence: daily
+    controls: []
+  daemon.futures_5m:
+    domain: execution
+    owner_agent: execution_chief
+    auditor: audit_execution
+    inherent_risk: high
+    cadence: daily
+    controls: []
+
+  # ============ ARAŞTIRMA→LAB→DEPLOY (audit_research) ============
+  research.hypotheses:
+    domain: research
+    owner_agent: researcher
+    auditor: audit_research
+    inherent_risk: med
+    cadence: weekly
+    controls: []
+  research.hypothesis_runner:
+    domain: research
+    owner_agent: lab_scientist
+    auditor: audit_research
+    inherent_risk: high
+    cadence: weekly
+    controls: []
+  research.backtest_metrics:
+    domain: research
+    owner_agent: lab_scientist
+    auditor: audit_research
+    inherent_risk: high
+    cadence: weekly
+    controls: [CT-RES-01]      # Sharpe annualization şişmesi (17.3)
+  research.backtest_engine:
+    domain: research
+    owner_agent: lab_scientist
+    auditor: audit_research
+    inherent_risk: high
+    cadence: weekly
+    controls: []               # (Faz 3) lookahead/leakage
+  research.walk_forward:
+    domain: research
+    owner_agent: lab_scientist
+    auditor: audit_research
+    inherent_risk: high
+    cadence: weekly
+    controls: []
+  research.tournament_promotion:
+    domain: research
+    owner_agent: lab_scientist
+    auditor: audit_research
+    inherent_risk: critical
+    cadence: weekly
+    controls: []               # (Faz 3) gate gerçekten uygulandı mı
+  research.drift_detection:
+    domain: research
+    owner_agent: lab_scientist
+    auditor: audit_research
+    inherent_risk: med
+    cadence: weekly
+    controls: []
+
+  # ============ OPS / KONTROL-ORTAMI (audit_ops) ============
+  ops.notifications_mute:
+    domain: ops
+    owner_agent: ops_engineer
+    auditor: audit_ops
+    inherent_risk: high
+    cadence: daily
+    controls: [CT-OPS-01]      # alarm mute kör-noktası
+  ops.scheduler_cron_health:
+    domain: ops
+    owner_agent: ops_engineer
+    auditor: audit_ops
+    inherent_risk: high
+    cadence: daily
+    controls: [CT-OPS-02]      # sessiz cron (öngörü)
+  ops.token_budget:
+    domain: ops
+    owner_agent: ops_engineer
+    auditor: audit_ops
+    inherent_risk: low
+    cadence: daily
+    controls: []
+  ops.freshness_watchdog:
+    domain: ops
+    owner_agent: ops_engineer
+    auditor: audit_ops
+    inherent_risk: med
+    cadence: daily
+    controls: []
+  ops.second_line_liveness:
+    domain: ops
+    owner_agent: ops_engineer
+    auditor: audit_ops
+    inherent_risk: high
+    cadence: daily
+    controls: []               # (Faz 3) risk_officer/adversary/bot_monitor doc üretiyor mu

@@ -15,12 +15,13 @@ Bu script:
 
 Cron: her 15dk (15M bar close ile aynı pencere).
 """
+
 from __future__ import annotations
 
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 _SRC = Path(__file__).resolve().parent.parent / "src"
@@ -33,7 +34,7 @@ _REPORT_DIR = _REPO / "reports" / "reconcile"
 
 
 def _log(msg: str) -> None:
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
     print(f"[{ts}] {msg}", flush=True)
 
 
@@ -53,12 +54,15 @@ def _fetch_exchange_positions() -> dict[str, dict]:
     # 1) ccxt try
     try:
         import ccxt
-        ex = ccxt.binance({
-            "enableRateLimit": True,
-            "options": {"defaultType": "future"},
-            "apiKey": os.environ.get("PA_BINANCE_API_KEY", ""),
-            "secret": os.environ.get("PA_BINANCE_SECRET", ""),
-        })
+
+        ex = ccxt.binance(
+            {
+                "enableRateLimit": True,
+                "options": {"defaultType": "future"},
+                "apiKey": os.environ.get("PA_BINANCE_API_KEY", ""),
+                "secret": os.environ.get("PA_BINANCE_SECRET", ""),
+            }
+        )
         if os.environ.get("PA_RUN_MODE", "paper") == "paper":
             ex.set_sandbox_mode(True)
         raw = ex.fetch_positions()
@@ -83,6 +87,7 @@ def _fetch_exchange_positions() -> dict[str, dict]:
 
     # 2) Fallback — POS_CHECK log parse
     import re
+
     log_path = _REPO / "logs" / "launchd" / "futures15m.stderr.log"
     if not log_path.exists():
         return out
@@ -129,6 +134,7 @@ def _fetch_journal_open_positions() -> list[dict]:
         return []
     try:
         import duckdb
+
         con = duckdb.connect(str(_JOURNAL), read_only=True)
         try:
             df = con.execute("""
@@ -151,17 +157,18 @@ def _close_orphan(orphan: dict, exit_price: float) -> bool:
     """Journal'da orphan trade'i close olarak kaydet."""
     try:
         from price_action.execution.trade_journal import TradeJournal
+
         tj = TradeJournal(db_path=str(_JOURNAL))
         ts_open = orphan["ts"]
         if hasattr(ts_open, "to_pydatetime"):
             ts_open = ts_open.to_pydatetime()
         # tz-naive → UTC ata
         if ts_open.tzinfo is None:
-            ts_open = ts_open.replace(tzinfo=timezone.utc)
+            ts_open = ts_open.replace(tzinfo=UTC)
         return tj.record_close(
             trade_id=str(orphan["signal_id"]),
             ts_open=ts_open,
-            ts_close=datetime.now(timezone.utc),
+            ts_close=datetime.now(UTC),
             sym=str(orphan["symbol"]),
             side=str(orphan["side"]).lower(),  # type: ignore[arg-type]
             strategy=str(orphan["strategy"] or ""),
@@ -182,6 +189,7 @@ def _push_phantom_alert(phantoms: list[dict]) -> None:
         return
     try:
         from price_action.orchestrator.notifications import push_critical
+
         lines = [
             f"⚠️ JOURNAL DRIFT — {len(phantoms)} 'phantom' pozisyon",
             "Borsada var, journal'da kayıt yok:",
@@ -202,9 +210,14 @@ def _push_phantom_alert(phantoms: list[dict]) -> None:
 
 def reconcile() -> dict:
     """Ana reconcile fonksiyonu."""
-    stats = {"exchange_pos": 0, "journal_open": 0,
-             "orphans_closed": 0, "phantoms": 0, "in_sync": 0,
-             "exchange_fetch_ok": False}
+    stats = {
+        "exchange_pos": 0,
+        "journal_open": 0,
+        "orphans_closed": 0,
+        "phantoms": 0,
+        "in_sync": 0,
+        "exchange_fetch_ok": False,
+    }
 
     exchange = _fetch_exchange_positions()
     journal = _fetch_journal_open_positions()
@@ -217,12 +230,15 @@ def reconcile() -> dict:
     # Eğer ccxt fetch_positions boş döndü AMA journal'da açık varsa,
     # API key eksikliği veya geçici hata olabilir → reconcile ETME, alert at.
     if len(exchange) == 0 and len(journal) > 0:
-        _log(f"SAFE_MODE: exchange empty but journal has {len(journal)} open — "
-             f"reconcile SKIPPED (API key veya fetch fail muhtemel)")
+        _log(
+            f"SAFE_MODE: exchange empty but journal has {len(journal)} open — "
+            f"reconcile SKIPPED (API key veya fetch fail muhtemel)"
+        )
         stats["exchange_fetch_ok"] = False
         # FIX 2026-05-26 (Faz 14.8): throttle (1h) — her 15dk spam etmesin
         try:
             from price_action.ops.telegram_throttle import get_telegram_throttle
+
             get_telegram_throttle().send_throttled(
                 alert_type="reconciler_safe_mode",
                 message=(
@@ -243,25 +259,111 @@ def reconcile() -> dict:
     journal_symbols = {j["symbol"] for j in journal}
 
     # 1. Orphan: journal'da var, borsada yok → close
+    # FIX 2026-05-30 (INC1-reconcile-exit-px): exit_price daha önce fetch_ticker
+    # (anlık piyasa fiyatı) kullanıyordu. Bu GERÇEĞİ yansıtmaz —
+    # pozisyon farklı bir fiyatta kapandıysa PnL yanlış yazılır (XLM vakası:
+    # 0.25819 ticker vs 0.24959 gerçek fill). Düzeltme öncelik sırası:
+    #   1) fapiPrivateGetAllOrders (kapanış tarihi yakın, reduceOnly fill)
+    #   2) ticker (son çare)
+    #   3) entry_price (en kötü durum — PnL=0 yazmak yanlış kayıptan iyidir)
     orphans = [j for j in journal if j["symbol"] not in exchange_symbols]
     for o in orphans:
-        # Exit price = current market price (mark)
+        exit_px = float(o["fill_price"] or 0.0)  # fallback = entry (PnL=0)
         try:
             import ccxt
-            ex = ccxt.binance({
-                "enableRateLimit": True,
-                "options": {"defaultType": "future"},
-            })
+
+            ex = ccxt.binance(
+                {
+                    "enableRateLimit": True,
+                    "options": {"defaultType": "future"},
+                    "apiKey": os.environ.get("PA_BINANCE_API_KEY", ""),
+                    "secret": os.environ.get("PA_BINANCE_SECRET", ""),
+                }
+            )
             if os.environ.get("PA_RUN_MODE", "paper") == "paper":
                 ex.set_sandbox_mode(True)
-            ticker = ex.fetch_ticker(o["symbol"])
-            exit_px = float(ticker.get("last") or o["fill_price"])
-        except Exception:
-            exit_px = float(o["fill_price"] or 0.0)
+            _sym_id = (
+                str(o["symbol"])
+                .replace("/USDT:USDT", "USDT")
+                .replace("/USDT", "USDT")
+                .replace("/", "")
+            )
+            _actual_exit: float | None = None
+            # 1) Son 50 closed order içinden en güncel reduceOnly fill'i bul
+            try:
+                _hist = ex.fapiPrivateGetAllOrders(
+                    {
+                        "symbol": _sym_id,
+                        "limit": 50,
+                    }
+                )
+                # reduceOnly=True ve status=FILLED olan en son order
+                _reduce_fills = [
+                    _h
+                    for _h in (_hist or [])
+                    if str(_h.get("status", "")).upper() == "FILLED"
+                    and (
+                        str(_h.get("reduceOnly", "false")).lower() == "true"
+                        or bool(_h.get("reduceOnly"))
+                    )
+                ]
+                if _reduce_fills:
+                    # En yeni (updateTime büyük olan)
+                    _latest = max(_reduce_fills, key=lambda h: int(h.get("updateTime", 0) or 0))
+                    _ap = _latest.get("avgPrice") or _latest.get("price")
+                    if _ap and float(_ap) > 0:
+                        _actual_exit = float(_ap)
+                        _log(
+                            f"ORPHAN_EXIT_FROM_ORDER: {o['symbol']} "
+                            f"exit=${_actual_exit:.5f} (reduceOnly fill)"
+                        )
+            except Exception as _hist_err:
+                _log(f"ORPHAN_HIST_FAIL {o['symbol']}: {str(_hist_err)[:80]}")
+            # 2) Algo order history (TP/SL hit)
+            if _actual_exit is None:
+                try:
+                    _algo_hist = ex.fapiPrivateGetAllAlgoOrders({"symbol": _sym_id, "limit": 30})
+                    _triggered = [
+                        _a
+                        for _a in (_algo_hist or [])
+                        if str(_a.get("algoStatus", "")).upper() in ("TRIGGERED", "FINISHED")
+                    ]
+                    if _triggered:
+                        _latest_algo = max(
+                            _triggered, key=lambda h: int(h.get("updateTime", 0) or 0)
+                        )
+                        _tp = _latest_algo.get("triggerPrice")
+                        if _tp and float(_tp) > 0:
+                            _actual_exit = float(_tp)
+                            _log(
+                                f"ORPHAN_EXIT_FROM_ALGO: {o['symbol']} "
+                                f"exit=${_actual_exit:.5f} (algo trigger)"
+                            )
+                except Exception as _algo_err:
+                    _log(f"ORPHAN_ALGO_HIST_FAIL {o['symbol']}: {str(_algo_err)[:80]}")
+            # 3) ticker fallback
+            if _actual_exit is None:
+                try:
+                    ticker = ex.fetch_ticker(o["symbol"])
+                    _ticker_px = float(ticker.get("last") or 0.0)
+                    if _ticker_px > 0:
+                        _actual_exit = _ticker_px
+                        _log(
+                            f"ORPHAN_EXIT_TICKER_FALLBACK: {o['symbol']} "
+                            f"exit=${_actual_exit:.5f} (WARNING: may not be actual fill)"
+                        )
+                except Exception:
+                    pass
+            if _actual_exit is not None and _actual_exit > 0:
+                exit_px = _actual_exit
+        except Exception as _ex_err:
+            _log(f"ORPHAN_EXIT_FETCH_ERR {o['symbol']}: {str(_ex_err)[:80]}")
         if _close_orphan(o, exit_px):
             stats["orphans_closed"] += 1
-            _log(f"ORPHAN_CLOSED: {o['symbol']} {o['side']} sig={o['signal_id']} "
-                 f"entry=${o['fill_price']:.4f} exit=${exit_px:.4f}")
+            _log(
+                f"ORPHAN_CLOSED: {o['symbol']} {o['side']} sig={o['signal_id']} "
+                f"entry=${o['fill_price']:.4f} exit=${exit_px:.4f}"
+            )
 
     # 2. Phantom: borsada var, journal'da yok → alert
     # FIX 2026-05-28 (Faz 14.27): phantom alert push_critical çalışıyor
@@ -273,13 +375,12 @@ def reconcile() -> dict:
     if phantoms:
         _push_phantom_alert(phantoms)
         for p in phantoms:
-            _log(f"PHANTOM: {p['symbol']} {p['side']} qty={p['qty']} "
-                 f"@${p['entry_price']:.4f}")
+            _log(f"PHANTOM: {p['symbol']} {p['side']} qty={p['qty']} " f"@${p['entry_price']:.4f}")
         # Defansif: phantom sayısı > 0 her zaman ek stats field — Bot Monitor okusun
         stats["phantom_symbols"] = [p["symbol"] for p in phantoms]
         stats["phantom_total_notional"] = round(
-            sum(abs(float(p.get("qty", 0)) * float(p.get("entry_price", 0)))
-                for p in phantoms), 2)
+            sum(abs(float(p.get("qty", 0)) * float(p.get("entry_price", 0))) for p in phantoms), 2
+        )
 
     # 3. In-sync: ikisinde de var
     stats["in_sync"] = len(exchange_symbols & journal_symbols)
@@ -300,16 +401,19 @@ def reconcile() -> dict:
         if ex_qty > 0 and j_qty > 0:
             diff_pct = abs(ex_qty - j_qty) / max(ex_qty, j_qty)
             if diff_pct > 0.05:  # >%5 qty drift
-                sync_mismatches.append({
-                    "symbol": sym,
-                    "exchange_qty": ex_qty,
-                    "journal_qty": j_qty,
-                    "diff_pct": round(diff_pct * 100, 2),
-                })
+                sync_mismatches.append(
+                    {
+                        "symbol": sym,
+                        "exchange_qty": ex_qty,
+                        "journal_qty": j_qty,
+                        "diff_pct": round(diff_pct * 100, 2),
+                    }
+                )
     stats["sync_mismatches"] = sync_mismatches
     if sync_mismatches:
         try:
             from price_action.orchestrator.notifications import push_critical
+
             push_critical(
                 f"⚠️ JOURNAL/EXCHANGE QTY DRIFT — {len(sync_mismatches)} sembol "
                 f">5% qty fark: {sync_mismatches[:3]}",
@@ -318,12 +422,77 @@ def reconcile() -> dict:
         except Exception:
             pass
 
+        # FIX 2026-05-30 (INC2-reconcile-qty-heal): Güvenli auto-heal.
+        # Borsa qty'si journal qty'sinden düşük ve diff >5% ise:
+        #   a) futures_signals.fill_qty'yi exchange gerçeğine güncelle.
+        #   b) futures_trades_closed'de (henüz varsa) qty'yi de güncelle.
+        # GÜVENLİK KISITLARI:
+        #   - Exchange qty < journal qty: kısmi fill veya partial close. Düzeltme OK.
+        #   - Exchange qty > journal qty: fazla açık pozisyon (phantom benzeri).
+        #     Otomatik journal artırma YAPILMAZ — phantom alert kanalından gider.
+        #   - diff >50%: agresif sapma, auto-heal YAPILMAZ, sadece alarm.
+        _healed: list[dict] = []
+        try:
+            import duckdb as _ddb
+
+            _jcon_heal = _ddb.connect(str(_JOURNAL))
+            try:
+                for _mm in sync_mismatches:
+                    _sym = _mm["symbol"]
+                    _ex_qty = float(_mm["exchange_qty"])
+                    _j_qty = float(_mm["journal_qty"])
+                    _diff_pct = float(_mm["diff_pct"])
+                    # Sadece exchange < journal durumunda düzelt (kısmi fill/close)
+                    if _ex_qty >= _j_qty:
+                        _log(
+                            f"QTY_HEAL_SKIP: {_sym} exchange_qty={_ex_qty} >= journal_qty={_j_qty} — phantom yolu"
+                        )
+                        continue
+                    if _diff_pct > 50.0:
+                        _log(
+                            f"QTY_HEAL_SKIP: {_sym} diff={_diff_pct:.1f}% >50% — too aggressive, manual review"
+                        )
+                        continue
+                    # a) futures_signals.fill_qty güncelle (açık kayıt)
+                    _j_rows = [j for j in journal if j["symbol"] == _sym]
+                    for _jr in _j_rows:
+                        _sig_id = str(_jr["signal_id"])
+                        try:
+                            _jcon_heal.execute(
+                                "UPDATE futures_signals SET fill_qty=? WHERE signal_id=? AND fill_qty=?",
+                                [_ex_qty, _sig_id, _j_qty],
+                            )
+                            _log(
+                                f"QTY_HEAL: futures_signals {_sym} sig={_sig_id} "
+                                f"{_j_qty}→{_ex_qty}"
+                            )
+                            _healed.append(
+                                {"symbol": _sym, "sig_id": _sig_id, "from": _j_qty, "to": _ex_qty}
+                            )
+                        except Exception as _hu_err:
+                            _log(f"QTY_HEAL_ERR futures_signals {_sym}: {str(_hu_err)[:80]}")
+                    # b) futures_trades_closed (eğer bu trade kapanmış ise) — qty sütunu
+                    try:
+                        _jcon_heal.execute(
+                            "UPDATE futures_trades_closed SET qty=? WHERE trade_id IN "
+                            "(SELECT signal_id FROM futures_signals WHERE symbol=? AND fill_qty=?)",
+                            [_ex_qty, _sym, _ex_qty],  # fill_qty zaten healed
+                        )
+                    except Exception:
+                        pass
+                _jcon_heal.commit()
+            finally:
+                _jcon_heal.close()
+        except Exception as _heal_err:
+            _log(f"QTY_HEAL_GLOBAL_ERR: {str(_heal_err)[:120]}")
+        stats["qty_healed"] = _healed
+
     return stats
 
 
 def write_report(stats: dict, *, orphans: int = 0, phantoms: int = 0) -> Path:
     _REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     path = _REPORT_DIR / f"reconcile-{now.strftime('%Y-%m-%d-%H%M')}.json"
     payload = {
         "ts": now.isoformat(),

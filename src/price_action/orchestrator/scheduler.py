@@ -1160,11 +1160,19 @@ async def _job_stuck_doc_check() -> None:
             return
 
         now = datetime.now(UTC)
+        # FIX 2026-05-30: SADECE gerçekten aksiyon/principal gerektiren topic'ler
+        # page eder. Önceki "default 48h" tüm bilgilendirme/danışma akışını
+        # (bot_daily_card, bot_health_report, endorse, tournament, whatif,
+        # market_feasibility, strategy_correlation/lifecycle, adversarial_test,
+        # new_hypothesis) "stuck" sayıp yanlış-pozitif CRIT basıyordu — bunlar
+        # agent-to-agent otonom akış, tüketilmese de operatör eylemi gerekmez.
+        # Aksiyon-gerektiren: kill_criteria_alert (güvenlik) + critique (CEO
+        # review gate). Sadece bunlar alarm verir.
         thresholds = {
             "kill_criteria_alert": timedelta(hours=6),
             "critique": timedelta(hours=12),
-            "default": timedelta(hours=48),
         }
+        actionable_topics = set(thresholds.keys())
         # Per-doc dedup (saatlik tetik → her doc 1 push)
         stuck_state_path = Path("logs/state/stuck_docs_pushed.json")
         stuck_state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1184,6 +1192,9 @@ async def _job_stuck_doc_check() -> None:
                 continue
             if msg.get("ack_at"):
                 continue
+            # FIX 2026-05-30: yalnızca aksiyon-gerektiren topic'ler alarm verir.
+            if msg.get("topic") not in actionable_topics:
+                continue
             created = msg.get("created_at", "")
             try:
                 created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
@@ -1192,8 +1203,8 @@ async def _job_stuck_doc_check() -> None:
             age = now - created_dt
             doc_id = msg.get("doc_id", "")
             topic = msg.get("topic", "")
-            # Eşik
-            thr = thresholds.get(topic, thresholds["default"])
+            # Eşik (sadece actionable_topics buraya ulaşır)
+            thr = thresholds[topic]
             if age < thr:
                 continue
             # Dedup — bu doc bu süre içinde push edildi mi?
@@ -1292,9 +1303,31 @@ async def _job_dms_heartbeat_check() -> None:
         now = _dt.now(UTC)
         stale_threshold_min = 5
         abandoned_threshold_min = 60 * 24  # FIX 2026-05-26 (Faz 14.8): 24h+ phantom
+        # FIX 2026-05-30: paper/backtest modunda CANLI execution döngüsü yok →
+        # dms_heartbeat_execution.txt güncellenmiyor (phantom). Koruduğu canlı
+        # emir olmadığı için staleness alarmı yanlış-pozitif. Yalnızca live
+        # modda execution heartbeat anlamlı. Trading daemon heartbeat'leri
+        # (futures_daemon_15m/5m) her modda kontrol edilir — onlar her zaman canlı.
+        run_mode = str(getattr(s, "pa_run_mode", "paper")).lower()
         for hb in data_dir.glob("dms_heartbeat_*.txt"):
             # Skip test heartbeat dosyaları
             if "test" in hb.name.lower():
+                continue
+            # Skip execution-layer heartbeat when not live (paper phantom)
+            if "execution" in hb.name.lower() and run_mode != "live":
+                # 1 kez sessizce temizle (yeniden birikmesin), alarm verme
+                try:
+                    age_min_exec = (
+                        now - _dt.fromtimestamp(hb.stat().st_mtime, tz=UTC)
+                    ).total_seconds() / 60
+                    if age_min_exec > stale_threshold_min:
+                        hb.unlink()
+                        logger.info(
+                            "scheduler.dms_execution_phantom_removed",
+                            extra={"file": hb.name, "run_mode": run_mode},
+                        )
+                except Exception:
+                    pass
                 continue
             try:
                 mtime = _dt.fromtimestamp(hb.stat().st_mtime, tz=UTC)
@@ -1352,6 +1385,7 @@ _FRESHNESS_LAST_ALERT: dict[str, float] = {}
 def _freshness_should_alert(key: str, throttle_s: float) -> bool:
     """feed başına throttle. True → şimdi alarm gönder (ve zaman damgala)."""
     import time as _t
+
     now = _t.time()
     last = _FRESHNESS_LAST_ALERT.get(key, 0.0)
     if now - last >= throttle_s:
@@ -1382,10 +1416,12 @@ def _check_freshness(now=None) -> list[dict[str, Any]]:
 
     try:
         from price_action.settings import get_settings as _gs
+
         s = _gs()
         data_dir = _Path(s.duckdb_path).parent
     except Exception:
         from pathlib import Path as _P
+
         data_dir = _P(__file__).resolve().parents[3] / "data"
         s = None
 
@@ -1393,13 +1429,17 @@ def _check_freshness(now=None) -> list[dict[str, Any]]:
     try:
         market_db = _Path(s.duckdb_path) if s is not None else data_dir / "market.duckdb"
         if not market_db.exists():
-            violations.append({
-                "alert_type": "freshness_market_stale", "level": "CRITICAL",
-                "key": "market_stale",
-                "message": f"market.duckdb YOK: {market_db}",
-            })
+            violations.append(
+                {
+                    "alert_type": "freshness_market_stale",
+                    "level": "CRITICAL",
+                    "key": "market_stale",
+                    "message": f"market.duckdb YOK: {market_db}",
+                }
+            )
         else:
             import duckdb as _ddb
+
             _c = _ddb.connect(str(market_db), read_only=True)
             try:
                 _row = _c.execute("SELECT MAX(ts) FROM ohlcv").fetchone()
@@ -1407,106 +1447,145 @@ def _check_freshness(now=None) -> list[dict[str, Any]]:
                 _c.close()
             newest = _row[0] if _row else None
             if newest is None:
-                violations.append({
-                    "alert_type": "freshness_market_stale", "level": "CRITICAL",
-                    "key": "market_stale", "message": "market.duckdb ohlcv boş (MAX(ts)=NULL)",
-                })
+                violations.append(
+                    {
+                        "alert_type": "freshness_market_stale",
+                        "level": "CRITICAL",
+                        "key": "market_stale",
+                        "message": "market.duckdb ohlcv boş (MAX(ts)=NULL)",
+                    }
+                )
             else:
                 if getattr(newest, "tzinfo", None) is None:
-                    from datetime import timezone as _tz
-                    newest = newest.replace(tzinfo=_tz.utc)
+                    newest = newest.replace(tzinfo=UTC)
                 age_h = (now - newest).total_seconds() / 3600
                 if age_h > 2.0:
-                    violations.append({
-                        "alert_type": "freshness_market_stale", "level": "CRITICAL",
-                        "key": "market_stale",
-                        "message": (
-                            f"market.duckdb BAYAT: newest bar {newest} "
-                            f"({age_h:.1f}h önce, SLA 2h). Ingest/snapshot durmuş olabilir → "
-                            f"tüm downstream (regime/lab/backtest/drift) eski veri okuyor."
-                        ),
-                    })
+                    violations.append(
+                        {
+                            "alert_type": "freshness_market_stale",
+                            "level": "CRITICAL",
+                            "key": "market_stale",
+                            "message": (
+                                f"market.duckdb BAYAT: newest bar {newest} "
+                                f"({age_h:.1f}h önce, SLA 2h). Ingest/snapshot durmuş olabilir → "
+                                f"tüm downstream (regime/lab/backtest/drift) eski veri okuyor."
+                            ),
+                        }
+                    )
     except Exception as exc:
-        violations.append({
-            "alert_type": "freshness_market_stale", "level": "CRITICAL",
-            "key": "market_stale", "message": f"market.duckdb kontrol hatası: {str(exc)[:200]}",
-        })
+        violations.append(
+            {
+                "alert_type": "freshness_market_stale",
+                "level": "CRITICAL",
+                "key": "market_stale",
+                "message": f"market.duckdb kontrol hatası: {str(exc)[:200]}",
+            }
+        )
 
     # --- 2) RAG corpus count < 50 ----------------------------------------
     try:
         from price_action.rag.store import RAGStore
+
         n = RAGStore().count()
         if n < 50:
-            violations.append({
-                "alert_type": "freshness_rag_empty", "level": "CRITICAL",
-                "key": "rag_empty",
-                "message": (
-                    f"RAG corpus DÜŞÜK: {n} doküman (<50). Researcher/Lab boş RAG ile "
-                    f"hipotez üretiyorsa kalite çöker — embedding/index kayıp olabilir."
-                ),
-            })
+            violations.append(
+                {
+                    "alert_type": "freshness_rag_empty",
+                    "level": "CRITICAL",
+                    "key": "rag_empty",
+                    "message": (
+                        f"RAG corpus DÜŞÜK: {n} doküman (<50). Researcher/Lab boş RAG ile "
+                        f"hipotez üretiyorsa kalite çöker — embedding/index kayıp olabilir."
+                    ),
+                }
+            )
     except Exception as exc:
-        violations.append({
-            "alert_type": "freshness_rag_empty", "level": "WARNING",
-            "key": "rag_empty", "message": f"RAG corpus kontrol hatası: {str(exc)[:200]}",
-        })
+        violations.append(
+            {
+                "alert_type": "freshness_rag_empty",
+                "level": "WARNING",
+                "key": "rag_empty",
+                "message": f"RAG corpus kontrol hatası: {str(exc)[:200]}",
+            }
+        )
 
     # --- 3) regime_features_latest.parquet > 6h --------------------------
     try:
         rp = data_dir / "regime_features_latest.parquet"
         if not rp.exists():
-            violations.append({
-                "alert_type": "freshness_regime_stale", "level": "WARNING",
-                "key": "regime_stale", "message": "regime_features_latest.parquet YOK",
-            })
+            violations.append(
+                {
+                    "alert_type": "freshness_regime_stale",
+                    "level": "WARNING",
+                    "key": "regime_stale",
+                    "message": "regime_features_latest.parquet YOK",
+                }
+            )
         else:
-            from datetime import timezone as _tz
-            mtime = _dt.fromtimestamp(rp.stat().st_mtime, tz=_tz.utc)
+            mtime = _dt.fromtimestamp(rp.stat().st_mtime, tz=UTC)
             age_h = (now - mtime).total_seconds() / 3600
             if age_h > 6.0:
-                violations.append({
-                    "alert_type": "freshness_regime_stale", "level": "WARNING",
-                    "key": "regime_stale",
-                    "message": (
-                        f"regime_features_latest.parquet BAYAT: {age_h:.1f}h "
-                        f"(SLA 6h). regime_features_refresh cron'u çalışmıyor olabilir."
-                    ),
-                })
+                violations.append(
+                    {
+                        "alert_type": "freshness_regime_stale",
+                        "level": "WARNING",
+                        "key": "regime_stale",
+                        "message": (
+                            f"regime_features_latest.parquet BAYAT: {age_h:.1f}h "
+                            f"(SLA 6h). regime_features_refresh cron'u çalışmıyor olabilir."
+                        ),
+                    }
+                )
     except Exception as exc:
-        violations.append({
-            "alert_type": "freshness_regime_stale", "level": "WARNING",
-            "key": "regime_stale", "message": f"regime parquet kontrol hatası: {str(exc)[:200]}",
-        })
+        violations.append(
+            {
+                "alert_type": "freshness_regime_stale",
+                "level": "WARNING",
+                "key": "regime_stale",
+                "message": f"regime parquet kontrol hatası: {str(exc)[:200]}",
+            }
+        )
 
     # --- 4) futures daemon heartbeat > 20dk ------------------------------
     try:
-        from datetime import timezone as _tz
-        for hb_name in ("dms_heartbeat_futures_daemon_15m.txt",
-                        "dms_heartbeat_futures_daemon_5m.txt"):
+        for hb_name in (
+            "dms_heartbeat_futures_daemon_15m.txt",
+            "dms_heartbeat_futures_daemon_5m.txt",
+        ):
             hb = data_dir / hb_name
             if not hb.exists():
-                violations.append({
-                    "alert_type": "freshness_futures_hb_stale", "level": "CRITICAL",
-                    "key": f"futures_hb_{hb_name}",
-                    "message": f"futures daemon heartbeat YOK: {hb_name}",
-                })
+                violations.append(
+                    {
+                        "alert_type": "freshness_futures_hb_stale",
+                        "level": "CRITICAL",
+                        "key": f"futures_hb_{hb_name}",
+                        "message": f"futures daemon heartbeat YOK: {hb_name}",
+                    }
+                )
                 continue
-            mtime = _dt.fromtimestamp(hb.stat().st_mtime, tz=_tz.utc)
+            mtime = _dt.fromtimestamp(hb.stat().st_mtime, tz=UTC)
             age_m = (now - mtime).total_seconds() / 60
             if age_m > 20.0:
-                violations.append({
-                    "alert_type": "freshness_futures_hb_stale", "level": "CRITICAL",
-                    "key": f"futures_hb_{hb_name}",
-                    "message": (
-                        f"futures daemon DONMUŞ olabilir: {hb_name} heartbeat "
-                        f"{age_m:.0f}dk eski (SLA 20dk)."
-                    ),
-                })
+                violations.append(
+                    {
+                        "alert_type": "freshness_futures_hb_stale",
+                        "level": "CRITICAL",
+                        "key": f"futures_hb_{hb_name}",
+                        "message": (
+                            f"futures daemon DONMUŞ olabilir: {hb_name} heartbeat "
+                            f"{age_m:.0f}dk eski (SLA 20dk)."
+                        ),
+                    }
+                )
     except Exception as exc:
-        violations.append({
-            "alert_type": "freshness_futures_hb_stale", "level": "WARNING",
-            "key": "futures_hb_err", "message": f"futures hb kontrol hatası: {str(exc)[:200]}",
-        })
+        violations.append(
+            {
+                "alert_type": "freshness_futures_hb_stale",
+                "level": "WARNING",
+                "key": "futures_hb_err",
+                "message": f"futures hb kontrol hatası: {str(exc)[:200]}",
+            }
+        )
 
     return violations
 
@@ -1537,15 +1616,14 @@ async def _job_freshness_watchdog() -> None:
                 continue
             try:
                 from price_action.ops.telegram_throttle import get_telegram_throttle
+
                 get_telegram_throttle().send_throttled(
                     alert_type=v["alert_type"],
                     message="🚨 FRESHNESS: " + v["message"],
                     level=v.get("level", "CRITICAL"),
                 )
             except Exception:
-                _push_critical_safe(
-                    "FRESHNESS: " + v["message"], source="freshness_watchdog"
-                )
+                _push_critical_safe("FRESHNESS: " + v["message"], source="freshness_watchdog")
             logger.error(
                 "scheduler.freshness_violation",
                 extra={"alert_type": v["alert_type"], "msg": v["message"][:200]},
@@ -2221,6 +2299,80 @@ def _push_latest_safe(
 
 
 # ----------------------------------------------------------------------
+# İç Denetim (3. savunma hattı) — Faz 2 cron job'ları
+# Üretim cron'larından SONRA (05:30+) → denetçi BİTMİŞ çıktıyı okur.
+# Denetçiler read-only; bulgu → reports/audit/ + findings_register.jsonl.
+# ----------------------------------------------------------------------
+async def _run_audit_domain(agent_cls: Any, label: str) -> None:
+    """Bir domain denetçisini koş, bulguları emit et, high/critical'ı Principal'a push."""
+    try:
+        agent = agent_cls()
+        emitted = await agent.daily_control_review()
+        if emitted:
+            _push_critical_safe(
+                f"🔎 İç Denetim [{label}]: {len(emitted)} yeni bulgu. "
+                f"reports/audit/ + memory/audit/findings_register.jsonl",
+                source=f"audit_{label}",
+            )
+        logger.info("scheduler.audit_done", extra={"label": label, "n_findings": len(emitted)})
+    except Exception as exc:
+        logger.warning("scheduler.audit_fail", extra={"label": label, "err": str(exc)[:200]})
+
+
+async def _job_audit_execution() -> None:
+    from price_action.agents import AuditExecutionAgent
+
+    await _run_audit_domain(AuditExecutionAgent, "execution")
+
+
+async def _job_audit_risk() -> None:
+    from price_action.agents import AuditRiskAgent
+
+    await _run_audit_domain(AuditRiskAgent, "risk")
+
+
+async def _job_audit_data() -> None:
+    from price_action.agents import AuditDataAgent
+
+    await _run_audit_domain(AuditDataAgent, "data")
+
+
+async def _job_audit_research() -> None:
+    from price_action.agents import AuditResearchAgent
+
+    await _run_audit_domain(AuditResearchAgent, "research")
+
+
+async def _job_audit_ops() -> None:
+    from price_action.agents import AuditOpsAgent
+
+    await _run_audit_domain(AuditOpsAgent, "ops")
+
+
+async def _job_audit_chief_weekly() -> None:
+    """Haftalık kapsama-boşluğu taraması (uncovered_process bulguları)."""
+    try:
+        from price_action.agents import AuditChiefAgent
+
+        agent = AuditChiefAgent()
+        emitted = [agent.emit_finding(f) for f in agent.run_coverage_gap()]
+        logger.info("scheduler.audit_chief_weekly", extra={"n_gaps": len(emitted)})
+    except Exception as exc:
+        logger.warning("scheduler.audit_chief_weekly_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_audit_chief_monthly() -> None:
+    """Aylık güvence raporu + öngörü beyin-fırtınası → Principal."""
+    try:
+        from price_action.agents import AuditChiefAgent
+
+        path = await AuditChiefAgent().monthly_assurance()
+        _push_report_safe(path, level="INFO", caption="İç Denetim — Aylık Güvence")
+    except Exception as exc:
+        logger.warning("scheduler.audit_chief_monthly_fail", extra={"err": str(exc)[:200]})
+
+
+# ----------------------------------------------------------------------
 # Kayıt
 # ----------------------------------------------------------------------
 
@@ -2233,7 +2385,12 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     # FIX 2026-05-29 (deploy): daily (00:01) → every 4h (00:01,04:01,...). Daily refresh
     # left cache >6h stale by afternoon → regime_cache_stale HARD_REJECT (48 occurrences
     # observed in live log). 4h cadence keeps fetched_at age < 4h, under reject gate.
-    ("regime_features_refresh", "cron", "1 */4 * * *", _job_regime_features_refresh),  # :01 her 4h UTC
+    (
+        "regime_features_refresh",
+        "cron",
+        "1 */4 * * *",
+        _job_regime_features_refresh,
+    ),  # :01 her 4h UTC
     # FIX 2026-05-26 (H6): pending entry retry processor (her 60s)
     ("process_pending_entries", "cron", "* * * * *", _job_process_pending_entries),
     # FIX 2026-05-26 (M1): launchd log rotation (saatlik :50)
@@ -2325,6 +2482,14 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
         "0 9 28-31 * *",
         _job_monthly_strategy_portfolio_review,
     ),  # Faz 12
+    # İç Denetim (3. savunma hattı) — Faz 2 otonom. Üretim cron'larından sonra.
+    ("audit_execution", "cron", "30 5 * * *", _job_audit_execution),  # günlük 05:30
+    ("audit_risk", "cron", "45 5 * * *", _job_audit_risk),  # günlük 05:45
+    ("audit_data", "cron", "0 6 * * *", _job_audit_data),  # günlük 06:00
+    ("audit_research", "cron", "15 6 * * mon", _job_audit_research),  # haftalık Pzt 06:15
+    ("audit_ops", "cron", "30 6 * * *", _job_audit_ops),  # günlük 06:30
+    ("audit_chief_weekly", "cron", "0 7 * * mon", _job_audit_chief_weekly),  # Pzt 07:00
+    ("audit_chief_monthly", "cron", "0 7 1 * *", _job_audit_chief_monthly),  # ayın 1'i 07:00
 )
 
 

@@ -24,8 +24,8 @@ Her agent çıktısının **ilk satırı** `---` ile başlamalı, geçerli YAML 
 ---
 # CORE (her doc'ta zorunlu)
 doc_id: <agent>-<yyyymmddTHHMMSS>-<slug>  # globally unique, ASCII, kebab-case
-doc_type: brief | hypothesis | tournament | drift_alert | whatif | adr | postmortem | incident | directive | critique | endorse | protocol | learning | decision
-agent_id: ceo | researcher | lab_scientist | analyst | risk_officer | portfolio_manager | signal_chief | execution_chief | ops_engineer | data_engineer | human_principal
+doc_type: brief | hypothesis | tournament | drift_alert | whatif | adr | postmortem | incident | directive | critique | endorse | protocol | learning | decision | audit_finding | audit_report | audit_followup | audit_assurance
+agent_id: ceo | researcher | lab_scientist | analyst | risk_officer | portfolio_manager | signal_chief | execution_chief | ops_engineer | data_engineer | human_principal | audit_chief | audit_execution | audit_risk | audit_data | audit_research | audit_ops
 created_at: 2026-05-25T14:30:00Z   # ISO 8601 UTC, mandatory
 status: DRAFT                       # see §2 state machine
 confidence: low | med | high       # subjective, on the work product
@@ -164,6 +164,24 @@ Reviewer kendi job'unda `inbox.jsonl`'i filtreler (`recipient == self.name AND a
 | `adr` | herhangi | (Principal nihai) |
 | `postmortem` | analyst, ops_engineer | (herkes okur) |
 | `incident` | ops_engineer | (acil → CRIT push) |
+| `audit_finding` | audit_* | owner agent + audit_chief (CEO yalnız bilgilenir) |
+| `audit_report` | audit_* | audit_chief |
+| `audit_followup` | audit_* | owner agent + audit_chief |
+| `audit_assurance` | audit_chief | human_principal (CEO bilgilenir) |
+
+## 7b. İç Denetim (3. savunma hattı) — bağımsızlık kuralları
+
+- **audit_* doc'ları CEO arbitration KAPSAMI DIŞIDIR** (§5'in istisnası). CEO bir
+  denetim bulgusunu reddedemez/bastıramaz; yalnızca `endorse`/`critique` ile yanıt
+  verir, nihai karar **human_principal**'a aittir.
+- `audit_finding`/`audit_assurance` doc'ları `tags:[principal_escalation]` taşır →
+  severity high/critical'de doğrudan Principal'a (Telegram push).
+- Denetçiler **READ-ONLY**: trading config yazamaz, deploy edemez, emir veremez,
+  başka ajan kod/doc'unu değiştiremez. Yalnız `reports/audit/` + `memory/audit/` yazar.
+- Bağımsızlık: denetçi denetlediği sürecin sahibi OLAMAZ (görev ayrılığı). `audit_chief`
+  saha bulgusu üretmez (objektiflik); plan/sentez/güvence yapar.
+- Bulgu yaşam döngüsü `memory/audit/findings_register.jsonl`'de izlenir (OPEN→CLOSED;
+  recurrence>1 = sistemik açık).
 
 ## 8. Hard limits — protokol dahili kurallar
 

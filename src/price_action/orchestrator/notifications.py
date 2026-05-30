@@ -32,17 +32,14 @@ from price_action.notifications.telegram import send_critical, send_telegram
 # Markdown escape'ten sonra biraz şişer.
 _DEFAULT_MAX_CHARS = 2800
 
-# MUTE 2026-05-28 (Ops): push_critical sources silenced in paper/research mode.
-# These are cosmetic/false-positive in current state (scheduled agents not
-# running, stale ack'd docs from 05-26). NOT trading alarms.
-# IMPORTANT: only non-trading bookkeeping sources here. Real crisis sources
-# (risk_officer, dd_breaker, exchange_halt, flash_crash, correlation, etc.)
-# are deliberately absent so they keep paging.
-# Reversible: empty this set, or set env PA_CRIT_UNMUTE=1.
-_MUTED_CRIT_SOURCES = {
-    "scheduler_stuck_doc",
-    "promise_detector",
-}
+# UNMUTE 2026-05-30 (Ops): mute set emptied after root causes resolved.
+# The 2026-05-28 mutes (scheduler_stuck_doc, promise_detector) silenced
+# bookkeeping alarms that fired because scheduled agents weren't running and
+# docs from 05-26 were stuck. Post-deploy those jobs run clean hourly
+# (_job_check_promises + _job_stuck_doc_check both OK on 2026-05-29). Keeping
+# them muted would hide a real future stall. Infra kept intact — re-add a
+# source here to mute again. PA_CRIT_UNMUTE=1 still forces send.
+_MUTED_CRIT_SOURCES: set[str] = set()
 
 
 def should_push(env_var: str = "PA_CEO_PUSH_TELEGRAM") -> bool:
