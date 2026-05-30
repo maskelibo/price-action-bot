@@ -21,7 +21,7 @@ import pytest
 
 from price_action.agents.audit_chief import coverage_gap
 from price_action.agents.audit_data import ct_dat_01_universe, ct_dat_04_duckdb_lock
-from price_action.agents.audit_execution import ct_exe_01_journal_drift
+from price_action.agents.audit_execution import ct_exe_01_journal_drift, ct_exe_02_pnl_recon
 from price_action.agents.audit_ops import ct_ops_01_mute_drift, ct_ops_02_silent_cron
 from price_action.agents.audit_research import ct_res_01_sharpe
 from price_action.agents.audit_risk import ct_rsk_01_maxdd_base
@@ -40,6 +40,27 @@ def test_audit_execution_catches_journal_drift():
     assert f.control_id == "CT-EXE-01"
     assert f.severity == "high"
     assert f.owner == "execution_chief"
+
+
+def test_audit_execution_catches_pnl_inflation():
+    # Bu seansın gerçeği: journal +57.73 vs borsa -11.58; DOT işaret-ters (+28.73 vs -3.52)
+    journal = {"DOT/USDT": 28.73, "AVAX/USDT": 15.25, "ADA/USDT": 17.14,
+               "XLM/USDT": -23.24, "XRP/USDT": 3.93}
+    exchange = {"DOT/USDT": -3.52, "AVAX/USDT": -1.92, "ADA/USDT": -0.31,
+                "XLM/USDT": -23.24, "XRP/USDT": 0.88}
+    f = ct_exe_02_pnl_recon(journal, exchange)
+    assert f is not None
+    assert f.control_id == "CT-EXE-02"
+    assert f.severity == "critical"   # toplam fark > 5×tol → critical
+    assert "DOT" in f.evidence["offenders"]
+    assert "İŞARET TERS" in f.evidence["offenders"]
+
+
+def test_audit_execution_pnl_match_no_finding():
+    # journal = borsa → bulgu yok
+    j = {"BTC/USDT": 10.0, "ETH/USDT": -5.0}
+    e = {"BTC/USDT": 10.2, "ETH/USDT": -5.1}
+    assert ct_exe_02_pnl_recon(j, e) is None
 
 
 def test_audit_execution_clean_no_finding():

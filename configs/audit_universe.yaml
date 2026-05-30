@@ -121,7 +121,9 @@ processes:
     auditor: audit_execution
     inherent_risk: critical
     cadence: daily
-    controls: [CT-EXE-01]      # journal↔borsa drift (XLM/NEAR)
+    controls: [CT-EXE-01, CT-EXE-02]   # CT-EXE-01 açık-pozisyon drift; CT-EXE-02
+                                       # KAPANAN-trade realized PnL mutabakatı
+                                       # (2026-05-30: journal +57.73 vs borsa -11.58 kör-noktası)
   execution.order_manager:
     domain: execution
     owner_agent: execution_chief

@@ -84,6 +84,61 @@ def ct_exe_01_journal_drift(
     )
 
 
+def ct_exe_02_pnl_recon(
+    journal_pnl: dict[str, float],
+    exchange_pnl: dict[str, float],
+    *,
+    tol_usd: float = 10.0,
+    tol_pct: float = 0.25,
+) -> Finding | None:
+    """DETERMİNİSTİK ÇEKİRDEK — journal'ın KAPANAN-trade realized PnL'i ile borsanın
+    gerçek REALIZED_PNL'ini (income) karşılaştır.
+
+    2026-05-30 keşfi: CT-EXE-01 yalnız AÇIK pozisyon drift'ine bakıyordu; KAPANAN
+    trade PnL şişmesini (journal +57.73 vs borsa −11.58, DOT +28.73 vs −3.52)
+    GÖREMEDİ. Bu kör-noktayı kapatır: settlement bütünlüğü = pozisyon + PnL.
+
+    journal_pnl / exchange_pnl: {symbol: realized_pnl_usd}. Bulgu koşulu:
+      - toplam fark > tol_usd, VEYA
+      - herhangi sembolde |fark| > tol_usd ve > tol_pct × max(|jp|,|ep|) (işaret-ters dahil).
+    """
+    jt = sum(journal_pnl.values())
+    et = sum(exchange_pnl.values())
+    total_diff = jt - et
+    syms = set(journal_pnl) | set(exchange_pnl)
+    offenders: list[str] = []
+    for s in sorted(syms):
+        jp = float(journal_pnl.get(s, 0.0))
+        ep = float(exchange_pnl.get(s, 0.0))
+        d = jp - ep
+        if abs(d) > tol_usd and abs(d) > tol_pct * max(abs(jp), abs(ep), 1.0):
+            flip = " (İŞARET TERS)" if jp * ep < 0 else ""
+            offenders.append(f"{s}: journal={jp:+.2f} borsa={ep:+.2f} fark={d:+.2f}{flip}")
+    if abs(total_diff) <= tol_usd and not offenders:
+        return None
+    sev = "critical" if (abs(total_diff) > 5 * tol_usd or jt * et < 0) else "high"
+    return Finding(
+        control_id="CT-EXE-02",
+        severity=sev,
+        owner=_OWNER,
+        title="journal↔borsa realized PnL mutabakatsızlığı (kapanan-trade şişmesi)",
+        condition=f"Journal net realized={jt:+.2f}$ ↔ borsa (income REALIZED_PNL)="
+                  f"{et:+.2f}$ — fark {total_diff:+.2f}$." +
+                  ("\n  - " + "\n  - ".join(offenders) if offenders else ""),
+        criteria="Kapanan-trade realized PnL borsanın gerçek REALIZED_PNL income'ı ile "
+                 "eşleşmeli; GERÇEK fill fiyatı × ACTUAL qty'den hesaplanmalı.",
+        cause="Kapanış realized_pnl HEDEFLENEN TP/SL fiyatı × intended-qty'den yazılıyor "
+              "(gerçek fill değil); reconcile_orphan tahmini fiyat. Bot performansı şişer.",
+        effect="Şişmiş kâr → yanlış strateji/deploy/sizing kararı; gerçek edge gizlenir. "
+               "(Bu seansta journal +57.73 vs gerçek −11.58.)",
+        recommendation="Kapanış realized_pnl'i borsa income/fetch_order'dan yaz; eski "
+                       "kayıtları borsa income'a reconcile et; günlük PnL mutabakatı (bu CT).",
+        evidence={"journal_total": round(jt, 2), "exchange_total": round(et, 2),
+                  "diff": round(total_diff, 2), "offenders": " | ".join(offenders[:6])},
+        due_days=2,
+    )
+
+
 class AuditExecutionAgent(AuditAgentBase):
     name: ClassVar[str] = "audit_execution"
     domain: ClassVar[str] = "execution"
@@ -154,10 +209,64 @@ class AuditExecutionAgent(AuditAgentBase):
             return None
         return ct_exe_01_journal_drift(self._journal_open_positions(), exch)
 
+    # ------------------------------------------------------------------
+    # CT-EXE-02 — journal↔borsa realized PnL mutabakatı (2026-05-30)
+    # ------------------------------------------------------------------
+    def _journal_realized_by_symbol(self) -> dict[str, float]:
+        """futures_trades_closed realized_pnl_usdt'yi sembol bazında topla."""
+        try:
+            import duckdb
+
+            jpath = self._repo_root() / "data" / "futures_journal.duckdb"
+            if not jpath.exists():
+                return {}
+            con = duckdb.connect(str(jpath), read_only=True)
+            try:
+                rows = con.execute(
+                    "SELECT sym, COALESCE(SUM(realized_pnl_usdt),0) FROM futures_trades_closed "
+                    "GROUP BY sym"
+                ).fetchall()
+            finally:
+                con.close()
+            return {str(s).split(":")[0]: float(v or 0.0) for s, v in rows}
+        except Exception as exc:
+            logger.warning("audit_execution.journal_pnl_fail", extra={"err": str(exc)[:160]})
+            return {}
+
+    def _exchange_realized_by_symbol(self) -> dict[str, float] | None:
+        """Borsa REALIZED_PNL income'ını sembol bazında topla. Ulaşılamazsa None."""
+        try:
+            import sys
+
+            sys.path.insert(0, str(self._repo_root() / "scripts"))
+            from scripts.futures_trade_daily import get_futures_exchange  # type: ignore
+
+            ex = get_futures_exchange()
+            inc = ex.fapiPrivateGetIncome({"incomeType": "REALIZED_PNL", "limit": 200})
+            out: dict[str, float] = {}
+            for r in inc:
+                v = float(r.get("income", 0) or 0.0)
+                sym_raw = str(r.get("symbol", ""))
+                # "NEARUSDT" → "NEAR/USDT" normalize (journal ile eşleşsin)
+                sym = sym_raw.replace("USDT", "/USDT") if sym_raw.endswith("USDT") else sym_raw
+                out[sym] = out.get(sym, 0.0) + v
+            return out
+        except Exception as exc:
+            logger.warning("audit_execution.exchange_pnl_fail", extra={"err": str(exc)[:160]})
+            return None
+
+    def run_ct_exe_02(self) -> Finding | None:
+        """journal realized PnL ↔ borsa REALIZED_PNL mutabakatı. Borsa yoksa skip."""
+        exch = self._exchange_realized_by_symbol()
+        if exch is None:
+            logger.info("audit_execution.ct_exe_02_skip", extra={"reason": "exchange_unreachable"})
+            return None
+        return ct_exe_02_pnl_recon(self._journal_realized_by_symbol(), exch)
+
     async def daily_control_review(self) -> list[Any]:
         """Tüm execution kontrol-testlerini koş, bulguları emit et. Path listesi döner."""
         emitted = []
-        for runner in (self.run_ct_exe_01,):
+        for runner in (self.run_ct_exe_01, self.run_ct_exe_02):
             try:
                 f = runner()
                 if f is not None:
