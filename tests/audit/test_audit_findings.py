@@ -259,6 +259,50 @@ def test_finding_lifecycle_recurrence(isolated_env):
 
 
 # ---------------------------------------------------------------------------
+# 6b. AUTO-VERIFY — run_controls: problem→emit, temiz→CLOSE, SKIP→dokunma
+# ---------------------------------------------------------------------------
+def test_auto_verify_closes_resolved_finding(isolated_env):
+    import asyncio
+
+    from price_action.agents.audit_base import SKIP
+    from price_action.agents.audit_execution import ct_exe_01_journal_drift
+
+    agent = _make_exec_agent(isolated_env)
+    state = {"mode": "problem"}
+
+    def fake_runner():
+        if state["mode"] == "problem":
+            return ct_exe_01_journal_drift({"XLM/USDT": 1448.0}, {})  # phantom
+        if state["mode"] == "clean":
+            return None
+        return SKIP
+
+    agent.controls = lambda: {"CT-EXE-01": fake_runner}  # type: ignore
+
+    # 1) problem → emit (OPEN)
+    r1 = asyncio.run(agent.run_controls())
+    assert len(r1["emitted"]) == 1 and not r1["closed"]
+    fid = next(iter(agent._latest_state()))
+    assert agent._latest_state()[fid]["status"] == "OPEN"
+
+    # 2) tekrar problem → dedup (yeni emit YOK, hâlâ açık)
+    r2 = asyncio.run(agent.run_controls())
+    assert not r2["emitted"] and not r2["closed"]
+
+    # 3) SKIP → dokunma (açık kalır, kapanmaz)
+    state["mode"] = "skip"
+    r3 = asyncio.run(agent.run_controls())
+    assert not r3["closed"]
+    assert agent._latest_state()[fid]["status"] == "OPEN"
+
+    # 4) temiz → AUTO-VERIFY → CLOSED
+    state["mode"] = "clean"
+    r4 = asyncio.run(agent.run_controls())
+    assert fid in r4["closed"]
+    assert agent._latest_state()[fid]["status"] == "CLOSED"
+
+
+# ---------------------------------------------------------------------------
 # 7. Independence invariant — denetçi READ-ONLY
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize(

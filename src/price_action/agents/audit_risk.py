@@ -17,7 +17,7 @@ from typing import Any, ClassVar
 
 from price_action.logging_config import logger
 
-from .audit_base import AuditAgentBase, Finding
+from .audit_base import SKIP, AuditAgentBase, Finding
 
 _OWNER = "risk_officer"
 
@@ -112,7 +112,7 @@ class AuditRiskAgent(AuditAgentBase):
             jpath = self._repo_root() / "data" / "futures_journal.duckdb"
             cfg_path = self._repo_root() / "configs" / "bot_kill_criteria.yaml"
             if not jpath.exists() or not cfg_path.exists():
-                return None
+                return SKIP
             cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
             bots = cfg.get("bots") or {}
             defaults = cfg.get("defaults") or {}
@@ -125,7 +125,7 @@ class AuditRiskAgent(AuditAgentBase):
                 con.close()
             pnl = [float(r[0] or 0.0) for r in rows]
             if len(pnl) < 2:
-                return None
+                return SKIP
             acct = float(
                 (list(bots.values())[0].get("account_equity_usdt") if bots else None)
                 or defaults.get("account_equity_usdt")
@@ -136,11 +136,11 @@ class AuditRiskAgent(AuditAgentBase):
             # (yanlış-pozitif üretme). Rapor formatı: "Rolling 30d MaxDD: %X".
             reported = self._latest_reported_dd()
             if reported is None:
-                return None
+                return SKIP  # bot_monitor raporu yok → bağımsız kıyas yapılamaz
             return ct_rsk_01_maxdd_base(pnl, acct, reported)
         except Exception as exc:
             logger.warning("audit_risk.ct_rsk_01_fail", extra={"err": str(exc)[:160]})
-            return None
+            return SKIP
 
     def _latest_reported_dd(self) -> float | None:
         """En yeni bot_monitor raporundan 'Rolling 30d MaxDD: %X' değerini parse et."""
@@ -159,15 +159,5 @@ class AuditRiskAgent(AuditAgentBase):
             logger.warning("audit_risk.ct_rsk_01_fail", extra={"err": str(exc)[:160]})
             return None
 
-    async def daily_control_review(self) -> list[Any]:
-        emitted = []
-        for runner in (self.run_ct_rsk_01,):
-            try:
-                f = runner()
-                if f is not None:
-                    emitted.append(self.emit_finding(f))
-            except Exception as exc:
-                logger.warning(
-                    "audit_risk.ct_fail", extra={"runner": runner.__name__, "err": str(exc)[:160]}
-                )
-        return emitted
+    def controls(self) -> dict[str, Any]:
+        return {"CT-RSK-01": self.run_ct_rsk_01}

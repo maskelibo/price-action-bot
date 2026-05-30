@@ -183,10 +183,45 @@ def _close_orphan(orphan: dict, exit_price: float) -> bool:
         return False
 
 
+def _phantom_dedup(phantoms: list[dict], *, ttl_hours: float = 12.0) -> list[dict]:
+    """FIX 2026-05-30: aynı phantom her döngüde (15dk) tekrar alarm basıyordu —
+    spam. Dedup: phantom imzası (symbol+side+qty) state dosyasında; aynı imza
+    ttl_hours içinde tekrar bildirilmez. Yeni/değişen phantom hemen geçer.
+    Stuck-doc dedup deseninin reconciler-paraleli."""
+    import json
+    import time
+    from pathlib import Path
+
+    state_p = Path(__file__).resolve().parents[1] / "logs" / "state" / "phantom_alerts.json"
+    state_p.parent.mkdir(parents=True, exist_ok=True)
+    now = time.time()
+    try:
+        seen = json.loads(state_p.read_text())
+    except Exception:
+        seen = {}
+    fresh: list[dict] = []
+    for p in phantoms:
+        sig = f"{p['symbol']}:{p['side']}:{round(float(p['qty']), 2)}"
+        last = float(seen.get(sig, 0) or 0)
+        if now - last >= ttl_hours * 3600:
+            fresh.append(p)
+            seen[sig] = now
+    # eski imzaları temizle (ttl×2'den eski)
+    seen = {k: v for k, v in seen.items() if now - float(v or 0) < ttl_hours * 7200}
+    try:
+        state_p.write_text(json.dumps(seen))
+    except Exception:
+        pass
+    return fresh
+
+
 def _push_phantom_alert(phantoms: list[dict]) -> None:
-    """Borsada var, journal'da yok → Principal incelemeli."""
+    """Borsada var, journal'da yok → Principal incelemeli. Dedup'lı (12h/imza)."""
     if not phantoms:
         return
+    phantoms = _phantom_dedup(phantoms)
+    if not phantoms:
+        return  # hepsi son 12h'de zaten bildirildi → spam yapma
     try:
         from price_action.orchestrator.notifications import push_critical
 
@@ -201,7 +236,7 @@ def _push_phantom_alert(phantoms: list[dict]) -> None:
             )
         lines.append(
             "Olası sebep: restart anomalisi, manuel order, code path açığı. "
-            "Otomatik kapatılmadı — gözden geçir."
+            "Otomatik kapatılmadı — gözden geçir. (Aynı phantom 12h tekrar bildirilmez.)"
         )
         push_critical("\n".join(lines), source="reconciler")
     except Exception as exc:

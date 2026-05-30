@@ -36,6 +36,11 @@ from .base import LLMAgentBase
 # Severity sıralaması (escalation için)
 _SEVERITY_ORDER = ("low", "med", "high", "critical")
 
+# Kontrol-testi "denetlenemedi" sentinel'i (örn borsaya ulaşılamadı).
+# None = TEMİZ (problem yok → auto-verify CLOSE), SKIP = bilgi yok (dokunma).
+# Bu ayrım kritik: skip'i "temiz" sanıp açık bulguyu yanlışlıkla kapatmayalım.
+SKIP = object()
+
 
 def severity_escalate(sev: str) -> str:
     """Bir kademe yukarı (recurrence için). critical zaten tavan."""
@@ -313,3 +318,62 @@ class AuditAgentBase(LLMAgentBase):
             "audit.remediation_verified", extra={"finding_id": finding_id, "status": new_status}
         )
         return path
+
+    # ------------------------------------------------------------------
+    # Kontrol-testi registry + emit/AUTO-VERIFY/dedup döngüsü (Faz 4)
+    # ------------------------------------------------------------------
+    def controls(self) -> dict[str, Any]:
+        """{control_id: runner} — alt sınıf override eder.
+
+        runner() → Finding (problem) | None (TEMİZ) | SKIP (denetlenemedi).
+        SKIP ile None FARKI kritik: None = problem yok (açık bulgu auto-CLOSE),
+        SKIP = bilgi yok (dokunma, yanlışlıkla kapatma).
+        """
+        return {}
+
+    def _open_findings_for(self, control_id: str) -> list[dict[str, Any]]:
+        return [
+            r for r in self._latest_state().values()
+            if r.get("control_id") == control_id and r.get("status") in ("OPEN", "REOPENED")
+        ]
+
+    async def run_controls(self) -> dict[str, Any]:
+        """Her kontrol-testini koş:
+          - Finding + açık-bulgu YOK  → emit (yeni problem)
+          - Finding + açık-bulgu VAR  → dedup (tekrar emit etme)
+          - None (TEMİZ) + açık-bulgu VAR → AUTO-VERIFY → CLOSED
+          - SKIP → dokunma (denetlenemedi)
+        """
+        emitted: list[str] = []
+        closed: list[str] = []
+        for cid, runner in self.controls().items():
+            try:
+                f = runner()
+            except Exception as exc:
+                logger.warning("audit.control_run_fail", extra={"cid": cid, "err": str(exc)[:160]})
+                continue
+            if f is SKIP:
+                continue  # denetlenemedi — durumu değiştirme
+            open_f = self._open_findings_for(cid)
+            if f is not None:
+                if not open_f:
+                    emitted.append(str(self.emit_finding(f)))  # yeni problem
+                # else: zaten açık → dedup (günlük tekrar emit etme)
+            else:
+                # TEMİZ → açık bulgu varsa otomatik doğrula+kapat
+                for r in open_f:
+                    self.verify_remediation(
+                        r["finding_id"], passed=True,
+                        remediation_doc="auto-verify: kontrol-testi artık TEMİZ",
+                    )
+                    closed.append(r["finding_id"])
+        if closed:
+            logger.info("audit.auto_verified_closed",
+                        extra={"auditor": self.name, "closed": closed})
+        return {"emitted": emitted, "closed": closed}
+
+    async def daily_control_review(self) -> list[Any]:
+        """Geriye uyumlu giriş: run_controls çağırır, emit edilen path'leri döner.
+        (scheduler + run_audit bunu çağırır; artık auto-verify de yapar.)"""
+        res = await self.run_controls()
+        return res["emitted"]

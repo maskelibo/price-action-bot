@@ -20,7 +20,7 @@ from typing import Any, ClassVar
 
 from price_action.logging_config import logger
 
-from .audit_base import AuditAgentBase, Finding
+from .audit_base import SKIP, AuditAgentBase, Finding
 
 _OWNER = "data_engineer"
 
@@ -134,7 +134,7 @@ class AuditDataAgent(AuditAgentBase):
             return ct_dat_01_universe(len(_HOURLY_TRADING_SYMBOLS), len(trading))
         except Exception as exc:
             logger.warning("audit_data.ct_dat_01_fail", extra={"err": str(exc)[:160]})
-            return None
+            return SKIP
 
     def run_ct_dat_04(self) -> Finding | None:
         """Son ingest15m launchd stderr + app.log'da kilit-çakışması izi."""
@@ -149,17 +149,7 @@ class AuditDataAgent(AuditAgentBase):
             return ct_dat_04_duckdb_lock("\n".join(texts), max_allowed=0)
         except Exception as exc:
             logger.warning("audit_data.ct_dat_04_fail", extra={"err": str(exc)[:160]})
-            return None
+            return SKIP
 
-    async def daily_control_review(self) -> list[Any]:
-        emitted = []
-        for runner in (self.run_ct_dat_01, self.run_ct_dat_04):
-            try:
-                f = runner()
-                if f is not None:
-                    emitted.append(self.emit_finding(f))
-            except Exception as exc:
-                logger.warning(
-                    "audit_data.ct_fail", extra={"runner": runner.__name__, "err": str(exc)[:160]}
-                )
-        return emitted
+    def controls(self) -> dict[str, Any]:
+        return {"CT-DAT-01": self.run_ct_dat_01, "CT-DAT-04": self.run_ct_dat_04}

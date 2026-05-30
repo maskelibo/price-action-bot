@@ -16,7 +16,7 @@ from typing import Any, ClassVar
 
 from price_action.logging_config import logger
 
-from .audit_base import AuditAgentBase, Finding
+from .audit_base import SKIP, AuditAgentBase, Finding
 
 _OWNER = "execution_chief"
 
@@ -206,7 +206,7 @@ class AuditExecutionAgent(AuditAgentBase):
         exch = self._exchange_open_positions()
         if exch is None:
             logger.info("audit_execution.ct_exe_01_skip", extra={"reason": "exchange_unreachable"})
-            return None
+            return SKIP
         return ct_exe_01_journal_drift(self._journal_open_positions(), exch)
 
     # ------------------------------------------------------------------
@@ -260,20 +260,8 @@ class AuditExecutionAgent(AuditAgentBase):
         exch = self._exchange_realized_by_symbol()
         if exch is None:
             logger.info("audit_execution.ct_exe_02_skip", extra={"reason": "exchange_unreachable"})
-            return None
+            return SKIP
         return ct_exe_02_pnl_recon(self._journal_realized_by_symbol(), exch)
 
-    async def daily_control_review(self) -> list[Any]:
-        """Tüm execution kontrol-testlerini koş, bulguları emit et. Path listesi döner."""
-        emitted = []
-        for runner in (self.run_ct_exe_01, self.run_ct_exe_02):
-            try:
-                f = runner()
-                if f is not None:
-                    emitted.append(self.emit_finding(f))
-            except Exception as exc:
-                logger.warning(
-                    "audit_execution.ct_fail",
-                    extra={"runner": runner.__name__, "err": str(exc)[:160]},
-                )
-        return emitted
+    def controls(self) -> dict[str, Any]:
+        return {"CT-EXE-01": self.run_ct_exe_01, "CT-EXE-02": self.run_ct_exe_02}

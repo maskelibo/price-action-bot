@@ -19,7 +19,7 @@ from typing import Any, ClassVar
 
 from price_action.logging_config import logger
 
-from .audit_base import AuditAgentBase, Finding
+from .audit_base import SKIP, AuditAgentBase, Finding
 
 _OWNER = "lab_scientist"
 
@@ -87,7 +87,7 @@ class AuditResearchAgent(AuditAgentBase):
         try:
             res_dir = self._repo_root() / "memory" / "researcher" / "backtest_results"
             if not res_dir.exists():
-                return None
+                return SKIP  # backtest sonucu yok → denetlenecek bir şey yok
             files = sorted(res_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
             worst: Finding | None = None
             for fp in files[:20]:  # son 20 sonuç
@@ -111,18 +111,7 @@ class AuditResearchAgent(AuditAgentBase):
             return worst
         except Exception as exc:
             logger.warning("audit_research.ct_res_01_fail", extra={"err": str(exc)[:160]})
-            return None
+            return SKIP
 
-    async def daily_control_review(self) -> list[Any]:
-        emitted = []
-        for runner in (self.run_ct_res_01,):
-            try:
-                f = runner()
-                if f is not None:
-                    emitted.append(self.emit_finding(f))
-            except Exception as exc:
-                logger.warning(
-                    "audit_research.ct_fail",
-                    extra={"runner": runner.__name__, "err": str(exc)[:160]},
-                )
-        return emitted
+    def controls(self) -> dict[str, Any]:
+        return {"CT-RES-01": self.run_ct_res_01}
