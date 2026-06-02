@@ -430,6 +430,169 @@ def _pyramid_store_load_on_startup() -> None:
         log(f"PYRAMID_STORE_LOAD_FAIL: {exc} — _pyramid_positions boş başladı")
 
 
+def _rebuild_position_tracking_from_exchange(exchange) -> None:
+    """Restart sonrası borsadaki açık pozisyonlar için takip kaydı yeniden kur.
+
+    Kök neden: Daemon restart'ta pyramid_store.duckdb boşsa (ya da pozisyon
+    pyramid dışı açılmışsa) _pyramid_positions boş kalır → PROT_WATCHDOG G22
+    yolu _intended_sl olarak borsadaki MEVCUT SL'i kullanır → initial_r yanlış
+    hesaplanır (SL zaten trailing ile taşınmış olabilir) → trailing donukluk.
+
+    Bu fonksiyon:
+      1. Borsadaki açık pozisyonları çeker.
+      2. Her pozisyon için _pyramid_positions'da zaten kayıt varsa atlar.
+      3. Yoksa: journal'dan orijinal entry + sl_price'ı arar (en son fill eşleşmesi).
+         Journal'da bulunamazsa borsanın entry + mevcut algo SL'ini kullanır.
+      4. Stub PyramidPosition (legs=[]) oluşturup _pyramid_positions'a ekler.
+      5. pyramid_store'a YAZMAZ (pyramid_enabled=false bağımsızlığı korumak için).
+
+    Güvenlik: sadece _pyramid_positions EKSIK kayıtları doldurur; mevcut kayıtlara
+    dokunmaz. Strateji/risk config'e hiç dokunmaz. Exception → log + devam.
+    """
+    global _pyramid_positions
+    try:
+        from price_action.execution.pyramid_router import PyramidLeg, PyramidPosition
+    except ImportError as _imp_err:
+        log(f"REBUILD_TRACKING_SKIP: PyramidPosition import fail: {_imp_err}")
+        return
+
+    try:
+        positions = exchange.fetch_positions()
+        active_pos = [p for p in positions if abs(float(p.get("contracts", 0))) > 0]
+    except Exception as _fetch_err:
+        log(f"REBUILD_TRACKING_FAIL: borsa pozisyonları çekilemedi: {_fetch_err}")
+        return
+
+    if not active_pos:
+        log("REBUILD_TRACKING: borsa'da açık pozisyon yok — atlanıyor")
+        return
+
+    # Journal bağlantısı: orijinal entry + sl_price lookup için
+    _journal_map: dict[
+        str, tuple[float, float, str]
+    ] = {}  # "SYM|side" → (fill_price, sl_price, signal_id)
+    try:
+        _jcon = duckdb.connect(str(JOURNAL))
+        try:
+            _jrows = _jcon.execute(
+                """
+                SELECT symbol, side, fill_price, sl_price, signal_id
+                FROM futures_signals
+                WHERE fill_price > 0 AND status = 'filled'
+                ORDER BY ts DESC
+                """
+            ).fetchall()
+            # İlk eşleşmeyi (en yeni) al — sembol 'XLM/USDT' formatında
+            for _jr in _jrows:
+                _jsym, _jside, _jfill, _jsl, _jsid = _jr
+                _key = f"{_jsym}|{_jside}"
+                if _key not in _journal_map and _jfill and _jfill > 0 and _jsl and _jsl > 0:
+                    _journal_map[_key] = (float(_jfill), float(_jsl), str(_jsid))
+        finally:
+            _jcon.close()
+    except Exception as _jexc:
+        log(f"REBUILD_TRACKING: journal okunamadı ({_jexc}) — borsa entry/SL kullanılacak")
+
+    # Borsadaki algo SL'leri al (per-symbol hızlı lookup için)
+    _algo_sl_map: dict[str, float] = {}  # "XLMUSDT" → triggerPrice
+    try:
+        _algo_ords = exchange.fapiPrivateGetOpenAlgoOrders()
+        for _ao in _algo_ords or []:
+            if _ao.get("orderType") == "STOP_MARKET":
+                _ao_sym = str(_ao.get("symbol", ""))
+                _ao_tp = float(_ao.get("triggerPrice") or 0)
+                if _ao_sym and _ao_tp > 0:
+                    _algo_sl_map[_ao_sym] = _ao_tp
+    except Exception as _algo_err:
+        log(f"REBUILD_TRACKING: algo SL'ler çekilemedi ({_algo_err}) — borsa entry kullanılacak")
+
+    rebuilt_count = 0
+    for pos in active_pos:
+        _sym_ccxt = str(pos.get("symbol", ""))  # "XLM/USDT:USDT"
+        _side_raw = str(pos.get("side", "")).lower()  # "long" / "short"
+        _entry = float(pos.get("entryPrice") or pos.get("info", {}).get("entryPrice") or 0)
+        _contracts = float(pos.get("contracts") or 0)
+
+        if not _sym_ccxt or _side_raw not in ("long", "short") or _entry <= 0:
+            continue
+
+        # watchdog _sym_ccxt formatı: "XLM/USDT:USDT".split(":")[0] = "XLM/USDT"
+        # PyramidPosition.symbol bu formatla uyumlu olmalı.
+        _sym_for_check = _sym_ccxt.split(":")[0]
+
+        # Bu pozisyon için zaten _pyramid_positions'da kayıt var mı?
+        _already = any(
+            getattr(_pp, "symbol", "") == _sym_for_check
+            and str(getattr(_pp, "side", "")).lower() == _side_raw
+            for _pp in _pyramid_positions.values()
+        )
+        if _already:
+            continue
+
+        # Journal'dan orijinal entry + sl bul
+        # Journal formatı: 'XLM/USDT' (ccxt'nin :USDT suffix'i olmadan)
+        _sym_journal = _sym_ccxt.split(":")[0]  # "XLM/USDT:USDT" → "XLM/USDT"
+        _sym_algo = _sym_ccxt.replace("/", "").replace(":USDT", "").replace(":usdt", "")
+        _jkey = f"{_sym_journal}|{_side_raw}"
+        _orig_entry, _orig_sl, _orig_sig_id = _journal_map.get(_jkey, (0.0, 0.0, ""))
+
+        # Fallback: journal yoksa borsadaki entry + algo SL
+        if _orig_entry <= 0:
+            _orig_entry = _entry
+        if _orig_sl <= 0:
+            # Algo SL map'den (XLMUSDT formatı)
+            _orig_sl = _algo_sl_map.get(_sym_algo, 0.0)
+
+        if _orig_sl <= 0:
+            log(
+                f"REBUILD_TRACKING: {_sym_ccxt} {_side_raw} — sl_price bulunamadı, atlanıyor "
+                f"(journal_key={_jkey}, algo_map_keys={list(_algo_sl_map.keys())[:5]})"
+            )
+            continue
+
+        _initial_r = abs(_orig_entry - _orig_sl)
+        if _initial_r <= 0:
+            log(f"REBUILD_TRACKING: {_sym_ccxt} {_side_raw} — initial_r=0, atlanıyor")
+            continue
+
+        # Stub PyramidPosition: legs boş (pyramid_enabled=false, leg trigger yok)
+        # watchdog'un _sym_ccxt'si: _sym_raw.split(":")[0] → "XLM/USDT" (":USDT" yok)
+        # PyramidPosition.symbol'ü watchdog ile aynı formatta set et.
+        _sym_for_pp = _sym_ccxt.split(":")[0]  # "XLM/USDT:USDT" → "XLM/USDT"
+        _stub_leg = PyramidLeg(
+            leg_num=1,
+            leg_state="FILLED",
+            leg_qty=_contracts,
+            leg_price=_orig_entry,
+            client_order_id=f"rebuild_{_sym_algo}_L1",
+            fill_price=_orig_entry,
+        )
+        _stub_id = _orig_sig_id if _orig_sig_id else f"rebuild_{_sym_algo}_{_side_raw}"
+        _pyr_pos = PyramidPosition(
+            parent_position_id=_stub_id,
+            symbol=_sym_for_pp,
+            side=_side_raw.upper(),  # type: ignore[arg-type]
+            entry_price=_orig_entry,
+            sl_price=_orig_sl,
+            initial_R=_initial_r,
+            legs=[_stub_leg],
+            pyramid_triggers=[],
+            pyramid_sizes=[],
+        )
+        _pyramid_positions[_stub_id] = _pyr_pos
+        rebuilt_count += 1
+        log(
+            f"REBUILD_TRACKING: {_sym_ccxt} {_side_raw} → stub kayıt oluşturuldu "
+            f"(entry={_orig_entry}, sl={_orig_sl}, initial_r={_initial_r:.5f}, "
+            f"source={'journal' if _orig_sig_id else 'exchange'}, id={_stub_id})"
+        )
+
+    if rebuilt_count > 0:
+        log(f"REBUILD_TRACKING: {rebuilt_count} pozisyon için takip kaydı yeniden kuruldu")
+    else:
+        log("REBUILD_TRACKING: tüm pozisyonlar zaten takip kaydına sahip (veya sl bulunamadı)")
+
+
 def _get_pyramid_router(exchange):
     """PyramidRouter singleton — config'den pyramid_enabled kontrolü."""
     global _pyramid_router_instance
@@ -483,56 +646,83 @@ def _get_pyramid_router(exchange):
     return _pyramid_router_instance
 
 
-_TRAIL_PCT = 0.10  # TP2 sonrası %10 trailing (kullanıcı kararı 2026-05-20)
+_TRAIL_PCT = 0.04  # TP1 sonrası %4 trailing — backtest doğrulaması bekleniyor (2026-06-01)
+# Eski: 0.10 (TP2 sonrası) — açık kâr korunmuyordu (XLM kâr→zarar vakası 2026-05-31)
+# Yeni: 0.04 (TP1 sonrası) — backtest sonucuna göre 0.03/0.04/0.05 karşılaştırması yapılacak.
+
+# Runner time-stop — 30-bar forced exit once in runner phase (post-TP1).
+# Validated by lab tournament (reports/research/smc/exit_tournament_verdict.md):
+#   LIVE_ts30 = same 4% pct-trail + BE-lock + 30-bar runner cap.
+#   Collapses the +56%/mo tail artifact → honest +6.43%/mo, Sharpe 1.67, DD -18.7%,
+#   top-5% R share 40.9%, 12/12 walk-forward. Driver: scripts/_champ_exit_parity_timestop.py.
+# Anchor: bars counted from when runner trail engages (TP1 hit / +1R) — NOT from entry.
+#   force_exit_from_entry=False in LIVE_ts30 config; clock starts at TP1 partial fill.
+#   In the daemon: runner anchor = ts_close of the first TP1 partial close from the journal
+#   (fully restart-safe — derived from DB on every position_check tick, not in-memory counter).
+# Bar size: 15 minutes → 30 bars = 7.5 hours max runner hold after TP1.
+_RUNNER_MAX_BARS = 30  # ts30 validated value; do not change without re-running lab tournament
+_RUNNER_BAR_SECONDS = 15 * 60  # 15m timeframe → seconds per bar
 
 
 def _desired_sl_price(
-    side: str, entry: float, intended_sl: float, mark: float, pyramid_leg_filled: bool = False
+    side: str,
+    entry: float,
+    intended_sl: float,
+    mark: float,
+    pyramid_leg_filled: bool = False,
+    trail_pct: float | None = None,
 ) -> float:
     """Bir pozisyon için olması gereken stop-loss fiyatı.
 
-    Kullanıcı kuralı (2026-05-20):
-      • Fiyat TP2'yi (1.5R) aşana kadar → orijinal SL (değişmez).
-      • TP2 aşıldıktan sonra → SL = TP1 ile (anlık fiyat ∓ %10)'dan
-        pozisyon lehine olan (LONG: daha yüksek, SHORT: daha düşük).
-        LONG : max(TP1, mark * 0.90)
-        SHORT: min(TP1, mark * 1.10)
-    TP1 = entry ± 1R, TP2 = entry ± 1.5R  (1R = |entry - intended_sl|).
-    Ratchet (SL yalnız lehe hareket) çağıran bekçide uygulanır.
+    Yeni kural (2026-06-01) — breakeven kilidi + erken trailing:
+      1) BREAKEVEN KİLİDİ: mark +1R'yi (TP1) geçtiği anda SL tabanı entry'ye çekilir.
+         LONG: max(entry, intended_sl) — pozisyon artık asla zarara dönemez.
+         SHORT: min(entry, intended_sl)
+      2) TRAIL ERKEN BAŞLAR: +1R'den (TP1) itibaren hem BE kilidi hem trailing aktif.
+         (Eski davranış: trail yalnız TP2 = 1.5R sonrası başlıyordu → kâr korunmuyordu.)
+      3) TRAIL SIKLIĞI: varsayılan _TRAIL_PCT = 0.04 (%4).
+         LONG : max(entry, mark * (1 - trail_pct))
+         SHORT: min(entry, mark * (1 + trail_pct))
+      4) RATCHET: SL yalnız lehe hareket eder. Bu fonksiyon istenen SL'i döner;
+         gerçek ratchet çağıran bekçide uygulanır (current >= desired → güncelleme yok).
 
-    Seçenek-D / BE-protect (2026-05-20):
-      pyramid_leg_filled=True → pyramid leg-2 (veya sonrası) FILLED:
-        SL tabanı entry'ye (break-even) çekilir.
-        1.0R–1.5R bölgesinde orijinal SL yerine BE taban döner:
-          LONG  → max(entry, intended_sl)  (BE ≥ intended_sl)
-          SHORT → min(entry, intended_sl)  (BE ≤ intended_sl)
-        TP2 sonrası trailing zaten BE üstünde (max/min ile doğal kapsanır).
-      pyramid_leg_filled=False (default) → davranış byte-identical (backward-compat).
+    Seçenek-D / BE-protect (pyramid_leg_filled, 2026-05-20 davranışı korundu):
+      pyramid_leg_filled=True → pyramid leg-2+ FILLED iken +1R altında BE taban.
+      pyramid_leg_filled=False (default) → backward-compat, davranış aynı.
 
-    CEO raporu 2026-05-20: lab.py bonus = max(0, R-trig) formülü BE-protect
-    varsayar; bu parametre canlı kodu backtest modeli ile hizalar.
+    Parametre:
+      trail_pct: None → _TRAIL_PCT global default kullanılır. Explicit verilirse override.
+
+    Örnek (LONG: entry=511.65, intended_sl=499.0, mark=571.0):
+      initial_r = 12.65, tp1 = 524.30
+      mark(571) > tp1(524.30) → trail aktif
+      trail_sl = max(entry=511.65, 571*(1-0.04)) = max(511.65, 548.16) = 548.16
+      → SL = 548.16  (eski %10: max(524.30, 571*0.90=513.90) = 524.30 — çok gevşek)
     """
+    pct = trail_pct if trail_pct is not None else _TRAIL_PCT
     initial_r = abs(entry - intended_sl)
     if initial_r <= 0 or mark <= 0:
         return intended_sl
     if side == "long":
         tp1 = entry + initial_r
-        tp2 = entry + 1.5 * initial_r
-        if mark <= tp2:
-            # BE-protect: leg-2+ fill → SL tabanı entry'ye çek
+        if mark < tp1:
+            # TP1 altında: BE kilidi yok, orijinal SL (pyramid ise BE taban)
             if pyramid_leg_filled:
                 return max(entry, intended_sl)
             return intended_sl
-        return max(tp1, mark * (1.0 - _TRAIL_PCT))
+        # mark >= tp1: BE kilidi + trailing (TP1'den itibaren)
+        trail_sl = mark * (1.0 - pct)
+        return max(entry, trail_sl)
     # short
     tp1 = entry - initial_r
-    tp2 = entry - 1.5 * initial_r
-    if mark >= tp2:
-        # BE-protect: leg-2+ fill → SL tabanı entry'ye çek
+    if mark > tp1:
+        # TP1 altında (short yönde): BE kilidi yok
         if pyramid_leg_filled:
             return min(entry, intended_sl)
         return intended_sl
-    return min(tp1, mark * (1.0 + _TRAIL_PCT))
+    # mark <= tp1: BE kilidi + trailing
+    trail_sl = mark * (1.0 + pct)
+    return min(entry, trail_sl)
 
 
 def position_check():
@@ -570,6 +760,98 @@ def position_check():
             )
         else:
             log(f"POS_CHECK: 0 pozisyon, {state['n_algo_orders']} algo orders{rate_limit_suffix}")
+
+        # SEC-#3C: Fill-sonrası konsantrasyon watchdog (sadece alarm).
+        # Sorun: mevcut concentration_gate PRE-trade çalışır; FILL SONRASI gerçek
+        # piyasa hareketi sembolü beklenenin üzerine taşıyabilir. Bu watchdog
+        # post-fill durumu kontrol eder ve konfigürasyondaki max_per_symbol_pct
+        # (default 0.15) eşiğini aşanları WARN log + Telegram ile bildirir.
+        # Önemli: TRADE YAPILMAZ / KESİLMEZ — sadece pasif uyarı.
+        # Dedup: aynı sembol 12 saat içinde tekrar bildirilmez (state dosyası).
+        if positions and pos_ok:
+            try:
+                import yaml as _conc_yaml
+
+                _conc_cfg_path = _risk_config_15m()
+                with open(_conc_cfg_path, encoding="utf-8") as _cf:
+                    _conc_cfg = _conc_yaml.safe_load(_cf) or {}
+                _max_per_sym_pct = float(
+                    _conc_cfg.get("concentration_limits", {}).get("max_per_symbol_pct", 0.15)
+                )
+                # Equity tahmini: margin_balance (pozisyon kaybı dahil)
+                _watchdog_equity = float(state.get("margin_balance", 0)) or float(
+                    state.get("wallet_balance", 1)
+                )
+                if _watchdog_equity > 0:
+                    # Dedup state dosyası
+                    _conc_dedup_path = ROOT / "logs" / "risk" / "conc_watchdog_dedup.json"
+                    _conc_dedup_path.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        import json as _json_conc
+
+                        _dedup_state = (
+                            _json_conc.loads(_conc_dedup_path.read_text(encoding="utf-8"))
+                            if _conc_dedup_path.exists()
+                            else {}
+                        )
+                    except Exception:
+                        _dedup_state = {}
+
+                    _now_iso = datetime.now(UTC).isoformat()
+                    _dedup_changed = False
+                    for _p in positions:
+                        _psym = _p.get("symbol", "?")
+                        _pcontracts = abs(float(_p.get("contracts", 0)))
+                        _pmark = float(_p.get("markPrice", 0))
+                        _pnotional = _pcontracts * _pmark
+                        _ppct = _pnotional / _watchdog_equity
+                        if _ppct > _max_per_sym_pct:
+                            # Dedup: son 12h içinde bildirildi mi?
+                            _last_alert = _dedup_state.get(_psym)
+                            _skip_dedup = False
+                            if _last_alert:
+                                try:
+                                    from datetime import timedelta as _td
+
+                                    _last_dt = datetime.fromisoformat(_last_alert)
+                                    if _last_dt.tzinfo is None:
+                                        _last_dt = _last_dt.replace(tzinfo=UTC)
+                                    if (datetime.now(UTC) - _last_dt) < _td(hours=12):
+                                        _skip_dedup = True
+                                except Exception:
+                                    pass
+                            if not _skip_dedup:
+                                log(
+                                    f"  CONCENTRATION_BREACH: {_psym} "
+                                    f"{_ppct*100:.1f}% > {_max_per_sym_pct*100:.0f}% "
+                                    f"(notional=${_pnotional:.0f}, equity=${_watchdog_equity:.0f})"
+                                )
+                                try:
+                                    from price_action.orchestrator.notifications import (
+                                        push_critical,
+                                    )
+
+                                    push_critical(
+                                        f"CONCENTRATION_BREACH: {_psym} "
+                                        f"{_ppct*100:.1f}% > {_max_per_sym_pct*100:.0f}% "
+                                        f"(notional=${_pnotional:.0f})",
+                                        source="pos_check_watchdog",
+                                    )
+                                except Exception:
+                                    pass
+                                _dedup_state[_psym] = _now_iso
+                                _dedup_changed = True
+                    if _dedup_changed:
+                        try:
+                            import json as _json_conc
+
+                            _conc_dedup_path.write_text(
+                                _json_conc.dumps(_dedup_state, indent=2), encoding="utf-8"
+                            )
+                        except Exception:
+                            pass
+            except Exception as _conc_ex:
+                log(f"  CONC_WATCHDOG_ERR: {str(_conc_ex)[:80]}")
 
         # A3: API stale ise — orphan cleanup + prot_check SKIP (false-close yazımı önle)
         if not algo_ok or not pos_ok:
@@ -648,6 +930,14 @@ def position_check():
             log(f"ORPHAN_CLEANUP_ERR: {str(cleanup_err)[:120]}")
 
         # Algo order fill detection (Binance algo endpoint)
+        # PARTIAL-CLOSE AWARE (2026-05-31):
+        # Winner-let-run: TP1(%25) + TP2(%25) partial + SL(%50 runner).
+        # TP1 kısmi dolup trailing SL cancel-replace yarışında "ikisi de yok"
+        # görünürdü → TÜM kaydı 'tp' ile kapatıyordu → runner borsada AÇIK
+        # kalırken journal'da kapalı → phantom + sahte PnL.
+        # Yeni mantık: borsa güncel pozisyon qty'sini çek; karşılaştır:
+        #   borsa_qty > epsilon → KISMİ: partial_closes'a yaz, signal açık kal.
+        #   borsa_qty ≈ 0      → TAM: record_close(kalan_qty).
         try:
             con = duckdb.connect(str(JOURNAL))
             our_active_prot = con.execute("""
@@ -656,11 +946,45 @@ def position_check():
             """).fetchall()
             # Mevcut algo IDs
             algo_open_ids = set(str(o.get("algoId", "")) for o in state["algo_orders"])
+            # Borsa güncel pozisyon qtyleri (sym_ccxt → qty) — partial-aware için
+            _exchange_pos_qty: dict[str, float] = {}
+            for _pos in positions:
+                _psym = _pos.get("symbol", "")  # "AVAX/USDT:USDT" formatı
+                _pqty = abs(float(_pos.get("contracts", 0) or 0))
+                if _pqty > 1e-9:
+                    _exchange_pos_qty[_psym] = _pqty
+            # Kısa sem map: "AVAX/USDT:USDT" → "AVAX/USDT" (journal sym formatı)
+            _exchange_pos_qty_j: dict[str, float] = {}
+            for _sym_raw, _qty_raw in _exchange_pos_qty.items():
+                _sym_j = _sym_raw.split(":")[0]  # "AVAX/USDT"
+                _exchange_pos_qty_j[_sym_j] = _qty_raw
+
             for prot_id, sym, tp_oid, sl_oid in our_active_prot:
                 tp_open = tp_oid in algo_open_ids if tp_oid else False
                 sl_open = sl_oid in algo_open_ids if sl_oid else False
                 if not tp_open and not sl_open:
-                    # Ikisi de yok — pozisyon kapanmış (TP/SL hit veya stale cancel)
+                    # TP1 ve SL ikisi de algo_open_ids'de yok.
+                    # UYARI: TP2 order_id'si notes'ta saklanıyor (tp2_id=...).
+                    # notes parse et — TP2 hâlâ açıksa bu sadece TP1 filldir.
+                    _notes_str = ""
+                    try:
+                        _nr = con.execute(
+                            "SELECT notes FROM futures_protection_orders WHERE prot_id=?",
+                            [prot_id],
+                        ).fetchone()
+                        _notes_str = str(_nr[0] or "") if _nr else ""
+                    except Exception:
+                        pass
+                    _tp2_oid = None
+                    if "tp2_id=" in _notes_str:
+                        try:
+                            _tp2_oid = _notes_str.split("tp2_id=")[-1].strip().split()[0]
+                            if not _tp2_oid:
+                                _tp2_oid = None
+                        except Exception:
+                            _tp2_oid = None
+                    _tp2_open = _tp2_oid in algo_open_ids if _tp2_oid else False
+
                     sym_id = sym.replace("/USDT:USDT", "USDT").replace("/USDT", "USDT")
                     try:
                         hist = ex.fapiPrivateGetAllAlgoOrders({"symbol": sym_id, "limit": 30})
@@ -669,15 +993,17 @@ def position_check():
                         # CANCELED order'ı önce yakalarsa gerçek kapanışı kaçırır
                         # ve record_close hiç çağrılmazdı. Çözüm: TP+SL order'ını
                         # ayrı bul, TRIGGERED/FINISHED olana öncelik ver.
-                        tp_order = sl_order = None
+                        tp_order = sl_order = tp2_order = None
                         for o in hist:
                             algo_id_str = str(o.get("algoId", ""))
                             if tp_oid and algo_id_str == str(tp_oid):
                                 tp_order = o
                             elif sl_oid and algo_id_str == str(sl_oid):
                                 sl_order = o
+                            elif _tp2_oid and algo_id_str == str(_tp2_oid):
+                                tp2_order = o
                         triggered = triggered_kind = None
-                        for cand, knd in ((sl_order, "SL"), (tp_order, "TP")):
+                        for cand, knd in ((sl_order, "SL"), (tp_order, "TP1"), (tp2_order, "TP2")):
                             if cand is not None and cand.get("algoStatus") in (
                                 "TRIGGERED",
                                 "FINISHED",
@@ -697,12 +1023,43 @@ def position_check():
                             )
                         if triggered is not None:
                             status_alg = triggered.get("algoStatus")
-                            _prot_fill_px = float(triggered.get("triggerPrice", 0) or 0)
-                            log(
-                                f"PROT_FILL: {sym} {triggered_kind} HIT @ ${_prot_fill_px} (status={status_alg})"
+                            # FIX 2026-05-30 (INC3-triggerPrice-bug): exit_price GERÇEK fill fiyatı.
+                            # KÖK NEDEN: triggered.get("triggerPrice") EMIR KURULUM fiyatını döner
+                            # (sinyal hesaplamasındaki TP/SL hedef fiyatı) — borsanın gerçek fill
+                            # fiyatı DEĞİL. Binance TAKE_PROFIT_MARKET/STOP_MARKET algo emirleri
+                            # triggerPrice'de TETIKLENIR ama MARKET PRICE'dan FILL olur. Bu fark
+                            # testnet'te küçük, canlıda/stres dönemlerinde 10-30bps slippage = $10+
+                            # sapma. Daha kötüsü: DOT gibi vakalarda TP hiç dolmamış olabilir ama
+                            # journal "TP hit @ target" yazmıştı → +28.73 sahte kâr.
+                            # Düzeltme: avgPrice (gerçek weighted-average fill) veya
+                            # executedQty > 0 olan fill. triggerPrice fallback olarak son çare.
+                            _prot_trigger_px = float(triggered.get("triggerPrice", 0) or 0)
+                            _prot_avg_px = triggered.get("avgPrice") or triggered.get(
+                                "avgExecutedPrice"
                             )
-                            # SEC26.B-3 + B-4: closed-trade journal write (canonical TradeJournal).
-                            # G14: slippage kaydı sig_row verisiyle birlikte (gerçek qty + side).
+                            _prot_fill_px = (
+                                float(_prot_avg_px)
+                                if _prot_avg_px and float(_prot_avg_px) > 0
+                                else _prot_trigger_px
+                            )
+                            if _prot_avg_px and float(_prot_avg_px) > 0:
+                                log(
+                                    f"PROT_FILL: {sym} {triggered_kind} HIT @ ${_prot_fill_px} "
+                                    f"(avgPrice, trigger=${_prot_trigger_px}, status={status_alg})"
+                                )
+                            else:
+                                # avgPrice yoksa triggerPrice kullandık — audit uyarısı
+                                log(
+                                    f"PROT_FILL: {sym} {triggered_kind} HIT @ ${_prot_fill_px} "
+                                    f"(triggerPrice fallback — avgPrice missing, status={status_alg}) "
+                                    f"[AUDIT: exit_price may differ from actual fill]"
+                                )
+                            # PARTIAL-CLOSE KARAR NOKTASI (2026-05-31):
+                            # Borsa güncel qty'sini çek; 0'a yakınsa TAM kapanış,
+                            # hâlâ qty varsa KISMİ kapanış (TP1/TP2 partial fill).
+                            # Epsilon: borsa minumum qty 0.001'in altı = "sıfır".
+                            _CLOSE_EPSILON = 1e-6
+                            _exchange_qty_now = _exchange_pos_qty_j.get(sym, 0.0)
                             try:
                                 sig_row = con.execute(
                                     """
@@ -722,129 +1079,218 @@ def position_check():
                                         side_sig,
                                         strat,
                                         entry_p,
-                                        qty,
+                                        fill_qty_sig,
                                         sl_p,
                                     ) = sig_row
-                                    exit_p = float(triggered.get("triggerPrice", 0) or 0)
-                                    close_reason = triggered_kind.lower()  # 'tp' | 'sl'
+                                    exit_p = _prot_fill_px
                                     now_close = datetime.now(UTC)
-                                    # G14: TP/SL fill slippage kaydı (sig_row verisiyle)
-                                    try:
-                                        from price_action.execution.slippage_tracker import (
-                                            SlippageTracker as _ST_prot,
-                                        )
 
-                                        _st_prot = _ST_prot()
-                                        _prot_qty = float(qty or 0.0)
-                                        _prot_notional = _prot_qty * _prot_fill_px
-                                        _prot_fee_bps = 4.0  # algo order = maker
-                                        _prot_fee_usdt = _prot_notional * _prot_fee_bps / 10_000
-                                        _st_prot.record_fill(
-                                            fill_id=f"prot_{prot_id}_{triggered_kind.lower()}",
-                                            ts=now_close,
-                                            symbol=str(sym_sig),
-                                            strategy=f"{strat or ''!s}_{triggered_kind.lower()}",
-                                            side=str(side_sig).lower(),
-                                            expected_price=_prot_fill_px,
-                                            realized_price=_prot_fill_px,
-                                            quantity=_prot_qty,
-                                            fee_usdt=_prot_fee_usdt,
-                                            is_maker=True,
-                                            order_type="algo_stop_market",
-                                            mode=os.environ.get("PA_RUN_MODE", "paper"),
-                                            exchange_order_id=str(triggered.get("algoId", "")),
-                                            fill_type=triggered_kind.lower(),  # 'tp'|'sl' — Batch C/D koordinasyon
-                                            tf="15m",
-                                        )
-                                    except Exception as _st_prot_err:
-                                        log(
-                                            f"  PROT_SLIP_RECORD_ERR prot_id={prot_id}: {str(_st_prot_err)[:100]}"
-                                        )
-                                    # Canonical writer (SEC26.B-4) — idempotent, hesaplı pnl + R.
-                                    try:
+                                    if _exchange_qty_now > _CLOSE_EPSILON:
+                                        # ── KISMİ KAPANIŞ (TP1 veya TP2 partial fill) ──
+                                        # Borsa hâlâ açık: runner pozisyon devam ediyor.
+                                        # closed_qty = sinyal kalan qty − borsa güncel qty.
                                         from price_action.execution.trade_journal import (
                                             TradeJournal,
                                         )
 
                                         tj = TradeJournal(db_path=str(JOURNAL))
-                                        inserted = tj.record_close(
-                                            trade_id=str(sig_id),
-                                            ts_open=ts_open or now_close,
-                                            ts_close=now_close,
-                                            sym=str(sym_sig),
-                                            side=str(side_sig).lower(),
-                                            strategy=str(strat or ""),
-                                            entry_price=float(entry_p or 0.0),
-                                            exit_price=float(exit_p),
-                                            qty=float(qty or 0.0),
-                                            sl_price=float(sl_p or 0.0),
-                                            close_reason=close_reason,
+                                        _remaining_before = tj.get_remaining_qty(
+                                            str(sig_id), float(fill_qty_sig or 0.0)
                                         )
-                                        log(
-                                            f"  TRADE_CLOSED: sig={sig_id} {triggered_kind} inserted={inserted}"
+                                        _closed_qty = max(
+                                            0.0, _remaining_before - _exchange_qty_now
+                                        )
+                                        if _closed_qty < _CLOSE_EPSILON:
+                                            # qty fark çok küçük — büyük ihtimalle API stale
+                                            # (borsa qty taze gelmediyse). Skip + uyarı.
+                                            log(
+                                                f"  PROT_PARTIAL_SKIP: {sym} {triggered_kind} "
+                                                f"exchange_qty={_exchange_qty_now:.6f} remaining_before={_remaining_before:.6f} "
+                                                f"closed_qty={_closed_qty:.6f} < epsilon — API stale olabilir, skip"
+                                            )
+                                        else:
+                                            # close_id deterministik: trade_id + order_id
+                                            _close_id = (
+                                                f"{sig_id}_{triggered.get('algoId', prot_id)}"
+                                            )
+                                            _partial_inserted = tj.record_partial_close(
+                                                close_id=_close_id,
+                                                trade_id=str(sig_id),
+                                                ts_close=now_close,
+                                                sym=str(sym_sig),
+                                                side=str(side_sig).lower(),
+                                                strategy=str(strat or ""),
+                                                entry_price=float(entry_p or 0.0),
+                                                exit_price=float(exit_p),
+                                                qty_closed=float(_closed_qty),
+                                                sl_price=float(sl_p or 0.0),
+                                                close_reason=triggered_kind.lower(),
+                                            )
+                                            log(
+                                                f"  TRADE_PARTIAL: sig={sig_id} {triggered_kind} "
+                                                f"qty_closed={_closed_qty:.6f} exit=${exit_p:.4f} "
+                                                f"exchange_remaining={_exchange_qty_now:.6f} inserted={_partial_inserted}"
+                                            )
+                                            # TP1 partial Telegram (kısa bilgi)
+                                            if _partial_inserted:
+                                                try:
+                                                    from price_action.orchestrator.notifications import (
+                                                        notify_position_close,
+                                                    )
+
+                                                    _pnl_part = (
+                                                        (float(exit_p) - float(entry_p or 0.0))
+                                                        * _closed_qty
+                                                        if str(side_sig).lower() == "long"
+                                                        else (float(entry_p or 0.0) - float(exit_p))
+                                                        * _closed_qty
+                                                    )
+                                                    notify_position_close(
+                                                        bot="futures15m",
+                                                        symbol=str(sym_sig),
+                                                        side=str(side_sig).lower(),
+                                                        strategy=str(strat or ""),
+                                                        entry_price=float(entry_p or 0.0),
+                                                        exit_price=float(exit_p),
+                                                        qty=float(_closed_qty),
+                                                        notional_usdt=float(_closed_qty)
+                                                        * float(entry_p or 0.0),
+                                                        realized_pnl_usdt=_pnl_part,
+                                                        realized_r=0.0,
+                                                        close_reason=f"partial_{triggered_kind.lower()}",
+                                                        hold_seconds=None,
+                                                    )
+                                                except Exception as _tn_part_exc:
+                                                    log(f"  TELEGRAM_PARTIAL_FAIL: {_tn_part_exc}")
+                                    else:
+                                        # ── TAM KAPANIŞ ──
+                                        # Borsa qty ≈ 0: tüm pozisyon kapandı.
+                                        # Kalan qty = fill_qty − SUM(partials).
+                                        from price_action.execution.trade_journal import (
+                                            TradeJournal,
                                         )
 
-                                        # FIX 2026-05-26 (Faz 14.5): Telegram position-close bildirimi
-                                        if inserted:
-                                            try:
-                                                from price_action.orchestrator.notifications import (
-                                                    notify_position_close,
-                                                )
-
-                                                # PnL hesabı
-                                                _side = str(side_sig).lower()
-                                                _entry = float(entry_p or 0.0)
-                                                _exit = float(exit_p)
-                                                _qty = float(qty or 0.0)
-                                                if _side == "long":
-                                                    _pnl = (_exit - _entry) * _qty
-                                                else:
-                                                    _pnl = (_entry - _exit) * _qty
-                                                # R hesabı
-                                                _sl = float(sl_p or 0.0)
-                                                _r = 0.0
-                                                if _sl and _entry:
-                                                    _sl_dist = abs(_entry - _sl)
-                                                    if _sl_dist > 0:
-                                                        _r = _pnl / (_sl_dist * _qty)
-                                                _notional = _qty * _entry
-                                                # FIX 2026-05-26: tz normalize (DuckDB tz-naive, now_close tz-aware)
-                                                _hold_s = None
-                                                if ts_open:
-                                                    try:
-                                                        _tso = (
-                                                            ts_open
-                                                            if ts_open.tzinfo
-                                                            else ts_open.replace(tzinfo=UTC)
-                                                        )
-                                                        _tsc = (
-                                                            now_close
-                                                            if now_close.tzinfo
-                                                            else now_close.replace(tzinfo=UTC)
-                                                        )
-                                                        _hold_s = (_tsc - _tso).total_seconds()
-                                                    except Exception:
-                                                        _hold_s = None
-                                                notify_position_close(
-                                                    bot="futures15m",
-                                                    symbol=str(sym_sig),
-                                                    side=_side,
-                                                    strategy=str(strat or ""),
-                                                    entry_price=_entry,
-                                                    exit_price=_exit,
-                                                    qty=_qty,
-                                                    notional_usdt=_notional,
-                                                    realized_pnl_usdt=_pnl,
-                                                    realized_r=_r,
-                                                    close_reason=close_reason,
-                                                    hold_seconds=_hold_s,
-                                                )
-                                            except Exception as _tn_exc:
-                                                log(f"  TELEGRAM_CLOSE_FAIL: {_tn_exc}")
-                                    except Exception as tje:
-                                        log(
-                                            f"  TRADE_CLOSED_WRITE_FAIL sig_id={sig_id}: {str(tje)[:120]}"
+                                        tj = TradeJournal(db_path=str(JOURNAL))
+                                        _remaining_qty = tj.get_remaining_qty(
+                                            str(sig_id), float(fill_qty_sig or 0.0)
                                         )
+                                        # 0'a yakınsa en az sembolik qty yaz (borsanın yuvarlama toleransı)
+                                        _final_qty = max(_remaining_qty, 0.0)
+                                        close_reason_str = triggered_kind.lower()
+                                        # "tp1"/"tp2" → trades_closed'e "tp" yaz (eski raporlar okur)
+                                        if close_reason_str in ("tp1", "tp2"):
+                                            close_reason_str = "tp"
+
+                                        # G14: TP/SL fill slippage kaydı (sig_row verisiyle)
+                                        try:
+                                            from price_action.execution.slippage_tracker import (
+                                                SlippageTracker as _ST_prot,
+                                            )
+
+                                            _st_prot = _ST_prot()
+                                            _prot_qty = float(_final_qty or 0.0)
+                                            _prot_notional = _prot_qty * _prot_fill_px
+                                            _prot_fee_bps = 4.0  # algo order = maker
+                                            _prot_fee_usdt = _prot_notional * _prot_fee_bps / 10_000
+                                            _st_prot.record_fill(
+                                                fill_id=f"prot_{prot_id}_{triggered_kind.lower()}",
+                                                ts=now_close,
+                                                symbol=str(sym_sig),
+                                                strategy=f"{strat or ''!s}_{triggered_kind.lower()}",
+                                                side=str(side_sig).lower(),
+                                                expected_price=_prot_fill_px,
+                                                realized_price=_prot_fill_px,
+                                                quantity=_prot_qty,
+                                                fee_usdt=_prot_fee_usdt,
+                                                is_maker=True,
+                                                order_type="algo_stop_market",
+                                                mode=os.environ.get("PA_RUN_MODE", "paper"),
+                                                exchange_order_id=str(triggered.get("algoId", "")),
+                                                fill_type=triggered_kind.lower(),
+                                                tf="15m",
+                                            )
+                                        except Exception as _st_prot_err:
+                                            log(
+                                                f"  PROT_SLIP_RECORD_ERR prot_id={prot_id}: {str(_st_prot_err)[:100]}"
+                                            )
+                                        # Canonical writer (SEC26.B-4) — idempotent.
+                                        try:
+                                            inserted = tj.record_close(
+                                                trade_id=str(sig_id),
+                                                ts_open=ts_open or now_close,
+                                                ts_close=now_close,
+                                                sym=str(sym_sig),
+                                                side=str(side_sig).lower(),
+                                                strategy=str(strat or ""),
+                                                entry_price=float(entry_p or 0.0),
+                                                exit_price=float(exit_p),
+                                                qty=float(_final_qty),
+                                                sl_price=float(sl_p or 0.0),
+                                                close_reason=close_reason_str,
+                                            )
+                                            log(
+                                                f"  TRADE_CLOSED: sig={sig_id} {triggered_kind} "
+                                                f"qty={_final_qty:.6f} inserted={inserted}"
+                                            )
+
+                                            # FIX 2026-05-26 (Faz 14.5): Telegram position-close bildirimi
+                                            if inserted:
+                                                try:
+                                                    from price_action.orchestrator.notifications import (
+                                                        notify_position_close,
+                                                    )
+
+                                                    _side = str(side_sig).lower()
+                                                    _entry = float(entry_p or 0.0)
+                                                    _exit = float(exit_p)
+                                                    _qty = float(_final_qty)
+                                                    if _side == "long":
+                                                        _pnl = (_exit - _entry) * _qty
+                                                    else:
+                                                        _pnl = (_entry - _exit) * _qty
+                                                    _sl = float(sl_p or 0.0)
+                                                    _r = 0.0
+                                                    if _sl and _entry:
+                                                        _sl_dist = abs(_entry - _sl)
+                                                        if _sl_dist > 0:
+                                                            _r = _pnl / (_sl_dist * _qty)
+                                                    _notional = _qty * _entry
+                                                    _hold_s = None
+                                                    if ts_open:
+                                                        try:
+                                                            _tso = (
+                                                                ts_open
+                                                                if ts_open.tzinfo
+                                                                else ts_open.replace(tzinfo=UTC)
+                                                            )
+                                                            _tsc = (
+                                                                now_close
+                                                                if now_close.tzinfo
+                                                                else now_close.replace(tzinfo=UTC)
+                                                            )
+                                                            _hold_s = (_tsc - _tso).total_seconds()
+                                                        except Exception:
+                                                            _hold_s = None
+                                                    notify_position_close(
+                                                        bot="futures15m",
+                                                        symbol=str(sym_sig),
+                                                        side=_side,
+                                                        strategy=str(strat or ""),
+                                                        entry_price=_entry,
+                                                        exit_price=_exit,
+                                                        qty=_qty,
+                                                        notional_usdt=_notional,
+                                                        realized_pnl_usdt=_pnl,
+                                                        realized_r=_r,
+                                                        close_reason=close_reason_str,
+                                                        hold_seconds=_hold_s,
+                                                    )
+                                                except Exception as _tn_exc:
+                                                    log(f"  TELEGRAM_CLOSE_FAIL: {_tn_exc}")
+                                        except Exception as tje:
+                                            log(
+                                                f"  TRADE_CLOSED_WRITE_FAIL sig_id={sig_id}: {str(tje)[:120]}"
+                                            )
                             except Exception as je:
                                 log(
                                     f"  TRADE_CLOSED_LOOKUP_FAIL prot_id={prot_id}: {str(je)[:120]}"
@@ -986,6 +1432,101 @@ def position_check():
                     _side, _calc_entry, _intended_sl, _mark, pyramid_leg_filled=_pyr_leg_filled
                 )
                 _close_side = "SELL" if _side == "long" else "BUY"
+
+                # ── RUNNER TIME-STOP (ts30) ───────────────────────────────
+                # Force-exit if runner phase has been active ≥ _RUNNER_MAX_BARS bars.
+                # Anchor: ts_close of the first TP1 partial close for this position
+                # (from futures_partial_closes journal table).  Restart-safe: derived
+                # from DB each tick — no in-memory counter.  Fires BEFORE the trailing
+                # SL block; BE-lock + 4% trail remain active and whichever triggers
+                # first (trail hit OR time-stop) closes the runner.
+                # Ref: exit_tournament_verdict.md §6 fallback params.
+                try:
+                    _runner_ts_fired = False
+                    # Only relevant when position is in runner phase (mark >= TP1).
+                    _initial_r_ts = abs(_calc_entry - _intended_sl)
+                    _in_runner = (
+                        _initial_r_ts > 0
+                        and _mark > 0
+                        and (
+                            (_side == "long" and _mark >= _calc_entry + _initial_r_ts)
+                            or (_side == "short" and _mark <= _calc_entry - _initial_r_ts)
+                        )
+                    )
+                    if _in_runner:
+                        # Look up the first TP1 partial-close timestamp for this symbol/side.
+                        _runner_anchor_ts: datetime | None = None
+                        try:
+                            _jcon_ts = duckdb.connect(str(JOURNAL), read_only=True)
+                            try:
+                                _ts_row = _jcon_ts.execute(
+                                    """
+                                    SELECT pc.ts_close
+                                    FROM futures_partial_closes pc
+                                    JOIN futures_signals fs
+                                      ON pc.trade_id = fs.signal_id
+                                    WHERE fs.symbol = ?
+                                      AND LOWER(fs.side) = LOWER(?)
+                                      AND fs.status = 'filled'
+                                      AND LOWER(pc.close_reason) IN ('tp1', 'tp')
+                                      AND fs.signal_id NOT IN (
+                                          SELECT trade_id FROM futures_trades_closed
+                                      )
+                                    ORDER BY pc.ts_close ASC
+                                    LIMIT 1
+                                    """,
+                                    [_sym_ccxt, _side],
+                                ).fetchone()
+                                if _ts_row and _ts_row[0]:
+                                    _runner_anchor_ts = _ts_row[0]
+                                    if (
+                                        hasattr(_runner_anchor_ts, "tzinfo")
+                                        and _runner_anchor_ts.tzinfo is None
+                                    ):
+                                        _runner_anchor_ts = _runner_anchor_ts.replace(tzinfo=UTC)
+                            finally:
+                                _jcon_ts.close()
+                        except Exception as _ts_db_err:
+                            log(f"  RUNNER_TS_LOOKUP_ERR: {_sym_algo}: {str(_ts_db_err)[:80]}")
+
+                        if _runner_anchor_ts is not None:
+                            _bars_in_runner = (
+                                datetime.now(UTC) - _runner_anchor_ts
+                            ).total_seconds() / _RUNNER_BAR_SECONDS
+                            if _bars_in_runner >= _RUNNER_MAX_BARS:
+                                _runner_ts_fired = True
+                                log(
+                                    f"  RUNNER_TIMESTOP: {_sym_algo} {_side} "
+                                    f"runner={_bars_in_runner:.1f} bars >= {_RUNNER_MAX_BARS} "
+                                    f"(anchor={_runner_anchor_ts.strftime('%H:%MZ')}) "
+                                    f"→ force-close at market"
+                                )
+
+                    if _runner_ts_fired:
+                        try:
+                            _qty_str_ts = ex.amount_to_precision(_sym_ccxt, _contracts)
+                            ex.create_order(
+                                symbol=_sym_ccxt,
+                                type="MARKET",
+                                side=_close_side,
+                                amount=float(_qty_str_ts),
+                                params={"reduceOnly": True},
+                            )
+                            log(
+                                f"  RUNNER_TIMESTOP_FILLED: {_sym_algo} market close sent "
+                                f"qty={_qty_str_ts} mark=${_mark:.4f} "
+                                f"(reconcile_orphan will record close on next tick)"
+                            )
+                        except Exception as _ts_close_err:
+                            log(
+                                f"  RUNNER_TIMESTOP_CLOSE_ERR: {_sym_algo}: "
+                                f"{str(_ts_close_err)[:110]}"
+                            )
+                        continue  # skip SL ratchet for this position this tick
+                except Exception as _ts_outer_err:
+                    log(f"  RUNNER_TIMESTOP_ERR: {_sym_algo}: {str(_ts_outer_err)[:110]}")
+                # ── END RUNNER TIME-STOP ──────────────────────────────────
+
                 try:
                     _qty_str = ex.amount_to_precision(_sym_ccxt, _contracts)
                     if _cur_sl is None:
@@ -1354,6 +1895,21 @@ def run_15m_mode(once: bool = False) -> None:
     # SEC58-L2: startup'ta DB'den aktif pyramid pozisyonlarını yükle (restart recovery)
     _pyramid_store_load_on_startup()
 
+    # FIX 2026-05-31 (Faz restart-rebuild): pyramid_store boşsa borsadaki açık
+    # pozisyonlar için takip kaydını yeniden kur (trailing donukluğunu önler).
+    # G22 yolu (_cur_sl → intended_sl) initial_r'yi yanlış hesaplıyor çünkü
+    # exchange SL'i trailing sonrası taşınmış olabilir → bu rebuild orijinal
+    # entry + sl_price'ı journal'dan alarak _desired_sl_price() hesabını doğru yapar.
+    try:
+        from scripts.futures_trade_daily import get_futures_exchange as _get_fx_rb
+
+        _rb_exchange = _get_fx_rb()
+        _rebuild_position_tracking_from_exchange(_rb_exchange)
+    except Exception as _rb_err:
+        log(
+            f"REBUILD_TRACKING_INIT_ERR: {_rb_err} — takip kaydı yeniden kurulamadı, G22 fallback devam"
+        )
+
     log("=" * 60)
     log("FUTURES 15M DAEMON STARTED")
     log("  - Signal scan: her 15 dakikada (bar-close + 5s buffer)")
@@ -1549,6 +2105,30 @@ def run_15m_mode(once: bool = False) -> None:
 
                         _ex_submit = get_futures_exchange()
                         _state_submit = fetch_futures_state(_ex_submit)
+
+                        # SEC-#3A: Konsantrasyon fail-safe — stale pozisyon dedektörü.
+                        # fetch_positions() bazen boş dönebilir (rate-limit 418, API stale)
+                        # ama borsada hala açık pozisyon bulunabilir. Bu durumda
+                        # concentration_gate "pozisyon yok" sanıp yeni emri geçirir →
+                        # ALGO sembolünde yığılma (gözlemlenen: %15→%27).
+                        # Stale koşul: positions_ok=False VEYA (positions boş AMA initialMargin>0)
+                        # İkinci koşul: fetch_positions() boş döndü ama raw account
+                        # totalInitialMargin > 0 → borsada pozisyon var ama liste gelmedi.
+                        _pos_ok_15m = _state_submit.get("positions_ok", True)
+                        _init_margin_15m = float(_state_submit.get("total_initial_margin", 0))
+                        _pos_list_15m = _state_submit.get("positions", [])
+                        _stale_positions_15m = not _pos_ok_15m or (
+                            len(_pos_list_15m) == 0 and _init_margin_15m > 0
+                        )
+                        if _stale_positions_15m:
+                            log(
+                                f"  ENTRY_SKIP_STALE_POS: {sig.get('symbol','?')} — "
+                                f"pozisyon verisi güvenilmez (positions_ok={_pos_ok_15m}, "
+                                f"pos_list_len={len(_pos_list_15m)}, "
+                                f"initialMargin={_init_margin_15m:.2f}), giriş atlandı"
+                            )
+                            continue
+
                         _risk_yaml_path = _risk_config_15m()
                         _breaker_state_path = (
                             ROOT / "logs" / "risk" / "futures_breaker_state_15m_phoenix.json"
@@ -2195,6 +2775,16 @@ def main_loop():
 
     # SEC58-L2: startup recovery — pyramid pozisyonlarını DB'den yükle
     _pyramid_store_load_on_startup()
+
+    # FIX 2026-05-31 (Faz restart-rebuild): borsadaki açık pozisyonlar için
+    # takip kaydını yeniden kur (1d daemon için de aynı rebuild mantığı).
+    try:
+        from scripts.futures_trade_daily import get_futures_exchange as _get_fx_rb1d
+
+        _rb_exchange_1d = _get_fx_rb1d()
+        _rebuild_position_tracking_from_exchange(_rb_exchange_1d)
+    except Exception as _rb_err_1d:
+        log(f"REBUILD_TRACKING_INIT_ERR_1D: {_rb_err_1d} — G22 fallback devam")
 
     log("=" * 60)
     log("FUTURES DAEMON STARTED (USDM Futures Testnet)")
