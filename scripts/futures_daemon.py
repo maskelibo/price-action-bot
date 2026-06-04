@@ -1407,10 +1407,28 @@ def position_check():
                             f"  PROT_WATCHDOG_G22: {_sym_algo} pyramid kaydı yok — "
                             f"exchange SL ${_cur_sl} intended_sl olarak kullanılıyor"
                         )
+                    elif _entry > 0:
+                        # PROT_WATCHDOG_HEAL (2026-06-03): çıplak pozisyon — pyramid
+                        # kaydı YOK ve borsada SL de YOK. Sebep: TP1 fill cancel-replace
+                        # yarışı (satır ~933 "ikisi de yok" penceresi) veya restart
+                        # rebuild'inin stub kaydı pyramid metadata'sını kaybetmesi.
+                        # ESKİ davranış: "manuel müdahale gerek" + continue → pozisyon
+                        # korumasız kalıyordu (ZEC/DOT 2026-06-03'te 4+ saat çıplak).
+                        # YENİ: intended_sl=entry → _desired_sl_price breakeven (entry)
+                        # döner → aşağıdaki "SL eksikti → kondu" bloğu BE stop yerleştirir.
+                        #   • karda pozisyon (long: entry<mark): geçerli breakeven stop.
+                        #   • zararda çıplak (entry>=mark): _breached → market close
+                        #     (korumasız zarar pozisyonu güvenle düzleştirilir).
+                        _intended_sl = _entry
+                        log(
+                            f"  PROT_WATCHDOG_HEAL: {_sym_algo} çıplak (pyramid+SL yok) "
+                            f"→ breakeven SL @ ${_entry} yerleştiriliyor"
+                        )
+                        # continue YOK — SL yerleştirme bloğuna düş.
                     else:
                         log(
-                            f"  PROT_WATCHDOG_ALARM: {_sym_algo} SL YOK + "
-                            f"pyramid kaydı yok — manuel müdahale gerek"
+                            f"  PROT_WATCHDOG_ALARM: {_sym_algo} SL YOK + pyramid kaydı yok "
+                            f"+ entry geçersiz ({_entry}) — manuel müdahale gerek"
                         )
                         continue
                 # R/TP hesabı için leg-1 entry; yoksa borsa entry'ye düş
@@ -1536,18 +1554,52 @@ def position_check():
                             or (_side == "short" and _sl_price <= _mark)
                         )
                         if _breached:
-                            ex.create_order(
-                                symbol=_sym_ccxt,
-                                type="MARKET",
-                                side=_close_side,
-                                amount=float(_qty_str),
-                                params={"reduceOnly": True},
-                            )
-                            log(
-                                f"  PROT_WATCHDOG: {_sym_algo} SL yok + kayıtlı "
-                                f"SL ${_sl_price} ihlal — market kapatıldı "
-                                f"qty={_qty_str}"
-                            )
+                            # Çıplak + SL seviyesi ihlal → kapat. Önce reduceOnly
+                            # market; testnet -2022 "ReduceOnly rejected" alırsa
+                            # reduceOnly'siz plain-market'e düş (TAZE qty ile —
+                            # stale qty ters pozisyon açmasın). Böylece çıplak
+                            # zarar pozisyonu HER ZAMAN kapanır (asla naked kalmaz).
+                            # FIX 2026-06-04: AVAX -2022 olayı (manuel kapatma gerekmişti).
+                            try:
+                                ex.create_order(
+                                    symbol=_sym_ccxt,
+                                    type="MARKET",
+                                    side=_close_side,
+                                    amount=float(_qty_str),
+                                    params={"reduceOnly": True},
+                                )
+                                log(
+                                    f"  PROT_WATCHDOG: {_sym_algo} SL yok + ${_sl_price} "
+                                    f"ihlal — market(reduceOnly) kapatıldı qty={_qty_str}"
+                                )
+                            except Exception as _ro_err:
+                                _fresh_amt = 0.0
+                                try:
+                                    for _fp in ex.fetch_positions([_sym_ccxt]):
+                                        _pa = abs(float(_fp["info"].get("positionAmt", 0) or 0))
+                                        if _pa > 0:
+                                            _fresh_amt = _pa
+                                            break
+                                except Exception:
+                                    _fresh_amt = _contracts
+                                if _fresh_amt > 0:
+                                    _fresh_qty = ex.amount_to_precision(_sym_ccxt, _fresh_amt)
+                                    ex.create_order(
+                                        symbol=_sym_ccxt,
+                                        type="MARKET",
+                                        side=_close_side,
+                                        amount=float(_fresh_qty),
+                                    )
+                                    log(
+                                        f"  PROT_WATCHDOG_HEAL: {_sym_algo} reduceOnly "
+                                        f"reddedildi ({str(_ro_err)[:40]}) → plain-market "
+                                        f"kapatıldı qty={_fresh_qty}"
+                                    )
+                                else:
+                                    log(
+                                        f"  PROT_WATCHDOG: {_sym_algo} kapatma atlandı "
+                                        f"— pozisyon zaten kapanmış"
+                                    )
                         else:
                             _sl_str = ex.price_to_precision(_sym_ccxt, _sl_price)
                             ex.create_order(
