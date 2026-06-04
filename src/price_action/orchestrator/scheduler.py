@@ -585,12 +585,19 @@ async def _job_health_check() -> None:
             # FIX 2026-05-26 (H1)
             logger.warning("scheduler.pgrep_fail", extra={"err": str(_pgrep_exc)[:200]})
 
-        # 2. futures_daemon.log freshness
-        flog = s.reports_dir.parent / "logs" / "futures_daemon.log"
-        if flog.exists():
-            age_min = (_dt.now().timestamp() - flog.stat().st_mtime) / 60
+        # 2. Canlı daemon log freshness — EN TAZE futures_daemon*.log'u izle.
+        # FIX 2026-06-04: hardcoded futures_daemon.log champion'a aitti; champion
+        # emekli edilince (launchctl bootout) o log donuyor → sahte "1800dk eski"
+        # alarmı. v13 futures_daemon_v13.log, 5m futures_daemon_5m.log yazıyor.
+        # En taze olanın yaşına bak → hangi daemon canlıysa onu izler, emekli
+        # olanın ölü logu false-alarm üretmez.
+        _logs_dir = s.reports_dir.parent / "logs"
+        _daemon_logs = list(_logs_dir.glob("futures_daemon*.log"))
+        if _daemon_logs:
+            _newest = max(_daemon_logs, key=lambda p: p.stat().st_mtime)
+            age_min = (_dt.now().timestamp() - _newest.stat().st_mtime) / 60
             if age_min > 30:
-                issues.append(f"futures_daemon.log {int(age_min)}dk eski (>30dk)")
+                issues.append(f"{_newest.name} {int(age_min)}dk eski (>30dk)")
 
         # 3. Inbox boyut
         inbox = s.memory_dir / "protocol" / "inbox.jsonl"

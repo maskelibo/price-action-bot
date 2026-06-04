@@ -29,7 +29,15 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 _REPO = Path(__file__).resolve().parent.parent
-_JOURNAL = _REPO / "data" / "futures_journal.duckdb"
+# FIX 2026-06-04: champion (futures_journal.duckdb) EMEKLİ — donmuş journal'ında
+# dangling ZEC short kalmıştı → her döngüde phantom/drift alarmı. Canlı 15m bot
+# artık v13 (futures_journal_v13.duckdb). PA_BOT_NAME ile override edilebilir;
+# default canlı bota (v13) işaret eder. (5m ayrı hesap paylaşımı: nadir poz →
+# kabul edilebilir kısıt.)
+_BOT = os.environ.get("PA_BOT_NAME", "v13").strip()
+_JOURNAL = _REPO / "data" / (
+    f"futures_journal_{_BOT}.duckdb" if _BOT and _BOT not in ("default", "") else "futures_journal.duckdb"
+)
 _REPORT_DIR = _REPO / "reports" / "reconcile"
 
 
@@ -129,7 +137,12 @@ def _fetch_exchange_positions() -> dict[str, dict]:
 
 
 def _fetch_journal_open_positions() -> list[dict]:
-    """Journal'da status='filled' olan ama trades_closed'de olmayan signal'ler."""
+    """Journal'da status='filled' olan ama trades_closed'de olmayan signal'ler.
+
+    PARTIAL-AWARE (2026-05-31): Her açık signal için kalan qty hesaplanır:
+    remaining_qty = fill_qty - SUM(futures_partial_closes.qty_closed)
+    Sonuç dict'e 'remaining_qty' alanı eklenir; qty-drift kontrolü bunu kullanır.
+    """
     if not _JOURNAL.exists():
         return []
     try:
@@ -145,12 +158,34 @@ def _fetch_journal_open_positions() -> list[dict]:
                    AND s.signal_id NOT IN (SELECT trade_id FROM futures_trades_closed)
                  ORDER BY s.ts
             """).fetchdf()
+            # Partial closes toplamını al (tablo yoksa 0)
+            try:
+                partial_df = con.execute("""
+                    SELECT trade_id, COALESCE(SUM(qty_closed), 0.0) AS partial_sum
+                      FROM futures_partial_closes
+                     WHERE trade_id IN (
+                         SELECT signal_id FROM futures_signals
+                          WHERE status = 'filled'
+                            AND signal_id NOT IN (SELECT trade_id FROM futures_trades_closed)
+                     )
+                     GROUP BY trade_id
+                """).fetchdf()
+                partial_map = dict(
+                    zip(partial_df["trade_id"], partial_df["partial_sum"])
+                ) if not partial_df.empty else {}
+            except Exception:
+                partial_map = {}
         finally:
             con.close()
     except Exception as exc:
         _log(f"journal_read_fail: {exc}")
         return []
-    return df.to_dict("records")
+    records = df.to_dict("records")
+    for r in records:
+        fill_qty = float(r.get("fill_qty") or 0.0)
+        partial_sum = float(partial_map.get(str(r["signal_id"]), 0.0))
+        r["remaining_qty"] = max(0.0, fill_qty - partial_sum)
+    return records
 
 
 def _close_orphan(orphan: dict, exit_price: float) -> bool:
@@ -165,6 +200,13 @@ def _close_orphan(orphan: dict, exit_price: float) -> bool:
         # tz-naive → UTC ata
         if ts_open.tzinfo is None:
             ts_open = ts_open.replace(tzinfo=UTC)
+        # PARTIAL-CLOSE FIX (2026-05-31): kalan (runner) qty ile kapat, TAM fill_qty
+        # DEĞİL. Aksi halde kısmi TP'ler (futures_partial_closes) zaten yazılmışken
+        # final orphan kapanışı tüm qty'yi tekrar yazar → realized PnL ÇİFT SAYIM.
+        # remaining_qty = fill_qty − SUM(partials); legacy (partial yok) için == fill_qty.
+        _remaining = orphan.get("remaining_qty")
+        if _remaining is None:
+            _remaining = float(orphan.get("fill_qty") or 0.0)
         return tj.record_close(
             trade_id=str(orphan["signal_id"]),
             ts_open=ts_open,
@@ -174,7 +216,7 @@ def _close_orphan(orphan: dict, exit_price: float) -> bool:
             strategy=str(orphan["strategy"] or ""),
             entry_price=float(orphan["fill_price"] or 0.0),
             exit_price=float(exit_price),
-            qty=float(orphan["fill_qty"] or 0.0),
+            qty=float(_remaining),
             sl_price=float(orphan["sl_price"] or 0.0),
             close_reason="reconcile_orphan",  # type: ignore[arg-type]
         )
@@ -205,6 +247,40 @@ def _phantom_dedup(phantoms: list[dict], *, ttl_hours: float = 12.0) -> list[dic
         last = float(seen.get(sig, 0) or 0)
         if now - last >= ttl_hours * 3600:
             fresh.append(p)
+            seen[sig] = now
+    # eski imzaları temizle (ttl×2'den eski)
+    seen = {k: v for k, v in seen.items() if now - float(v or 0) < ttl_hours * 7200}
+    try:
+        state_p.write_text(json.dumps(seen))
+    except Exception:
+        pass
+    return fresh
+
+
+def _qty_drift_dedup(mismatches: list[dict], *, ttl_hours: float = 12.0) -> list[dict]:
+    """FIX 2026-05-31: qty-drift alarmı dedup'suzdu → aynı drift her reconcile
+    döngüsünde (15dk) tekrar alarm basıyordu (ALGO 30% vakası). İmza: symbol +
+    drift bucket (5%'lik kova) state dosyasında; aynı imza ttl_hours içinde tekrar
+    bildirilmez. Drift büyürse (yeni kova) hemen geçer. _phantom_dedup paraleli."""
+    import json
+    import time
+    from pathlib import Path
+
+    state_p = Path(__file__).resolve().parents[1] / "logs" / "state" / "qty_drift_alerts.json"
+    state_p.parent.mkdir(parents=True, exist_ok=True)
+    now = time.time()
+    try:
+        seen = json.loads(state_p.read_text())
+    except Exception:
+        seen = {}
+    fresh: list[dict] = []
+    for m in mismatches:
+        # bucket: 5%'lik dilim → drift büyüyünce (örn %30→%40) yeni imza, hemen geçer
+        bucket = int(float(m.get("diff_pct", 0)) // 5)
+        sig = f"{m['symbol']}:{bucket}"
+        last = float(seen.get(sig, 0) or 0)
+        if now - last >= ttl_hours * 3600:
+            fresh.append(m)
             seen[sig] = now
     # eski imzaları temizle (ttl×2'den eski)
     seen = {k: v for k, v in seen.items() if now - float(v or 0) < ttl_hours * 7200}
@@ -294,6 +370,8 @@ def reconcile() -> dict:
     journal_symbols = {j["symbol"] for j in journal}
 
     # 1. Orphan: journal'da var, borsada yok → close
+    # PARTIAL-AWARE (2026-05-31): Orphan sadece remaining_qty > epsilon ise geçerli.
+    # remaining_qty=0 olan trade zaten tüm partial'ları kapanmış demektir → orphan değil.
     # FIX 2026-05-30 (INC1-reconcile-exit-px): exit_price daha önce fetch_ticker
     # (anlık piyasa fiyatı) kullanıyordu. Bu GERÇEĞİ yansıtmaz —
     # pozisyon farklı bir fiyatta kapandıysa PnL yanlış yazılır (XLM vakası:
@@ -301,7 +379,12 @@ def reconcile() -> dict:
     #   1) fapiPrivateGetAllOrders (kapanış tarihi yakın, reduceOnly fill)
     #   2) ticker (son çare)
     #   3) entry_price (en kötü durum — PnL=0 yazmak yanlış kayıptan iyidir)
-    orphans = [j for j in journal if j["symbol"] not in exchange_symbols]
+    _ORPHAN_QTY_EPSILON = 1e-6
+    orphans = [
+        j for j in journal
+        if j["symbol"] not in exchange_symbols
+        and float(j.get("remaining_qty", j.get("fill_qty", 0))) > _ORPHAN_QTY_EPSILON
+    ]
     for o in orphans:
         exit_px = float(o["fill_price"] or 0.0)  # fallback = entry (PnL=0)
         try:
@@ -401,11 +484,18 @@ def reconcile() -> dict:
             )
 
     # 2. Phantom: borsada var, journal'da yok → alert
+    # PARTIAL-AWARE (2026-05-31): journal_symbols'u remaining_qty>epsilon olan
+    # trade'lerden üret. remaining_qty=0 olan trade "journal'da açık" sayılmaz.
     # FIX 2026-05-28 (Faz 14.27): phantom alert push_critical çalışıyor
     # (P0-1 test ile doğrulandı, Telegram zinciri sağlam). Açık her tetikte
     # alert tekrarlanır (idempotent). Manuel kapatma gerekli — otomatik close
     # YOK çünkü borsadaki kullanıcı manuel pozisyon olabilir.
-    phantoms = [exchange[s] for s in exchange_symbols if s not in journal_symbols]
+    journal_symbols_active = {
+        j["symbol"]
+        for j in journal
+        if float(j.get("remaining_qty", j.get("fill_qty", 0))) > _ORPHAN_QTY_EPSILON
+    }
+    phantoms = [exchange[s] for s in exchange_symbols if s not in journal_symbols_active]
     stats["phantoms"] = len(phantoms)
     if phantoms:
         _push_phantom_alert(phantoms)
@@ -417,13 +507,14 @@ def reconcile() -> dict:
             sum(abs(float(p.get("qty", 0)) * float(p.get("entry_price", 0))) for p in phantoms), 2
         )
 
-    # 3. In-sync: ikisinde de var
-    stats["in_sync"] = len(exchange_symbols & journal_symbols)
+    # 3. In-sync: ikisinde de var (partial-aware: remaining_qty>epsilon olan journal kayıtları)
+    stats["in_sync"] = len(exchange_symbols & journal_symbols_active)
 
     # 4. FIX 2026-05-28 (Faz 14.27 C5): Open trades count sanity check.
-    # Önceki bug: bot'un journal'daki open count vs exchange position count
-    # karşılaştırılmıyordu. Her ikisini aynı sembol için karşılaştırmak
-    # journal staleness'i yakalar.
+    # PARTIAL-AWARE (2026-05-31): qty karşılaştırması fill_qty DEĞİL remaining_qty
+    # kullanır. remaining_qty = fill_qty - SUM(partial_closes). Örn: fill_qty=100,
+    # TP1 %25 fill → remaining=75. Exchange de 75 gösteriyorsa — senkron.
+    # Önceki: fill_qty=100 vs exchange_qty=75 → %25 drift alarmı (yanlış-pozitif).
     sync_mismatches = []
     for sym in exchange_symbols & journal_symbols:
         # Aynı sembol için qty doğrula
@@ -432,39 +523,50 @@ def reconcile() -> dict:
         j_match = [j for j in journal if j["symbol"] == sym]
         if not j_match:
             continue
-        j_qty = abs(float(j_match[0].get("fill_qty", 0)))
-        if ex_qty > 0 and j_qty > 0:
-            diff_pct = abs(ex_qty - j_qty) / max(ex_qty, j_qty)
+        # PARTIAL-AWARE: remaining_qty varsa onu kullan, yoksa fill_qty fallback
+        j_remaining = float(j_match[0].get("remaining_qty", j_match[0].get("fill_qty", 0)))
+        j_qty_display = float(j_match[0].get("fill_qty", 0))  # log'da göster
+        if ex_qty > 0 and j_remaining > 0:
+            diff_pct = abs(ex_qty - j_remaining) / max(ex_qty, j_remaining)
             if diff_pct > 0.05:  # >%5 qty drift
                 sync_mismatches.append(
                     {
                         "symbol": sym,
                         "exchange_qty": ex_qty,
-                        "journal_qty": j_qty,
+                        "journal_qty": j_remaining,
+                        "journal_fill_qty": j_qty_display,
                         "diff_pct": round(diff_pct * 100, 2),
                     }
                 )
     stats["sync_mismatches"] = sync_mismatches
     if sync_mismatches:
-        try:
-            from price_action.orchestrator.notifications import push_critical
+        # FIX 2026-05-31: qty-drift alarmı dedup'suzdu → aynı drift her döngüde
+        # (15dk) tekrar basıyordu (ALGO vakası). _phantom_dedup deseni: imza
+        # symbol + drift bucket; aynı imza 12h tekrar bildirilmez.
+        _fresh_mismatches = _qty_drift_dedup(sync_mismatches)
+        if _fresh_mismatches:
+            try:
+                from price_action.orchestrator.notifications import push_critical
 
-            push_critical(
-                f"⚠️ JOURNAL/EXCHANGE QTY DRIFT — {len(sync_mismatches)} sembol "
-                f">5% qty fark: {sync_mismatches[:3]}",
-                source="reconciler_qty_drift",
-            )
-        except Exception:
-            pass
+                push_critical(
+                    f"⚠️ JOURNAL/EXCHANGE QTY DRIFT — {len(_fresh_mismatches)} sembol "
+                    f">5% qty fark: {_fresh_mismatches[:3]} "
+                    f"(aynı drift 12h tekrar bildirilmez)",
+                    source="reconciler_qty_drift",
+                )
+            except Exception:
+                pass
 
         # FIX 2026-05-30 (INC2-reconcile-qty-heal): Güvenli auto-heal.
-        # Borsa qty'si journal qty'sinden düşük ve diff >5% ise:
-        #   a) futures_signals.fill_qty'yi exchange gerçeğine güncelle.
-        #   b) futures_trades_closed'de (henüz varsa) qty'yi de güncelle.
+        # PARTIAL-AWARE (2026-05-31): journal_qty artık remaining_qty.
+        # Partial close tablosu zaten kalan qty'yi doğru yönetiyor.
+        # Auto-heal sadece partial tablosunda da açıklanamayan gerçek drift
+        # durumunda fill_qty'yi günceller.
         # GÜVENLİK KISITLARI:
-        #   - Exchange qty < journal qty: kısmi fill veya partial close. Düzeltme OK.
-        #   - Exchange qty > journal qty: fazla açık pozisyon (phantom benzeri).
-        #     Otomatik journal artırma YAPILMAZ — phantom alert kanalından gider.
+        #   - Exchange qty < remaining_qty: partial tablosunda kayıt olmayan ek fill.
+        #     Drift alarm → fill_qty GÜNCELLEME YAPMA (partial tablo kaynağı —
+        #     fill_qty dokunulmaz). Sadece alarm.
+        #   - Exchange qty > remaining_qty: phantom benzeri. Otomatik artırma YOK.
         #   - diff >50%: agresif sapma, auto-heal YAPILMAZ, sadece alarm.
         _healed: list[dict] = []
         try:
@@ -475,12 +577,13 @@ def reconcile() -> dict:
                 for _mm in sync_mismatches:
                     _sym = _mm["symbol"]
                     _ex_qty = float(_mm["exchange_qty"])
-                    _j_qty = float(_mm["journal_qty"])
+                    _j_qty = float(_mm["journal_qty"])  # remaining_qty
+                    _j_fill_qty = float(_mm.get("journal_fill_qty", _j_qty))
                     _diff_pct = float(_mm["diff_pct"])
-                    # Sadece exchange < journal durumunda düzelt (kısmi fill/close)
+                    # Sadece exchange < remaining_qty durumunda düzelt
                     if _ex_qty >= _j_qty:
                         _log(
-                            f"QTY_HEAL_SKIP: {_sym} exchange_qty={_ex_qty} >= journal_qty={_j_qty} — phantom yolu"
+                            f"QTY_HEAL_SKIP: {_sym} exchange_qty={_ex_qty} >= remaining_qty={_j_qty} — phantom yolu"
                         )
                         continue
                     if _diff_pct > 50.0:
@@ -488,33 +591,48 @@ def reconcile() -> dict:
                             f"QTY_HEAL_SKIP: {_sym} diff={_diff_pct:.1f}% >50% — too aggressive, manual review"
                         )
                         continue
-                    # a) futures_signals.fill_qty güncelle (açık kayıt)
+                    # PARTIAL-AWARE: partial tablosunda ek bir closed_qty yaz (heal olarak)
+                    # fill_qty'yi DEĞİŞTİRME — kaynak-of-truth olarak kalır.
+                    # Sadece partial tablosunda kaydı olmayan kısım için partial kayıt ekle.
                     _j_rows = [j for j in journal if j["symbol"] == _sym]
                     for _jr in _j_rows:
                         _sig_id = str(_jr["signal_id"])
-                        try:
-                            _jcon_heal.execute(
-                                "UPDATE futures_signals SET fill_qty=? WHERE signal_id=? AND fill_qty=?",
-                                [_ex_qty, _sig_id, _j_qty],
-                            )
+                        _partial_sum_row = _jcon_heal.execute(
+                            "SELECT COALESCE(SUM(qty_closed),0) FROM futures_partial_closes WHERE trade_id=?",
+                            [_sig_id],
+                        ).fetchone()
+                        _partial_sum = float(_partial_sum_row[0] if _partial_sum_row else 0)
+                        _expected_remaining = _j_fill_qty - _partial_sum
+                        if abs(_expected_remaining - _ex_qty) < 1e-6:
+                            # Zaten senkron (remaining doğru)
+                            continue
+                        # Gerçek drift var — NOT: fill_qty güncellemesi yerine
+                        # eski mantığı koru (backward compat) ama sadece partial tablosu
+                        # yoksa (legacy trade) fill_qty güncelle
+                        if _partial_sum < 1e-9:
+                            # Legacy (partial tablosu yok) — eski heal mantığı
+                            try:
+                                _jcon_heal.execute(
+                                    "UPDATE futures_signals SET fill_qty=? WHERE signal_id=? AND fill_qty=?",
+                                    [_ex_qty, _sig_id, _j_fill_qty],
+                                )
+                                _log(
+                                    f"QTY_HEAL (legacy): futures_signals {_sym} sig={_sig_id} "
+                                    f"{_j_fill_qty}→{_ex_qty}"
+                                )
+                                _healed.append(
+                                    {"symbol": _sym, "sig_id": _sig_id, "from": _j_fill_qty, "to": _ex_qty}
+                                )
+                            except Exception as _hu_err:
+                                _log(f"QTY_HEAL_ERR futures_signals {_sym}: {str(_hu_err)[:80]}")
+                        else:
+                            # Partial tablosu var ama hâlâ drift → alarm, dokunma
                             _log(
-                                f"QTY_HEAL: futures_signals {_sym} sig={_sig_id} "
-                                f"{_j_qty}→{_ex_qty}"
+                                f"QTY_HEAL_SKIP (partial-aware): {_sym} sig={_sig_id} "
+                                f"fill_qty={_j_fill_qty} partial_sum={_partial_sum:.6f} "
+                                f"expected_remaining={_expected_remaining:.6f} exchange={_ex_qty:.6f} "
+                                f"— partial tablosu açıklayamıyor, manuel inceleme gerek"
                             )
-                            _healed.append(
-                                {"symbol": _sym, "sig_id": _sig_id, "from": _j_qty, "to": _ex_qty}
-                            )
-                        except Exception as _hu_err:
-                            _log(f"QTY_HEAL_ERR futures_signals {_sym}: {str(_hu_err)[:80]}")
-                    # b) futures_trades_closed (eğer bu trade kapanmış ise) — qty sütunu
-                    try:
-                        _jcon_heal.execute(
-                            "UPDATE futures_trades_closed SET qty=? WHERE trade_id IN "
-                            "(SELECT signal_id FROM futures_signals WHERE symbol=? AND fill_qty=?)",
-                            [_ex_qty, _sym, _ex_qty],  # fill_qty zaten healed
-                        )
-                    except Exception:
-                        pass
                 _jcon_heal.commit()
             finally:
                 _jcon_heal.close()
