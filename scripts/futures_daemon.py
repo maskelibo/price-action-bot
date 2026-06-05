@@ -348,6 +348,15 @@ def equity_snapshot():
 _pyramid_positions: dict[str, object] = {}
 _pyramid_router_instance = None
 
+# FIX 2026-06-05: ORİJİNAL intended-SL cache. Key="SYMUSDT|side" → ilk SL fiyatı.
+# Kök neden: v13'te pyramid KAPALI → entry'de _pyramid_positions kaydı oluşmuyor →
+# watchdog G22 yolu hareketli borsa SL'ini intended_sl sanıyor → initial_r yanlış →
+# TP1 sonrası trailing DONUYOR (kazanan pozisyon breakeven'a geri dönüp $0 kapanıyor;
+# XRP +$64 → $0 olayı). Çözüm: girişte orijinal SL'i burada sakla, watchdog stabil bu
+# değeri kullansın → BE-lock + trailing doğru çalışır. In-memory (restart'ta rebuild
+# _pyramid_positions'ı journal'dan doldurur; bu cache running-açılan pozisyonları kapsar).
+_ORIG_INTENDED_SL: dict[str, float] = {}
+
 # SEC58-L2: PyramidStore singleton — startup'ta yüklenir, her upsert'te yazılır.
 _pyramid_store = None
 
@@ -1397,11 +1406,17 @@ def position_check():
                         _pyr_pos_obj = _pp
                         break
                 if not _intended_sl or _intended_sl <= 0:
-                    # G22: pyramid kaydı yok → exchange'deki mevcut SL emrini intended_sl olarak kullan.
-                    # Restart sonrası _pyramid_positions boş; borsadaki SL zaten yerleştirilmiş →
-                    # onu taban al. Bu yeterli: trailing, ratchet ve TP2 hesabı çalışmaya devam eder.
-                    # NOT: _calc_entry da borsa entry'ye düşer (aşağıdaki fallback ile uyumlu).
-                    if _cur_sl is not None and _cur_sl > 0:
+                    # FIX 2026-06-05: ÖNCE girişte saklanan STABİL orijinal SL'i dene.
+                    # v13'te pyramid KAPALI → _pyramid_positions kaydı yok → eskiden hareketli
+                    # borsa SL'i (G22) intended_sl olurdu; SL ratchet'le taşındıkça initial_r
+                    # küçülüp tp1 kayar → trailing DONAR (XRP +$64→$0 kapandı). Orijinal SL
+                    # sabit olduğu için BE-lock + %4 trailing doğru hesaplanır.
+                    _orig_sl = _ORIG_INTENDED_SL.get(f"{_sym_algo}|{_side}", 0.0)
+                    if _orig_sl and _orig_sl > 0:
+                        _intended_sl = _orig_sl
+                    # G22 (orijinal SL de yok): borsadaki mevcut SL'i taban al. Restart sonrası
+                    # _pyramid_positions boş; borsadaki SL zaten yerleştirilmiş → onu kullan.
+                    elif _cur_sl is not None and _cur_sl > 0:
                         _intended_sl = _cur_sl
                         log(
                             f"  PROT_WATCHDOG_G22: {_sym_algo} pyramid kaydı yok — "
@@ -2547,6 +2562,15 @@ def run_15m_mode(once: bool = False) -> None:
                                     float(sig["sl_price"]),
                                     entry_price=_avg_px,
                                 )
+                                # FIX 2026-06-05: orijinal SL'i stabil sakla → watchdog
+                                # trailing'i hareketli SL yerine bunu kullanır (XRP +$64→$0 fix).
+                                try:
+                                    _ORIG_INTENDED_SL[
+                                        f"{sig['symbol'].replace('/', '').replace(':USDT', '')}"
+                                        f"|{str(sig['side']).lower()}"
+                                    ] = float(sig["sl_price"])
+                                except Exception:
+                                    pass
                                 if _prot["status"] == "placed":
                                     log(
                                         f"    15M_PROTECT: tp=${_prot['tp_price']:.4f} sl=${_prot['sl_price']:.4f}"
