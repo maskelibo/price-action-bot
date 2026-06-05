@@ -2584,6 +2584,56 @@ def run_15m_mode(once: bool = False) -> None:
                                 else:
                                     log(f"    15M_PROTECT_ERR: {_prot.get('reason')}")
 
+                                # FIX 2026-06-05 (kullanıcı isteği — LINK -$224 çıplak olayı):
+                                # GİRİŞTE HEMEN-DOĞRULA-YOKSA-KOY. place_protection_orders
+                                # başarısız dönebilir VEYA SL borsaya düşmeyebilir → pozisyon
+                                # çıplak kalır, 15-dk watchdog'a kadar korumasız (LINK girişten
+                                # sonra çıplak kalıp -%20 düştü). Çözüm: koruma çağrısından HEMEN
+                                # sonra borsada gerçekten SL var mı bak; yoksa anında widestop SL
+                                # koy — tick'i BEKLEME. Pozisyon fresh (mark≈entry) → reduceOnly
+                                # STOP tetik-altı değil, -2022 riski düşük; olursa watchdog yakalar.
+                                try:
+                                    _vsym = sig["symbol"].replace("/", "").replace(":USDT", "")
+                                    _v_algo = _ex_submit.fapiPrivateGetOpenAlgoOrders()
+                                    _v_ords = (
+                                        _v_algo.get("orders", _v_algo)
+                                        if isinstance(_v_algo, dict)
+                                        else _v_algo
+                                    )
+                                    _has_sl = any(
+                                        o.get("symbol") == _vsym
+                                        and "STOP" in str(o.get("orderType", ""))
+                                        for o in (_v_ords or [])
+                                    )
+                                    if not _has_sl:
+                                        _v_side = "SELL" if str(sig["side"]).lower() == "long" else "BUY"
+                                        _v_sl_str = _ex_submit.price_to_precision(
+                                            sig["symbol"], float(sig["sl_price"])
+                                        )
+                                        _v_qty_str = _ex_submit.amount_to_precision(
+                                            sig["symbol"], _fill_qty
+                                        )
+                                        _ex_submit.create_order(
+                                            symbol=sig["symbol"],
+                                            type="STOP_MARKET",
+                                            side=_v_side,
+                                            amount=float(_v_qty_str),
+                                            params={
+                                                "stopPrice": _v_sl_str,
+                                                "reduceOnly": True,
+                                                "workingType": "MARK_PRICE",
+                                            },
+                                        )
+                                        log(
+                                            f"    15M_PROTECT_VERIFY: {_vsym} SL borsada YOKTU "
+                                            f"→ ANINDA kondu @ ${_v_sl_str} qty={_v_qty_str}"
+                                        )
+                                except Exception as _v_err:
+                                    log(
+                                        f"    15M_PROTECT_VERIFY_FAIL: {sig['symbol']} "
+                                        f"{str(_v_err)[:90]} — watchdog yedek yakalayacak"
+                                    )
+
                                 # P-04: PyramidPosition build + register (P-05 cleanup ready)
                                 if _pyramid_router_15m is not None:
                                     try:
