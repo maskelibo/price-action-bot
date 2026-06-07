@@ -908,6 +908,20 @@ def position_check():
             except Exception as _joc_err:
                 log(f"ORPHAN_JOURNAL_READ_ERR: {str(_joc_err)[:80]} — journal cross-check skip")
 
+            # FIX 2026-06-07 (XRP/LINK çıplak döngüsü): İKİNCİ TAZE POZİSYON TEYİDİ.
+            # Tek fetch_positions stale dönebilir (testnet): pozisyon AÇIKKEN positions[]
+            # boş → SL "orphan" sanılıp iptal → çıplak → heal koyuyor → orphan tekrar
+            # iptal (sonsuz döngü; XRP +$66 korumasız, LINK -$224). Journal cross-check
+            # de drift'te kurtarmıyor. Çözüm: silmeden önce 2. bağımsız okuma. Sembol İKİ
+            # okumada da yoksa gerçekten orphan; biri görürse / teyit alınamazsa İPTAL ETME.
+            _confirm_syms: set[str] | None = set(active_pos_syms)
+            try:
+                for _cp in ex.fetch_positions():
+                    if abs(float(_cp.get("contracts", 0) or 0)) > 0.0001:
+                        _confirm_syms.add(str(_cp.get("symbol", "")).split(":")[0].replace("/", ""))
+            except Exception:
+                _confirm_syms = None  # teyit alınamadı → hiçbir şeyi orphan sayma
+
             orphan_cnt = 0
             for o in state.get("algo_orders", []) or []:
                 algo_sym = o.get("symbol", "")  # "BTCUSDT"
@@ -921,6 +935,14 @@ def position_check():
                     log(
                         f"ORPHAN_SKIP: {algo_sym} algoId={algo_id} — "
                         f"journal'da açık kayıt var, pos API stale olabilir; bu tick skip"
+                    )
+                    continue
+                # FIX 2026-06-07: 2. taze teyit. İkinci okuma pozisyonu görüyorsa VEYA
+                # teyit alınamadıysa → orphan DEĞİL, iptal etme (stale-read'den çıplak bırakma).
+                if _confirm_syms is None or algo_sym in _confirm_syms:
+                    log(
+                        f"ORPHAN_SKIP: {algo_sym} algoId={algo_id} — 2. taze teyitte "
+                        f"pozisyon açık/teyit-yok; iptal edilmedi (stale-read koruması)"
                     )
                     continue
                 try:
