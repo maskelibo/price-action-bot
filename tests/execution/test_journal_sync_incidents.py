@@ -531,3 +531,251 @@ class TestXlmCorrectionPnLMath:
         assert risk_correct < risk_wrong
         # Ratio should match 219/291
         assert abs(risk_correct / risk_wrong - 219 / 291) < 0.001
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INC3: triggerPrice bug — exit_price must use avgPrice, not triggerPrice
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestTriggerPriceVsAvgPrice:
+    """
+    INC3 regression: position_check() PROT_FILL path must use avgPrice
+    (actual exchange fill) instead of triggerPrice (order setup price).
+
+    Root cause: Binance algo (TAKE_PROFIT_MARKET / STOP_MARKET) triggers at
+    triggerPrice but executes at market price. triggerPrice = TP/SL target set
+    when placing the order. avgPrice = weighted-average actual fill.
+    These differ by slippage (typically 1-30bps; in DOT case ~375bps).
+
+    Fix applied: futures_daemon.py PROT_FILL path now uses:
+        avgPrice if available and > 0, else triggerPrice fallback (AUDIT log).
+    """
+
+    def _resolve_exit_price(self, triggered_order: dict) -> tuple[float, bool]:
+        """
+        Replica of fixed daemon logic for exit_price resolution.
+        Returns (exit_price, used_avg_price).
+        """
+        trigger_px = float(triggered_order.get("triggerPrice", 0) or 0)
+        avg_px_raw = triggered_order.get("avgPrice") or triggered_order.get("avgExecutedPrice")
+        if avg_px_raw and float(avg_px_raw) > 0:
+            return float(avg_px_raw), True
+        return trigger_px, False
+
+    def test_avgprice_preferred_over_triggerprice(self):
+        """
+        Algo order with both avgPrice and triggerPrice → avgPrice wins.
+        """
+        triggered = {
+            "algoId": "12345",
+            "algoStatus": "TRIGGERED",
+            "triggerPrice": "1.2320",   # TP target (what was set)
+            "avgPrice": "1.2318",       # actual fill (slightly different)
+            "executedQty": "586.4",
+        }
+        exit_px, used_avg = self._resolve_exit_price(triggered)
+        assert used_avg is True
+        assert abs(exit_px - 1.2318) < 1e-6, f"Should use avgPrice 1.2318, got {exit_px}"
+
+    def test_triggerprice_fallback_when_avgprice_missing(self):
+        """
+        avgPrice absent → triggerPrice used as fallback (AUDIT warning expected).
+        This is the pre-fix behavior (incorrect) — still a fallback in fixed code.
+        """
+        triggered = {
+            "algoId": "12345",
+            "algoStatus": "TRIGGERED",
+            "triggerPrice": "1.2320",
+            # avgPrice not present (old Binance testnet response)
+        }
+        exit_px, used_avg = self._resolve_exit_price(triggered)
+        assert used_avg is False
+        assert abs(exit_px - 1.2320) < 1e-6, f"Fallback to triggerPrice 1.2320, got {exit_px}"
+
+    def test_triggerprice_fallback_when_avgprice_zero(self):
+        """avgPrice=0 (falsy) → triggerPrice fallback."""
+        triggered = {
+            "algoId": "12345",
+            "algoStatus": "TRIGGERED",
+            "triggerPrice": "9.2390",
+            "avgPrice": "0",
+        }
+        exit_px, used_avg = self._resolve_exit_price(triggered)
+        assert used_avg is False
+        assert abs(exit_px - 9.2390) < 1e-4
+
+    def test_avgprice_zero_string_treated_as_fallback(self):
+        """avgPrice='0.00000' → falsy after float() → triggerPrice used."""
+        triggered = {
+            "triggerPrice": "8.9390",
+            "avgPrice": "0.00000",
+        }
+        exit_px, used_avg = self._resolve_exit_price(triggered)
+        assert used_avg is False
+        assert abs(exit_px - 8.9390) < 1e-4
+
+    def test_dot_short_pnl_with_triggerprice_inflated(self):
+        """
+        DOT short: journal had triggerPrice=1.232 → pnl=+28.73.
+        Exchange reality: ~-3.52. Demonstrates the magnitude of bug.
+        """
+        entry = 1.281
+        qty = 586.4
+        sl = 1.31705
+
+        # WRONG: triggerPrice (TP target) used as exit
+        wrong_exit = 1.232  # triggerPrice stored by daemon pre-fix
+        wrong_pnl = (entry - wrong_exit) * qty
+        assert abs(wrong_pnl - 28.73) < 0.01, f"Wrong PnL should be +28.73, got {wrong_pnl:.2f}"
+
+        # CORRECT: actual exchange outcome
+        # exchange: -3.52 → back-calculate exit
+        exchange_pnl = -3.52
+        correct_exit = entry - exchange_pnl / qty  # short: exit = entry - pnl/qty
+        correct_pnl = (entry - correct_exit) * qty
+        assert abs(correct_pnl - exchange_pnl) < 0.01, (
+            f"Correct PnL should match exchange -3.52, got {correct_pnl:.2f}"
+        )
+
+        # The inflation
+        inflation = wrong_pnl - exchange_pnl
+        assert inflation > 30.0, (
+            f"DOT inflation should be >$30, got {inflation:.2f}"
+        )
+
+    def test_pnl_calculation_uses_exit_price_not_target(self):
+        """
+        TradeJournal._compute_realized_pnl is called with exit_price.
+        Verify that using avgPrice (1.2318) vs triggerPrice (1.2320) gives
+        different PnL for a meaningful qty.
+        """
+        from price_action.execution.trade_journal import _compute_realized_pnl
+
+        entry = 1.281
+        qty = 586.4
+        side = "short"
+
+        pnl_avg = _compute_realized_pnl(entry, 1.2318, qty, side)   # correct
+        pnl_trigger = _compute_realized_pnl(entry, 1.2320, qty, side)  # slightly wrong
+
+        # Both positive (exit < entry for short = win), but differ
+        diff = abs(pnl_avg - pnl_trigger)
+        # 0.0002 * 586.4 = 0.117 USDT difference (small but real)
+        assert diff > 0.0, "avgPrice vs triggerPrice must produce different PnL"
+        assert diff < 1.0, "Expected small diff for 0.0002 price delta"
+
+    def test_avgexecutedprice_field_also_accepted(self):
+        """
+        Some Binance responses use 'avgExecutedPrice' key instead of 'avgPrice'.
+        Both should be accepted.
+        """
+        triggered = {
+            "algoId": "99999",
+            "algoStatus": "FINISHED",
+            "triggerPrice": "9.2390",
+            "avgExecutedPrice": "9.2401",  # Binance alternate key
+        }
+        exit_px, used_avg = self._resolve_exit_price(triggered)
+        assert used_avg is True
+        assert abs(exit_px - 9.2401) < 1e-4, f"Should use avgExecutedPrice 9.2401, got {exit_px}"
+
+    def test_reconcile_orphan_ticker_inflation(self):
+        """
+        ADA orphan: ticker at reconcile time (0.2461) > entry (0.2406) → +17.14.
+        But actual exchange PnL was ~0. Demonstrates reconcile_orphan ticker inflation.
+        """
+        entry = 0.2406
+        ticker_exit = 0.2461  # what reconciler used (wrong)
+        qty = 3117.0
+
+        inflated_pnl = (ticker_exit - entry) * qty
+        assert abs(inflated_pnl - 17.14) < 0.05, (
+            f"ADA orphan inflation should be ~17.14, got {inflated_pnl:.2f}"
+        )
+
+        # If exit = entry (unknown, PnL=0 conservative fallback)
+        fallback_pnl = (entry - entry) * qty
+        assert fallback_pnl == 0.0
+
+        # Conservative fallback is much closer to exchange truth (~0)
+        exchange_truth = 0.0  # approximate
+        assert abs(fallback_pnl - exchange_truth) < abs(inflated_pnl - exchange_truth)
+
+
+# ============================================================================
+# INC4 (2026-06-10): Orphan-cancel N-ardışık-tick stateful teyit
+# ============================================================================
+# XRP 02:15:28Z olayı: d513795 double-read fix'ine RAĞMEN açık pozisyonun SL'i
+# iptal edildi — 4. tick'te İKİ fetch_positions okuması da stale geldi (korele
+# stale pencereleri). Fix: cancel ancak ORPHAN_CONFIRM_TICKS ardışık tick'te
+# orphan görünümünden sonra; pozisyon TEK tick'te bile görünse sayaç sıfırlanır.
+# Daemon implementasyonu: scripts/futures_daemon.py _ORPHAN_SUSPECT_TICKS.
+
+
+class TestOrphanNTickConfirm:
+    """N-ardışık-tick orphan teyit semantiği (daemon logic mirror)."""
+
+    CONFIRM_TICKS = 3
+
+    def _tick(self, suspects: dict, algo_key: str, looks_orphan: bool) -> bool:
+        """Tek tick simülasyonu. True dönerse iptal edilir."""
+        if not looks_orphan:
+            suspects.pop(algo_key, None)
+            return False
+        streak = suspects.get(algo_key, 0) + 1
+        suspects[algo_key] = streak
+        if streak < self.CONFIRM_TICKS:
+            return False
+        suspects.pop(algo_key, None)
+        return True
+
+    def test_xrp_incident_single_double_stale_tick_does_not_cancel(self):
+        """02:15Z senaryosu: 3 tick SKIP (pozisyon görünür), 1 tick çift-stale.
+        Eski kod 4. tick'te iptal ederdi; yeni kod etmez (streak=1 < 3)."""
+        suspects: dict = {}
+        key = "XRPUSDT|1000000098881360"
+        for _ in range(3):
+            assert self._tick(suspects, key, looks_orphan=False) is False
+        # 4. tick: çift-stale → orphan görünür ama İPTAL EDİLMEMELİ
+        assert self._tick(suspects, key, looks_orphan=True) is False
+        assert suspects[key] == 1
+
+    def test_intermittent_stale_never_cancels(self):
+        """Stale pencereler aralıklı geldiğinde (gerçek testnet deseni) asla iptal yok."""
+        suspects: dict = {}
+        key = "LINKUSDT|42"
+        pattern = [True, False, True, True, False, True, True, False]
+        for looks_orphan in pattern:
+            assert self._tick(suspects, key, looks_orphan) is False
+
+    def test_genuine_orphan_cancels_after_n_consecutive_ticks(self):
+        """Gerçek orphan (pozisyon kapandı): N ardışık tick sonra iptal edilir."""
+        suspects: dict = {}
+        key = "DOGEUSDT|7"
+        assert self._tick(suspects, key, True) is False  # 1/3
+        assert self._tick(suspects, key, True) is False  # 2/3
+        assert self._tick(suspects, key, True) is True   # 3/3 → cancel
+        assert key not in suspects  # sayaç temizlendi
+
+    def test_position_reappearing_resets_streak(self):
+        """2/3'e gelmişken pozisyon tek tick görünse streak sıfırlanır."""
+        suspects: dict = {}
+        key = "ZECUSDT|9"
+        self._tick(suspects, key, True)   # 1/3
+        self._tick(suspects, key, True)   # 2/3
+        self._tick(suspects, key, False)  # pozisyon görünür → reset
+        assert key not in suspects
+        assert self._tick(suspects, key, True) is False  # tekrar 1/3
+
+    def test_daemon_source_has_ntick_fix(self):
+        """Kaynak doğrulama: fix daemon'da mevcut (revert tespiti)."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parents[2] / "scripts" / "futures_daemon.py").read_text(
+            encoding="utf-8"
+        )
+        assert "_ORPHAN_SUSPECT_TICKS" in src
+        assert "ORPHAN_CONFIRM_TICKS = 3" in src
+        assert "ORPHAN_PENDING" in src
+        # cancel yolu artık streak eşiğinden geçmek zorunda
+        assert "ardışık tick teyitli orphan" in src

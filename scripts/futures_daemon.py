@@ -107,6 +107,13 @@ def _risk_config_5m() -> Path:
 # Kök neden: _get_pyramid_router() ve POS_CHECK loop bu flag'i hiç okumuyordu.
 _PYRAMID_ENABLED_CACHE: dict[str, bool] = {}
 
+# FIX 2026-06-10 (XRP 02:15Z): orphan-cancel N-ardışık-tick stateful teyit.
+# Anahtar "SYMBOL|algoId" → ardışık orphan-görünüm tick sayısı. Pozisyon tek
+# tick'te bile görünse sıfırlanır. ORPHAN_CONFIRM_TICKS tick (~45dk) üst üste
+# orphan görünmeden iptal YAPILMAZ (double-stale-read deliği kapanışı).
+_ORPHAN_SUSPECT_TICKS: dict[str, int] = {}
+ORPHAN_CONFIRM_TICKS = 3
+
 
 def _pyramid_enabled_15m() -> bool:
     """15m active config'de strategy_portfolio.pyramid_enabled değerini döner.
@@ -922,16 +929,33 @@ def position_check():
             except Exception:
                 _confirm_syms = None  # teyit alınamadı → hiçbir şeyi orphan sayma
 
+            # FIX 2026-06-10 (XRP 02:15Z olayı): N-ARDIŞIK-TİCK STATEFUL TEYİT.
+            # Double-read fix (d513795) DELİNDİ: 4. tick'te İKİ okuma da stale geldi
+            # → açık pozisyonun SL'i iptal edildi (çıplak 30dk, HEAL kurtardı).
+            # Tek-tick içi okuma sayısını artırmak yetmez (stale pencereleri korele).
+            # Çözüm: cancel noktasına gelen emir _ORPHAN_SUSPECT_TICKS'te sayaç
+            # biriktirir; ancak ORPHAN_CONFIRM_TICKS ardışık tick'te (~45dk) hep
+            # orphan görünürse iptal edilir. Pozisyon TEK tick'te bile görünse sayaç
+            # sıfırlanır. Gerçek orphan'lar ~45dk gecikmeyle temizlenir — kabul
+            # edilebilir: SL'ler reduceOnly (pozisyonsuz tetik reddedilir); aynı
+            # sembolde 45dk içinde yeni pozisyon whipsaw'ı PROT_WATCHDOG "fazla SL
+            # temizle" adımıyla sınırlı.
             orphan_cnt = 0
+            _seen_suspects: set[str] = set()
             for o in state.get("algo_orders", []) or []:
                 algo_sym = o.get("symbol", "")  # "BTCUSDT"
-                if not algo_sym or algo_sym in active_pos_syms:
+                if not algo_sym:
                     continue
                 algo_id = o.get("algoId") or o.get("algo_id")
                 if not algo_id:
                     continue
+                _skey = f"{algo_sym}|{algo_id}"
+                if algo_sym in active_pos_syms:
+                    _ORPHAN_SUSPECT_TICKS.pop(_skey, None)
+                    continue
                 # FIX INC1: journal'da açık kayıt varsa → API stale olabilir, iptal ETME
                 if algo_sym in _journal_open_syms:
+                    _ORPHAN_SUSPECT_TICKS.pop(_skey, None)
                     log(
                         f"ORPHAN_SKIP: {algo_sym} algoId={algo_id} — "
                         f"journal'da açık kayıt var, pos API stale olabilir; bu tick skip"
@@ -940,21 +964,37 @@ def position_check():
                 # FIX 2026-06-07: 2. taze teyit. İkinci okuma pozisyonu görüyorsa VEYA
                 # teyit alınamadıysa → orphan DEĞİL, iptal etme (stale-read'den çıplak bırakma).
                 if _confirm_syms is None or algo_sym in _confirm_syms:
+                    _ORPHAN_SUSPECT_TICKS.pop(_skey, None)
                     log(
                         f"ORPHAN_SKIP: {algo_sym} algoId={algo_id} — 2. taze teyitte "
                         f"pozisyon açık/teyit-yok; iptal edilmedi (stale-read koruması)"
                     )
                     continue
+                # Bu tick'te orphan görünüyor → sayaç artır, eşiğe gelmeden iptal ETME.
+                _streak = _ORPHAN_SUSPECT_TICKS.get(_skey, 0) + 1
+                _ORPHAN_SUSPECT_TICKS[_skey] = _streak
+                _seen_suspects.add(_skey)
+                if _streak < ORPHAN_CONFIRM_TICKS:
+                    log(
+                        f"ORPHAN_PENDING: {algo_sym} algoId={algo_id} — "
+                        f"{_streak}/{ORPHAN_CONFIRM_TICKS} ardışık tick; iptal bekletildi"
+                    )
+                    continue
                 try:
                     ex.fapiPrivateDeleteAlgoOrder({"symbol": algo_sym, "algoId": algo_id})
                     orphan_cnt += 1
+                    _ORPHAN_SUSPECT_TICKS.pop(_skey, None)
                     log(
-                        f"ORPHAN_CANCEL: {algo_sym} algoId={algo_id} type={o.get('type','?')} (no matching position)"
+                        f"ORPHAN_CANCEL: {algo_sym} algoId={algo_id} type={o.get('type','?')} "
+                        f"({ORPHAN_CONFIRM_TICKS} ardışık tick teyitli orphan)"
                     )
                 except Exception as cancel_err:
                     log(
                         f"ORPHAN_CANCEL_FAIL: {algo_sym} algoId={algo_id} err={str(cancel_err)[:80]}"
                     )
+            # Bu tick'te görünmeyen şüpheli kayıtlarını temizle (emir doldu/iptal oldu)
+            for _stale_key in [k for k in _ORPHAN_SUSPECT_TICKS if k not in _seen_suspects]:
+                _ORPHAN_SUSPECT_TICKS.pop(_stale_key, None)
             if orphan_cnt > 0:
                 log(f"ORPHAN_CLEANUP: {orphan_cnt} algo orders cancelled (whipsaw protection)")
         except Exception as cleanup_err:
