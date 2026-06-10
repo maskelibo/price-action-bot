@@ -185,6 +185,8 @@ _STRATEGY_PATTERN_PREFIX: dict[str, str] = {
     "brooks_failed_breakout": ("brooks_failed_breakout",),
     "vsa_climax_test": ("vsa_climax_test",),
     "engulfing_continuation": ("engulfing_continuation", "engulfing_bull", "engulfing_bear"),
+    # FAZ-3 (2026-06-11): Grimes ABC pullback (pattern: grimes_abc_long/short)
+    "grimes_abc_pullback": ("grimes_abc_long", "grimes_abc_short", "grimes_abc"),
 }
 
 

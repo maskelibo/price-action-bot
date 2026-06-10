@@ -38,7 +38,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 # ── Environment: EXPLICIT (BLOCKER-3 — setdefault sessiz tuzağı yasak) ───────
-V14_CONFIG = "configs/risk_phoenix_scalp_15m_v14_frontier.yaml"
+# FAZ seçimi: PA_V14_PHASE=1 (default, flat r0.62) | 3 (final 5-strateji
+# +ağırlık+throttle, tur-15 backtest +26.1/ay). Her faz kendi beklenen
+# değerleriyle startup-verify edilir — yanlış config = gürültülü ABORT.
+_PHASE = os.environ.get("PA_V14_PHASE", "1").strip()
+_PHASE_CONFIGS = {
+    "1": ("configs/risk_phoenix_scalp_15m_v14_frontier.yaml", 0.0062, False),
+    "3": ("configs/risk_phoenix_scalp_15m_v14p3.yaml", 0.0075, True),
+}
+if _PHASE not in _PHASE_CONFIGS:
+    raise SystemExit(f"[V14] PA_V14_PHASE={_PHASE} tanımsız (1 veya 3)")
+V14_CONFIG, _EXPECT_RISK, _EXPECT_P3 = _PHASE_CONFIGS[_PHASE]
 _prev_cfg = os.environ.get("PA_15M_CONFIG")
 if _prev_cfg and _prev_cfg != V14_CONFIG:
     sys.stderr.write(
@@ -104,9 +114,9 @@ def _verify_v14_config() -> dict:
 
     checks = {
         "position_sizing.risk_per_trade": (
-            float(cfg.get("position_sizing", {}).get("risk_per_trade", 0)), 0.0062),
+            float(cfg.get("position_sizing", {}).get("risk_per_trade", 0)), _EXPECT_RISK),
         "position_sizing.backtest_risk_pct": (
-            float(cfg.get("position_sizing", {}).get("backtest_risk_pct", 0)), 0.0062),
+            float(cfg.get("position_sizing", {}).get("backtest_risk_pct", 0)), _EXPECT_RISK),
         "execution.sl_pct_min": (
             float(cfg.get("execution", {}).get("sl_pct_min", 0)), 0.025),
         "drawdown_breakers.daily_loss_pct": (
@@ -116,13 +126,27 @@ def _verify_v14_config() -> dict:
         "strategy_portfolio.pyramid_enabled": (
             bool(cfg.get("strategy_portfolio", {}).get("pyramid_enabled", False)), True),
     }
+    if _EXPECT_P3:
+        ps = cfg.get("position_sizing", {})
+        checks["strategy_risk_weights.vsa"] = (
+            float((ps.get("strategy_risk_weights") or {}).get("vsa_climax_test", 0)), 1.4)
+        checks["strategy_risk_weights.grimes"] = (
+            float((ps.get("strategy_risk_weights") or {}).get("grimes_abc_pullback", 0)), 1.0)
+        checks["dd_throttle.enabled"] = (
+            bool((ps.get("dd_throttle") or {}).get("enabled", False)), True)
+        checks["strategies_enabled (5)"] = (
+            len(cfg.get("strategies_enabled") or []), 5)
     bad = [(k, got, want) for k, (got, want) in checks.items() if got != want]
     if bad:
         for k, got, want in bad:
             _vlog(f"VERIFY_FAIL: {k} = {got!r}, beklenen {want!r}")
         raise SystemExit("[V14 VERIFY] Config v14 frontier değil — ABORT (BLOCKER-3 gate)")
     n_syms = len(cfg.get("strategy_portfolio", {}).get("symbols", []))
-    _vlog(f"VERIFY_OK: risk=0.62% d04/w08 sl_min=0.025 pyramid=ON symbols={n_syms}")
+    _n_strat = len(cfg.get("strategies_enabled") or []) or 4
+    _vlog(
+        f"VERIFY_OK: faz={_PHASE} risk={_EXPECT_RISK*100:.2f}% d04/w08 "
+        f"sl_min=0.025 pyramid=ON symbols={n_syms} strategies={_n_strat}"
+    )
     return cfg
 
 

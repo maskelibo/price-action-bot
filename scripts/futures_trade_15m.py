@@ -222,6 +222,9 @@ _STRATEGY_CATALOG = {
     "engulfing_continuation": "EngulfingContinuationStrategy",
     "rsi2_extreme_fade": "RSI2ExtremeFadeStrategy",
     "session_vwap_mean_reversion": "SessionVWAPMeanReversionStrategy",
+    # FAZ-3 (2026-06-11): Grimes ABC two-leg pullback — pre-reg PASS diversifier
+    # (standalone +8.94/ay, korr +0.12; 5-strateji backtest +26.1/ay 0 neg ay).
+    "grimes_abc_pullback": "GrimesABCPullbackStrategy",
 }
 
 _DEFAULT_4 = [
@@ -669,6 +672,31 @@ def run_15m(dry_run: bool = False) -> None:
 
     exchange = get_futures_exchange()
     state = fetch_futures_state(exchange)
+
+    # SEC-#3A: Konsantrasyon fail-safe — stale pozisyon dedektörü.
+    # fetch_positions() bazen boş dönebilir (rate-limit 418, API stale)
+    # ama borsada hala açık pozisyon bulunabilir. Bu durumda
+    # concentration_gate "pozisyon yok" sanıp yeni emri geçirir →
+    # ALGO sembolünde yığılma (gözlemlenen: %15→%27).
+    # Stale koşul: positions_ok=False VEYA (positions boş AMA initialMargin>0)
+    # İkinci koşul: fetch_positions() boş döndü ama raw account
+    # totalInitialMargin > 0 → borsada pozisyon var ama liste gelmedi.
+    _pos_ok = state.get("positions_ok", True)
+    _init_margin = float(state.get("total_initial_margin", 0))
+    _pos_list = state.get("positions", [])
+    _stale_positions = (
+        not _pos_ok
+        or (len(_pos_list) == 0 and _init_margin > 0)
+    )
+    if _stale_positions:
+        print(
+            f"[ENTRY_SKIP_STALE_POS] pozisyon verisi güvenilmez "
+            f"(positions_ok={_pos_ok}, pos_list_len={len(_pos_list)}, "
+            f"initialMargin={_init_margin:.2f}) — bu çalışmadaki tüm "
+            f"girişler atlandı"
+        )
+        return
+
     returns_df = build_returns_df(SYMBOLS, days=90, market_db=ROOT / "data" / "market.duckdb")
     account = build_futures_account_state(state, journal_path=JOURNAL)
 
