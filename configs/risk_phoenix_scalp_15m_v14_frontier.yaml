@@ -373,7 +373,12 @@ strategy_portfolio:
   # pyramid_triggers boş tuple -> falsy -> kod tarafında pyramid kapalıydı.
   # 1d Phoenix v2.0.4 preset değerleri (yıllık +%150 katkı). Forensic raporu:
   # reports/analyst/2026-05-17_15m_r4_forensic_audit.md §3.
-  pyramid_triggers: [1.0, 1.5]  # V5 patch (SEC51 PARETO_PASS)
+  # v14-frontier 2026-06-10: 1.0/1.5 -> 1.2/1.8 — TP seviyeleriyle (1.0R/1.5R)
+  # çakışma giderildi (Principal itirazı: aynı seviyede sat+al = çapraz hacimde
+  # boşa komisyon ~0.3-0.5 puan/ay + emir yarışı). Önceden-deklare tek-atış
+  # backtest: ANA +20.49/ay DD -21.8 (1.0/1.5 referansı +20.07/-21.6) — nötr-pozitif;
+  # canlı fee tasarrufu backtest'te modellenmemiş EK kazanç.
+  pyramid_triggers: [1.2, 1.8]
   pyramid_sizes: [0.50, 0.30]
   signal_confidence_min: 0.25    # 1d'de 0.20 → 0.25 (scalp gürültü filtresi)
   expected_annual_return: 0.60   # konservatif backtest beklentisi (master plan §2.5)
