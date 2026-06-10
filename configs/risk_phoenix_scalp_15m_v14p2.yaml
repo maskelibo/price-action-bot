@@ -1,0 +1,510 @@
+# =============================================================================
+# v14p2 — FAZ 2: TAVAN CONFIG (2026-06-11) — HOT-SWAP ADAYI, SIGN-OFF GEREKLİ
+# =============================================================================
+# v14_frontier + 3 delta (backtest tavanı +23.2/ay, contDD −27.6, OOS-doğrulamalı):
+#   1. risk_per_trade / backtest_risk_pct  0.0062 -> 0.0075
+#   2. strategy_risk_weights (lab.py risk_weight paritesi, cap-öncesi çarpan)
+#   3. dd_throttle (peak-equity dd>=6% -> risk x0.5; dynamic_exposure_fn paritesi)
+# Consuming code: src/price_action/risk/sizing.py FAZ-2a/2b blokları
+# (tests/test_v14p2_sizing.py). ŞERH: contDD beklentisi −27.6 — Principal'ın
+# orijinal DD≤20-22 şartının ÜSTÜNDE; swap kararı DD toleransı onayı demektir.
+# Aktivasyon: v14 wrapper'da PA_15M_CONFIG bu dosyaya çevrilip restart
+# (+ wrapper verify değerleri güncellenir). İlk temiz Faz-1 haftasından önce
+# AÇMA.
+# =============================================================================
+
+# =============================================================================
+# v14 FRONTIER DRAFT (2026-06-10) — %20/ay hedef konfigürasyonu — SIGN-OFF GEREKLİ
+# =============================================================================
+# Origin: risk_phoenix_scalp_15m_widestop_vsa2.yaml kopyası. DELTA:
+#   1. position_sizing.risk_per_trade / backtest_risk_pct  0.005 -> 0.0062
+#   2. drawdown_breakers.daily_loss_pct                    0.02  -> 0.04
+#   3. drawdown_breakers.weekly_loss_pct                   0.05  -> 0.08
+#   4. strategy_portfolio.pyramid_enabled                  false -> true  (KRİTİK)
+#
+# DÜRÜST BACKTEST (taze 19-sym 4-strat havuz 2026-06-10, +55bps, F2+F4, pyr-pool,
+# sl>=0.025, continuous replay, sabit-fraksiyon):
+#   aylık-mean +21.75% / median +22.7% / DD -19.3% / neg 0/62 / OOS-18m +20.0%
+#   TRAIN-seçim (<=2024-11) bağımsız aynı config'i seçti; dokunulmamış OOS
+#   +21.2%/ay DD -19.3 (0 neg ay/19). Widestop random-subset null p<0.001.
+# ŞERH: komşu-param DD bandı -17..-24 (path-dependent); "DD<=20 garanti" DEĞİL,
+#   beklenen bant. neg-ay 0/62 başlığına güvenme (61-ay smoothing); worst-case
+#   tek ay -2..-8 bandı görüldü komşularda. Canlı DD hedefi %15 için izleme şart.
+# DEPLOY ŞARTI: pyramid CANLIDA AÇIK olmalı (sayılar pyr-pool'dan; pyr-OFF canlı
+#   beklentisi ~%7-8/ay'a düşer — mevcut champion'ın yaşadığı parite kırığı bu).
+#   PyramidRouter (SEC54.3) hazır; TP1 cancel-replace yarışı watchdog katmanlarıyla
+#   korunuyor ama testnet shadow ZORUNLU. Rapor:
+#   reports/research/2026-06-10_frontier_20pct_README.md
+# =============================================================================
+
+# =============================================================================
+# PHOENIX-SCALP 15m WIDE-STOP + VSA AMPLIFY (v2) — DEPLOY CANDIDATE (2026-05-23)
+# =============================================================================
+# Bot: PHOENIX-SCALP-15m-WIDESTOP-VSA2
+# Status: DRAFT — paper validation in progress
+# Origin: copy of risk_phoenix_scalp_15m_widestop.yaml. NO changes in this YAML;
+#         all amplify changes are in src/price_action/strategies/manifests/
+#         vsa_climax_test_15m.yaml (vol_sma_mult 3.0 -> 2.0 in both patterns).
+#
+# DELTA vs widestop v1:
+#   - VSA manifest vol_sma_mult: 3.0 -> 2.0 (both long+short patterns).
+#     "AMPLIFY" — relax the volume threshold for VSA selling/buying climax
+#     detection. Lower threshold -> more climax events fire -> more VSA trades
+#     (~74% more raw wide-stop VSA signals). avgR dilutes only slightly
+#     (+1.96 -> +1.80 standalone, but pool-level WR same/better).
+#
+# DÜZELTME 2026-05-29 (honest re-run, EXACT deployed config, production_replay):
+#   Aşağıdaki 2026-05-23 başlıkları ŞİŞİKTİ — düzeltilmiş dürüst rakamlar:
+#     monthly-mean ROI     +13.46%  (eski iddia +17.56% — +4.1pp şişikti)
+#     monthly-MEDIAN ROI   +13.09%
+#     IS +13.49% / OOS +13.40%  -- overfit YOK (mükemmel IS≈OOS tutarlılık) ✓
+#     continuous-curve DD  -15.5%   (eski -17.00% TUTUCUYDU, şişme yok)
+#     negative months      2-3/61   (eski iddia "0/61" GERÇEK DEĞİL)
+#     worst-month return   -1.14%   (zararsız; eski "+2.37% no losing month" YANLIŞ)
+#     annual (compound)    +257% (55bps) .. +343% (15bps)  -- eski +485.6%
+#         REPRODUCE EDİLEMEDİ (muhtemelen pyramid-ON ablasyonu / farklı pool-rebuild)
+#     winner-skew: top-5% trade = kârın ~%65'i, AMA ex-top5 hâlâ +%11.99/ay → edge sağlam
+#   GERÇEK BEKLENTİ BANDI: aylık +%11-13.5, DD -%15 ila -21. Çekirdek edge GERÇEK
+#   ve OOS-tutarlı; şişen sadece yıllık-compound headline ve "0 neg ay" mührüydü.
+#   Detay: 5 commit'lik honest-audit, RESUME_2026-05-29.md "Bot inflation denetimi".
+# -----------------------------------------------------------------------------
+# (ESKİ — 2026-05-23 ŞİŞİK başlıklar, kayıt için):
+#   monthly-mean +17.56%, neg 0/61, worst +2.37%, annual +485.6%, OOS aylik +19.30%
+#
+# REALISTIC SCALING CAVEAT: backtest math is internally consistent but won't
+# survive linear projection to $1M+ capital. Liquidity/market-impact frictions
+# scale non-linearly. +485% annual is the small-cap backtest ceiling, not a
+# realistic large-cap deploy target. Paper test on Binance Futures Testnet
+# will give first real fill-economics data point.
+#
+# WHY: the c2v5 15m bot is honest fee-grave (~%0/ay). The wide-stop research
+# (HYP-2026-05-21-15m-wide-stop-honest-edge, PASS) found that filtering 15m
+# signals to entry sl_pct >= 2.5% turns the pool honest-positive. DD-optimised
+# deployable config (HYP-2026-05-22-15m-widestop-dd-optimization):
+#
+# DELTA vs risk_phoenix_scalp_15m_c2v5_final.yaml:
+#   1. execution.sl_pct_min          (NEW)  0.0   -> 0.025  (wide-stop filter)
+#   2. position_sizing.risk_per_trade       0.020 -> 0.005  (DD control)
+#   3. position_sizing.backtest_risk_pct    0.020 -> 0.005  (engine reads this)
+#   4. drawdown_breakers.daily_loss_pct     0.04  -> 0.02
+#   5. drawdown_breakers.weekly_loss_pct    0.08  -> 0.05
+#   6. strategy_portfolio.pyramid_enabled   true  -> false  (wide-stop = pyr-OFF)
+#
+# HONEST BACKTEST (taker +55bps, conservative — BACKTEST = HYPOTHESIS):
+#   continuous-curve DD  -20.7%
+#   monthly-mean ROI     +12.67%   (post-only +15bps scenario: +23.64%)
+#   negative months      3/61      WF OOS negative windows 0/34
+#   Yearly: 2021 +13.6 / 2022 +12.3 / 2023 +7.6 / 2024 +13.1 / 2025 +20.4 /
+#           2026-YTD +4.6  %/ay — long-run avg >=10% but regime-dependent.
+#
+# PARITY: an engine backtest with this config must reproduce the
+# scripts/lab_15m_widestop_dd_opt.py conservative row (DD -20.7%, +12.67%/ay)
+# within +/-2%.  See DEPLOY_widestop_15m.md WIRE step 4.
+#
+# CHANGE LOG:
+#   - c2v5 final YAML UNTOUCHED (this is a separate copy — easy rollback).
+#   - Activate via: PA_15M_CONFIG=configs/risk_phoenix_scalp_15m_widestop.yaml
+#   - Live activation = Principal sign-off + paper/shadow validation first.
+# =============================================================================
+
+# =============================================================================
+# PHOENIX-SCALP 15m RISK PRESET — v1.0 DRAFT (2026-05-16)
+# =============================================================================
+# Bot adı: PHOENIX-SCALP 15m
+# Durum: R&D TASLAK — Principal sign-off ZORUNLU (live değil)
+# Master plan: reports/ceo/2026-05-16_phoenix_scalp_v1_master_plan.md §4.4
+#
+# Phoenix 1d champion (v2.0.4) referans alınarak TF-scale yapıldı.
+# Temel fark: fee erozyonu nedeniyle risk_per_trade %4 → %2, breaker'lar
+# daha sık tetiklenebilecek şekilde daha geniş (15m'de ardışık kayıp daha
+# hızlı birikir), post-only zorunlu (taker fee %4 → %12'ye çıkıyor).
+#
+# Fee modeli (master plan §2.1):
+#   15m avg hold ~1.5h → ~13,500 trade/yıl
+#   Taker 8-12 bps × 13,500 = %108-162 yıllık fee erosyon
+#   Post-only maker ile ~4 bps × 13,500 = %54 — hala ağır
+#   → risk_per_trade 1d %4'ten yarıya (%2) + maker fill ≥%60 zorunlu
+#
+# KIL KRİTERİ (master plan §4.4): daily_loss_pct breaker simde >5×/yıl
+# tetikleniyor ise preset agresif sayılır, revize edilir.
+# =============================================================================
+
+defaults:
+  account_currency: USDT
+  preset_name: phoenix_scalp_15m_widestop
+  bot_name: PHOENIX-SCALP-15m-WIDESTOP  # DRAFT — sign-off pending
+  timeframe: 15m
+  # TASLAK: sim=true iken kullan; live için Principal sign-off + enabled: true
+  sim_only: true
+
+# =============================================================================
+# G11/G12 FIX (hard review 2026-05-21): EXECUTION / FEE MODELI
+# =============================================================================
+# ÖNCE: bu blok YOKTU → lab.py:475 `raw.get("execution", {})` boş dict döndürüp
+# fee_bps_per_trade=0.0 (zero-fee) varsayıyordu. İdealize +%1253 backtest'inin
+# kök sebebi BUYDU — fee erozyonu hiç simüle edilmiyordu.
+#
+# Consuming code: lab.py:474-477
+#   fee_bps_per_trade = float(raw["execution"]["fee_bps_per_trade"])
+# Birim (lab.py:316 yorumu): "round-trip fee in basis points (entry + exit
+# combined)". Formül lab.py:700 base_fee_R = fee_bps_per_trade / (sl_pct*10_000)
+# tek terimle hem entry hem exit leg'ini kapsıyor → değer ROUND-TRIP yazılmalı.
+#
+# Gerçekçi değer: Binance USDM futures taker ~7.5 bps/leg (VIP-0 0.05% +
+# spread/slippage payı). Round-trip = 2 leg ≈ 15 bps. Bu, taker-only worst-case
+# senaryo (post_only maker fill ile düşer ama o henüz canlıda doğrulanmadı —
+# defensive olarak taker varsay).
+# =============================================================================
+execution:
+  fee_bps_per_trade: 15.0   # round-trip (entry+exit), Binance USDM taker ~7.5bps/leg
+  # WIRE-widestop (2026-05-22): wide-stop deploy filter. Reject signals/trades
+  # whose entry sl_pct = |entry - sl| / entry < this threshold. sl_pct is known
+  # at entry from ATR -> causal, no look-ahead. 0.0 = OFF (c2v5 default).
+  # Consuming code: lab.py ProductionConfig.sl_pct_min (backtest) +
+  # futures_daemon.py _sl_pct_min_15m (live 15m signal loop). DEPLOY spec:
+  # DEPLOY_widestop_15m.md WIRE steps 1-2.
+  sl_pct_min: 0.025
+  # POST-ONLY MAKER — 2026-05-21 karar (viability raporu: pool-R taker ~0, maker +110-164K sim)
+  # Fill rate ölçüldü: %87.5 (break-even %2.6). post_only_limit_enabled: true = AÇIK.
+  # Consuming code: futures_daemon.py 15m entry path + PyramidRouter init.
+  post_only_limit_enabled: true
+  post_only_fallback_seconds: 30
+  slippage_limit_bps: 25         # entry leg market-fallback slippage cap
+  # Pyramid leg market-fallback cap ayrı tutulur: trigger noktasında spread
+  # genişleyebilir (fiyat geri çekilip tetik sınırında döndüğünde), 25bps entry
+  # için mantıklı ama pyramid için çok sıkı → gereksiz reverse-close kaybı.
+  # 50bps: pozisyon R boyutunun ~%0.5'i, kabul edilebilir (max 3 leg × 50bps = 150bps/yıl).
+  pyramid_slippage_limit_bps: 50
+
+position_sizing:
+  method: confidence_dynamic
+  # DIFF vs 1d: %4 → %2
+  # Gerekçe: 13,500 trade/yıl × 8 bps taker = %108 fee erosyon baseline.
+  # %2 risk + maker rebate ile breakeven yakını hedeflenir.
+  # Kelly cap %25 → %15: daha yüksek trade frekansta Kelly daha aşırı büyür.
+  # WIRE-widestop (2026-05-22): %2 -> %0.5. The wide-stop DD-optimised backtest
+  # (+12.67%/ay, DD -20.7%) used FLAT 0.5% risk; live must match for parity.
+  # NOTE: confidence_risk_tiers below have NO consumer in src/ (engine uses
+  # backtest_risk_pct; use_confidence_dynamic_sizing not set) — left as-is.
+  risk_per_trade: 0.0075  # v14p2: tavan config (0.0062 -> 0.0075)
+  backtest_risk_pct: 0.0075  # v14p2
+  # FAZ-2a: strateji risk ağırlıkları (ölçülen meanR'den: vsa 1.80 / brooks 0.84
+  # / avwap 0.40 / engulf 0.33). Cap'lerden ÖNCE çarpılır (lab.py paritesi).
+  strategy_risk_weights:
+    vsa_climax_test: 1.4
+    brooks_failed_breakout: 1.1
+    anchored_vwap_reversal: 0.6
+    engulfing_continuation: 0.6
+  # FAZ-2b: DD-throttle — peak-equity'den %6 düşüşte yeni giriş riski yarıya.
+  dd_throttle:
+    enabled: true
+    dd_threshold: 0.06
+    risk_mult: 0.5
+    state_path: logs/risk/equity_peak_v14.json
+  confidence_risk_tiers:
+    - {min: 0.00, max: 0.32, risk_pct: 0.005}   # %0.5 — micro
+    - {min: 0.32, max: 0.42, risk_pct: 0.008}   # %0.8
+    - {min: 0.42, max: 0.52, risk_pct: 0.018}   # %1.2 — default
+    - {min: 0.52, max: 0.58, risk_pct: 0.024}   # %1.6
+    - {min: 0.58, max: 1.01, risk_pct: 0.030}   # %3.0 — yüksek conf
+  # DIFF vs 1d: 0.25 → 0.15 (scalp'te Kelly patlaması riski daha yüksek)
+  kelly_cap: 0.15
+  min_quantity_usdt: 10
+  size_rounding: exchange_step
+  # SEC58 FIX: 0.30 -> 0.15 to match max_per_symbol_pct (0.30 caused concentration_gate REJECT at 0 positions)
+  max_notional_pct_equity: 0.15  # SEC58 FIX: align with max_per_symbol_pct=0.15 (was 0.30 -> concentration_gate paradox)
+  # G16 FIX (hard review 2026-05-21): side-concentration limit — max 4 long VEYA
+  # 4 short ayni anda. 8/8 pencere AYNI YON kaybinin yapisal sebebi yon-konsantrasyon
+  # limitinin olmamasiydi. risk_defensive.yaml referans degeri = 4.
+  # NOT: lab.py:434 bu key'i `position_sizing` blogundan okuyor
+  # (ps = raw["position_sizing"]) — `concentration_limits` blogundan DEGIL.
+  # backtest_apply_concentration_gate'den bagimsiz, her zaman aktif.
+  max_same_side_concurrent: 4
+
+stop_loss:
+  method: atr
+  # DIFF vs 1d: period 14 barsın 15m karşılığı = 3.5 saat ATR
+  # 1d'de 14 bar = 14 gün; 15m'de 14 bar = 3.5 saat — TF parametrize edilmeli
+  # manifest layer'da: atr_period_bars: 14 (her TF'de kendi barı)
+  atr_period: 14
+  # DIFF vs 1d: multiplier 2.0 → 1.5 (scalp'te geniş SL fee'den büyük olur)
+  atr_multiplier: 1.5
+  structural_buffer_pct: 0.003   # 1d %0.5 → %0.3 (daha sıkı scalp buffer)
+  trailing:
+    enabled: true
+    method: atr_chandelier
+    atr_period: 14
+    # DIFF vs 1d: 3.0 → 2.0 (scalp'te runner daha kısa sürer)
+    # FIX 2026-05-29 (deploy): 2.0 → 3.0 (winner-let-run; runner'a daha geniş trail).
+    # REVERT 2026-06-02: 3.0 → 1.5. Characterization (champion_characterization.md §11,
+    #   55bps): trail 3.0 = edge-yıkıcı (−%1.1/ay, MaxDD −%66). BASELINE 1.5 = +%7.6/ay,
+    #   MaxDD −%18. Canlı daemon bu alanı OKUMUYOR (hardcoded _TRAIL_PCT=0.04) → bu sadece
+    #   landmine temizliği; backtest araçları bundan sonra doğrulanmış 1.5 okur.
+    multiplier: 1.5
+    activate_after_R: 1.0
+
+take_profit:
+  method: r_multiple
+  # DIFF vs 1d: 1.5 → 1.2R (scalp'te hızlı kâr realizasyonu, fee etkisi büyük)
+  primary_R: 1.2
+  partial_close_at_R: 0.8       # 0.8R'da kısmi kapat (1d'de 1.0R)
+  runner_trail: true
+
+vol_target:
+  # DIFF vs 1d: aktif (1d'de kapalı) — scalp'te vol spike'larında auto-shrink
+  enabled: true
+  # 15m ATR% hedef: 1d %4 → 15m ~%1 (TF-scaled; 1d vol / sqrt(96 bar) ≈ %0.4-1)
+  target_atr_pct: 0.010
+  min_factor: 0.20
+  max_factor: 1.50
+
+leverage:
+  enabled: true
+  # DIFF vs 1d: max 5 → 3 (scalp'te kaldıraç × volatilite likidasyon riski)
+  max_leverage_per_symbol: 3
+  max_portfolio_notional_x_equity: 3
+  margin_safety_ratio: 0.5
+  confidence_tiers:
+    - {min: 0.00, max: 0.32, leverage: 1}
+    - {min: 0.32, max: 0.52, leverage: 2}
+    - {min: 0.52, max: 1.01, leverage: 3}
+
+drawdown_breakers:
+  # DIFF vs 1d: %5 → %3 → %5 → %4 (SEC54.6c 2026-05-19 YOL-B Lab tavsiye)
+  # Gerekçe: SEC54.6b (daily=4% solo) hala 3/5 mandate, 2 FAIL (max_loss -%13.29,
+  # neg ay 10/61). Forensic: tek-param (daily) revize tail riski kapatmıyor.
+  # YOL-B: daily=4% kompromi KORU + consec=5 + m_short=4% geri dön (SEC54.1).
+  # Beklenen: tail close (max_loss ~-%5-6), neg ay 10 → ≤9 (PRIMARY hedef).
+  # Reference: reports/lab/2026-05-19_sec54_6b_compromise_replay.md §"Refined Lab
+  # Recommendation — Yeni Yol" YOL-B.
+  # WIRE-widestop (2026-05-22): 0.04 -> 0.02 (DD-optimised wide-stop config).
+  daily_loss_pct: 0.04   # v14-frontier: 0.02 -> 0.04
+  # DIFF vs 1d: %10 → %08 (scalp haftalık fırsat penceresi daha dar)
+  # WIRE-widestop (2026-05-22): 0.08 -> 0.05 (DD-optimised wide-stop config).
+  weekly_loss_pct: 0.08  # v14-frontier: 0.05 -> 0.08
+  # combined monthly — side-cond ile birlikte; 0.99 = effectively off (pure side-cond)
+  monthly_loss_pct: 0.99
+  monthly_halt_days: 3           # 1d'de 21 → 3 gün (15m rejim değişim hızı)
+  daily_halt_days: 1
+  weekly_halt_days: 2
+  # DIFF vs 1d: long %15 → %10 → %12 (SEC54.6c 2026-05-19 YOL-B: long KORUNDU)
+  #             short %5 → %4 → %7 → %4 (SEC54.6c 2026-05-19 YOL-B GERİ)
+  # Gerekçe: SEC54.6b forensic 2025-Q2 sell-off m_short=7% gevşeklik tail
+  # açıyor. m_short=4% (SEC54.1) erken-çıkış-recovery'yi keser; PRIMARY hedef
+  # neg ay 10 → ≤9 kapatma için sıkı tutmak gerek. Long m_long=12% korunur
+  # (long-tail ay 2/61, kısma alpha cost yüksek; symmetric değil asymetric).
+  monthly_loss_pct_long: 0.12
+  monthly_loss_pct_short: 0.04
+  # DIFF vs 1d: 3 → 5 → 7 → 5 (SEC54.6c 2026-05-19 YOL-B GERİ)
+  # Gerekçe: SEC54.6 7'ye yükseltme false-alarm önlemekti ama tail (max_loss
+  # -%13) consec=7 ile 7 consec losses arka-arkaya birikme şansı veriyor. 5
+  # consec ile erken cool-down (1 gün pause) tail biriktirmeyi keser. Lab
+  # SEC54.6b forensic: SEC54.1 daily=3% düşüklüğü sadece sebep değil; consec=5
+  # + m_short=4% kombinasyonu tail kapatan asıl mekanizma.
+  consecutive_losses: 5
+  # DIFF vs 1d: 5g → 1g (15m rejim 3-7 gün sürer; uzun halt fırsat kaybı)
+  # UYARI (kod bug): breaker.py satır 128 → int(pause_days) → int(1.0) = 1 TAMAM.
+  # 5m ve 1m için 0.5/0.25 değerler int() sonrası 0 olur → ayrı nota ekle.
+  consecutive_loss_pause_days: 1.0
+  reset:
+    daily: 00:00 UTC
+    weekly: Monday 00:00 UTC
+    monthly: 1st 00:00 UTC
+
+correlation_gate:
+  enabled: true
+  # DIFF vs 1d: aynı (0.7/0.9) — korelasyon TF bağımsız; pairwise return
+  # hesaplama 15m bar bazlı olacak (manifest layer sync gerekli)
+  max_pairwise_corr: 0.7
+  reduction_factor: 0.5
+  hard_block_at: 0.9
+
+concentration_limits:
+  # DIFF vs 1d: 12 → 16 (15m daha fazla eş zamanlı fırsat; throughput gerekli)
+  max_open_positions: 16
+  max_per_category_pct: 0.35     # 1d %40 → %35 (intraday konsantrasyon riski)
+  # DIFF vs 1d: %20 → %15 (sıkılaştı; master plan §1.3 "en çok %20" ama scalp'te
+  # daha agresif fiyat hareketleri var, %15 daha güvenli)
+  max_per_symbol_pct: 0.15
+  backtest_apply_concentration_gate: true
+
+# Regime filter — TF-scaled
+# DIFF vs 1d: 1d ATR% eşiği 6.0 → scalp'te aynı KORUNDU (BTC günlük ATR% ölçüm
+# değişmez; halt calendar 1d OHLCV bazlı). Halt süresi 21g → 3g (§2.4: 15m rejim
+# değişim hızı 3-7 gün).
+regime_filter:
+  # SEC50 (2026-05-17): 1d-kalibre halt threshold'ları 15m'de over-reject.
+  # Sweep ATR×DD (9 senaryo) + halt OFF baseline: halt OFF her dimension'da en iyi.
+  # Mean monthly +%17.33 → +%28.87 (+%11.5pp), CV %223 → %144, zero ay 20 → 2,
+  # neg ay 9 → 7, ge20 ay 15 → 26. 1d preset rejim sinyalleri 15m TF için over-active.
+  # Disable: scalp 15m halt YAML-level OFF, 1d champion etkilenmedi (kendi YAML'i).
+  btc_capitulation_halt_enabled: false
+  atr_pct_threshold: 6.0
+  ema200_streak_days: 10
+  dd_90d_threshold_pct: -25.0
+  resume_atr_threshold: 4.0
+  resume_streak_days: 5
+  # Scalp-spesifik: halt süresi YAML overrideable değil (breaker.py monthly_halt_days)
+  # Halt süresini 3g yapmak için drawdown_breakers.monthly_halt_days: 3 kullanılıyor.
+
+alt_data:
+  fng_short_skip_enabled: true
+  fng_short_skip_threshold: 20
+  funding_filter_enabled: false
+
+# Strateji portföyü — 15m TF uyumlu (Phase 2 audit sonrası doldurulacak)
+# Şimdi placeholder; Signal Chief lookahead audit tamamlanınca güncellenir.
+strategy_portfolio:
+  enabled: true
+  # Semboller 1d ile aynı (Phase 2'de likidite screen ile revize edilebilir)
+  symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - ADA/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - DOT/USDT
+    - DOGE/USDT
+    - XRP/USDT
+    # FIX 2026-05-29 (deploy): 10 → 14. ZEC/NEAR/FIL/XLM eklendi (15m ingest universe parity).
+    - ZEC/USDT
+    - NEAR/USDT
+    - FIL/USDT
+    - XLM/USDT
+    # DEPLOY 2026-05-30: 14 → 19. TRX/UNI/ATOM/AAVE/ALGO (vsa+brooks 5y backtest-kanıtlı).
+    - TRX/USDT
+    - UNI/USDT
+    - ATOM/USDT
+    - AAVE/USDT
+    - ALGO/USDT
+  strategies:
+    # Phoenix 1d stratejilerinin 15m uyumluluğu Signal Chief audit'e bağlı.
+    # Şimdi PLACEHOLDER — Phase 2 PASS sonrası aktif edilir.
+    # - engulfing_continuation
+    # - obv_engulfing_confluence
+    # - anchored_vwap_reversal
+    # - brooks_h2_l2
+    # - pin_bar_round_numbers
+    # - equal_highs_sweep
+    # - cvd_spike_fade
+    # - vsa_climax_test
+    # - brooks_failed_breakout
+    # - fvg_fill_reversal
+  same_symbol_side_cooldown_days: 0.010  # ~15 dakika (bar bazlı cooldown)
+  max_concurrent_positions: 16
+  # WIRE-widestop (2026-05-22): true -> false. Wide-stop honest edge was
+  # verified pyramid-OFF (DEPLOY_widestop_15m.md DEPLOYABLE CONFIG).
+  pyramid_enabled: true          # v14-frontier: pyr-pool backtest paritesi (KRİTİK)
+  # SEC-SCALP-P0 FIX (2026-05-17): triggers/sizes önceden TANIMSIZ -> lab.py:643
+  # pyramid_triggers boş tuple -> falsy -> kod tarafında pyramid kapalıydı.
+  # 1d Phoenix v2.0.4 preset değerleri (yıllık +%150 katkı). Forensic raporu:
+  # reports/analyst/2026-05-17_15m_r4_forensic_audit.md §3.
+  # v14-frontier 2026-06-10: 1.0/1.5 -> 1.2/1.8 — TP seviyeleriyle (1.0R/1.5R)
+  # çakışma giderildi (Principal itirazı: aynı seviyede sat+al = çapraz hacimde
+  # boşa komisyon ~0.3-0.5 puan/ay + emir yarışı). Önceden-deklare tek-atış
+  # backtest: ANA +20.49/ay DD -21.8 (1.0/1.5 referansı +20.07/-21.6) — nötr-pozitif;
+  # canlı fee tasarrufu backtest'te modellenmemiş EK kazanç.
+  pyramid_triggers: [1.2, 1.8]
+  pyramid_sizes: [0.50, 0.30]
+  signal_confidence_min: 0.25    # 1d'de 0.20 → 0.25 (scalp gürültü filtresi)
+  expected_annual_return: 0.60   # konservatif backtest beklentisi (master plan §2.5)
+  expected_max_dd: 0.25
+
+# =============================================================================
+# SEC54.6d — Per-Strategy Regime Conditional Filter (2026-05-19 live wiring)
+# =============================================================================
+# Backtest: annual +1935.9% / neg 8/61 / mandate 5/5 (vs baseline +1283.2% / neg 9/61)
+# Pre-reg: memory/researcher/hypotheses/2026-05-18-regime-conditional-filters.md
+# Researcher report: reports/researcher/2026-05-19_sec54_6d_regime_filter.md
+#
+# CAUSAL GUARANTEE: Features file (data/regime_features_latest.parquet) written
+# daily at 00:01 UTC by scripts/regime_features_refresh.py using t-1 BTC daily
+# close data. Signal timestamp t → features lookup date t-1 (shift already in
+# parquet writer, no additional shift needed in RiskOfficer).
+#
+# FAIL-SAFE: features stale (>24h) or missing → ALLOW (false-negative accepted).
+# BACKWARD COMPAT: enabled: false → byte-identical behavior (1d Phoenix unaffected).
+# PA_LIVE_CONFIRM NOT SET: code + test only. Live activation = Principal sign-off.
+# =============================================================================
+regime_filter_per_strategy:
+  enabled: true
+  features_max_age_hours: 24    # stale → fail-safe ALLOW (conservative)
+  features_path: data/regime_features_latest.parquet
+  # G5 FIX (hard review 2026-05-21): regime cache staleness tier'leri.
+  # ÖNCE blok yoktu → CacheFreshnessConfig defaults (warn 24h / reject 48h) devreye
+  # girip features_max_age_hours=24 ile uyumsuzdu (24h/48h vs 24h eşik çelişkisi).
+  # 15m bot için sıkılaştırıldı: regime features cron'u 00:01 UTC günlük yazıyor,
+  # 15m TF'de 1 günden eski rejim verisi ile trade etmek riskli.
+  # Consuming code: regime_filter.py CacheFreshnessConfig.from_cfg()
+  #   YAML path = regime_filter_per_strategy.cache_freshness
+  #   keys: warn_hours / reject_hours / hard_reject_hours / grace_minutes / strict_mode
+  cache_freshness:
+    warn_hours: 6              # 6h sonrası ALLOW + WARN log + Telegram
+    reject_hours: 24           # 24h sonrası tüm sinyaller REJECT
+    hard_reject_hours: 48      # 48h sonrası REJECT + critical alarm
+    grace_minutes: 30          # cron jitter buffer (geç çalışan cron tier atlamasın)
+    strict_mode: true          # MISSING parquet → REJECT (fail-closed)
+  filters:
+    # F1: anchored_vwap_reversal — range rejim skip (both sides)
+    # Forensic: 2025-04 AVWAP -%560, WR %11.8, BTC ATR%<4% sıkışık range
+    # Backtest contribution: -1 neg ay, +56pp annual (F1 alone, B fee=+8)
+    F1_avwap_range:
+      strategy: anchored_vwap_reversal
+      side: BOTH
+      btc_atr_pct_lt: 3.0               # BTC ATR%_30d < 3% → range rejim
+      btc_return_30d_abs_lt_pct: 3.0    # |return_30d| < 3% → flat, not trending
+    # F2: brooks_failed_breakout — SHORT only — strong bull skip
+    # Forensic: 2025-05 brooks_fb short -%645, BTC +%8.4 EMA200 above
+    # Backtest contribution: +1 neg ay (worsened count) BUT +602pp annual alpha
+    # (correctly skipping failed short setups in strong bull regime)
+    F2_brooks_fb_bull:
+      strategy: brooks_failed_breakout
+      side: SHORT
+      btc_ema200_above: true
+      btc_return_30d_gt_pct: 5.0        # BTC 30g return > +5% → strong bull
+    # F3: vsa_climax_test — LONG only — deep bear capitulation skip
+    # Forensic: 2026-02 vsa long XRP -%57, BTC -%13, F&G=10
+    # Backtest contribution: -1 neg ay, +114pp annual (F3 alone)
+    F3_vsa_bear:
+      strategy: vsa_climax_test
+      side: LONG
+      btc_fng_lt: 15                    # F&G extreme fear < 15
+      btc_return_30d_lt_pct: -10.0      # BTC 30g return < -10% → deep bear
+    # F4: engulfing_continuation — both sides — extreme vol skip
+    # Forensic: 2023-06 engulfing -%143, high-vol rejim
+    # Backtest contribution: null alone (-94pp) but neutral/combo (+653pp net)
+    F4_engulfing_high_vol:
+      strategy: engulfing_continuation
+      side: BOTH
+      btc_realized_vol_7d_annualized_gt_pct: 100.0  # 7g realized vol > 100% ann
+
+# =============================================================================
+# G13 FIX (hard review 2026-05-21): DEAD CONFIG — hiçbir kod okumuyor
+# =============================================================================
+# T5 doğruladı: `grep -rn exit_engine src/` BOŞ. Bu blok hiçbir kod tarafından
+# parse edilmiyor — ne backtest engine (lab.py) ne canlı (place_protection_orders)
+# bu key'leri okumuyor. Backtest engine kendi sabit close_pct'lerini kullanır,
+# canlı `place_protection_orders` kendi sabitlerini kullanır.
+# Blok SİLİNMEDİ çünkü dosya DRAFT — sign-off review'inde niyetin görünür kalması
+# gerek; ama AKTİF DEĞİL, runtime davranışına ETKİSİ YOK.
+#
+# G9 FIX (hard review 2026-05-21): close_pct değerleri GERÇEĞE hizalandı.
+# ÖNCE bu blok 40/30/30 diyordu; backtest engine 30/30/40 kullanıyor; canlı
+# `place_protection_orders` 25/25/50 kullanıyor — 3 farklı gerçek vardı.
+# Aşağıdaki değerler CANLI gerçeğe (25/25/50) hizalandı ki dökümantasyon
+# yanıltıcı olmasın. UYARI: bu blok yine de DEAD CONFIG — değerler sadece
+# referans/dökümantasyon amaçlı, runtime'da OKUNMUYOR. Backtest engine hâlâ
+# 30/30/40 kullanır → backtest↔canlı close_pct PARITY KIRIK (kod tarafı gap,
+# bu config fix kapsamında değil — Batch B/kod fix'e bırakıldı).
+# =============================================================================
+exit_engine:   # DEAD CONFIG — hiçbir kod okumuyor (hard review 2026-05-21)
+  multi_target: true
+  # G9: canlı place_protection_orders gerçeği = TP1 %25 / TP2 %25 / runner %50
+  partial_close_1R: 0.25         # canlı reality (ÖNCE 0.40 — yanlış)
+  partial_close_2R: 0.25         # canlı reality (ÖNCE 0.30 — yanlış)
+  runner_pct: 0.50               # canlı reality (ÖNCE 0.30 — yanlış)
+  break_even_after_1R: true
+  lock_1R_after_2R: true
+  runner_trail_atr: 0.7          # 1d 1.0 → 0.7 (daha sıkı trailing scalp'

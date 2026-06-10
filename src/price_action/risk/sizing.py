@@ -378,6 +378,51 @@ class RiskOfficer:
             )
             return None, miss_status
 
+    # ----- FAZ-2b (v14p2): DD-throttle yardımcıları -----
+    def _dd_throttle_multiplier(self, equity: float, thr_cfg: dict) -> float:
+        """Running-peak equity'den drawdown ölçüp risk çarpanı döner.
+
+        Peak, state dosyasında persist edilir (restart-dayanıklı, ratchet —
+        sadece yukarı). Her türlü hata → 1.0 (NO-OP fail-open) + tek log.
+        Backtest paritesi: lab.py dynamic_exposure_fn throttle deseni.
+        """
+        try:
+            import json as _json
+            from pathlib import Path as _Path
+
+            if equity <= 0:
+                return 1.0
+            dd_threshold = float(thr_cfg.get("dd_threshold", 0.06))
+            risk_mult = float(thr_cfg.get("risk_mult", 0.5))
+            state_path = _Path(
+                thr_cfg.get("state_path", "logs/risk/equity_peak.json")
+            )
+            peak = equity
+            try:
+                if state_path.exists():
+                    peak = max(
+                        equity,
+                        float(_json.loads(state_path.read_text()).get("peak", equity)),
+                    )
+            except Exception:
+                peak = equity  # bozuk state → equity'den yeniden başla
+            try:
+                state_path.parent.mkdir(parents=True, exist_ok=True)
+                state_path.write_text(_json.dumps({"peak": peak}))
+            except Exception:
+                pass  # persist edilemezse in-memory davranışla devam
+            dd = (peak - equity) / peak if peak > 0 else 0.0
+            if dd >= dd_threshold:
+                logger.info(
+                    f"DD_THROTTLE aktif: equity={equity:.2f} peak={peak:.2f} "
+                    f"dd={dd * 100:.1f}% -> risk x{risk_mult:.2f}"
+                )
+                return risk_mult
+            return 1.0
+        except Exception as _thr_err:  # asla sizing'i kırma
+            logger.warning(f"DD_THROTTLE hata (no-op): {str(_thr_err)[:80]}")
+            return 1.0
+
     # ----- core -----
     def evaluate(
         self,
@@ -600,6 +645,33 @@ class RiskOfficer:
         # 5) Sizing — fixed_fractional / atr_normalized
         # Neden: risk.yaml position_sizing.method
         risk_pct = float(cfg.position_sizing.get("risk_per_trade", 0.01))
+
+        # FAZ-2a (2026-06-11, v14p2): per-strategy risk ağırlığı.
+        # Backtest paritesi: lab.py production_replay `trade_risk_pct *=
+        # t["risk_weight"]` — cap'lerden ÖNCE uygulanır, max_notional /
+        # max_per_symbol cap'leri ağırlıklı risk üstünde aynen çalışır.
+        # YAML: position_sizing.strategy_risk_weights: {strateji_adı: çarpan}.
+        # Blok yoksa / pattern eşleşmezse NO-OP (geriye dönük byte-identical).
+        _srw = cfg.position_sizing.get("strategy_risk_weights") or {}
+        if _srw:
+            from price_action.risk.regime_filter import _pattern_to_strategy
+
+            _strat = _pattern_to_strategy(str(getattr(signal, "pattern_id", "") or ""))
+            if _strat and _strat in _srw:
+                risk_pct *= float(_srw[_strat])
+
+        # FAZ-2b (2026-06-11, v14p2): DD-throttle — equity, running-peak'ten
+        # dd_threshold kadar düştüyse yeni girişlerin riskini risk_mult ile kıs.
+        # Backtest paritesi: dynamic_exposure_fn(equity, peak, _) hook'u.
+        # Peak per-bot JSON state'te persist edilir (restart-dayanıklı).
+        # YAML: position_sizing.dd_throttle: {enabled, dd_threshold, risk_mult,
+        # state_path}. enabled=false / hata → NO-OP (fail-open + log).
+        _thr = cfg.position_sizing.get("dd_throttle") or {}
+        if _thr.get("enabled", False):
+            risk_pct *= self._dd_throttle_multiplier(
+                float(account_state.equity_usdt), _thr
+            )
+
         method = str(cfg.position_sizing.get("method", "fixed_fractional"))
         price = float(market_price if market_price is not None else _entry_price(signal))
         sl_dist_dollar = abs(price - signal.sl_price)
@@ -681,6 +753,41 @@ class RiskOfficer:
                 reason="leverage_gate",
                 detail={"why": lev_reason},
             )
+
+        # 6-B) Ön-marjin kontrolü (SEC-#2A)
+        # Sorun: önceki kod sadece free_margin > 0 kontrol ediyordu; bu emrin
+        # gerektirdiği marjini free margin ile karşılaştırmıyordu. Sonuç:
+        # Binance -2019 (InsufficientFunds) CRIT alarmı.
+        # Çözüm: gereken_initial_margin = notional / leverage_used hesaplanır.
+        # Eğer gereken > free_margin * 0.90 ise temiz risk-reddi döner.
+        # %90 buffer: son market-impact marjı için emniyet payı (10%).
+        # Formül: cross-margin hesaplarda initial_margin = notional / leverage.
+        # Bu yaklaşık modeldir; değişken spread/funding ekstra marjini yoksayar —
+        # bu yüzden %10 buffer zorunludur.
+        if leverage_used > 0 and account_state.free_margin_usdt > 0:
+            required_initial_margin = notional / leverage_used
+            # %90 buffer: gereken marjin, mevcut serbest marjinin %90'ını aşmamalı
+            margin_buffer_ratio = 0.90  # sabit — yorum için bırakıldı
+            if required_initial_margin > account_state.free_margin_usdt * margin_buffer_ratio:
+                self._log.bind(
+                    symbol=signal.symbol,
+                    required_margin=round(required_initial_margin, 2),
+                    free_margin=round(account_state.free_margin_usdt, 2),
+                    leverage=leverage_used,
+                    notional=round(notional, 2),
+                ).warning("risk.sizing.insufficient_margin_for_order")
+                return Reject(
+                    signal=signal,
+                    rejected_by="risk",
+                    reason="insufficient_margin_for_order",
+                    detail={
+                        "required_initial_margin": round(required_initial_margin, 2),
+                        "free_margin_usdt": round(account_state.free_margin_usdt, 2),
+                        "leverage_used": leverage_used,
+                        "notional": round(notional, 2),
+                        "buffer_pct": margin_buffer_ratio,
+                    },
+                )
 
         # 7) Konsantrasyon check
         # Neden: max_per_symbol_pct, max_per_category_pct
