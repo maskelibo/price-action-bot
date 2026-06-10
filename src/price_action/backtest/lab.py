@@ -333,6 +333,13 @@ class ProductionConfig:
     # (see DEPLOY_widestop_15m.md).
     sl_pct_min: float = 0.0
 
+    # FIX 2026-06-10 (v14 gerçekçilik denetimi, KILL-1 cevabı): non-compounding
+    # sizing. True ise per-trade risk BAŞLANGIÇ sermayesinden hesaplanır
+    # (risk_d = initial_capital * risk_pct), equity'den değil — canlı v13/v14
+    # wrapper'ın "RISK_PCT * starting equity" davranışıyla parite. Default False
+    # → byte-identical eski davranış (compounding).
+    fixed_notional_sizing: bool = False
+
     # SEC21: per-strategy-class slot allocation
     # Default OFF (backwards compat — pure FIFO at cfg.max_concurrent).
     # When True: lookup strategy class via taxonomy, enforce per-class max + min_reserved.
@@ -342,6 +349,14 @@ class ProductionConfig:
     slot_taxonomy: dict | None = None       # strat_name -> class
     slot_caps: dict | None = None           # class -> {max, min_reserved}
     slot_default_class: str = "trend_continuation"
+
+    # v10 (2026-06-02) — DYNAMIC EXPOSURE HOOK (research-only, lookahead-safe).
+    # Optional callable applied as a multiplier on risk_d AT ENTRY, computed from
+    # REALIZED state only (equity/peak <= t-1, closed-trade return window <= t-1).
+    # Signature: fn(equity, peak_equity, closed_returns:list[float]) -> float (>=0).
+    # Default None -> block skipped -> BYTE-IDENTICAL to all prior replays.
+    # Never serialised from YAML (set programmatically in research harness).
+    dynamic_exposure_fn: Any = None
 
     @classmethod
     def from_yaml(cls, path: str | Path | None = None) -> ProductionConfig:
@@ -705,10 +720,13 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None,
     cool_until = None
     peak_equity = cfg.initial_capital
     same_day_count: dict = {}
+    # v10 dynamic-exposure hook: realized per-close equity returns (<= t-1) + last eq.
+    _dyn_closed_rets: list[float] = []
+    _dyn_last_eq = cfg.initial_capital
 
     def close_due(now):
         nonlocal cash, equity, peak_equity, consecutive_losses, cool_until
-        nonlocal monthly_long_pnl, monthly_short_pnl
+        nonlocal monthly_long_pnl, monthly_short_pnl, _dyn_last_eq
         still = []
         for p in open_pos:
             if p["exit_ts"] <= now:
@@ -751,6 +769,10 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None,
                 peak_equity = max(peak_equity, equity)
                 Rs.append(R_use)
                 eq_curve.append(equity)
+                # v10 dynamic-exposure hook: realized per-close return (<= t-1)
+                if cfg.dynamic_exposure_fn is not None and _dyn_last_eq > 0:
+                    _dyn_closed_rets.append(equity / _dyn_last_eq - 1.0)
+                _dyn_last_eq = equity
                 # Faz 14.20: processed trade'in exit_ts'i (aylık aggregate için)
                 _processed_exit_ts.append(p.get("exit_ts"))
                 # v1.5: side-bazlı pnl tracking
@@ -983,7 +1005,21 @@ def production_replay(trades: list[dict], cfg: ProductionConfig | None = None,
                 elif atr_p > cfg.vol_high_atr_pct:
                     trade_risk_pct = cfg.vol_high_risk_pct
                 # else normal range -> trade_risk_pct degismez (cfg.risk_pct)
-        risk_d = equity * trade_risk_pct * risk_modifier
+        # OPTIONAL per-trade risk weight (edge-weighting research hook).
+        # Default 1.0 -> byte-identical to all prior replays (backward-compat).
+        # Used ONLY when a trade dict carries an explicit "risk_weight" (set by
+        # walk-forward edge-weighting in scripts/optimized_champion.py, computed
+        # from TRAILING per-symbol performance only -> no look-ahead).
+        trade_risk_pct *= float(t.get("risk_weight", 1.0))
+        # v10 DYNAMIC EXPOSURE HOOK (lookahead-safe): multiplier from realized
+        # equity/peak (<= t-1) + closed-return window. Default None -> no-op.
+        if cfg.dynamic_exposure_fn is not None:
+            _dm = float(cfg.dynamic_exposure_fn(equity, peak_equity, _dyn_closed_rets))
+            trade_risk_pct *= max(0.0, _dm)
+        # FIX 2026-06-10: fixed_notional_sizing=True → risk başlangıç sermayesinden
+        # (canlı v13/v14 non-compounding sizing paritesi); False → eski davranış.
+        _risk_base = cfg.initial_capital if cfg.fixed_notional_sizing else equity
+        risk_d = _risk_base * trade_risk_pct * risk_modifier
 
         # v0.9.4 chop transition mode -> half risk
         risk_d *= chop_factor

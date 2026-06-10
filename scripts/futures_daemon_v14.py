@@ -1,0 +1,194 @@
+"""V14 FRONTIER Testnet Daemon — 19-sym WIDESTOP + PYRAMID-ON + F2/F4 regime.
+
+PURPOSE
+-------
+v13 wrapper kalıbında ince yürütme sarmalayıcısı. v14 frontier config'i
+(configs/risk_phoenix_scalp_15m_v14_frontier.yaml) EXPLICIT yükler ve startup'ta
+DOĞRULAR (audit BLOCKER-3: v13'ün setdefault tuzağı — yanlış config sessizce
+koşuyordu). Exit yapısı backtest paritesi: engine-native 30/30/40 + %1.5 trail.
+
+v13'TEN FARKLAR
+---------------
+1. Config     : v14_frontier (risk 0.62%, d04/w08, PYRAMID ON, 19 sembol)
+2. HTF filtre : YOK — v14 backtest'i HTF içermiyor (parite). F2/F4 rejim
+                filtreleri RiskOfficer YAML yolundan zaten aktif.
+3. Doğrulama  : startup'ta YAML'dan pyramid_enabled/risk/sl_pct_min/breaker
+                değerleri assert edilir — uyuşmazlıkta ABORT (sessiz parite
+                felaketi yerine gürültülü ölüm).
+4. Breaker    : PA_BOT_NAME=v14 → bot-bazlı temiz state (BLOCKER-2 fix'i).
+
+DEĞİŞMEYENLER (v13'ten miras)
+-----------------------------
+- BASELINE exit patch: TP1=30%@1R / TP2=30%@1.5R / runner=40%, trail %1.5
+- Sizing: fixed-fraction (başlangıç-equity, non-compounding)
+- DMS / kill-switch / idempotency / N-tick orphan koruması / watchdog katmanları
+- PA_LIVE_CONFIRM ASLA set edilmez — testnet/paper only
+
+ACTIVATION (testnet only)
+-------------------------
+    python scripts/futures_daemon_v14.py --timeframe 15m
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+# ── Environment: EXPLICIT (BLOCKER-3 — setdefault sessiz tuzağı yasak) ───────
+V14_CONFIG = "configs/risk_phoenix_scalp_15m_v14_frontier.yaml"
+_prev_cfg = os.environ.get("PA_15M_CONFIG")
+if _prev_cfg and _prev_cfg != V14_CONFIG:
+    sys.stderr.write(
+        f"[V14] UYARI: PA_15M_CONFIG={_prev_cfg} override ediliyor → {V14_CONFIG}\n"
+    )
+os.environ["PA_BOT_NAME"] = "v14"
+os.environ["PA_RUN_MODE"] = "paper"
+os.environ["PA_15M_CONFIG"] = V14_CONFIG
+os.environ.setdefault("PA_DUCKDB_READ_ONLY", "true")
+
+# SAFETY GATE: v14 testnet wrapper'ı live mode ile ASLA koşmaz.
+if os.environ.get("PA_LIVE_CONFIRM", "").strip():
+    raise SystemExit(
+        "[V14 SAFETY] PA_LIVE_CONFIRM set — v14 testnet wrapper live koşmayı reddeder."
+    )
+
+os.environ["PA_LOG_QUIET"] = "1"
+import warnings
+
+warnings.filterwarnings("ignore")
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
+
+try:
+    from dotenv import load_dotenv as _load_dotenv
+
+    _load_dotenv(ROOT / ".env", override=False)
+except Exception:
+    pass
+
+LOG_FILE = ROOT / "logs" / "futures_daemon_v14.log"
+LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+PID_FILE = ROOT / "logs" / "v14_daemon.pid"
+
+
+def _vlog(msg: str) -> None:
+    ts = datetime.now(UTC).strftime("%H:%M:%SZ")
+    line = f"[{ts}] [V14] {msg}"
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+            f.flush()
+    except Exception:
+        pass
+    try:
+        sys.stderr.write(line + "\n")
+        sys.stderr.flush()
+    except Exception:
+        pass
+
+
+# ── STARTUP DOĞRULAMA (BLOCKER-3): config gerçekten v14 mü? ──────────────────
+def _verify_v14_config() -> dict:
+    import yaml as _yaml
+
+    cfg_path = ROOT / V14_CONFIG
+    if not cfg_path.exists():
+        raise SystemExit(f"[V14 VERIFY] Config yok: {cfg_path}")
+    with open(cfg_path, encoding="utf-8") as f:
+        cfg = _yaml.safe_load(f) or {}
+
+    checks = {
+        "position_sizing.risk_per_trade": (
+            float(cfg.get("position_sizing", {}).get("risk_per_trade", 0)), 0.0062),
+        "position_sizing.backtest_risk_pct": (
+            float(cfg.get("position_sizing", {}).get("backtest_risk_pct", 0)), 0.0062),
+        "execution.sl_pct_min": (
+            float(cfg.get("execution", {}).get("sl_pct_min", 0)), 0.025),
+        "drawdown_breakers.daily_loss_pct": (
+            float(cfg.get("drawdown_breakers", {}).get("daily_loss_pct", 0)), 0.04),
+        "drawdown_breakers.weekly_loss_pct": (
+            float(cfg.get("drawdown_breakers", {}).get("weekly_loss_pct", 0)), 0.08),
+        "strategy_portfolio.pyramid_enabled": (
+            bool(cfg.get("strategy_portfolio", {}).get("pyramid_enabled", False)), True),
+    }
+    bad = [(k, got, want) for k, (got, want) in checks.items() if got != want]
+    if bad:
+        for k, got, want in bad:
+            _vlog(f"VERIFY_FAIL: {k} = {got!r}, beklenen {want!r}")
+        raise SystemExit("[V14 VERIFY] Config v14 frontier değil — ABORT (BLOCKER-3 gate)")
+    n_syms = len(cfg.get("strategy_portfolio", {}).get("symbols", []))
+    _vlog(f"VERIFY_OK: risk=0.62% d04/w08 sl_min=0.025 pyramid=ON symbols={n_syms}")
+    return cfg
+
+
+_verify_v14_config()
+
+# ── Daemon import + BASELINE exit patch (v13 ile birebir — backtest paritesi) ─
+try:
+    import scripts.futures_daemon as _daemon
+    import scripts.futures_daemon_v13 as _v13mod  # patch fonksiyonunu yeniden kullan
+    import scripts.futures_trade_daily as _ftd
+
+    _BASELINE_TRAIL_PCT = float(os.environ.get("PA_V14_TRAIL_PCT", "0.015"))
+    _old_trail = _daemon._TRAIL_PCT
+    _daemon._TRAIL_PCT = _BASELINE_TRAIL_PCT
+    _vlog(f"PATCHED _TRAIL_PCT: {_old_trail} → {_daemon._TRAIL_PCT} (BASELINE %1.5)")
+
+    # v13 wrapper import'u kendi patch'ini _ftd'ye zaten uyguladı (30/30/40).
+    if getattr(_ftd.place_protection_orders, "__name__", "") != "_v13_place_protection_orders":
+        raise RuntimeError("place_protection_orders 30/30/40 patch'i uygulanmadı")
+    _vlog("PATCH OK: place_protection_orders 30/30/40 (v13 BASELINE, yeniden kullanıldı)")
+
+    # PARITE: v13 import'u _scan_signals_15m'e HTF filtresini import-time enjekte
+    # ediyor (v13:388). v14 backtest'i HTF İÇERMİYOR → orijinal scan'i geri koy.
+    _daemon._scan_signals_15m = _v13mod._original_scan_15m
+    if hasattr(_v13mod, "_original_scan_5m") and hasattr(_daemon, "_scan_signals_5m"):
+        _daemon._scan_signals_5m = _v13mod._original_scan_5m
+    _vlog("UNPATCHED: HTF 1d filtresi geri alındı (v14 backtest paritesi — HTF yok)")
+
+    # PYRAMID doğrulama: router init'inin gerçekten açılacağını logla
+    if not _daemon._pyramid_enabled_15m():
+        raise RuntimeError("pyramid_enabled=false okundu — v14 tezi pyramid-ON gerektirir")
+    _vlog("PYRAMID: enabled=true doğrulandı (PyramidRouter init edilecek)")
+except Exception as _patch_err:
+    _vlog(f"PATCH_FAIL: {_patch_err} — ABORT")
+    raise SystemExit(f"V14 daemon patch failed: {_patch_err}") from _patch_err
+
+
+def _write_pid() -> None:
+    try:
+        PID_FILE.write_text(str(os.getpid()))
+    except Exception:
+        pass
+
+
+def _print_banner() -> None:
+    _vlog("=" * 65)
+    _vlog("V14 FRONTIER TESTNET DAEMON — 19sym WIDESTOP + PYRAMID + F2/F4")
+    _vlog(f"  Config      : {V14_CONFIG} (startup-verified)")
+    _vlog("  Journal     : data/futures_journal_v14.duckdb")
+    _vlog("  Breaker     : logs/risk/futures_breaker_state_15m_v14.json (temiz)")
+    _vlog("  Entry gates : WIDESTOP sl>=0.025 + conf>=0.25 + F2/F4 regime (RO yolu)")
+    _vlog("  Exit        : BASELINE trail=1.5% / TP1=30%@1R / TP2=30%@1.5R / runner=40%")
+    _vlog("  Pyramid     : ON — triggers [1.0,1.5]R, sizes [0.50,0.30], leg-fill SL resize")
+    _vlog("  Sizing      : FIXED-FRACTION 0.62% (non-compounding)")
+    _vlog("  Beklenti    : dürüst bant +%15-18.5/ay, DD bandı -%19..-22 (hardened)")
+    _vlog("  PA_LIVE_CONFIRM: NOT SET — testnet only")
+    _vlog("=" * 65)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="V14 Frontier Testnet Daemon")
+    parser.add_argument("--once", action="store_true", help="Tek bar döngüsü (test)")
+    parser.add_argument("--timeframe", choices=["15m"], default="15m")
+    args = parser.parse_args()
+
+    _write_pid()
+    _print_banner()
+    _vlog(f"Delegating to futures_daemon.run_15m_mode(once={args.once})")
+    _daemon.run_15m_mode(once=args.once)

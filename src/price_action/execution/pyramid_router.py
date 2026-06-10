@@ -433,6 +433,12 @@ class PyramidRouter:
                     client_order_id, exchange_order_id,
                     position.parent_position_id,
                 )
+                # FIX 2026-06-10 (v14 audit BLOCKER-1): leg fill SONRASI koruma
+                # emrini HEMEN tam-qty'ye büyüt. Önceden SADECE log atılıyordu;
+                # pozisyon qty'si büyürken borsadaki SL eski qty'yi kapsıyor,
+                # tam-qty resize'ı bir sonraki bar-close watchdog'una (15 dk'ya
+                # kadar) kalıyordu — kısmen-korumasız büyüme penceresi.
+                self._resize_protection_after_leg_fill(position, leg_num)
             else:
                 log.info(
                     "PyramidRouter: leg-%d SUBMITTED (pending fill). "
@@ -440,6 +446,80 @@ class PyramidRouter:
                     leg_num, client_order_id, order_status,
                     position.parent_position_id,
                 )
+
+    def _resize_protection_after_leg_fill(
+        self,
+        position: PyramidPosition,
+        leg_num: int,
+    ) -> None:
+        """Leg fill sonrası SL'i taze tam-qty ile cancel-replace et (BLOCKER-1).
+
+        Sıra güvenliği: ÖNCE yeni tam-qty SL konur, SONRA eski(ler) iptal
+        edilir — pozisyon hiçbir an SL'siz kalmaz (ikisi de reduceOnly; çift
+        tetikte ikincisi borsa tarafından reddedilir, zararsız). Her adım
+        try/except: koruma resize'ı başarısızsa eski SL yerinde bırakılır ve
+        bar-close watchdog'u (B-2) bir sonraki tick'te toparlar.
+        """
+        sym_raw = position.symbol.split(":")[0].replace("/", "")
+        close_side = "SELL" if str(position.side).lower() == "long" else "BUY"
+        try:
+            # 1) Taze tam qty (farklı endpoint — positionRisk, stale-korelasyon düşük)
+            full_qty = 0.0
+            for _pr in self.exchange.fapiPrivateV2GetPositionRisk():
+                if str(_pr.get("symbol", "")) == sym_raw:
+                    full_qty = abs(float(_pr.get("positionAmt", 0) or 0))
+                    break
+            if full_qty <= 0:
+                log.warning(
+                    "PyramidRouter: leg-%d fill sonrası pozisyon okunamadı (%s) — "
+                    "SL resize atlandı, watchdog'a bırakıldı", leg_num, sym_raw,
+                )
+                return
+            # 2) Mevcut SL algo emirleri (trigger fiyatını koru)
+            algos = self.exchange.fapiPrivateGetOpenAlgoOrders()
+            items = algos.get("orders", algos) if isinstance(algos, dict) else algos
+            old_sls = [
+                o for o in (items or [])
+                if o.get("symbol") == sym_raw
+                and str(o.get("orderType", o.get("type", ""))).upper() == "STOP_MARKET"
+                and str(o.get("side", "")).upper() == close_side
+            ]
+            sl_trigger = position.sl_price
+            if old_sls:
+                # Long → en yüksek, short → en düşük trigger en güncel/ratchet'li SL'dir
+                trigs = [float(o.get("triggerPrice", 0) or 0) for o in old_sls]
+                sl_trigger = (max if close_side == "SELL" else min)(t for t in trigs if t > 0)
+            # 3) ÖNCE yeni tam-qty SL
+            qty_str = self.exchange.amount_to_precision(position.symbol, full_qty)
+            sl_str = self.exchange.price_to_precision(position.symbol, sl_trigger)
+            self.exchange.create_order(
+                symbol=position.symbol,
+                type="STOP_MARKET",
+                side=close_side.lower(),
+                amount=float(qty_str),
+                params={"stopPrice": sl_str, "reduceOnly": True, "workingType": "MARK_PRICE"},
+            )
+            log.info(
+                "PyramidRouter: leg-%d fill → SL tam-qty resize: qty=%s @ %s (%s)",
+                leg_num, qty_str, sl_str, sym_raw,
+            )
+            # 4) SONRA eski SL'leri iptal et (başarısızlık zararsız — watchdog
+            #    "fazla SL temizle" adımı bir sonraki tick'te toparlar)
+            for o in old_sls:
+                try:
+                    self.exchange.fapiPrivateDeleteAlgoOrder(
+                        {"symbol": sym_raw, "algoId": o.get("algoId")}
+                    )
+                except Exception as _del_err:
+                    log.warning(
+                        "PyramidRouter: eski SL iptali başarısız (algoId=%s): %s",
+                        o.get("algoId"), str(_del_err)[:80],
+                    )
+        except Exception as _rs_err:
+            log.warning(
+                "PyramidRouter: leg-%d SL resize hatası (%s): %s — eski SL korunuyor",
+                leg_num, sym_raw, str(_rs_err)[:100],
+            )
 
     def _cancel_pending_legs(
         self,

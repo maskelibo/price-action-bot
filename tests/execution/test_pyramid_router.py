@@ -710,3 +710,103 @@ def test_trigger_not_reached_no_submit():
 
     ex.create_market_order.assert_not_called()
     assert pos.leg_for_num(2) is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FIX 2026-06-10 (v14 audit BLOCKER-1): leg fill → SL tam-qty resize
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class _ResizeFakeExchange:
+    """SL-resize akışını sıra-duyarlı kaydeden sahte borsa."""
+
+    def __init__(self, position_amt=0.015, old_sl_trigger=63_700.0):
+        self.position_amt = position_amt
+        self.old_sl_trigger = old_sl_trigger
+        self.calls = []  # (op, payload) sıralı
+
+    def fapiPrivateV2GetPositionRisk(self):
+        self.calls.append(("position_risk", None))
+        return [{"symbol": "BTCUSDT", "positionAmt": str(self.position_amt)}]
+
+    def fapiPrivateGetOpenAlgoOrders(self):
+        self.calls.append(("get_algos", None))
+        return [{
+            "symbol": "BTCUSDT", "algoId": 111, "orderType": "STOP_MARKET",
+            "side": "SELL", "triggerPrice": str(self.old_sl_trigger),
+        }]
+
+    def amount_to_precision(self, symbol, qty):
+        return f"{qty:.3f}"
+
+    def price_to_precision(self, symbol, px):
+        return f"{px:.1f}"
+
+    def create_order(self, **kw):
+        self.calls.append(("create_order", kw))
+        return {"id": "999", "status": "open"}
+
+    def fapiPrivateDeleteAlgoOrder(self, params):
+        self.calls.append(("delete_algo", params))
+        return {"code": "200"}
+
+
+def _make_resize_router(exchange):
+    return PyramidRouter(
+        exchange=exchange,
+        idempotency_store=MagicMock(),
+        slippage_tracker=MagicMock(),
+        mode="paper",
+    )
+
+
+class TestLegFillSLResize:
+    def test_new_full_qty_sl_placed_before_old_cancelled(self):
+        """Sıra güvenliği: yeni tam-qty SL, eski iptal edilmeden ÖNCE konmalı."""
+        ex = _ResizeFakeExchange(position_amt=0.015)
+        router = _make_resize_router(ex)
+        pos = _make_position()
+        router._resize_protection_after_leg_fill(pos, leg_num=2)
+
+        ops = [c[0] for c in ex.calls]
+        assert "create_order" in ops and "delete_algo" in ops
+        assert ops.index("create_order") < ops.index("delete_algo"), (
+            "yeni SL eski iptalden ÖNCE konmalı — çıplak pencere yasak"
+        )
+        create = next(p for op, p in ex.calls if op == "create_order")
+        assert float(create["amount"]) == pytest.approx(0.015)  # tam qty
+        assert create["params"]["reduceOnly"] is True
+        assert create["type"] == "STOP_MARKET"
+        # trigger korunmuş (eski SL 63700)
+        assert float(create["params"]["stopPrice"]) == pytest.approx(63_700.0)
+
+    def test_position_read_failure_keeps_old_sl(self):
+        """Pozisyon okunamazsa hiçbir şey yapılmaz (eski SL korunur, watchdog'a kalır)."""
+        ex = _ResizeFakeExchange(position_amt=0.0)
+        router = _make_resize_router(ex)
+        pos = _make_position()
+        router._resize_protection_after_leg_fill(pos, leg_num=2)
+        ops = [c[0] for c in ex.calls]
+        assert "create_order" not in ops and "delete_algo" not in ops
+
+    def test_create_failure_does_not_cancel_old_sl(self):
+        """Yeni SL konamadıysa eski SL ASLA iptal edilmez."""
+        ex = _ResizeFakeExchange()
+        def _boom(**kw):
+            ex.calls.append(("create_order", kw))
+            raise RuntimeError("-2022 ReduceOnly rejected")
+        ex.create_order = _boom
+        router = _make_resize_router(ex)
+        pos = _make_position()
+        router._resize_protection_after_leg_fill(pos, leg_num=2)  # exception yutulmalı
+        ops = [c[0] for c in ex.calls]
+        assert "delete_algo" not in ops
+
+    def test_leg_fill_triggers_resize(self):
+        """submit_leg FILLED yolunda resize çağrısı yapılır (entegrasyon)."""
+        src = open(
+            __import__("pathlib").Path(__file__).resolve().parents[2]
+            / "src" / "price_action" / "execution" / "pyramid_router.py",
+            encoding="utf-8",
+        ).read()
+        assert "_resize_protection_after_leg_fill(position, leg_num)" in src

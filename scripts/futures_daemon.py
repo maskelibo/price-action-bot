@@ -61,12 +61,19 @@ if _BOT_NAME and _BOT_NAME not in ("default", ""):
     LAST_SCAN_STATE = ROOT / "logs" / "state" / f"futures_last_scan_{_BOT_NAME}.txt"
     IDEMPOTENCY_DB = ROOT / "data" / f"idempotency_{_BOT_NAME}.duckdb"
     PYRAMID_STORE_DB = ROOT / "data" / f"pyramid_store_{_BOT_NAME}.duckdb"
+    # FIX 2026-06-10 (v14 audit BLOCKER-2): breaker state de bot-bazlı olmalı.
+    # Önceden iki yerde hardcoded "futures_breaker_state_15m_phoenix.json" idi →
+    # yeni bot (v14) eski botun daily_anchor/triggered watermark'larını miras
+    # alıyordu (d04/w08 eşikleri d02/w05 anchor'ı üstünde yanlış hesap).
+    BREAKER_STATE_15M = ROOT / "logs" / "risk" / f"futures_breaker_state_15m_{_BOT_NAME}.json"
 else:
     JOURNAL = ROOT / "data" / "futures_journal.duckdb"
     LOG_FILE = ROOT / "logs" / "futures_daemon.log"
     LAST_SCAN_STATE = ROOT / "logs" / "state" / "futures_last_scan.txt"
     IDEMPOTENCY_DB = ROOT / "data" / "idempotency.duckdb"
     PYRAMID_STORE_DB = ROOT / "data" / "pyramid_store.duckdb"
+    # Backward-compat: PA_BOT_NAME yokken eski path korunur (çalışan botlar etkilenmez)
+    BREAKER_STATE_15M = ROOT / "logs" / "risk" / "futures_breaker_state_15m_phoenix.json"
 KILL_SWITCH_PATH = ROOT / "logs" / "kill_switch.json"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 LAST_SCAN_STATE.parent.mkdir(parents=True, exist_ok=True)
@@ -898,7 +905,11 @@ def position_check():
                     active_pos_syms.add(sym_raw.split(":")[0].replace("/", ""))
 
             # FIX INC1: journal'daki açık sinyal sembollerini al (BTCUSDT formatına çevir)
+            # FIX 2026-06-10 (v14 audit MAJOR-1a): journal okunamazsa FAIL-CLOSED —
+            # cross-check katmanı sessizce devre dışı kalıyordu (fail-open); artık
+            # journal okunamadıysa bu tick orphan-cancel TAMAMEN atlanır.
             _journal_open_syms: set[str] = set()
+            _journal_read_ok = True
             try:
                 _jcon_oc = duckdb.connect(str(JOURNAL), read_only=True)
                 try:
@@ -913,7 +924,11 @@ def position_check():
                 finally:
                     _jcon_oc.close()
             except Exception as _joc_err:
-                log(f"ORPHAN_JOURNAL_READ_ERR: {str(_joc_err)[:80]} — journal cross-check skip")
+                _journal_read_ok = False
+                log(
+                    f"ORPHAN_JOURNAL_READ_ERR: {str(_joc_err)[:80]} — "
+                    f"fail-closed: bu tick orphan-cancel atlanıyor"
+                )
 
             # FIX 2026-06-07 (XRP/LINK çıplak döngüsü): İKİNCİ TAZE POZİSYON TEYİDİ.
             # Tek fetch_positions stale dönebilir (testnet): pozisyon AÇIKKEN positions[]
@@ -921,11 +936,15 @@ def position_check():
             # iptal (sonsuz döngü; XRP +$66 korumasız, LINK -$224). Journal cross-check
             # de drift'te kurtarmıyor. Çözüm: silmeden önce 2. bağımsız okuma. Sembol İKİ
             # okumada da yoksa gerçekten orphan; biri görürse / teyit alınamazsa İPTAL ETME.
+            # FIX 2026-06-10 (v14 audit MAJOR-1b): 2. teyit FARKLI endpoint'ten —
+            # fetch_positions ile aynı endpoint'in stale pencereleri korele
+            # (02:15Z'de iki okuma da boş geldi). positionRisk ayrı endpoint,
+            # sembol formatı zaten ham "BTCUSDT".
             _confirm_syms: set[str] | None = set(active_pos_syms)
             try:
-                for _cp in ex.fetch_positions():
-                    if abs(float(_cp.get("contracts", 0) or 0)) > 0.0001:
-                        _confirm_syms.add(str(_cp.get("symbol", "")).split(":")[0].replace("/", ""))
+                for _pr in ex.fapiPrivateV2GetPositionRisk():
+                    if abs(float(_pr.get("positionAmt", 0) or 0)) > 0.0001:
+                        _confirm_syms.add(str(_pr.get("symbol", "")))
             except Exception:
                 _confirm_syms = None  # teyit alınamadı → hiçbir şeyi orphan sayma
 
@@ -942,7 +961,9 @@ def position_check():
             # temizle" adımıyla sınırlı.
             orphan_cnt = 0
             _seen_suspects: set[str] = set()
-            for o in state.get("algo_orders", []) or []:
+            # MAJOR-1a fail-closed: journal okunamadıysa hiçbir emri orphan sayma
+            _orphan_scan_list = (state.get("algo_orders", []) or []) if _journal_read_ok else []
+            for o in _orphan_scan_list:
                 algo_sym = o.get("symbol", "")  # "BTCUSDT"
                 if not algo_sym:
                     continue
@@ -2259,9 +2280,8 @@ def run_15m_mode(once: bool = False) -> None:
                             continue
 
                         _risk_yaml_path = _risk_config_15m()
-                        _breaker_state_path = (
-                            ROOT / "logs" / "risk" / "futures_breaker_state_15m_phoenix.json"
-                        )
+                        # FIX 2026-06-10 (BLOCKER-2): bot-bazlı breaker state
+                        _breaker_state_path = BREAKER_STATE_15M
                         _breaker_state_path.parent.mkdir(parents=True, exist_ok=True)
                         _risk_officer = load_risk_officer(
                             yaml_path=_risk_yaml_path,
@@ -2327,6 +2347,39 @@ def run_15m_mode(once: bool = False) -> None:
                                         f"fp={_fp} — zaten gönderildi (restart/duplicate scan)"
                                     )
                                     continue
+
+                                # FIX 2026-06-10 (v14 audit MAJOR-2): borsa minQty/stepSize/
+                                # minNotional ön-kontrolü. 19-sembol evreninde (ALGO/XLM gibi
+                                # düşük fiyatlılar) precision yuvarlaması sonrası qty minQty
+                                # altına düşebilir veya MIN_NOTIONAL (-4164) reddi gelir —
+                                # önceden bu genel 15M_ENTRY_ERR'e düşüp sinyal sessizce
+                                # kayboluyordu. Şimdi temiz reject + idempotency'e YAZILMAZ.
+                                try:
+                                    _mkt = _ex_submit.market(sig["symbol"])
+                                    _lim = _mkt.get("limits", {}) or {}
+                                    _min_amt = float((_lim.get("amount", {}) or {}).get("min") or 0)
+                                    _min_cost = float((_lim.get("cost", {}) or {}).get("min") or 0)
+                                    _qty_prec = float(
+                                        _ex_submit.amount_to_precision(sig["symbol"], _qty)
+                                    )
+                                    _notional_prec = _qty_prec * float(_cur_px or 0)
+                                    if (
+                                        _qty_prec <= 0
+                                        or (_min_amt and _qty_prec < _min_amt)
+                                        or (_min_cost and _notional_prec < _min_cost)
+                                    ):
+                                        log(
+                                            f"  15M_BELOW_EXCHANGE_MIN: {sig['symbol']} "
+                                            f"qty={_qty_prec} notional={_notional_prec:.2f} "
+                                            f"(minQty={_min_amt}, minNotional={_min_cost}) — reject"
+                                        )
+                                        continue
+                                    _qty = _qty_prec
+                                except Exception as _lim_err:
+                                    log(
+                                        f"  15M_EXCHANGE_MIN_CHECK_ERR: "
+                                        f"{str(_lim_err)[:80]} — kontrol atlandı (fail-open)"
+                                    )
 
                                 _idem.mark_submitted(_fp, symbol=sig["symbol"], side=_order_side)
 
@@ -2870,9 +2923,8 @@ def run_15m_mode(once: bool = False) -> None:
                     )
 
                     _g19_risk_yaml = _risk_config_15m()
-                    _g19_state_path = (
-                        ROOT / "logs" / "risk" / "futures_breaker_state_15m_phoenix.json"
-                    )
+                    # FIX 2026-06-10 (BLOCKER-2): bot-bazlı breaker state
+                    _g19_state_path = BREAKER_STATE_15M
                     _g19_ro = load_risk_officer(
                         yaml_path=_g19_risk_yaml,
                         breaker_state_path=_g19_state_path,
