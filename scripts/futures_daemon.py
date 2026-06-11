@@ -121,6 +121,10 @@ _PYRAMID_ENABLED_CACHE: dict[str, bool] = {}
 _ORPHAN_SUSPECT_TICKS: dict[str, int] = {}
 ORPHAN_CONFIRM_TICKS = 3
 
+# FIX 2026-06-12 (INC5 devamı): journal self-heal sayacı — 'filled' kalmış
+# kayıt, borsada pozisyon+SL yokken 2 ardışık tick görülürse 'closed' yapılır.
+_JOURNAL_HEAL_TICKS: dict[str, int] = {}
+
 
 def _pyramid_enabled_15m() -> bool:
     """15m active config'de strategy_portfolio.pyramid_enabled değerini döner.
@@ -1020,6 +1024,53 @@ def position_check():
                 log(f"ORPHAN_CLEANUP: {orphan_cnt} algo orders cancelled (whipsaw protection)")
         except Exception as cleanup_err:
             log(f"ORPHAN_CLEANUP_ERR: {str(cleanup_err)[:120]}")
+
+        # JOURNAL SELF-HEAL (2026-06-12, INC5 devamı — ATOM 9287aed7 vakası):
+        # Fill-detection tek-atımlık yarışlara açık (örn. 429 rate-limit anına
+        # denk gelirse kapanış yazımı yarıda kalıyor, protection row 'filled'e
+        # geçtiyse bir daha denenmiyor) → journal kaydı sonsuza dek 'filled'
+        # kalır, artık emirler orphan-skip'e takılır. Yarışları tek tek kovalamak
+        # yerine catch-all: journal'da 'filled' görünen sembolün borsada NE
+        # pozisyonu NE SL algo emri varsa (çift kanıt + ardışık 2 tick teyit)
+        # kaydı 'closed' yap (PnL ölçümü zaten income API — journal sadece durum).
+        try:
+            _heal_con = duckdb.connect(str(JOURNAL))
+            _open_sigs = _heal_con.execute(
+                "SELECT signal_id, symbol FROM futures_signals WHERE status='filled'"
+            ).fetchall()
+            _algo_syms_now = set(
+                o.get("symbol", "") for o in (state.get("algo_orders", []) or [])
+            )
+            _pos_syms_now = set()
+            for _p in positions:
+                if abs(float(_p.get("contracts", 0) or 0)) > 1e-9:
+                    _pos_syms_now.add(_p.get("symbol", "").split(":")[0].replace("/", ""))
+            _seen_heal: set[str] = set()
+            for _sid, _ssym in _open_sigs:
+                _sym_raw = str(_ssym).replace("/", "").replace(":USDT", "")
+                if _sym_raw in _pos_syms_now or _sym_raw in _algo_syms_now:
+                    _JOURNAL_HEAL_TICKS.pop(_sid, None)
+                    continue
+                _seen_heal.add(_sid)
+                _streak = _JOURNAL_HEAL_TICKS.get(_sid, 0) + 1
+                _JOURNAL_HEAL_TICKS[_sid] = _streak
+                if _streak < 2:
+                    continue
+                _heal_con.execute(
+                    "UPDATE futures_signals SET status='closed' WHERE signal_id=?",
+                    [_sid],
+                )
+                _JOURNAL_HEAL_TICKS.pop(_sid, None)
+                log(
+                    f"JOURNAL_HEAL: {_ssym} signal={_sid} — borsada pozisyon+SL yok "
+                    f"(2 ardışık tick) → journal 'closed' yapıldı (kaçan kapanış telafisi)"
+                )
+            for _stale in [k for k in _JOURNAL_HEAL_TICKS if k not in _seen_heal]:
+                _JOURNAL_HEAL_TICKS.pop(_stale, None)
+            _heal_con.commit()
+            _heal_con.close()
+        except Exception as _heal_err:
+            log(f"JOURNAL_HEAL_ERR: {str(_heal_err)[:100]}")
 
         # Algo order fill detection (Binance algo endpoint)
         # PARTIAL-CLOSE AWARE (2026-05-31):
