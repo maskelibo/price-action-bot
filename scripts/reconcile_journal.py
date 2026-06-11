@@ -32,9 +32,11 @@ _REPO = Path(__file__).resolve().parent.parent
 # FIX 2026-06-04: champion (futures_journal.duckdb) EMEKLİ — donmuş journal'ında
 # dangling ZEC short kalmıştı → her döngüde phantom/drift alarmı. Canlı 15m bot
 # artık v13 (futures_journal_v13.duckdb). PA_BOT_NAME ile override edilebilir;
-# default canlı bota (v13) işaret eder. (5m ayrı hesap paylaşımı: nadir poz →
+# default canlı bota işaret eder.
+# FIX 2026-06-11: v13 EMEKLİ → canlı bot v14 (futures_journal_v14.duckdb).
+# Reconciler donmuş v13 journal'ına bakıp v14'ü kör bırakıyordu. (5m ayrı hesap paylaşımı: nadir poz →
 # kabul edilebilir kısıt.)
-_BOT = os.environ.get("PA_BOT_NAME", "v13").strip()
+_BOT = os.environ.get("PA_BOT_NAME", "v14").strip()
 _JOURNAL = _REPO / "data" / (
     f"futures_journal_{_BOT}.duckdb" if _BOT and _BOT not in ("default", "") else "futures_journal.duckdb"
 )
