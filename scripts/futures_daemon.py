@@ -1054,7 +1054,21 @@ def position_check():
             for prot_id, sym, tp_oid, sl_oid in our_active_prot:
                 tp_open = tp_oid in algo_open_ids if tp_oid else False
                 sl_open = sl_oid in algo_open_ids if sl_oid else False
-                if not tp_open and not sl_open:
+                # FIX 2026-06-11 (görev #11, ZEC+ATOM vakaları): eski şart yalnız
+                # "TP VE SL ikisi de kayıp" idi — 2026-05-31 varsayımı "SL dolunca
+                # Binance kardeş TP'leri otomatik iptal eder" testnet ALGO
+                # emirlerinde TUTMUYOR: SL tam-kapanışta TP'ler AÇIK kalıyor →
+                # tp_open=True → kapanış tespiti sonsuza dek beklemede, journal
+                # 'filled' kalır, artık TP'ler orphan-skip korumasına takılırdı.
+                # Yeni: SL kayıp + borsada pozisyon qty≈0 (çift kanıt) da tam
+                # kapanış sayılır; kalan TP'leri journal kapanınca orphan-temizlik
+                # N-tick teyidiyle süpürür.
+                _sl_gone_pos_flat = (
+                    sl_oid
+                    and not sl_open
+                    and _exchange_pos_qty_j.get(sym, 0.0) <= 1e-6
+                )
+                if (not tp_open and not sl_open) or _sl_gone_pos_flat:
                     # TP1 ve SL ikisi de algo_open_ids'de yok.
                     # UYARI: TP2 order_id'si notes'ta saklanıyor (tp2_id=...).
                     # notes parse et — TP2 hâlâ açıksa bu sadece TP1 filldir.

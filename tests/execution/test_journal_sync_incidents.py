@@ -779,3 +779,45 @@ class TestOrphanNTickConfirm:
         assert "ORPHAN_PENDING" in src
         # cancel yolu artık streak eşiğinden geçmek zorunda
         assert "ardışık tick teyitli orphan" in src
+
+
+# ============================================================================
+# INC5 (2026-06-11): SL-fill kapanış tespiti — TP'ler açık kalınca kaçıyordu
+# ============================================================================
+# ZEC (11 Haz 11:37 TR) + ATOM (14:10 TR): SL doldu, pozisyon kapandı ama
+# Binance testnet ALGO emirlerinde kardeş TP'ler AÇIK kaldı → eski tespit
+# şartı (not tp_open and not sl_open) hiç tetiklenmedi → journal 'filled'
+# kaldı, artık TP'ler orphan-skip korumasına takıldı.
+
+
+class TestSLFillDetectionEntryCondition:
+    """Kapanış-tespiti giriş şartı semantiği (daemon logic mirror)."""
+
+    def _should_enter(self, tp_open, sl_open, sl_oid, pos_qty):
+        sl_gone_pos_flat = bool(sl_oid) and not sl_open and pos_qty <= 1e-6
+        return (not tp_open and not sl_open) or sl_gone_pos_flat
+
+    def test_zec_case_sl_filled_tps_remain(self):
+        """SL dolmuş (kayıp), TP'ler açık, pozisyon flat → tespit GİRMELİ."""
+        assert self._should_enter(tp_open=True, sl_open=False, sl_oid="123", pos_qty=0.0) is True
+
+    def test_position_still_open_sl_gone_stale_guard(self):
+        """SL kayıp ama borsada qty>0 (örn. SL cancel-replace anı) → GİRME."""
+        assert self._should_enter(tp_open=True, sl_open=False, sl_oid="123", pos_qty=1.787) is False
+
+    def test_both_gone_legacy_path(self):
+        """Eski yol korunur: ikisi de kayıp → girer (qty'den bağımsız)."""
+        assert self._should_enter(tp_open=False, sl_open=False, sl_oid="123", pos_qty=0.0) is True
+
+    def test_all_open_no_entry(self):
+        assert self._should_enter(tp_open=True, sl_open=True, sl_oid="123", pos_qty=1.0) is False
+
+    def test_no_sl_oid_recorded_falls_back_to_legacy(self):
+        """SL order id hiç kaydedilmemişse yeni yol devreye girmez (çift kanıt şartı)."""
+        assert self._should_enter(tp_open=True, sl_open=False, sl_oid=None, pos_qty=0.0) is False
+
+    def test_daemon_source_has_fix(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parents[2] / "scripts" / "futures_daemon.py").read_text(encoding="utf-8")
+        assert "_sl_gone_pos_flat" in src
+        assert "or _sl_gone_pos_flat:" in src
