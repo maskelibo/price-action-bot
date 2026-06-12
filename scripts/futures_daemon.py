@@ -1035,20 +1035,30 @@ def position_check():
         # kaydı 'closed' yap (PnL ölçümü zaten income API — journal sadece durum).
         try:
             _heal_con = duckdb.connect(str(JOURNAL))
-            _open_sigs = _heal_con.execute(
-                "SELECT signal_id, symbol FROM futures_signals WHERE status='filled'"
-            ).fetchall()
-            _algo_syms_now = set(
-                o.get("symbol", "") for o in (state.get("algo_orders", []) or [])
+            # FIX 2026-06-12b (deadlock): önceki şart "sembolde HİÇ algo emri
+            # olmasın" idi — artık-TP'ler heal'i, heal'in kapatmadığı journal da
+            # orphan-temizliği blokluyordu (karşılıklı bekleme, ATOM 9287aed7).
+            # Yeni şart: pozisyon yok + bu sinyalin SL order-id'si açık emirlerde
+            # yok (TP artıkları heal'i bloklamaz; SL hâlâ borsadaysa pozisyon
+            # stale-read olabilir → heal bekler, çıplaklaştırma riski yok).
+            _open_sigs = _heal_con.execute("""
+                SELECT s.signal_id, s.symbol, p.sl_order_id
+                FROM futures_signals s
+                LEFT JOIN futures_protection_orders p ON p.signal_id = s.signal_id
+                WHERE s.status='filled'
+            """).fetchall()
+            _algo_ids_now = set(
+                str(o.get("algoId", "")) for o in (state.get("algo_orders", []) or [])
             )
             _pos_syms_now = set()
             for _p in positions:
                 if abs(float(_p.get("contracts", 0) or 0)) > 1e-9:
                     _pos_syms_now.add(_p.get("symbol", "").split(":")[0].replace("/", ""))
             _seen_heal: set[str] = set()
-            for _sid, _ssym in _open_sigs:
+            for _sid, _ssym, _sl_oid in _open_sigs:
                 _sym_raw = str(_ssym).replace("/", "").replace(":USDT", "")
-                if _sym_raw in _pos_syms_now or _sym_raw in _algo_syms_now:
+                _sl_still_open = bool(_sl_oid) and str(_sl_oid) in _algo_ids_now
+                if _sym_raw in _pos_syms_now or _sl_still_open:
                     _JOURNAL_HEAL_TICKS.pop(_sid, None)
                     continue
                 _seen_heal.add(_sid)
