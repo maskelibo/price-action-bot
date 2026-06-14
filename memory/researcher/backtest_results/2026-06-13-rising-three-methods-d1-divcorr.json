@@ -1,0 +1,33 @@
+{
+  "hypothesis_id": "2026-06-13-rising-three-methods-d1-divcorr",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-13-rising-three-methods-d1-divcorr.md",
+  "extracted_at": "2026-06-13T06:30:13.828916+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "Net annualized return (fee+slip dahil) >= 25%",
+      "OOS walk-forward median Sharpe (3y/6m, step 3m) >= 0.80",
+      "MaxDD (account equity bazli) <= 25%",
+      "Profit factor (gross) >= 1.35",
+      "|Pearson rho vs vsa_climax_test daily returns| <= 0.20",
+      "DSR (Bailey-Lopez de Prado) >= 0.50",
+      "PBO (Combinatorially Symmetric CV) <= 0.50",
+      "IS Sharpe <= 3 x OOS Sharpe",
+      "Free params / sample size <= 1/30",
+      "Trade sayisi (OOS) >= 150",
+      "Shuffle baseline p < 0.01",
+      "Bonferroni (n=2) p x 2 < 0.05",
+      "Param perturbation (+/-10%, 50 seed) ort Sharpe kaybi <= 25%",
+      "Stress dilimleri (LUNA/FTX/USDC/Yen carry) her birinde DD > -15% olmamali",
+      "Regime split: bull/bear/range icinde en az 2'sinde pozitif"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Rising/Falling Three Methods 5-bar continuation pattern mevcut 4 strateji disinda yeni bir signal logic; backtest motorumuz henuz bu detector'u kosturamaz (DEFERRED \u2014 signal_chief implementasyonu gerekli)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Rising/Falling Three Methods 5-bar continuation pattern mevcut 4 strateji disinda yeni bir signal logic; backtest motorumuz henuz bu detector'u kosturamaz (DEFERRED \u2014 signal_chief implementasyonu gerekli)"
+  }
+}

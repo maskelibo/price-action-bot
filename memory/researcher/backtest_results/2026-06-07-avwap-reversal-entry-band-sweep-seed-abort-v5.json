@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "researcher-20260607T024807-avwap-reversal-entry-band-sweep-seed-abort-v5",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-07-avwap-reversal-entry-band-sweep-seed-abort-v5.md",
+  "extracted_at": "2026-06-07T03:30:23.397352+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "anchored_vwap_reversal",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort document (status: REJECTED, pre-test). No hypothesis was written; document is a forensic abort record documenting 4 independent rejection reasons (PRIOR_ART_OPEN_BLOCK, RAG_TOPICAL_ZERO, PROMPT_INJECTION_CURVE_FIT, FAMILY_WISE_N_INFLATION). No param_grid, no accept_gates, no executable spec."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort document (status: REJECTED, pre-test). No hypothesis was written; document is a forensic abort record documenting 4 independent rejection reasons (PRIOR_ART_OPEN_BLOCK, RAG_TOPICAL_ZERO, PROMPT_INJECTION_CURVE_FIT, FAMILY_WISE_N_INFLATION). No param_grid, no accept_gates, no executable spec."
+  }
+}

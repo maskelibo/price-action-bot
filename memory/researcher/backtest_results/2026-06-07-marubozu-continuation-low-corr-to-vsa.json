@@ -1,0 +1,65 @@
+{
+  "hypothesis_id": "researcher-20260607T100000-marubozu-continuation-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-07-marubozu-continuation-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-07T06:30:14.015414+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "body_pct": [
+        0.8,
+        0.85,
+        0.9
+      ],
+      "volume_percentile": [
+        70,
+        75,
+        80,
+        85
+      ],
+      "atr_multiplier": [
+        1.25,
+        1.5,
+        1.75
+      ],
+      "tp_r": [
+        1.5,
+        2.0,
+        2.5
+      ],
+      "htf_ema": [
+        [
+          20,
+          50
+        ],
+        [
+          50,
+          200
+        ]
+      ],
+      "time_stop_bar": [
+        16,
+        24,
+        32
+      ]
+    },
+    "accept_gates": [
+      "OOS annualized net return > 12%",
+      "OOS Sharpe > 0.8",
+      "MaxDD < 18% (account equity base)",
+      "Profit factor > 1.25",
+      "Avg trade R > 0.12",
+      "Walk-forward positive slices >= 8/12",
+      "Bonferroni/BH-FDR corrected p < 0.05",
+      "|rho| with vsa_climax_test < 0.25",
+      "Total OOS trades >= 200",
+      "No stress period DD <= -15%"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: bearish marubozu continuation yeni bir signal logic tan\u0131m\u0131d\u0131r (body_pct + volume percentile + HTF EMA gate + ATR-SL/fixed-R-TP). Mevcut backtest motorunda detector implementasyonu yok \u2014 DEFERRED, vectorized detector eklenmeden sweep runner ko\u015fturulamaz."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: bearish marubozu continuation yeni bir signal logic tan\u0131m\u0131d\u0131r (body_pct + volume percentile + HTF EMA gate + ATR-SL/fixed-R-TP). Mevcut backtest motorunda detector implementasyonu yok \u2014 DEFERRED, vectorized detector eklenmeden sweep runner ko\u015fturulamaz."
+  }
+}

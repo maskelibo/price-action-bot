@@ -1,0 +1,28 @@
+{
+  "hypothesis_id": "2026-06-12-turtle-channel-20bar-d1-cross-edge",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-12-turtle-channel-20bar-d1-cross-edge.md",
+  "extracted_at": "2026-06-12T10:30:10.944698+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "monthly_net_roi_avg >= 1.5%",
+      "sharpe_annualized >= 1.0",
+      "max_dd_account_equity <= 25%",
+      "profit_factor >= 1.4",
+      "win_rate in [32%, 42%]",
+      "n_trades_pool_total >= 100",
+      "abs(corr_monthly_with_vsa_climax_test) <= 0.20",
+      "abs(corr_monthly_with_bos_1d) <= 0.30",
+      "oos_sharpe / is_sharpe >= 0.60",
+      "shuffle_baseline_p_value < 0.05"
+    ],
+    "executable": false,
+    "reason_if_not": "Yeni strateji (Turtle System-1 Donchian Channel Breakout, 20-bar high/low, 1D timeframe) \u2014 mevcut 4 strateji \u00e7ekirde\u011fi (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) i\u00e7inde Donchian channel breakout signal logic yok. Backtest motoru bu signal'i ko\u015fturamaz, DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Yeni strateji (Turtle System-1 Donchian Channel Breakout, 20-bar high/low, 1D timeframe) \u2014 mevcut 4 strateji \u00e7ekirde\u011fi (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) i\u00e7inde Donchian channel breakout signal logic yok. Backtest motoru bu signal'i ko\u015fturamaz, DEFERRED."
+  }
+}

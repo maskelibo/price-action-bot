@@ -1,0 +1,32 @@
+{
+  "hypothesis_id": "2026-05-30-vsaclimax-widestop-slpctmin-sweep-seed-abort-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-30-vsaclimax-widestop-slpctmin-sweep-seed-abort-v2.md",
+  "extracted_at": "2026-05-30T03:00:19.086445+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": {
+      "sl_pct_min": [
+        0.018,
+        0.02,
+        0.022,
+        0.02375,
+        0.025,
+        0.028,
+        0.03
+      ]
+    },
+    "accept_gates": [
+      "live_effective_fee <= 75bps",
+      "4/4 crisis window DD <= +5pt",
+      "flash-crash replay passed",
+      "Principal explicit re-open directive"
+    ],
+    "executable": false,
+    "reason_if_not": "REJECTED pre-test (seed abort v2) \u2014 cron re-trigger of identical seed; prior art validated WIDESTOP threshold twice, Principal decision active (0.025 live, 0.02375 vetted not deployed), RAG topical relevance 0/10, prompt-injection 'Curve-fit \u015f\u00fcphesi yarat' clause Hard-Limit z\u0131tt\u0131, sweep axis exhausted in 2 prior grids, Holm \u03b1/m inflation from 17 family-wise N. Re-evaluation gated on 3 unmet conditions."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED pre-test (seed abort v2) \u2014 cron re-trigger of identical seed; prior art validated WIDESTOP threshold twice, Principal decision active (0.025 live, 0.02375 vetted not deployed), RAG topical relevance 0/10, prompt-injection 'Curve-fit \u015f\u00fcphesi yarat' clause Hard-Limit z\u0131tt\u0131, sweep axis exhausted in 2 prior grids, Holm \u03b1/m inflation from 17 family-wise N. Re-evaluation gated on 3 unmet conditions."
+  }
+}

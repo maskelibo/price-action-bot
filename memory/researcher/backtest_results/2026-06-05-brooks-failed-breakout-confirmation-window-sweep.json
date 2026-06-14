@@ -1,0 +1,40 @@
+{
+  "hypothesis_id": "researcher-20260605T130000-brooks-failed-breakout-confirmation-window-sweep",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-05-brooks-failed-breakout-confirmation-window-sweep.md",
+  "extracted_at": "2026-06-05T03:00:23.349444+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": {
+      "cw": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        8,
+        10
+      ]
+    },
+    "accept_gates": [
+      "mean_R_gross > 0.040 AND p_gross < 0.05 (direction-shuffle null)",
+      "mean_R_net > 0.030 AND BH-FDR q < 0.05",
+      "annualized_day_sharpe_net > 0.7 AND bootstrap 95% CI lower > 0",
+      "profit_factor_net > 1.25",
+      "maxdd_fixed_fraction_0.5pct < 20%",
+      "trade_count >= 150 per cw",
+      "per_year_positive >= 6/8 (2018-2026)",
+      "leave_one_symbol_out min Sharpe > 0.3",
+      "single_peak_test: peak_cw delta <= 2x neighbors (concave, not spiky)",
+      "spearman_rho(|cw - peak|, mean_R) < -0.4",
+      "IS/OOS Sharpe ratio < 1.5 (IS=2018-2023, OOS=2024-2026)"
+    ],
+    "executable": false,
+    "reason_if_not": "Forex 4h timeframe (EUR/USD, GBP/USD, USD/JPY) HistData kayna\u011f\u0131 \u2014 mevcut backtest motoru crypto 15m/5m OHLCV evrenine ba\u011fl\u0131, forex 4h adapter ve HistData ingest pipeline yok. DEFERRED until forex data layer kurulana kadar."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Forex 4h timeframe (EUR/USD, GBP/USD, USD/JPY) HistData kayna\u011f\u0131 \u2014 mevcut backtest motoru crypto 15m/5m OHLCV evrenine ba\u011fl\u0131, forex 4h adapter ve HistData ingest pipeline yok. DEFERRED until forex data layer kurulana kadar."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-06-cross-strategy-companion-seed-abort-v13",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-06-cross-strategy-companion-seed-abort-v13.md",
+  "extracted_at": "2026-06-06T22:30:09.973361+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Abort doc \u2014 13. ard\u0131\u015f\u0131k abort, yeni hipotez \u00fcretilmedi. v5 moratorium aktif (~80 g\u00fcn kald\u0131), 6/6 reset gate kapal\u0131, family-wise N=34 (Lopez-Prado 1/30 tripping point ihlali), PBO>0.5 zone. Backtest motoru i\u00e7in ko\u015fturulabilir param grid veya yeni strateji tan\u0131m\u0131 yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Abort doc \u2014 13. ard\u0131\u015f\u0131k abort, yeni hipotez \u00fcretilmedi. v5 moratorium aktif (~80 g\u00fcn kald\u0131), 6/6 reset gate kapal\u0131, family-wise N=34 (Lopez-Prado 1/30 tripping point ihlali), PBO>0.5 zone. Backtest motoru i\u00e7in ko\u015fturulabilir param grid veya yeni strateji tan\u0131m\u0131 yok."
+  }
+}

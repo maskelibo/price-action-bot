@@ -1,0 +1,47 @@
+{
+  "hypothesis_id": "researcher-20260602T143000-cross-sectional-rs-d1-dollar-neutral-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-02-cross-sectional-rs-d1-dollar-neutral-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-02T18:30:12.955705+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "lookback_days": [
+        3,
+        5,
+        8,
+        13
+      ],
+      "holding_days": [
+        5,
+        10,
+        21
+      ],
+      "quintile_pct": [
+        0.2,
+        0.33
+      ],
+      "leg_balance": [
+        "equal_$",
+        "equal_vol"
+      ]
+    },
+    "accept_gates": [
+      "p_gross < 0.05",
+      "mean_R_55 > +0.02",
+      "bootstrap_daily_sharpe_CI_lower_bound > 0",
+      "annualized_net_sharpe > 0.8",
+      "maxdd_equity_base < 0.25",
+      "abs_rho_daily_to_vsa_climax_test < 0.25",
+      "walk_forward_positive_6m_ratio >= 8/12",
+      "top_5pct_R_share < 0.35",
+      "BH_FDR_survivor >= 1"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: cross-sectional rank-based dollar-neutral mean-reversion is a brand-new portfolio-level strategy (multi-symbol quintile ranking + dollar-neutral leg balancing + weekly rebalance) \u2014 current backtest engine is single-symbol signal-based and cannot run cross-sectional portfolio rebalance logic. DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: cross-sectional rank-based dollar-neutral mean-reversion is a brand-new portfolio-level strategy (multi-symbol quintile ranking + dollar-neutral leg balancing + weekly rebalance) \u2014 current backtest engine is single-symbol signal-based and cannot run cross-sectional portfolio rebalance logic. DEFERRED."
+  }
+}

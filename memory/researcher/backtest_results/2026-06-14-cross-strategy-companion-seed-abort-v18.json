@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-14-cross-strategy-companion-seed-abort-v18",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-14-cross-strategy-companion-seed-abort-v18.md",
+  "extracted_at": "2026-06-14T06:30:12.567175+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Pre-test reject (REJECTED status) \u2014 seed abort doc, no testable hypothesis. Family-wise N=59, Holm-alpha collapse, v5 freeze moratorium active until 2026-08-25, RAG topical overlap > 0.6."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Pre-test reject (REJECTED status) \u2014 seed abort doc, no testable hypothesis. Family-wise N=59, Holm-alpha collapse, v5 freeze moratorium active until 2026-08-25, RAG topical overlap > 0.6."
+  }
+}

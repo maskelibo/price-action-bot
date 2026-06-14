@@ -1,0 +1,45 @@
+{
+  "hypothesis_id": "2026-06-12-choch-close-based-n3-1d-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-12-choch-close-based-n3-1d-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-12T18:30:13.165958+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "swing_n": [
+        3,
+        5,
+        7,
+        10
+      ],
+      "atr_k": [
+        1.5,
+        2.0,
+        2.5
+      ]
+    },
+    "accept_gates": [
+      "OOS net annualized return >= 15%",
+      "OOS Sharpe >= 0.80",
+      "OOS MaxDD <= 22%",
+      "|rolling-90d Spearman rho(CHoCH-long, vsa_climax_test)| < 0.25",
+      "DSR > 0.50",
+      "PBO < 0.50",
+      "Profit factor > 1.3",
+      "OOS trade count >= 90",
+      "Entry Jaccard vs vsa_climax_test < 0.05",
+      "Shuffle p-value < 0.05",
+      "Bonferroni p_corrected < 0.00417",
+      "Walk-forward positive dilim >= 60%",
+      "Symbol-out CV OOS Sharpe drop <= 30%",
+      "Stress slice MaxDD <= 25% (LUNA/FTX/USDC/Yen)",
+      "Regime split: >= 2/3 positive Sharpe"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: CHoCH (Change of Character, close-based n-swing market structure detector) mevcut backtest motorumuzun 4 stratejisinden (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) hicbirine karsilik gelmiyor. Yeni signal logic (swing-based trend rejim degisimi) implementasyonu gerekiyor \u2014 DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: CHoCH (Change of Character, close-based n-swing market structure detector) mevcut backtest motorumuzun 4 stratejisinden (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) hicbirine karsilik gelmiyor. Yeni signal logic (swing-based trend rejim degisimi) implementasyonu gerekiyor \u2014 DEFERRED."
+  }
+}

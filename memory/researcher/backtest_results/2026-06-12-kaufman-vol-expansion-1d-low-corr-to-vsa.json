@@ -1,0 +1,29 @@
+{
+  "hypothesis_id": "2026-06-12-kaufman-vol-expansion-1d-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-12-kaufman-vol-expansion-1d-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-12T14:30:11.114322+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "Annualized net return >= 25%",
+      "Sharpe >= 0.8 (OOS walk-forward avg)",
+      "MaxDD <= 30% (account-equity based)",
+      "Profit factor >= 1.3",
+      "Trade count >= 300 (per-symbol >= 10)",
+      "Corr (1D P&L vs vsa_climax 30d rolling) <= 0.25",
+      "DSR > 0.5",
+      "PBO < 0.5",
+      "IS/OOS Sharpe ratio < 3.0",
+      "Shuffle-baseline p < 0.05",
+      "Bonferroni-corrected p < 0.0016 (alpha=0.05/N=31)"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Kaufman volatility-expansion 1D ATR-distance breakout entry yeni bir strateji tan\u0131m\u0131 (mevcut 4 strateji ailesinden hi\u00e7biri de\u011fil); backtest motoru bu hipotezi ko\u015fturamaz (DEFERRED)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Kaufman volatility-expansion 1D ATR-distance breakout entry yeni bir strateji tan\u0131m\u0131 (mevcut 4 strateji ailesinden hi\u00e7biri de\u011fil); backtest motoru bu hipotezi ko\u015fturamaz (DEFERRED)."
+  }
+}

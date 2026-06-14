@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-12-time-of-day-session-bias-seed-abort-v6",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-12-time-of-day-session-bias-seed-abort-v6.md",
+  "extracted_at": "2026-06-12T03:00:22.089984+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED ABORT v6 \u2014 hipotez yaz\u0131lmad\u0131, kod yaz\u0131lmad\u0131, parametre se\u00e7ilmedi. PRE-TEST REJECTED: 6 binding ground (prior open pre-reg v4 8d stall, RAG topical zero 6th, prompt injection 6th absorption, family-wise N inflation, baseline parity shifted post-v14 deploy, ops_engineer SLA breach +9d). Audit-trail-only doc, executable spec yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED ABORT v6 \u2014 hipotez yaz\u0131lmad\u0131, kod yaz\u0131lmad\u0131, parametre se\u00e7ilmedi. PRE-TEST REJECTED: 6 binding ground (prior open pre-reg v4 8d stall, RAG topical zero 6th, prompt injection 6th absorption, family-wise N inflation, baseline parity shifted post-v14 deploy, ops_engineer SLA breach +9d). Audit-trail-only doc, executable spec yok."
+  }
+}

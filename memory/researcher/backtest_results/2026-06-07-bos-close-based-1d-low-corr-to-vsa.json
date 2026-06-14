@@ -1,0 +1,55 @@
+{
+  "hypothesis_id": "researcher-20260607T140000-bos-close-based-1d-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-07-bos-close-based-1d-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-07T18:30:17.395773+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "pivot_lookback": [
+        2,
+        3,
+        5
+      ],
+      "sma_trend_window": [
+        30,
+        50,
+        100
+      ],
+      "volume_percentile_gate": [
+        60,
+        70,
+        80
+      ],
+      "tp_r_multiple": [
+        1.0,
+        1.5,
+        2.0
+      ],
+      "time_stop_days": [
+        5,
+        10,
+        15
+      ]
+    },
+    "accept_gates": [
+      "OOS annualized net return > 14%",
+      "OOS Sharpe > 0.9",
+      "MaxDD < 20% (account equity bazl\u0131)",
+      "Profit factor > 1.30",
+      "Avg trade R > 0.15",
+      "Walk-forward pozitif dilim >= 8/12",
+      "BH-FDR adjusted q < 0.05",
+      "vsa_climax_test ile |rho| < 0.25 (30-day rolling Pearson)",
+      "IS/OOS Sharpe orani <= 2.5x",
+      "Param perturbation (+-20%) Sharpe kaybi < 35%",
+      "Bootstrap Sharpe 5% alt sinir > 0"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: BOS (Break-of-Structure) close-based 1D yeni bir strateji tanimi (yapisal swing pivot + close-based break + trend filter + HTF veto + volume teyidi). Mevcut backtest motoru 4 strateji (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) disinda bu mekanigi kosturamaz. DEFERRED \u2014 yeni signal detector implementasyonu gerekir."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: BOS (Break-of-Structure) close-based 1D yeni bir strateji tanimi (yapisal swing pivot + close-based break + trend filter + HTF veto + volume teyidi). Mevcut backtest motoru 4 strateji (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) disinda bu mekanigi kosturamaz. DEFERRED \u2014 yeni signal detector implementasyonu gerekir."
+  }
+}

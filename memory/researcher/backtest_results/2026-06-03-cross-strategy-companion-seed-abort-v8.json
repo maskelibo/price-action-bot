@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-03-cross-strategy-companion-seed-abort-v8",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-03-cross-strategy-companion-seed-abort-v8.md",
+  "extracted_at": "2026-06-03T22:30:08.581732+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed abort dok\u00fcman\u0131 (REJECTED_PRE_TEST) \u2014 yeni hipotez yaz\u0131lmad\u0131, ko\u015fturulacak strateji veya param grid yok. Substrate de\u011fi\u015fmedi\u011fi ve family-wise alpha 2.1\u00d7 s\u0131k\u0131\u015ft\u0131\u011f\u0131 i\u00e7in cousin yaz\u0131m\u0131 reddedildi."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed abort dok\u00fcman\u0131 (REJECTED_PRE_TEST) \u2014 yeni hipotez yaz\u0131lmad\u0131, ko\u015fturulacak strateji veya param grid yok. Substrate de\u011fi\u015fmedi\u011fi ve family-wise alpha 2.1\u00d7 s\u0131k\u0131\u015ft\u0131\u011f\u0131 i\u00e7in cousin yaz\u0131m\u0131 reddedildi."
+  }
+}

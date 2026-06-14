@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-13-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v6",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-13-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v6.md",
+  "extracted_at": "2026-06-13T03:00:18.705789+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort audit-trail-only document. NO_V6_HYPOTHESIS_BODY decision \u2014 no parameter grid, no gates, no executable spec. 8/8 reset gates still closed (RAG envelope 23-day frozen, no brooks_fbo configs/backtest results, v1 review 0/3 ACK +8d SLA breach, sanitizer guard +10d SLA breach). Writing a v6 hypothesis body would violate pre-registration SOP-1 and inflate Holm-\u03b1 family-wise N."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort audit-trail-only document. NO_V6_HYPOTHESIS_BODY decision \u2014 no parameter grid, no gates, no executable spec. 8/8 reset gates still closed (RAG envelope 23-day frozen, no brooks_fbo configs/backtest results, v1 review 0/3 ACK +8d SLA breach, sanitizer guard +10d SLA breach). Writing a v6 hypothesis body would violate pre-registration SOP-1 and inflate Holm-\u03b1 family-wise N."
+  }
+}

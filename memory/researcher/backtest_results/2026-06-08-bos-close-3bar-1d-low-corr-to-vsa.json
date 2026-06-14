@@ -1,0 +1,31 @@
+{
+  "hypothesis_id": "HYP-2026-06-08-bos-close-3bar-1d-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-08-bos-close-3bar-1d-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-08T06:30:08.988889+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "annualized_return > 0.25",
+      "sharpe_oos_mean > 0.8",
+      "max_dd_equity < 0.30",
+      "profit_factor > 1.4",
+      "trade_count >= 200",
+      "abs(rho_daily_vsa_climax_test) < 0.20",
+      "wf_positive_sharpe_folds >= 5/8",
+      "DSR >= 0.5",
+      "PBO < 0.5",
+      "shuffle_baseline_p < 0.05",
+      "no_lookahead",
+      "stress_period_loss > -0.15",
+      "IS_Sharpe <= 3x_OOS_Sharpe"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: close-based 3-bar BOS (fractal swing break + ATR margin) is a novel signal logic not implemented in current backtest engine; requires new detector + 1D timeframe pipeline. DEFERRED until signal_chief implements BOS detector."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: close-based 3-bar BOS (fractal swing break + ATR margin) is a novel signal logic not implemented in current backtest engine; requires new detector + 1D timeframe pipeline. DEFERRED until signal_chief implements BOS detector."
+  }
+}

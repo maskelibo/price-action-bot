@@ -1,0 +1,22 @@
+{
+  "hypothesis_id": "HYP-2026-06-01-fabio-delta-cvd-valuearea-crypto",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-01-fabio-delta-cvd-valuearea-crypto.md",
+  "extracted_at": "2026-06-01T05:30:12.880148+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "shuffle p<0.05",
+      "ham p<0.004 (Bonferroni 0.05/12)",
+      "(b) varyant\u0131 (a) baseline \u00fcst\u00fcne anlaml\u0131 ek mean_R_after_fees katmal\u0131",
+      "(b) kendi shuffle baseline'\u0131n\u0131 ge\u00e7meli"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: bar-bazl\u0131 signed delta / CVD onay\u0131 + value-area rejection kombinasyonu yeni bir sinyal mant\u0131\u011f\u0131; mevcut backtest motoru taker-buy klines t\u00fcrevli delta/CVD katman\u0131n\u0131 ve value-area (VAH/VAL/POC) yap\u0131s\u0131n\u0131 native olarak ko\u015fturamaz (DEFERRED \u2014 \u00f6zel script scripts/research/fabio_delta_cvd_valuearea_crypto.py gerektiriyor)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: bar-bazl\u0131 signed delta / CVD onay\u0131 + value-area rejection kombinasyonu yeni bir sinyal mant\u0131\u011f\u0131; mevcut backtest motoru taker-buy klines t\u00fcrevli delta/CVD katman\u0131n\u0131 ve value-area (VAH/VAL/POC) yap\u0131s\u0131n\u0131 native olarak ko\u015fturamaz (DEFERRED \u2014 \u00f6zel script scripts/research/fabio_delta_cvd_valuearea_crypto.py gerektiriyor)"
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "hypothesis_id": "researcher-20260607T093000-equal-highs-lows-sweep-1d-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-07-equal-highs-lows-sweep-1d-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-07T22:30:16.895652+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": null,
+    "param_grid": {
+      "lookback_N": [
+        15,
+        20,
+        30
+      ],
+      "cluster_band_k_atr": [
+        0.05,
+        0.1,
+        0.2
+      ],
+      "min_cluster_count_m": [
+        2,
+        3
+      ],
+      "confirmation_window_bars": [
+        1,
+        2
+      ],
+      "sl_atr_mult": [
+        0.25,
+        0.5
+      ]
+    },
+    "accept_gates": [
+      "annualized_net_return > 0.30",
+      "oos_sharpe > 0.8",
+      "maxdd_equity_base < 0.25",
+      "profit_factor > 1.3",
+      "trade_count_3y >= 80",
+      "abs(monthly_return_corr_to_vsa_climax_test) < 0.30",
+      "dsr >= 0.5",
+      "pbo <= 0.5",
+      "is_sharpe <= 3 * oos_sharpe",
+      "bonferroni_p < 0.00069",
+      "shuffle_baseline_p < 0.05",
+      "walk_forward_positive_slices >= 7/12",
+      "regime_split_sharpe[bear] > 0",
+      "regime_split_sharpe[range] > 0"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Equal Highs/Lows sweep + close-back-reversal yeni bir signal logic; mevcut 4 base strategy (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) ile uyumlu de\u011fil. Backtest motoru bu sweep stratejisini hen\u00fcz ko\u015fturamaz (DEFERRED - yeni detector + config schema gerekli)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Equal Highs/Lows sweep + close-back-reversal yeni bir signal logic; mevcut 4 base strategy (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) ile uyumlu de\u011fil. Backtest motoru bu sweep stratejisini hen\u00fcz ko\u015fturamaz (DEFERRED - yeni detector + config schema gerekli)."
+  }
+}

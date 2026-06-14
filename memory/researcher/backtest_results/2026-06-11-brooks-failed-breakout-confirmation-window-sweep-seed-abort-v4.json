@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-11-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v4",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-11-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v4.md",
+  "extracted_at": "2026-06-11T03:30:16.630661+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort audit-trail-only doc (NO_V4_HYPOTHESIS_BODY). 8/8 reset gates closed, v1 backtest never ran, no parameter grid or accept gates defined. Writing v4 body would violate SOP-1 pre-registration and Holm-\u03b1 family-wise inflation policy."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort audit-trail-only doc (NO_V4_HYPOTHESIS_BODY). 8/8 reset gates closed, v1 backtest never ran, no parameter grid or accept gates defined. Writing v4 body would violate SOP-1 pre-registration and Holm-\u03b1 family-wise inflation policy."
+  }
+}

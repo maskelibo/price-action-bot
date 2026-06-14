@@ -1,0 +1,90 @@
+{
+  "hypothesis_id": "2026-05-30-anchored-vwap-entry-band-sweep-seed-abort",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-30-anchored-vwap-entry-band-sweep-seed-abort.md",
+  "extracted_at": "2026-05-30T04:00:15.360707+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "anchored_vwap_reversal",
+    "param_grid": {
+      "poc_atr_tolerance": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.5,
+        3.0
+      ],
+      "avwap_swing_lookback": [
+        48,
+        72,
+        96,
+        144,
+        192
+      ],
+      "poc_lookback": [
+        48,
+        72,
+        96,
+        144,
+        192
+      ],
+      "rsi_long_max": [
+        50,
+        55,
+        60,
+        65,
+        70
+      ],
+      "volume_zscore_min": [
+        0.0,
+        0.25,
+        0.5,
+        0.75,
+        1.0
+      ],
+      "atr_min_pct": [
+        0.001,
+        0.0015,
+        0.002,
+        0.003,
+        0.005
+      ],
+      "cluster_atr_multiplier": [
+        0.25,
+        0.35,
+        0.5,
+        0.75
+      ],
+      "stop_loss.atr_buffer": [
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5
+      ],
+      "take_profit.primary_R": [
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0
+      ]
+    },
+    "accept_gates": [
+      "Sharpe>0.8",
+      "MaxDD<35%",
+      "Win>50%",
+      "corr<0.5",
+      "portfolio +5%"
+    ],
+    "executable": false,
+    "reason_if_not": "SEED-ABORT/REJECTED pre-test: prior art v1 (avwap_poc_reversal_v1) NOT_EXECUTABLE \u2014 scripts/run_avwap_backtest.py infra eksik; baseline yok, sweep yap\u0131lamaz. Ayr\u0131ca RAG topical relevance 0/10, curve-fit-magnet, prompt injection ihlali."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED-ABORT/REJECTED pre-test: prior art v1 (avwap_poc_reversal_v1) NOT_EXECUTABLE \u2014 scripts/run_avwap_backtest.py infra eksik; baseline yok, sweep yap\u0131lamaz. Ayr\u0131ca RAG topical relevance 0/10, curve-fit-magnet, prompt injection ihlali."
+  }
+}

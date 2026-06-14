@@ -1,0 +1,46 @@
+{
+  "hypothesis_id": "researcher-20260603T093000-donchian55-regime-gated-1d-cross-edge",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-03-donchian55-regime-gated-1d-cross-edge.md",
+  "extracted_at": "2026-06-03T14:30:11.457173+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "donchian_lookback": [
+        20,
+        34,
+        55,
+        89
+      ],
+      "adx_threshold": [
+        20,
+        22,
+        25,
+        28,
+        30
+      ],
+      "btc_d_slope_window": [
+        20,
+        30,
+        50
+      ]
+    },
+    "accept_gates": [
+      "N(filtered) >= 80",
+      "p_gross < 0.05",
+      "net mean_R >= +0.15",
+      "daily Sharpe BCa 95% CI lower > 0",
+      "rho(vsa_climax_test) <= 0.15",
+      "BH-FDR q=0.05 on 60 sweep points",
+      "symbol-out CV min Sharpe > 0",
+      "at least 2 regimes net positive",
+      "ADX threshold sweep: 25 must be best if reported"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Donchian-55 channel breakout + ADX_14 regime gate + BTC.D 30d-slope macro filter is a novel strategy definition not present in current 4-strategy library; backtest engine cannot run Donchian/ADX/BTC.D-conditional logic without new signal implementation (DEFERRED)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Donchian-55 channel breakout + ADX_14 regime gate + BTC.D 30d-slope macro filter is a novel strategy definition not present in current 4-strategy library; backtest engine cannot run Donchian/ADX/BTC.D-conditional logic without new signal implementation (DEFERRED)"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "hypothesis_id": "researcher-20260531T060000-donchian-adx-breakout-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-31-donchian-adx-breakout-low-corr-to-vsa.md",
+  "extracted_at": "2026-05-31T22:30:15.881043+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": null,
+    "param_grid": {
+      "donchian_lookback": [
+        10,
+        20,
+        55
+      ],
+      "adx_threshold": [
+        20,
+        25,
+        30
+      ],
+      "atr_stop_mult": [
+        1.5,
+        2.0,
+        2.5
+      ],
+      "trail_lookback": [
+        10,
+        20
+      ]
+    },
+    "accept_gates": [
+      "net_annualized_return_oos >= 0.15",
+      "sharpe_oos_daily >= 0.80",
+      "maxdd_oos_equity_based <= 0.30",
+      "profit_factor_oos >= 1.30",
+      "trade_count_total >= 150",
+      "trade_count_total <= 600",
+      "abs(pearson_corr_daily_returns_vs_vsa_climax_test_oos) <= 0.20",
+      "walk_forward_dilim_pozitif_orani >= 7/12",
+      "is_oos_sharpe_ratio <= 3.0",
+      "bonferroni_adjusted_p_value < 0.00185",
+      "deflated_sharpe_p_value: DSR > 0.95",
+      "shuffle_baseline_p_value < 0.005",
+      "pbo_estimate <= 0.5",
+      "no stress-period DD < -20%",
+      "lookahead test pass"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Donchian-N breakout + ADX(14) regime gate + Turtle S1 ATR-trail exit; mevcut 4 strateji ailesinden (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) hi\u00e7birine e\u015flenmiyor \u2014 yeni signal logic (momentum/trend-continuation) ve yeni indikat\u00f6r kombinasyonu (Donchian+ADX+ATR-trail). Backtest motoru hen\u00fcz ko\u015fturamaz \u2192 DEFERRED (yeni detector implementasyonu gerekir)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Donchian-N breakout + ADX(14) regime gate + Turtle S1 ATR-trail exit; mevcut 4 strateji ailesinden (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) hi\u00e7birine e\u015flenmiyor \u2014 yeni signal logic (momentum/trend-continuation) ve yeni indikat\u00f6r kombinasyonu (Donchian+ADX+ATR-trail). Backtest motoru hen\u00fcz ko\u015fturamaz \u2192 DEFERRED (yeni detector implementasyonu gerekir)."
+  }
+}

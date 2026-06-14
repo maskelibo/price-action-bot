@@ -1,0 +1,47 @@
+{
+  "hypothesis_id": "researcher-20260602T093000-marubozu-continuation-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-02-marubozu-continuation-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-02T14:30:12.785078+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "body_to_range_min": [
+        0.85,
+        0.9,
+        0.95
+      ],
+      "close_to_low_pct": [
+        3.0,
+        5.0,
+        7.0
+      ],
+      "atr_period": [
+        14
+      ],
+      "atr_mult_sl_tp": [
+        1.0,
+        1.5,
+        2.0
+      ]
+    },
+    "accept_gates": [
+      "mean_R_net > 0.05",
+      "shuffle_p_gross < 0.05",
+      "daily_sharpe_net_bootstrap_95ci_lower > 0",
+      "MaxDD < 0.25",
+      "profit_factor_net > 1.15",
+      "trade_count >= 200",
+      "abs(rho_vs_vsa_climax_test) < 0.20",
+      "IS_Sharpe / OOS_Sharpe <= 3.0",
+      "PBO < 0.5",
+      "p_post_bonferroni < 0.00185"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: bearish marubozu continuation yeni bir sinyal tan\u0131m\u0131 (body/range \u2265 0.90, close-to-low \u2264 %5) \u2014 mevcut 4 strateji (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) i\u00e7inde detector yok; backtest engine bu hipotezi ko\u015fturamaz, DEFERRED \u2014 signal_chief taraf\u0131ndan marubozu detector implement edilmesi gerekiyor."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: bearish marubozu continuation yeni bir sinyal tan\u0131m\u0131 (body/range \u2265 0.90, close-to-low \u2264 %5) \u2014 mevcut 4 strateji (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) i\u00e7inde detector yok; backtest engine bu hipotezi ko\u015fturamaz, DEFERRED \u2014 signal_chief taraf\u0131ndan marubozu detector implement edilmesi gerekiyor."
+  }
+}

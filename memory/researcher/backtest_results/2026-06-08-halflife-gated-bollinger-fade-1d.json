@@ -1,0 +1,63 @@
+{
+  "hypothesis_id": "2026-06-08-halflife-gated-bollinger-fade-1d",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-08-halflife-gated-bollinger-fade-1d.md",
+  "extracted_at": "2026-06-08T02:30:15.604511+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "halflife_low_days": [
+        3,
+        5,
+        7
+      ],
+      "halflife_high_days": [
+        20,
+        25,
+        30
+      ],
+      "bb_sigma": [
+        1.5,
+        2.0,
+        2.5
+      ],
+      "halflife_window_days": [
+        60,
+        90,
+        120
+      ],
+      "sl_atr_mult": [
+        1.0,
+        1.5,
+        2.0
+      ],
+      "tp_mode": [
+        "MA20",
+        "2R",
+        "min(MA20,2R)",
+        "1.5R"
+      ],
+      "risk_pct": [
+        0.003,
+        0.005,
+        0.008
+      ]
+    },
+    "accept_gates": [
+      "Filtered Sharpe >= 1.2 * Unfiltered Sharpe",
+      "Filtered MaxDD <= 0.7 * Unfiltered MaxDD",
+      "Filtered net annual return >= 0.85 * Unfiltered net annual return",
+      "Filtered N >= 200 trade",
+      "Welch t-test in_zone vs out_zone p < 0.05",
+      "DSR p < 0.05 (trial=972)",
+      "Direction-shuffle baseline p < 0.05",
+      "BH FDR q=0.05 sensitivity"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Half-life-gated Bollinger fade 1D timeframe \u2014 mevcut 4 strateji (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) backtest motoru bu sinyal mant\u0131\u011f\u0131n\u0131 (AR(1) half-life regime gate + Bollinger band-close fade) ko\u015fturamaz, DEFERRED"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Half-life-gated Bollinger fade 1D timeframe \u2014 mevcut 4 strateji (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) backtest motoru bu sinyal mant\u0131\u011f\u0131n\u0131 (AR(1) half-life regime gate + Bollinger band-close fade) ko\u015fturamaz, DEFERRED"
+  }
+}

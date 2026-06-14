@@ -1,0 +1,56 @@
+{
+  "hypothesis_id": "researcher-20260603T100000-chan-halflife-regime-filter-volman-widebody-15m",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-03-chan-halflife-regime-filter-volman-widebody-15m.md",
+  "extracted_at": "2026-06-03T02:30:10.851460+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": {
+      "body_range_threshold": [
+        0.6,
+        0.65,
+        0.7
+      ],
+      "breakout_lookback": [
+        15,
+        20,
+        25
+      ],
+      "halflife_window": [
+        60,
+        90
+      ],
+      "halflife_threshold": [
+        20,
+        30,
+        40
+      ],
+      "atr_stop_multiplier": [
+        1.5
+      ],
+      "tp_r": [
+        1.5
+      ]
+    },
+    "accept_gates": [
+      "mean_R_gross > 0.12",
+      "mean_R_net > 0.0",
+      "sharpe_oos > 0.6",
+      "sharpe_lift >= 0.3",
+      "mean_R_lift >= 0.05",
+      "maxdd < 0.25",
+      "profit_factor > 1.2",
+      "trade_n >= 250",
+      "per_year_positive >= 4/6",
+      "shuffle_p_gross < 0.05",
+      "dsr > 0.6",
+      "per_symbol_loo_median_sharpe > 0"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy logic: wide-body breakout detector + Chan OLS half-life regime classifier mevcut vsa_climax_test sweep runner'\u0131nda yok; yeni signal logic + regime filter implementasyonu gerekir (DEFERRED)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy logic: wide-body breakout detector + Chan OLS half-life regime classifier mevcut vsa_climax_test sweep runner'\u0131nda yok; yeni signal logic + regime filter implementasyonu gerekir (DEFERRED)"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "hypothesis_id": "HYP-2026-06-02-smc-trend-continuation",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-02-smc-trend-continuation-final-smc-test.md",
+  "extracted_at": "2026-06-02T01:30:07.252188+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "TF": [
+        "15m",
+        "1h",
+        "4h"
+      ],
+      "concept": [
+        "OB-continuation",
+        "FVG-continuation",
+        "FTR"
+      ],
+      "k_atr": [
+        1.5,
+        2.5
+      ],
+      "R": [
+        2,
+        3
+      ]
+    },
+    "accept_gates": [
+      "p_gross<0.05",
+      "fee_R<0.1",
+      "net-positive at 55bps",
+      "walk-forward positive-month ratio"
+    ],
+    "executable": false,
+    "reason_if_not": "SMC trend-continuation (BOS + displacement + OB/FVG/FTR pullback) yeni bir signal mekanizmas\u0131d\u0131r; mevcut 4 strateji motoru (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) bu logic'i ko\u015fturamaz. Ayr\u0131 driver gerekir: scripts/research/smc_continuation_backtest.py (DEFERRED)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SMC trend-continuation (BOS + displacement + OB/FVG/FTR pullback) yeni bir signal mekanizmas\u0131d\u0131r; mevcut 4 strateji motoru (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) bu logic'i ko\u015fturamaz. Ayr\u0131 driver gerekir: scripts/research/smc_continuation_backtest.py (DEFERRED)."
+  }
+}

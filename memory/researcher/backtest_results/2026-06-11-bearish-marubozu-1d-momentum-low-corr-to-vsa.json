@@ -1,0 +1,55 @@
+{
+  "hypothesis_id": "2026-06-11-bearish-marubozu-1d-momentum-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-11-bearish-marubozu-1d-momentum-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-11T14:30:13.443080+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "body_ratio_min": [
+        0.8,
+        0.85,
+        0.9
+      ],
+      "vol_mult": [
+        1.0,
+        1.2,
+        1.5
+      ],
+      "ema_len": [
+        50,
+        100
+      ],
+      "sl_atr_mult": [
+        0.25,
+        0.5
+      ],
+      "tp_R": [
+        1.5,
+        2.0,
+        2.5
+      ]
+    },
+    "accept_gates": [
+      "net_annual_return > 0.30",
+      "oos_sharpe > 0.8",
+      "max_dd_equity < 0.22",
+      "profit_factor > 1.3",
+      "trade_count_total >= 250",
+      "abs(pearson_rho_daily_pnl_vs_vsa) < 0.30",
+      "marginal_sharpe_vs_vsa_alone > 0.15",
+      "regime_split_positive >= 2/3",
+      "stress_period_drawdown > -0.15",
+      "shuffle_baseline_p_value < 0.05",
+      "dsr >= 0.5",
+      "pbo <= 0.5",
+      "benjamini_hochberg_fdr_0.05_pass"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Bearish Marubozu 1D yeni signal logic (body_ratio, tail_tol, EMA trend filter, volume confirm) \u2014 mevcut 4 base strategy'den biri de\u011fil, backtest motoru bu detector'i hen\u00fcz ko\u015fturamaz (DEFERRED, signal_chief taraf\u0131ndan detector implementasyonu gerekli)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Bearish Marubozu 1D yeni signal logic (body_ratio, tail_tol, EMA trend filter, volume confirm) \u2014 mevcut 4 base strategy'den biri de\u011fil, backtest motoru bu detector'i hen\u00fcz ko\u015fturamaz (DEFERRED, signal_chief taraf\u0131ndan detector implementasyonu gerekli)"
+  }
+}

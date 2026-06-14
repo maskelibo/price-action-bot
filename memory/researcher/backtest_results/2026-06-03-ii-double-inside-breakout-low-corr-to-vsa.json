@@ -1,0 +1,27 @@
+{
+  "hypothesis_id": "researcher-20260603T143000-ii-double-inside-breakout-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-03-ii-double-inside-breakout-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-03T18:30:10.322261+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "net_annualized_return_pool >= 0.15",
+      "Sharpe_annual_oos >= 0.70",
+      "MaxDD_equity_based <= 0.25",
+      "profit_factor >= 1.25",
+      "shuffle_baseline_p < 0.05",
+      "|corr_pearson_daily_pnl_vs_vsa_climax_live| < 0.20",
+      "walk_forward_positive_sharpe_pct >= 0.66",
+      "IS_Sharpe / OOS_Sharpe < 1.5",
+      "trade_count_per_year_pool >= 60"
+    ],
+    "executable": false,
+    "reason_if_not": "Yeni strateji tan\u0131m\u0131 (double inside bar 'ii' breakout) \u2014 mevcut backtest motorumuzda bu pattern detector'\u0131 yok, param_sweep runner ile ko\u015fturulamaz. DEFERRED: signal_chief taraf\u0131ndan ii_breakout_signal detector implement edilmeli, sonra researcher backtest harness'a entegre edilmeli."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Yeni strateji tan\u0131m\u0131 (double inside bar 'ii' breakout) \u2014 mevcut backtest motorumuzda bu pattern detector'\u0131 yok, param_sweep runner ile ko\u015fturulamaz. DEFERRED: signal_chief taraf\u0131ndan ii_breakout_signal detector implement edilmeli, sonra researcher backtest harness'a entegre edilmeli."
+  }
+}

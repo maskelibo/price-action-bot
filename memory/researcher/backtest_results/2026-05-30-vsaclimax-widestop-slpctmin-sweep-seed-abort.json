@@ -1,0 +1,27 @@
+{
+  "hypothesis_id": "2026-05-30-vsaclimax-widestop-slpctmin-sweep-seed-abort",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-30-vsaclimax-widestop-slpctmin-sweep-seed-abort.md",
+  "extracted_at": "2026-05-30T03:00:09.381476+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": {
+      "sl_pct_min": [
+        0.018,
+        0.02,
+        0.022,
+        0.02375,
+        0.025,
+        0.028,
+        0.03
+      ]
+    },
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "REJECTED (seed_abort, pre-test). Hipotez yaz\u0131lmad\u0131; sl_pct_min sweep iki kez (2026-05-28 ve 2026-05-30) t\u00fcketildi, Principal karar\u0131 0.025 canl\u0131, 3 re-de\u011ferlendirme gate ko\u015fulu (\u226475bps fee \u00f6l\u00e7\u00fcm\u00fc, 4/4 kriz DD \u2264+5 puan, Principal direktifi) kar\u015f\u0131lanmad\u0131. RAG topical relevance 0/10, cron'da curve-fit prompt injection."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED (seed_abort, pre-test). Hipotez yaz\u0131lmad\u0131; sl_pct_min sweep iki kez (2026-05-28 ve 2026-05-30) t\u00fcketildi, Principal karar\u0131 0.025 canl\u0131, 3 re-de\u011ferlendirme gate ko\u015fulu (\u226475bps fee \u00f6l\u00e7\u00fcm\u00fc, 4/4 kriz DD \u2264+5 puan, Principal direktifi) kar\u015f\u0131lanmad\u0131. RAG topical relevance 0/10, cron'da curve-fit prompt injection."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-04-cross-strategy-companion-seed-abort-v9",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-04-cross-strategy-companion-seed-abort-v9.md",
+  "extracted_at": "2026-06-04T06:30:08.905819+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed abort document (REJECTED_PRE_TEST) \u2014 explicitly refuses to write a new hypothesis. No param grid, no executable strategy spec. Meta-document about family-wise error inflation and prompt-injection pattern, not a backtestable hypothesis."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed abort document (REJECTED_PRE_TEST) \u2014 explicitly refuses to write a new hypothesis. No param grid, no executable strategy spec. Meta-document about family-wise error inflation and prompt-injection pattern, not a backtestable hypothesis."
+  }
+}

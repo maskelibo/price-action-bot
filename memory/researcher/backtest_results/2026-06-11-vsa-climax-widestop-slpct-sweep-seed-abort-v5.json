@@ -1,0 +1,33 @@
+{
+  "hypothesis_id": "2026-06-11-vsa-climax-widestop-slpct-sweep-seed-abort-v5",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-11-vsa-climax-widestop-slpct-sweep-seed-abort-v5.md",
+  "extracted_at": "2026-06-11T03:00:11.807598+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": {
+      "sl_pct_min": [
+        0.025,
+        0.03,
+        0.035,
+        0.04
+      ]
+    },
+    "accept_gates": [
+      "OOS daily-Sharpe lift >= +0.15",
+      "Family-Holm p < 0.00417 (alpha=0.05/12)",
+      "Shuffle p_gross < 0.05",
+      "Per-year sign consistency >= 6/6",
+      "IS/OOS Sharpe ratio < 1.3",
+      "MaxDD <= champion + 3pp",
+      "Symbol-out CV min Sharpe >= 0",
+      "Deflated Sharpe > 0 with PBO < 0.2"
+    ],
+    "executable": false,
+    "reason_if_not": "SEED-ABORT (status: REJECTED). Family-wise N=12 inflation, 4 \u00f6nceki abort, canonical floor sl_pct_min=0.025 zaten validated, canl\u0131 champion art\u0131k v14 (VSA tek ba\u015f\u0131na de\u011fil), VSA honest reconciliation negatif (mR=+0.08, DD=-42%). Override i\u00e7in Principal/CEO yaz\u0131l\u0131 directive + Risk Officer ACK + Adversary kill-probe gerekli."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED-ABORT (status: REJECTED). Family-wise N=12 inflation, 4 \u00f6nceki abort, canonical floor sl_pct_min=0.025 zaten validated, canl\u0131 champion art\u0131k v14 (VSA tek ba\u015f\u0131na de\u011fil), VSA honest reconciliation negatif (mR=+0.08, DD=-42%). Override i\u00e7in Principal/CEO yaz\u0131l\u0131 directive + Risk Officer ACK + Adversary kill-probe gerekli."
+  }
+}

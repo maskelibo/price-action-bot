@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-14-engulfing-continuation-confluence-threshold-sweep-seed-abort-v9",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-14-engulfing-continuation-confluence-threshold-sweep-seed-abort-v9.md",
+  "extracted_at": "2026-06-14T03:00:20.975241+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "engulfing_continuation",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "REJECTED_PRE_TEST seed-abort audit-trail doc; no sweep defined, all 6 reset gates closed, substrate delta zero, family-wise N inflation -7.4% Holm-\u03b1 squeeze, Bayes posterior real-edge 0.043\u21920.038 likelihood downgrade"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED_PRE_TEST seed-abort audit-trail doc; no sweep defined, all 6 reset gates closed, substrate delta zero, family-wise N inflation -7.4% Holm-\u03b1 squeeze, Bayes posterior real-edge 0.043\u21920.038 likelihood downgrade"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-30-anchored-vwap-entry-band-sweep-seed-abort-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-30-anchored-vwap-entry-band-sweep-seed-abort-v2.md",
+  "extracted_at": "2026-05-30T04:01:16.750205+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "anchored_vwap_reversal",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort v2 pre-test rejection doc; no hypothesis was written, no param grid defined, runner script scripts/run_avwap_backtest.py missing, RAG topical coverage = 0/10, prior-art v1 NOT_EXECUTABLE, self-throttle armed for v3+ JSONL-only"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort v2 pre-test rejection doc; no hypothesis was written, no param grid defined, runner script scripts/run_avwap_backtest.py missing, RAG topical coverage = 0/10, prior-art v1 NOT_EXECUTABLE, self-throttle armed for v3+ JSONL-only"
+  }
+}

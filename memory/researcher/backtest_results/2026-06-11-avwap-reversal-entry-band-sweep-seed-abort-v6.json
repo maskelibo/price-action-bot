@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-11-avwap-reversal-entry-band-sweep-seed-abort-v6",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-11-avwap-reversal-entry-band-sweep-seed-abort-v6.md",
+  "extracted_at": "2026-06-11T03:30:24.311262+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "anchored_vwap_reversal",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED-ABORT v6: pre-test REJECTED. scripts/run_avwap_backtest.py runner MISSING (42 g\u00fcn SLA breach), 6. byte-identical RAG envelope, 6. anti-persona injection absorption, family-wise N inflation (Holm \u03b1/m \u2248 1.67e-3). 4/4 reset condition kar\u015f\u0131lanmad\u0131. Hipotez yaz\u0131lmad\u0131, sadece red meta-evidence."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED-ABORT v6: pre-test REJECTED. scripts/run_avwap_backtest.py runner MISSING (42 g\u00fcn SLA breach), 6. byte-identical RAG envelope, 6. anti-persona injection absorption, family-wise N inflation (Holm \u03b1/m \u2248 1.67e-3). 4/4 reset condition kar\u015f\u0131lanmad\u0131. Hipotez yaz\u0131lmad\u0131, sadece red meta-evidence."
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "hypothesis_id": "researcher-20260605T120000-kaufman-rsi-div-chan-halflife-regime-gate-crypto-1d",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-05-kaufman-rsi-div-chan-halflife-regime-gate-crypto-1d.md",
+  "extracted_at": "2026-06-05T02:30:16.407372+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "hl_lower": [
+        3
+      ],
+      "hl_upper": [
+        14
+      ],
+      "hl_fit_window": [
+        60,
+        90
+      ],
+      "rsi_period": [
+        14
+      ],
+      "rsi_divergence_lookback": [
+        15,
+        20,
+        25
+      ],
+      "sl_atr_offset": [
+        0.25
+      ],
+      "tp_R": [
+        2.0
+      ],
+      "atr_period": [
+        14
+      ]
+    },
+    "accept_gates": [
+      "mean_R_net > 0.08",
+      "p_gross_shuffle < 0.05",
+      "n_trades >= 120",
+      "max_dd_equity < 0.25",
+      "annual_return_net > 0.12",
+      "per_year_sign_positive >= 4 of 6",
+      "win_rate in [0.35, 0.55]",
+      "bonferroni_p < 0.0083",
+      "DSR > 0.6",
+      "walk_forward >= 5 of 8 slices positive",
+      "IS/OOS Sharpe diff < 30%",
+      "param perturb mean Sharpe loss < 25%",
+      "symbol-out CV swing < 30%",
+      "regime split: positive in >= 2 regimes",
+      "stress slices: no >15% slice DD"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: RSI(14) divergence + Chan OU half-life regime gate kombinasyonu mevcut 4 stratejiden (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) hi\u00e7birine denk gelmez; backtest motoru hen\u00fcz RSI divergence detector + OU half-life rolling fit gate'ini ko\u015fturamaz (DEFERRED \u2014 signal_chief implementasyonu gerekli)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: RSI(14) divergence + Chan OU half-life regime gate kombinasyonu mevcut 4 stratejiden (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) hi\u00e7birine denk gelmez; backtest motoru hen\u00fcz RSI divergence detector + OU half-life rolling fit gate'ini ko\u015fturamaz (DEFERRED \u2014 signal_chief implementasyonu gerekli)"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "hypothesis_id": "researcher-20260531T180000-bos-close-based-continuation-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-31-bos-close-based-continuation-low-corr-to-vsa.md",
+  "extracted_at": "2026-05-31T14:30:11.285405+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "exit_variant": [
+        "2R_fixed",
+        "10bar_trail",
+        "BE_07R_then_2R"
+      ],
+      "atr_sl_mult": [
+        1.0,
+        1.5,
+        2.0,
+        2.5
+      ],
+      "n_pivot": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "vol_guard_threshold": [
+        0.6,
+        0.8,
+        1.0
+      ]
+    },
+    "accept_gates": [
+      "annualized_net_return_oos >= 18%",
+      "sharpe_oos >= 0.8",
+      "maxdd_equity_oos <= 22%",
+      "n_trades_total >= 100",
+      "profit_factor >= 1.30",
+      "pearson_corr_daily_pnl_vs_vsa_climax_test <= 0.20",
+      "wf_slice_positive_count >= 9/12",
+      "shuffle_p_empirical < 0.000231",
+      "dsr_bailey_lopez > 0.5",
+      "is_oos_sharpe_ratio <= 2.0"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: BOS close-based continuation yeni bir strateji tan\u0131m\u0131 (pivot-based market structure break + HTF EMA filter + vol guard); mevcut backtest motoru (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) i\u00e7inde implementasyonu yok \u2014 DEFERRED, signal_chief implementasyonu gerekli."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: BOS close-based continuation yeni bir strateji tan\u0131m\u0131 (pivot-based market structure break + HTF EMA filter + vol guard); mevcut backtest motoru (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) i\u00e7inde implementasyonu yok \u2014 DEFERRED, signal_chief implementasyonu gerekli."
+  }
+}

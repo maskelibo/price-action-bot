@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-30-daily-scan-pa-edge-signals-seed-abort-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-30-daily-scan-pa-edge-signals-seed-abort-v2.md",
+  "extracted_at": "2026-05-30T02:30:07.053025+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed abort/REJECTED doc \u2014 pre-test ret, hipotez yok, kod yok, param grid yok. RAG topical-relevance=0, curve-fit prompt-injection Hard-Limit ihlali ve SOP-5 tetiklemesi nedeniyle hipotez yaz\u0131lmad\u0131; backtest motorunun ko\u015fturaca\u011f\u0131 bir spec yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed abort/REJECTED doc \u2014 pre-test ret, hipotez yok, kod yok, param grid yok. RAG topical-relevance=0, curve-fit prompt-injection Hard-Limit ihlali ve SOP-5 tetiklemesi nedeniyle hipotez yaz\u0131lmad\u0131; backtest motorunun ko\u015fturaca\u011f\u0131 bir spec yok."
+  }
+}

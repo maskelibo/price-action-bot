@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "researcher-20260609T141301-cross-strategy-companion-seed-abort-v16",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-09-cross-strategy-companion-seed-abort-v16.md",
+  "extracted_at": "2026-06-09T14:30:06.233807+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Abort doc only \u2014 status REJECTED, no hypothesis structure, no param grid, no backtest manifest. v5 moratorium active (~76.5 days remaining), family-wise N=39 trip-wire breached, 5 prior-art-open docs blocking new work."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Abort doc only \u2014 status REJECTED, no hypothesis structure, no param grid, no backtest manifest. v5 moratorium active (~76.5 days remaining), family-wise N=39 trip-wire breached, 5 prior-art-open docs blocking new work."
+  }
+}

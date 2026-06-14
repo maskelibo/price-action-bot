@@ -1,0 +1,27 @@
+{
+  "hypothesis_id": "2026-06-11-kaufman-volbreak-1h-vsa-diversifier",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-11-kaufman-volatility-breakout-1h-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-11T06:30:45.965434+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "net_annual_return_pct > 35",
+      "sharpe_oos > 1.0",
+      "max_drawdown_pct < 25",
+      "profit_factor > 1.3",
+      "trade_count > 250",
+      "win_rate between 50 and 60",
+      "pearson_corr_with_vsa_climax_test < 0.30",
+      "DSR > 0.5",
+      "PBO < 0.5"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Kaufman volatility breakout (Open + k\u00b7ATR) yeni bir momentum-continuation strateji ailesi; backtest motoru mevcut 4 strateji d\u0131\u015f\u0131nda bu signal logic'ini hen\u00fcz ko\u015fturamaz (DEFERRED \u2014 yeni detector + entry/exit handler implementasyonu gerekiyor)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Kaufman volatility breakout (Open + k\u00b7ATR) yeni bir momentum-continuation strateji ailesi; backtest motoru mevcut 4 strateji d\u0131\u015f\u0131nda bu signal logic'ini hen\u00fcz ko\u015fturamaz (DEFERRED \u2014 yeni detector + entry/exit handler implementasyonu gerekiyor)"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "hypothesis_id": "2026-06-13-kaufman-rsi-div-engulf-15m-htf-ema-low-corr",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-13-kaufman-rsi-div-engulf-15m-htf-ema-filter-low-corr.md",
+  "extracted_at": "2026-06-13T02:30:11.934066+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "confirmation_type": [
+        "engulfing",
+        "hammer"
+      ]
+    },
+    "accept_gates": [
+      "OOS_monthly_net_return_pct >= 2.5",
+      "OOS_sharpe_annualized >= 0.8",
+      "OOS_max_dd_pct >= -30",
+      "OOS_profit_factor >= 1.2",
+      "trade_count >= 150",
+      "win_rate >= 0.38",
+      "avg_R >= 1.8",
+      "DSR >= 0.95",
+      "corr_with_vsa15m <= 0.30",
+      "shuffle_baseline_p < 0.025",
+      "IS_OOS_sharpe_gap <= 0.50",
+      "walk_forward_negative_slices < 7_of_12"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Kaufman RSI(14) divergence + engulfing/hammer confirmation + 1h-EMA50 HTF trend filter is a new signal pipeline not in the current 4-strategy backtest engine (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation). Requires new RSI-divergence detector (ZigZag k=2, swing-low identification, price-LL/RSI-HL alignment over 10-bar lookback) and HTF EMA50 trend-filter integration. DEFERRED until signal_chief implements detector and backtest engine adds 1h-resampled HTF filter support."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Kaufman RSI(14) divergence + engulfing/hammer confirmation + 1h-EMA50 HTF trend filter is a new signal pipeline not in the current 4-strategy backtest engine (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation). Requires new RSI-divergence detector (ZigZag k=2, swing-low identification, price-LL/RSI-HL alignment over 10-bar lookback) and HTF EMA50 trend-filter integration. DEFERRED until signal_chief implements detector and backtest engine adds 1h-resampled HTF filter support."
+  }
+}

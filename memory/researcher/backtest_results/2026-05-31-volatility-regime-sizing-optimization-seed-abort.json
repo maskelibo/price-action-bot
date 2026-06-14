@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-31-volatility-regime-sizing-seed-abort",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-31-volatility-regime-sizing-optimization-seed-abort.md",
+  "extracted_at": "2026-05-31T03:00:06.273140+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED ABORT \u2014 pre-test reject. Hipotez yaz\u0131lmad\u0131, ar\u015fiv dok\u00fcman\u0131. Prompt-injection (curve-fit manufacture talimat\u0131), prior art collision (brooks-3fx vol-targeting RED 2026-05-29), RAG topical-relevance 4/10 + t\u00fcm refs prior-art ile \u00e7ak\u0131\u015f\u0131yor. Param grid yok, executable spec yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED ABORT \u2014 pre-test reject. Hipotez yaz\u0131lmad\u0131, ar\u015fiv dok\u00fcman\u0131. Prompt-injection (curve-fit manufacture talimat\u0131), prior art collision (brooks-3fx vol-targeting RED 2026-05-29), RAG topical-relevance 4/10 + t\u00fcm refs prior-art ile \u00e7ak\u0131\u015f\u0131yor. Param grid yok, executable spec yok."
+  }
+}

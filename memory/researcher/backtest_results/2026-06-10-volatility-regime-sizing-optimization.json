@@ -1,0 +1,28 @@
+{
+  "hypothesis_id": "HYP-2026-06-10-vol-regime-sizing-opt",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-10-volatility-regime-sizing-optimization.md",
+  "extracted_at": "2026-06-10T03:00:10.042584+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [
+      "OOS_annualized_return >= baseline",
+      "OOS_Sharpe_delta >= 0.25",
+      "OOS_MaxDD <= baseline * 0.80",
+      "OOS_Calmar >= baseline * 1.30",
+      "abs(N1 - N0) / N0 <= 0.30",
+      "DSR_p_value < 0.002 (Bonferroni k=5)",
+      "shuffle_baseline_beat >= 0.99",
+      "IS_OOS_Sharpe_diff <= 0.40",
+      "walk_forward_slices_beat >= 4/12",
+      "stress_periods_DD <= baseline"
+    ],
+    "executable": false,
+    "reason_if_not": "Dynamic volatility-regime sizing kural\u0131 (vol-targeting + DD-deleveraging + WR-gate kombinasyonu) mevcut backtest motorunda fixed-fractional risk_pct d\u0131\u015f\u0131nda sizing modulation deste\u011fi gerektirir; yeni sizing engine kodu yaz\u0131lmadan ko\u015fturulamaz (DEFERRED)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Dynamic volatility-regime sizing kural\u0131 (vol-targeting + DD-deleveraging + WR-gate kombinasyonu) mevcut backtest motorunda fixed-fractional risk_pct d\u0131\u015f\u0131nda sizing modulation deste\u011fi gerektirir; yeni sizing engine kodu yaz\u0131lmadan ko\u015fturulamaz (DEFERRED)."
+  }
+}

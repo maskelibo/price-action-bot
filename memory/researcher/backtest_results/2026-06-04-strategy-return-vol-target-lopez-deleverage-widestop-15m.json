@@ -1,0 +1,52 @@
+{
+  "hypothesis_id": "researcher-20260604T093000-vol-regime-sizing-lopez-deleverage",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-04-strategy-return-vol-target-lopez-deleverage-widestop-15m.md",
+  "extracted_at": "2026-06-04T03:00:26.294259+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": {
+      "vol_lookback_trades": [
+        20,
+        40,
+        80
+      ],
+      "target_R_std": [
+        0.6,
+        0.8,
+        1.0,
+        1.2
+      ],
+      "DD_max": [
+        0.2,
+        0.25,
+        0.3
+      ],
+      "alpha": [
+        1.0,
+        1.5,
+        2.0
+      ],
+      "floor_risk_pct": [
+        0.0005,
+        0.001
+      ]
+    },
+    "accept_gates": [
+      "monthly_sharpe_delta >= +0.15 (paired bootstrap CI lower > 0, p < 0.05)",
+      "MaxDD_delta <= -10pp",
+      "monthly_median_return drop <= 25%",
+      "all three conditions simultaneously satisfied",
+      "walk-forward: >=9 of 12 slices satisfy three-condition test",
+      "BH-FDR q=0.10 survivor on 432-trial grid",
+      "OOS 2025-01..2025-12 single-shot validation passes",
+      "shuffle-baseline does not replicate effect"
+    ],
+    "executable": false,
+    "reason_if_not": "param_sweep runner sabit-%risk sizing varsayar; bu hipotez dinamik vol-targeted sizing (rolling realized R-std) + L\u00f3pez drawdown deleveraging (L_t = L* \u00b7 max(0, 1 \u2212 D_t/DD_max)^\u03b1) gerektiriyor. Mevcut sweep runner'da vol_lookback_trades, target_R_std, DD_max, alpha gibi sizing-state parametreleri yok \u2014 engine'e dinamik sizing katman\u0131 eklenmeden DEFERRED. Ayr\u0131ca vol_scale_clamp grid'i (tuple/list) standart sweep param tipiyle uyumsuz."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "param_sweep runner sabit-%risk sizing varsayar; bu hipotez dinamik vol-targeted sizing (rolling realized R-std) + L\u00f3pez drawdown deleveraging (L_t = L* \u00b7 max(0, 1 \u2212 D_t/DD_max)^\u03b1) gerektiriyor. Mevcut sweep runner'da vol_lookback_trades, target_R_std, DD_max, alpha gibi sizing-state parametreleri yok \u2014 engine'e dinamik sizing katman\u0131 eklenmeden DEFERRED. Ayr\u0131ca vol_scale_clamp grid'i (tuple/list) standart sweep param tipiyle uyumsuz."
+  }
+}

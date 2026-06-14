@@ -1,0 +1,50 @@
+{
+  "hypothesis_id": "researcher-20260604T100000-iii-triple-inside-breakout-1d-cross-edge",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-04-iii-triple-inside-breakout-1d-cross-edge.md",
+  "extracted_at": "2026-06-04T22:30:12.148889+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": null,
+    "param_grid": {
+      "n_inside_bars": [
+        3
+      ],
+      "atr_buffer_k": [
+        0.05,
+        0.1,
+        0.2
+      ],
+      "stop_atr_k": [
+        1.5
+      ],
+      "tp_R": [
+        2.0
+      ],
+      "regime_filter": [
+        "none",
+        "ema200_aligned"
+      ],
+      "entry_timing": [
+        "next_bar_open_if_triggered"
+      ]
+    },
+    "accept_gates": [
+      "gross_mean_R > 0.03",
+      "net_mean_R > 0.005",
+      "p_gross < 0.05",
+      "daily_Sharpe_net > 0.20",
+      "daily_Sharpe_95CI_lower > 0",
+      "per_year_positive >= 4/6",
+      "symbol_out_CV_min_Sharpe > 0",
+      "rho_to_vsa_climax in [-0.20, +0.20]",
+      "MaxDD < 30%",
+      "trade_count >= 200"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: iii triple-inside-bar breakout is a novel pattern detector not implemented in existing engine (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation). Requires new signal logic \u2014 DEFERRED until detector is implemented."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: iii triple-inside-bar breakout is a novel pattern detector not implemented in existing engine (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation). Requires new signal logic \u2014 DEFERRED until detector is implemented."
+  }
+}

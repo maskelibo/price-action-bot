@@ -1,0 +1,23 @@
+{
+  "hypothesis_id": "HYP-2026-06-02-htf-continuation-diversifier",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-02-htf-continuation-diversifier.md",
+  "extracted_at": "2026-06-02T13:00:06.550048+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "mean_R_55>0",
+      "shuffle p_gross<0.05",
+      "|rho_daily|<0.30",
+      "bootstrap day-Sharpe CI excludes 0",
+      "BH-FDR survival"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: BOS+displacement pullback / Donchian-with-trend / EMA200+pullback are HTF continuation signals not in the 4-strategy library; backtest engine cannot run as param sweep. Also already RESULT-stamped FALSIFIED (40 trials, BH-FDR survivor's bootstrap Sharpe CI straddles 0)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: BOS+displacement pullback / Donchian-with-trend / EMA200+pullback are HTF continuation signals not in the 4-strategy library; backtest engine cannot run as param sweep. Also already RESULT-stamped FALSIFIED (40 trials, BH-FDR survivor's bootstrap Sharpe CI straddles 0)."
+  }
+}

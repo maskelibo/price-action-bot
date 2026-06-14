@@ -1,0 +1,29 @@
+{
+  "hypothesis_id": "2026-06-12-grimes-anti-climax-fade-4h-chan-halflife-prescreen",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-12-grimes-anti-climax-fade-4h-chan-halflife-prescreen.md",
+  "extracted_at": "2026-06-12T02:30:11.892846+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "net_monthly_return > 1.5%",
+      "OOS Sharpe > 0.60",
+      "MaxDD < 28%",
+      "profit_factor > 1.20",
+      "win_rate in [38%, 50%]",
+      "|rho(anti_4h, vsa_climax_test)| < 0.30",
+      "Jaccard overlap (g\u00fcn+sembol) < 0.10",
+      "half_life pass rate >= 30%",
+      "trade_count N >= 80",
+      "IS/OOS Sharpe gap <= 50%",
+      "DSR >= 0.5"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Grimes Anti climax-fade 4H + Chan half-life pre-screen + L\u00f3pez w_i discretization sizing \u2014 mevcut backtest motoru bu kombinasyonu (custom signal logic + portfolio-aware sizing + half-life regime gate) haz\u0131r olarak ko\u015fturamaz. DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Grimes Anti climax-fade 4H + Chan half-life pre-screen + L\u00f3pez w_i discretization sizing \u2014 mevcut backtest motoru bu kombinasyonu (custom signal logic + portfolio-aware sizing + half-life regime gate) haz\u0131r olarak ko\u015fturamaz. DEFERRED."
+  }
+}

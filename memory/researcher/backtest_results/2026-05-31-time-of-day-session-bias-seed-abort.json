@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-31-time-of-day-session-bias-seed-abort",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-31-time-of-day-session-bias-seed-abort.md",
+  "extracted_at": "2026-05-31T03:00:13.518417+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED ABORT v1 \u2014 hipotez pre-test reddedildi, yaz\u0131lmad\u0131. RAG topical relevance 0/10, prompt injection (curve-fit manufacture), prior art bloklu (F1/F2 KILLED + 2 LIVE bot session_filter zaten aktif), 24/7 crypto structural objection, family-wise N=26 Holm s\u0131k\u0131\u015fmas\u0131. Pre-test posterior \u2248 0.0023. Param grid yok, gate yok, base strategy yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED ABORT v1 \u2014 hipotez pre-test reddedildi, yaz\u0131lmad\u0131. RAG topical relevance 0/10, prompt injection (curve-fit manufacture), prior art bloklu (F1/F2 KILLED + 2 LIVE bot session_filter zaten aktif), 24/7 crypto structural objection, family-wise N=26 Holm s\u0131k\u0131\u015fmas\u0131. Pre-test posterior \u2248 0.0023. Param grid yok, gate yok, base strategy yok."
+  }
+}

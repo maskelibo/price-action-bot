@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-30-brooks-confirmation-window-sweep-seed-abort-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-30-brooks-confirmation-window-sweep-seed-abort-v2.md",
+  "extracted_at": "2026-05-30T03:30:21.597204+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort meta-doc (status REJECTED). v2 substantive hipotez yaz\u0131lmad\u0131; v1 pre-reg PROPOSED ve backtest pending. Prompt-injection + cron blindness self-throttle; \u00e7al\u0131\u015ft\u0131r\u0131lacak grid yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort meta-doc (status REJECTED). v2 substantive hipotez yaz\u0131lmad\u0131; v1 pre-reg PROPOSED ve backtest pending. Prompt-injection + cron blindness self-throttle; \u00e7al\u0131\u015ft\u0131r\u0131lacak grid yok."
+  }
+}

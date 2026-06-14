@@ -1,0 +1,33 @@
+{
+  "hypothesis_id": "2026-06-11-equal-highs-sweep-15m-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-11-equal-highs-sweep-15m-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-11T10:30:12.881852+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "OOS ayl\u0131k mean ROI >= +4.0%",
+      "OOS Sharpe >= 0.80",
+      "OOS MaxDD <= 25%",
+      "OOS trade count >= 300",
+      "Pearson corr(daily_pnl, vsa_climax_test) <= +0.20",
+      "Jaccard trade-bar overlap <= 0.10",
+      "Marginal Sharpe lift >= +0.15 (ensemble vs vsa-only)",
+      "Shuffle baseline p-value < 0.00167 (Bonferroni 30-trial)",
+      "Bootstrap CI (1000 resample) for marginal Sharpe lift > 0",
+      "IS Sharpe <= 3 * OOS Sharpe (Lopez)",
+      "Param perturb +/-10% mean Sharpe loss < 25%",
+      "Symbol-out CV min OOS Sharpe > 0.3",
+      "Regime split: en az 2/3 rejimde pozitif ayl\u0131k",
+      "Stress periods (LUNA/FTX/ATH/Yen carry) MaxDD >= -15%",
+      "Lookahead delay +1 bar: edge >= 70% korunur"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: equal_highs_sweep_15m mevcut 4 strateji setinde yok (shelf manifest), backtest motoru bu signal logic'i ko\u015fturamaz - DEFERRED"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: equal_highs_sweep_15m mevcut 4 strateji setinde yok (shelf manifest), backtest motoru bu signal logic'i ko\u015fturamaz - DEFERRED"
+  }
+}

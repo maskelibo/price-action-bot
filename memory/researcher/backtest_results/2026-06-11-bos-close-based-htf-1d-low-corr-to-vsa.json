@@ -1,0 +1,43 @@
+{
+  "hypothesis_id": "2026-06-11-bos-close-based-htf-1d-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-11-bos-close-based-htf-1d-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-11T18:30:12.474577+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "swing_n": [
+        3,
+        5,
+        7,
+        10
+      ],
+      "atr_sl_mult": [
+        1.5,
+        2.0,
+        2.5
+      ]
+    },
+    "accept_gates": [
+      "OOS annualized net return >= 18%",
+      "OOS Sharpe >= 0.80",
+      "OOS MaxDD <= 20%",
+      "|Spearman rho(BOS, vsa_climax_test)| < 0.30",
+      "DSR > 0.50",
+      "PBO < 0.50",
+      "Profit factor > 1.3",
+      "Trade count >= 120",
+      "Shuffle baseline p < 0.01",
+      "Bonferroni-corrected p < 0.00417",
+      "IS/OOS Sharpe ratio < 2.0",
+      "Walk-forward positive slice ratio >= 60%",
+      "Stress slice MaxDD <= 25%"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: BOS (Break of Structure) close-based n-swing 1D is a brand new trend-continuation strategy with novel signal logic (swing high/low break + ATR stop + opposite-swing trailing exit). Current backtest engine supports the 4 existing strategies (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) \u2014 BOS signal generator not yet implemented. DEFERRED until signal_chief implements BOS detector."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: BOS (Break of Structure) close-based n-swing 1D is a brand new trend-continuation strategy with novel signal logic (swing high/low break + ATR stop + opposite-swing trailing exit). Current backtest engine supports the 4 existing strategies (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) \u2014 BOS signal generator not yet implemented. DEFERRED until signal_chief implements BOS detector."
+  }
+}

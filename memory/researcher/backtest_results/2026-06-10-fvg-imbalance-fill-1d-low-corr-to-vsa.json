@@ -1,0 +1,64 @@
+{
+  "hypothesis_id": "2026-06-10-fvg-imbalance-fill-1d-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-10-fvg-imbalance-fill-1d-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-10T10:30:12.530126+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "gap_size_atr_mult": [
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.8
+      ],
+      "sl_gap_mult": [
+        1.0,
+        1.1,
+        1.2,
+        1.3,
+        1.4,
+        1.5
+      ],
+      "tp_r_mult": [
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5
+      ],
+      "max_wait_bars": [
+        5,
+        10,
+        15
+      ]
+    },
+    "accept_gates": [
+      "OOS annualized net return > 30%",
+      "OOS Sharpe > 0.8",
+      "OOS MaxDD (equity-base) < 30%",
+      "|corr(strategy, vsa_climax_test)| < 0.25 (rolling 90d OOS)",
+      "Trade count (3y, 50 symbols) >= 120",
+      "Shuffle baseline p < 0.05",
+      "Bonferroni-corrected p < 0.0005",
+      "DSR > 0.5",
+      "PBO < 0.5",
+      "Walk-forward >= 7/12 positive slices",
+      "IS/OOS Sharpe ratio < 3.0",
+      "Parameter perturbation Sharpe loss < 25%",
+      "Symbol-out CV min OOS Sharpe >= 0.5",
+      "Regime split: at least 2 regimes positive",
+      "No catastrophic loss in stress periods (LUNA, FTX, USDC depeg, Yen carry)",
+      "Lookahead test passes",
+      "Survivorship-corrected universe"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: FVG (Fair Value Gap) 3-bar mitigation pattern is a brand-new signal logic not implemented in the backtest engine (no existing FVG detector for vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation base). Requires new detector implementation before sweep can run. DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: FVG (Fair Value Gap) 3-bar mitigation pattern is a brand-new signal logic not implemented in the backtest engine (no existing FVG detector for vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation base). Requires new detector implementation before sweep can run. DEFERRED."
+  }
+}

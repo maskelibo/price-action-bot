@@ -1,0 +1,55 @@
+{
+  "hypothesis_id": "2026-06-07-donchian-20-1d-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-07-donchian-20-1d-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-07T14:30:22.994337+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "donchian_window": [
+        20
+      ],
+      "atr_window": [
+        20
+      ],
+      "sl_atr_mult": [
+        1.5,
+        2.0,
+        2.5
+      ],
+      "trail_window": [
+        10
+      ],
+      "no_reentry_bars": [
+        0,
+        3,
+        5,
+        10
+      ],
+      "min_dollar_volume": [
+        25000000,
+        50000000,
+        100000000
+      ]
+    },
+    "accept_gates": [
+      "OOS annualized net return > 14%",
+      "OOS Sharpe > 0.9",
+      "MaxDD (account-equity based) < 22%",
+      "Profit factor > 1.35",
+      "Average trade R-multiple > 0.45R",
+      "Trade count >= 300",
+      "Walk-forward positive OOS Sharpe ratio >= 7/12",
+      "|rho| < 0.25 vs vsa_climax_test (30d rolling Pearson)",
+      "Marginal portfolio Sharpe increase > 0.15",
+      "Shuffle baseline p < 0.00139 (Bonferroni)",
+      "Block bootstrap Sharpe lower CI > 0.5"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy \u2014 Donchian 20-bar bidirectional breakout (Turtle System 1) is a brand new strategy definition with custom entry mechanic (n-bar high/low breakout), ATR-based SL, and 10-bar opposite Donchian trailing exit. Backtest engine currently supports only the 4 existing strategies (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation); Donchian breakout signal logic needs to be implemented before sweep. DEFERRED until signal_chief implements donchian_breakout detector."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy \u2014 Donchian 20-bar bidirectional breakout (Turtle System 1) is a brand new strategy definition with custom entry mechanic (n-bar high/low breakout), ATR-based SL, and 10-bar opposite Donchian trailing exit. Backtest engine currently supports only the 4 existing strategies (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation); Donchian breakout signal logic needs to be implemented before sweep. DEFERRED until signal_chief implements donchian_breakout detector."
+  }
+}

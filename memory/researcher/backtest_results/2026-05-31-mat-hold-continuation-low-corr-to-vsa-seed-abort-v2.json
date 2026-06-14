@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-31-mat-hold-continuation-low-corr-to-vsa-seed-abort-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-31-mat-hold-continuation-low-corr-to-vsa-seed-abort-v2.md",
+  "extracted_at": "2026-05-31T10:30:09.434830+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED ABORT v2 \u2014 pre-test reddedildi (REJECTED status). Ayn\u0131 seed payload v1'de zaten substantive pre-reg edildi (216-cell grid). v2 yaz\u0131m\u0131 family-wise N inflation (216\u2192432), Bonferroni \u03b1 yar\u0131ya (0.000231\u21920.000116), prompt-injection double-pump ve audit-trail kirlenmesi yarat\u0131r. Substrate 4h penceresinde de\u011fi\u015fmedi, yeni bilgi yok. \u00c7al\u0131\u015ft\u0131r\u0131lmaz."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED ABORT v2 \u2014 pre-test reddedildi (REJECTED status). Ayn\u0131 seed payload v1'de zaten substantive pre-reg edildi (216-cell grid). v2 yaz\u0131m\u0131 family-wise N inflation (216\u2192432), Bonferroni \u03b1 yar\u0131ya (0.000231\u21920.000116), prompt-injection double-pump ve audit-trail kirlenmesi yarat\u0131r. Substrate 4h penceresinde de\u011fi\u015fmedi, yeni bilgi yok. \u00c7al\u0131\u015ft\u0131r\u0131lmaz."
+  }
+}

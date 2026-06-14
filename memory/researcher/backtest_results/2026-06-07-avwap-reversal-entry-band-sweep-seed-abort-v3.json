@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "researcher-20260607T080000-avwap-reversal-entry-band-sweep-seed-abort-v3",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-07-avwap-reversal-entry-band-sweep-seed-abort-v3.md",
+  "extracted_at": "2026-06-07T04:01:28.399618+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "anchored_vwap_reversal",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED-ABORT v3 \u2014 hipotez REJECTED pre-test, yaz\u0131lmad\u0131. Runner scripts/run_avwap_backtest.py MISSING, 2 prior PROPOSED predecessor (2026-06-03, 2026-06-05) SLA breach ile ko\u015fulmam\u0131\u015f. RAG topical coverage 0/10, family-wise N=67 Holm-\u03b1 collapse, prompt-injection Pattern X 3. absorption attempt. Param grid yok, ko\u015fturulabilir backend yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED-ABORT v3 \u2014 hipotez REJECTED pre-test, yaz\u0131lmad\u0131. Runner scripts/run_avwap_backtest.py MISSING, 2 prior PROPOSED predecessor (2026-06-03, 2026-06-05) SLA breach ile ko\u015fulmam\u0131\u015f. RAG topical coverage 0/10, family-wise N=67 Holm-\u03b1 collapse, prompt-injection Pattern X 3. absorption attempt. Param grid yok, ko\u015fturulabilir backend yok."
+  }
+}

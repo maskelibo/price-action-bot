@@ -1,0 +1,45 @@
+{
+  "hypothesis_id": "researcher-20260531T091500-bearish-marubozu-continuation-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-31-bearish-marubozu-continuation-low-corr-to-vsa.md",
+  "extracted_at": "2026-05-31T10:30:19.085683+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "body_ratio_min": [
+        0.85,
+        0.9,
+        0.95
+      ],
+      "wick_ratio_max": [
+        0.05,
+        0.1,
+        0.15
+      ],
+      "atr_sl_mult": [
+        1.0,
+        1.5,
+        2.0
+      ],
+      "atr_tp_mult": [
+        2.0,
+        2.5,
+        3.0
+      ]
+    },
+    "accept_gates": [
+      "OOS annualized net return >= 0.35",
+      "OOS Sharpe >= 1.0",
+      "OOS MaxDD <= 0.22",
+      "Profit factor >= 1.35",
+      "Trade count >= 250",
+      "Corr(vsa_climax_test) <= 0.30"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: bearish marubozu continuation signal detector mevcut backtest motorunda implementli de\u011fil (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation d\u0131\u015f\u0131). DEFERRED \u2014 signal_chief taraf\u0131ndan detector eklenmeden sweep ko\u015fulamaz."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: bearish marubozu continuation signal detector mevcut backtest motorunda implementli de\u011fil (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation d\u0131\u015f\u0131). DEFERRED \u2014 signal_chief taraf\u0131ndan detector eklenmeden sweep ko\u015fulamaz."
+  }
+}

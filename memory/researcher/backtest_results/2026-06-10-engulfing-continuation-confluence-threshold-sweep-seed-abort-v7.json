@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-10-engulfing-continuation-confluence-threshold-sweep-seed-abort-v7",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-10-engulfing-continuation-confluence-threshold-sweep-seed-abort-v7.md",
+  "extracted_at": "2026-06-10T03:00:19.293414+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "engulfing_continuation",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort audit-trail doc (REJECTED_PRE_TEST); yeni sweep tan\u0131m\u0131 yaz\u0131lmad\u0131. v3 (DRAFT) h\u00e2l\u00e2 \u00e7al\u0131\u015ft\u0131r\u0131lamad\u0131, 6/6 reset gate kapal\u0131, substrate delta = 0. \u00c7al\u0131\u015ft\u0131r\u0131labilir param_grid i\u00e7ermiyor \u2014 sadece v3'e referans veriyor."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort audit-trail doc (REJECTED_PRE_TEST); yeni sweep tan\u0131m\u0131 yaz\u0131lmad\u0131. v3 (DRAFT) h\u00e2l\u00e2 \u00e7al\u0131\u015ft\u0131r\u0131lamad\u0131, 6/6 reset gate kapal\u0131, substrate delta = 0. \u00c7al\u0131\u015ft\u0131r\u0131labilir param_grid i\u00e7ermiyor \u2014 sadece v3'e referans veriyor."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "researcher-20260607T024400-avwap-reversal-entry-band-sweep-seed-abort-v4",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-07-avwap-reversal-entry-band-sweep-seed-abort-v4.md",
+  "extracted_at": "2026-06-07T04:00:16.355006+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "anchored_vwap_reversal",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED-ABORT v4 doc \u2014 pre-test RED, hipotez yaz\u0131lmad\u0131. 4 ba\u011f\u0131ms\u0131z ret nedeni: runner missing (scripts/run_avwap_backtest.py 38 g\u00fcn overdue), RAG topical=0/10, prompt injection (curve-fit), family-wise N inflation (Holm \u03b1/m=8.93e-4). Substantive yeni hipotez yok, sadece forensic audit + cron sanitizer \u00f6nerisi."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED-ABORT v4 doc \u2014 pre-test RED, hipotez yaz\u0131lmad\u0131. 4 ba\u011f\u0131ms\u0131z ret nedeni: runner missing (scripts/run_avwap_backtest.py 38 g\u00fcn overdue), RAG topical=0/10, prompt injection (curve-fit), family-wise N inflation (Holm \u03b1/m=8.93e-4). Substantive yeni hipotez yok, sadece forensic audit + cron sanitizer \u00f6nerisi."
+  }
+}

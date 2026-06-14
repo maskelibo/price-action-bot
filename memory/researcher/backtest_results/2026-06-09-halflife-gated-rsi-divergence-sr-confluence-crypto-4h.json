@@ -1,0 +1,78 @@
+{
+  "hypothesis_id": "2026-06-09-halflife-gated-rsi-divergence-sr-confluence-crypto-4h",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-09-halflife-gated-rsi-divergence-sr-confluence-crypto-4h.md",
+  "extracted_at": "2026-06-09T02:30:18.588734+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "half_life_lookback_days": [
+        90,
+        120,
+        180,
+        250
+      ],
+      "half_life_lower_bound": [
+        2,
+        3,
+        5
+      ],
+      "half_life_upper_bound": [
+        15,
+        18,
+        25,
+        35
+      ],
+      "rsi_period": [
+        10,
+        14,
+        21
+      ],
+      "divergence_lookback_bars": [
+        15,
+        20,
+        30
+      ],
+      "sr_lookback_bars": [
+        150,
+        200,
+        300
+      ],
+      "sr_atr_tolerance": [
+        0.4,
+        0.6,
+        0.8
+      ],
+      "stop_atr_mult": [
+        0.25,
+        0.3,
+        0.5
+      ],
+      "tp_R_fixed": [
+        1.5,
+        2.0,
+        2.5
+      ]
+    },
+    "accept_gates": [
+      "net_annualized_return >= 0.25",
+      "oos_sharpe >= 0.9",
+      "max_dd_equity_base <= 0.22",
+      "profit_factor >= 1.35",
+      "trade_count >= 250",
+      "win_rate in [0.38, 0.55]",
+      "halflife_in_vs_out_welch_p < 0.025",
+      "shuffle_baseline_p < 0.05",
+      "sr_placebo_p < 0.05",
+      "fdr_bh_p < 0.05",
+      "is_oos_sharpe_gap < 0.5",
+      "dsr >= 0.6"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: half-life-gated RSI divergence + S/R confluence yeni bir strateji tan\u0131m\u0131; mevcut backtest motoru (vsa_climax_test / brooks_failed_breakout / anchored_vwap_reversal / engulfing_continuation) bu signal logic'i ko\u015fturamaz, DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: half-life-gated RSI divergence + S/R confluence yeni bir strateji tan\u0131m\u0131; mevcut backtest motoru (vsa_climax_test / brooks_failed_breakout / anchored_vwap_reversal / engulfing_continuation) bu signal logic'i ko\u015fturamaz, DEFERRED."
+  }
+}

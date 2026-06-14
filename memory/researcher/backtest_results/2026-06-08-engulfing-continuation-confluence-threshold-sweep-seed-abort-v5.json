@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "researcher-20260608T023037-engulfing-continuation-confluence-threshold-sweep-seed-abort-v5",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-08-engulfing-continuation-confluence-threshold-sweep-seed-abort-v5.md",
+  "extracted_at": "2026-06-08T03:00:12.166397+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "engulfing_continuation",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort v5 audit-trail doc \u2014 REJECTED_PRE_TEST. Yeni sweep yaz\u0131lmad\u0131; v3 hipotezi h\u00e2l\u00e2 DRAFT, 6/6 reset gate kapal\u0131, substrate delta=0. Ko\u015fturulacak yeni i\u00e7erik yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort v5 audit-trail doc \u2014 REJECTED_PRE_TEST. Yeni sweep yaz\u0131lmad\u0131; v3 hipotezi h\u00e2l\u00e2 DRAFT, 6/6 reset gate kapal\u0131, substrate delta=0. Ko\u015fturulacak yeni i\u00e7erik yok."
+  }
+}

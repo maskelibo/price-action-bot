@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "researcher-20260531T023600-engulfing-continuation-confluence-score-threshold-sweep-seed-abort-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-31-engulfing-continuation-confluence-score-threshold-sweep-seed-abort-v2.md",
+  "extracted_at": "2026-05-31T03:30:23.190976+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "engulfing_continuation",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED-ABORT v2 delta-only audit doc; status REJECTED, no hypothesis written, zero state delta vs v1. No param grid, no accept gates \u2014 pure throttle/audit-trail entry."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED-ABORT v2 delta-only audit doc; status REJECTED, no hypothesis written, zero state delta vs v1. No param grid, no accept gates \u2014 pure throttle/audit-trail entry."
+  }
+}

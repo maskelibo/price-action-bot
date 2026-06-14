@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-07-brooks-fbo-atr-stop-sweep-seed-abort-v4",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-07-brooks-fbo-atr-stop-sweep-seed-abort-v4.md",
+  "extracted_at": "2026-06-07T03:00:29.654782+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort audit trail doc (status: REJECTED). No new hypothesis opened \u2014 duplicate seed with 2 open prior DRAFT pre-regs (v1 FX 4H, v3 crypto 15m) whose backtests have not run. No param grid, no accept gates, no claim. Audit-only telemetry."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort audit trail doc (status: REJECTED). No new hypothesis opened \u2014 duplicate seed with 2 open prior DRAFT pre-regs (v1 FX 4H, v3 crypto 15m) whose backtests have not run. No param grid, no accept gates, no claim. Audit-only telemetry."
+  }
+}

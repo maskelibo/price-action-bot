@@ -1,0 +1,29 @@
+{
+  "hypothesis_id": "2026-06-12-vol-regime-sizing-v1",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-12-vol-regime-sizing-v1.md",
+  "extracted_at": "2026-06-12T03:00:13.594973+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [
+      "Calmar \u0394 \u2265 +0.15 absolute",
+      "MaxDD \u0394 \u2264 \u22125pp absolute",
+      "Sharpe \u0394 \u2265 \u22120.10",
+      "Net annual return g\u00f6receli kay\u0131p \u2264 %15",
+      "Trade count \u0394 \u2264 \u00b1%3",
+      "Paired bootstrap Bonferroni p < 0.0125 (\u0394Calmar)",
+      "Paired bootstrap Bonferroni p < 0.0125 (\u0394MaxDD)",
+      "Regime split: en az 2 rejimde adapter \u2265 baseline, HIGH'da kesin",
+      "Symbol-out CV: ortalama Calmar de\u011fi\u015fmemeli",
+      "Shuffle baseline yenilmeli (p < 0.05)",
+      "Lookahead testi: entry +1 bar geciktir, edge korunmal\u0131"
+    ],
+    "executable": false,
+    "reason_if_not": "Sizing adapter (regime classifier + L\u00f3pez deleveraging backstop) backtest engine'in standart param sweep runner'\u0131 taraf\u0131ndan ko\u015fturulamaz \u2014 yeni sizing logic (vol-regime multiplier + dynamic deleveraging) entegrasyonu gerektirir. DEFERRED: engine'e adapter hook eklenmeli."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Sizing adapter (regime classifier + L\u00f3pez deleveraging backstop) backtest engine'in standart param sweep runner'\u0131 taraf\u0131ndan ko\u015fturulamaz \u2014 yeni sizing logic (vol-regime multiplier + dynamic deleveraging) entegrasyonu gerektirir. DEFERRED: engine'e adapter hook eklenmeli."
+  }
+}

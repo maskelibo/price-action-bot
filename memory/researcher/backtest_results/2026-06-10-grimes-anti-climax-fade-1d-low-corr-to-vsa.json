@@ -1,0 +1,57 @@
+{
+  "hypothesis_id": "grimes-anti-climax-fade-1d",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-10-grimes-anti-climax-fade-1d-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-10T02:30:09.886301+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "atr_multiplier": [
+        1.5,
+        2.0,
+        2.5
+      ],
+      "wick_body_ratio_max": [
+        0.2,
+        0.3,
+        0.4
+      ],
+      "ema_lookback": [
+        10,
+        20
+      ],
+      "vol_z_threshold": [
+        1.0,
+        1.5,
+        2.0
+      ],
+      "sl_atr_offset": [
+        0.25,
+        0.5,
+        0.75
+      ],
+      "tp_r": [
+        1.5,
+        2.0,
+        2.5
+      ]
+    },
+    "accept_gates": [
+      "net_annualized_return >= 0.08",
+      "sharpe_annualized >= 0.6",
+      "max_dd <= 0.18",
+      "win_rate between 0.35 and 0.50",
+      "profit_factor >= 1.15",
+      "trade_count >= 150",
+      "corr_vs_vsa_climax_test_v1 <= 0.30",
+      "dsr >= 0.6",
+      "bonferroni_adjusted_p <= 1.03e-4"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: yeni detector (grimes_anti_climax_fade) implement edilmemi\u015f, mevcut backtest motoru bu sinyal mant\u0131\u011f\u0131n\u0131 ko\u015fturamaz \u2014 DEFERRED"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: yeni detector (grimes_anti_climax_fade) implement edilmemi\u015f, mevcut backtest motoru bu sinyal mant\u0131\u011f\u0131n\u0131 ko\u015fturamaz \u2014 DEFERRED"
+  }
+}

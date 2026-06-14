@@ -1,0 +1,60 @@
+{
+  "hypothesis_id": "researcher-20260604T100000-nr7-volume-dryup-breakout-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-04-nr7-volume-dryup-breakout-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-04T18:30:13.281224+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "nr_window": [
+        5,
+        7,
+        10
+      ],
+      "zvol_threshold": [
+        -1.0,
+        -0.5,
+        0.0
+      ],
+      "zvol_window": [
+        15,
+        20,
+        30
+      ],
+      "atr_k": [
+        1.0,
+        1.5,
+        2.0
+      ],
+      "tp_r": [
+        1.5,
+        2.0,
+        3.0
+      ],
+      "oco_time_fence_h": [
+        12,
+        24,
+        48
+      ]
+    },
+    "accept_gates": [
+      "direction_shuffle_p_gross < 0.05",
+      "oos_net_annualized_return >= 0.15",
+      "oos_sharpe >= 0.8",
+      "walk_forward_sharpe_variance_over_mean < 1.0",
+      "max_dd_equity_base <= 0.25",
+      "profit_factor_oos >= 1.3",
+      "bootstrap_day_sharpe_95ci_lower > 0",
+      "per_year_sign_positive >= 5/6",
+      "stress_period_net_loss > -0.10",
+      "rho_daily_ret_vsa_climax in [-0.20, +0.20]",
+      "trade_count_oos >= 200"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: NR7 + volume dry-up breakout yeni bir sinyal logic'i; mevcut backtest engine 4 strateji (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) d\u0131\u015f\u0131nda bir detector ko\u015fturamaz. DEFERRED \u2014 yeni detector implementasyonu gerekli."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: NR7 + volume dry-up breakout yeni bir sinyal logic'i; mevcut backtest engine 4 strateji (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) d\u0131\u015f\u0131nda bir detector ko\u015fturamaz. DEFERRED \u2014 yeni detector implementasyonu gerekli."
+  }
+}

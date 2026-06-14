@@ -1,0 +1,26 @@
+{
+  "hypothesis_id": "researcher-20260605T000000-golden-death-cross-d1-cross-edge-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-05-golden-death-cross-d1-cross-edge-vsa.md",
+  "extracted_at": "2026-06-05T06:30:12.323456+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "p_gross_shuffle < 0.05",
+      "daily_sharpe_net bootstrap 95% CI lower > 0",
+      "per_year_net_mean_R > 0 in >= 5 of 7 years",
+      "corr_pearson_vs_vsa_climax_test_90d |rho| < 0.20",
+      "trade_day_overlap_pct_vs_vsa_climax_test_90d < 25",
+      "maxdd_net_pct >= -28",
+      "portfolio_marginal_daily_sharpe_delta >= +0.05",
+      "n_trades_total >= 100"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: 50/200 SMA golden/death cross D1 yeni bir sinyal mekanizmas\u0131; mevcut backtest motoru/sweep runner bu stratejiyi (D1 SMA crossover + trailing SMA exit + opposite cross exit) hen\u00fcz ko\u015fturamaz, DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: 50/200 SMA golden/death cross D1 yeni bir sinyal mekanizmas\u0131; mevcut backtest motoru/sweep runner bu stratejiyi (D1 SMA crossover + trailing SMA exit + opposite cross exit) hen\u00fcz ko\u015fturamaz, DEFERRED."
+  }
+}

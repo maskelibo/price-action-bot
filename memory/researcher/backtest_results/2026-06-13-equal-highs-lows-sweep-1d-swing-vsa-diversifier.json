@@ -1,0 +1,32 @@
+{
+  "hypothesis_id": "2026-06-13-equal-highs-lows-sweep-1d-swing-vsa-diversifier",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-13-equal-highs-lows-sweep-1d-swing-vsa-diversifier.md",
+  "extracted_at": "2026-06-13T18:30:16.355128+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "OOS annualized net return >= 10%",
+      "OOS Sharpe >= 0.7",
+      "OOS MaxDD <= 22%",
+      "OOS Profit Factor >= 1.3",
+      "Trade count >= 150",
+      "IS/OOS Sharpe ratio <= 1.8",
+      "Shuffle baseline p < 0.01",
+      "Jaccard overlap with vsa_climax_test < 0.05",
+      "Daily returns Pearson |r| with vsa_climax_test < 0.20",
+      "Walk-forward >= 6/8 slices positive",
+      "Symbol-out CV min sym OOS Sharpe >= 0.2",
+      "Regime split at least 2/3 positive",
+      "Stress periods DD <= 15% per slice",
+      "Lookahead-delay test preserves >= 70% edge"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: 1D equal-highs/lows sweep + reclaim mekani\u011fi mevcut 4 stratejiden hi\u00e7birinin parametre uzay\u0131nda de\u011fil; yeni signal logic (liquidity sweep tespiti + reclaim ko\u015fulu) ve TF=1D bar gerektirir. Backtest motoru hen\u00fcz bu sinyali ko\u015fturamaz \u2014 DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: 1D equal-highs/lows sweep + reclaim mekani\u011fi mevcut 4 stratejiden hi\u00e7birinin parametre uzay\u0131nda de\u011fil; yeni signal logic (liquidity sweep tespiti + reclaim ko\u015fulu) ve TF=1D bar gerektirir. Backtest motoru hen\u00fcz bu sinyali ko\u015fturamaz \u2014 DEFERRED."
+  }
+}

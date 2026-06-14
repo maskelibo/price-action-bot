@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "researcher-20260607T023100-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-07-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v2.md",
+  "extracted_at": "2026-06-07T03:30:15.095826+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort kayd\u0131, hipotez de\u011fil. NO_V2_DOC karar\u0131: v1 (HYP-2026-06-05-brooks-failed-breakout-confirmation-window-sweep) hen\u00fcz backtest ko\u015fulmam\u0131\u015f, state-delta s\u0131f\u0131r, prompt-injection pattern X (13. olay) tespiti. v1'in tetik metrikleri \u00f6l\u00e7\u00fclmeden v2 yaz\u0131lmaz (pre-registration ihlali); throttle engaged."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort kayd\u0131, hipotez de\u011fil. NO_V2_DOC karar\u0131: v1 (HYP-2026-06-05-brooks-failed-breakout-confirmation-window-sweep) hen\u00fcz backtest ko\u015fulmam\u0131\u015f, state-delta s\u0131f\u0131r, prompt-injection pattern X (13. olay) tespiti. v1'in tetik metrikleri \u00f6l\u00e7\u00fclmeden v2 yaz\u0131lmaz (pre-registration ihlali); throttle engaged."
+  }
+}

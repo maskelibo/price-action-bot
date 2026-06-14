@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-11-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v5",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-11-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v5.md",
+  "extracted_at": "2026-06-11T03:30:09.310886+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort audit-trail kayd\u0131 (NO_V5_HYPOTHESIS_BODY). \u00d6l\u00e7\u00fclebilir iddia, sweep parametreleri veya dependent-var tablosu i\u00e7ermiyor \u2014 yazar a\u00e7\u0131k\u00e7a yeni hipotez g\u00f6vdesi yazmay\u0131 pre-registration ihlali olarak reddediyor. Reset gates 8/8 kapal\u0131, v1 h\u00e2l\u00e2 DRAFT, backtest yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort audit-trail kayd\u0131 (NO_V5_HYPOTHESIS_BODY). \u00d6l\u00e7\u00fclebilir iddia, sweep parametreleri veya dependent-var tablosu i\u00e7ermiyor \u2014 yazar a\u00e7\u0131k\u00e7a yeni hipotez g\u00f6vdesi yazmay\u0131 pre-registration ihlali olarak reddediyor. Reset gates 8/8 kapal\u0131, v1 h\u00e2l\u00e2 DRAFT, backtest yok."
+  }
+}

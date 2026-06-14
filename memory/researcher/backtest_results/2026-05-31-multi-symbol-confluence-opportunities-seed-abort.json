@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-31-multi-symbol-confluence-opportunities-seed-abort",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-31-multi-symbol-confluence-opportunities-seed-abort.md",
+  "extracted_at": "2026-05-31T03:30:07.070523+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed abort / pre-test REJECTED \u2014 prompt-injection guard tetiklendi (curve-fit \u015f\u00fcphesi yarat), RAG topical relevance 0/10, universe tan\u0131ms\u0131z ve 6+ serbestlik derecesi (combinatorial explosion ~4000-15000 h\u00fccre), production baseline parity guard in\u015fa edilemez, family-wise N inflation. Backtest ko\u015fturulmayacak."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed abort / pre-test REJECTED \u2014 prompt-injection guard tetiklendi (curve-fit \u015f\u00fcphesi yarat), RAG topical relevance 0/10, universe tan\u0131ms\u0131z ve 6+ serbestlik derecesi (combinatorial explosion ~4000-15000 h\u00fccre), production baseline parity guard in\u015fa edilemez, family-wise N inflation. Backtest ko\u015fturulmayacak."
+  }
+}

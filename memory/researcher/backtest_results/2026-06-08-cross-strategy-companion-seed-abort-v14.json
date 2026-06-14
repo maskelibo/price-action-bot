@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "researcher-20260608T093000-cross-strategy-companion-seed-abort-v14",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-08-cross-strategy-companion-seed-abort-v14.md",
+  "extracted_at": "2026-06-08T14:30:11.479553+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Abort doc \u2014 14. ard\u0131\u015f\u0131k abort; 6+1 reset gate 0/7 a\u00e7\u0131k, v5 moratorium aktif (~78 g\u00fcn), family-wise N=35 Lopez \u00a76 trip-wire tripped, prior-art-open-block (Kaufman ATR cousin 3 g\u00fcn hareketsiz). Yeni hipotez yok, sadece red karar\u0131."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Abort doc \u2014 14. ard\u0131\u015f\u0131k abort; 6+1 reset gate 0/7 a\u00e7\u0131k, v5 moratorium aktif (~78 g\u00fcn), family-wise N=35 Lopez \u00a76 trip-wire tripped, prior-art-open-block (Kaufman ATR cousin 3 g\u00fcn hareketsiz). Yeni hipotez yok, sadece red karar\u0131."
+  }
+}

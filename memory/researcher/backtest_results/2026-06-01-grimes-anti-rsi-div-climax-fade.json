@@ -1,0 +1,72 @@
+{
+  "hypothesis_id": "researcher-20260601T130000-grimes-anti-rsi-div-climax-fade",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-01-grimes-anti-rsi-div-climax-fade.md",
+  "extracted_at": "2026-06-01T02:30:14.591843+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "atr_overextension_threshold": [
+        1.5,
+        1.75,
+        2.0,
+        2.25,
+        2.5
+      ],
+      "bb_sigma_threshold": [
+        1.5,
+        2.0,
+        2.5
+      ],
+      "rsi_lookback": [
+        10,
+        15,
+        20
+      ],
+      "rsi_divergence_min_angle": [
+        5.0,
+        10.0,
+        15.0
+      ],
+      "stop_multiplier": [
+        0.2,
+        0.3,
+        0.4
+      ],
+      "tp_r": [
+        1.5,
+        2.0,
+        2.5,
+        3.0
+      ],
+      "entry_trigger": [
+        "close",
+        "next_open"
+      ]
+    },
+    "accept_gates": [
+      "net_annualized_return > 0.25",
+      "sharpe > 0.8",
+      "dsr > 0.6",
+      "max_dd < 0.20",
+      "profit_factor > 1.3",
+      "trade_count >= 300",
+      "win_rate in [0.35, 0.50]",
+      "mean_r_per_trade_net > 0.05",
+      "shuffle_p_value < 0.05",
+      "is_oos_sharpe_diff < 0.50",
+      "bh_fdr_q < 0.05",
+      "lookahead_causality_test_pass",
+      "ablation_study_pass",
+      "walk_forward_8_slices_pass",
+      "symbol_out_cv_min_sharpe > 0",
+      "regime_split_min_2_positive"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Grimes Anti + RSI divergence climax fade yeni bir signal logic (ATR overextension + BB outside + RSI divergence confluence + counter-trend entry) tan\u0131ml\u0131yor; mevcut 4 strateji'den hi\u00e7biri (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) bu setup'\u0131 i\u00e7ermiyor. Backtest motoru hen\u00fcz bu detector'\u0131 ko\u015fturamaz \u2014 DEFERRED, signal_chief taraf\u0131ndan yeni detector implementasyonu gerekli."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Grimes Anti + RSI divergence climax fade yeni bir signal logic (ATR overextension + BB outside + RSI divergence confluence + counter-trend entry) tan\u0131ml\u0131yor; mevcut 4 strateji'den hi\u00e7biri (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) bu setup'\u0131 i\u00e7ermiyor. Backtest motoru hen\u00fcz bu detector'\u0131 ko\u015fturamaz \u2014 DEFERRED, signal_chief taraf\u0131ndan yeni detector implementasyonu gerekli."
+  }
+}

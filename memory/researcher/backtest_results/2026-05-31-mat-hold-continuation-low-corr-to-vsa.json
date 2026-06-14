@@ -1,0 +1,57 @@
+{
+  "hypothesis_id": "researcher-20260531T143000-mat-hold-continuation-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-31-mat-hold-continuation-low-corr-to-vsa.md",
+  "extracted_at": "2026-05-31T06:30:11.799003+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "Bar1_body_ratio_min": [
+        0.5,
+        0.6,
+        0.7
+      ],
+      "InsideBars_count": [
+        3
+      ],
+      "Pullback_body_max": [
+        0.3,
+        0.5,
+        0.7
+      ],
+      "Bar5_close_vs_Bar1_close": [
+        "ge",
+        "gt_0.2_atr"
+      ],
+      "SL_atr_mult": [
+        1.5,
+        2.0
+      ],
+      "Exit_method": [
+        "fixed_2R",
+        "trailing_10bar",
+        "hybrid"
+      ],
+      "Trend_filter": [
+        "EMA50_1W",
+        "none"
+      ]
+    },
+    "accept_gates": [
+      "annualized_net_return >= 0.18",
+      "oos_sharpe >= 0.8",
+      "max_dd <= 0.22",
+      "trade_count >= 80",
+      "corr_vsa_climax_test <= 0.20",
+      "walk_forward_positive >= 9/12",
+      "shuffle_baseline_p < 0.000231",
+      "DSR > 0.5"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Bulkowski Mat Hold (5-bar bullish continuation) is a brand-new detector not implemented in current backtest engine; deferred until signal_chief vectorizes the pattern."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Bulkowski Mat Hold (5-bar bullish continuation) is a brand-new detector not implemented in current backtest engine; deferred until signal_chief vectorizes the pattern."
+  }
+}

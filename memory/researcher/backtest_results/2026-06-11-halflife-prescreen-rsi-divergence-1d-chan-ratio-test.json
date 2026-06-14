@@ -1,0 +1,48 @@
+{
+  "hypothesis_id": "2026-06-11-halflife-prescreen-rsi-divergence-1d-chan-ratio-test",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-11-halflife-prescreen-rsi-divergence-1d-chan-ratio-test.md",
+  "extracted_at": "2026-06-11T02:30:15.590473+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "halflife_threshold": [
+        5,
+        7,
+        10
+      ],
+      "rsi_lookback": [
+        10,
+        14,
+        21
+      ]
+    },
+    "accept_gates": [
+      "Branch A net annualized return >= 4%",
+      "Branch B net annualized return >= 10%",
+      "Branch A Sharpe >= 0.3",
+      "Branch B Sharpe >= 0.7",
+      "Sharpe_B / Sharpe_A in [1.8, 2.4]",
+      "Branch A MaxDD <= 25%",
+      "Branch B MaxDD <= 18%",
+      "Branch A win rate in [30%, 50%]",
+      "Branch B win rate in [30%, 55%]",
+      "Branch A profit factor >= 1.1",
+      "Branch B profit factor >= 1.25",
+      "Branch A trade count >= 200",
+      "Branch B trade count >= 80",
+      "Corr vs vsa_climax_test_v1 <= 0.30",
+      "DSR Branch A >= 0.55",
+      "DSR Branch B >= 0.65",
+      "Bonferroni-adjusted p <= 0.0083",
+      "Lookahead causality test passes",
+      "Half-life computed causally per bar"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: RSI divergence detector + Ornstein-Uhlenbeck half-life pre-screen 1D timeframe \u2014 yeni signal logic ve causal half-life hesab\u0131 gerekli; mevcut backtest motoru bu kal\u0131b\u0131 ko\u015fturamaz (DEFERRED, signal_chief implementasyonu bekliyor)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: RSI divergence detector + Ornstein-Uhlenbeck half-life pre-screen 1D timeframe \u2014 yeni signal logic ve causal half-life hesab\u0131 gerekli; mevcut backtest motoru bu kal\u0131b\u0131 ko\u015fturamaz (DEFERRED, signal_chief implementasyonu bekliyor)"
+  }
+}

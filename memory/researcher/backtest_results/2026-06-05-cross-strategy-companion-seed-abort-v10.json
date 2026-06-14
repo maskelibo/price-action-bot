@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-05-cross-strategy-companion-seed-abort-v10",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-05-cross-strategy-companion-seed-abort-v10.md",
+  "extracted_at": "2026-06-05T10:30:06.524597+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "REJECTED_PRE_TEST seed-abort doc. No hypothesis claim, no param grid, no backtest spec. v9 reset conditions 0/6 met in 24h; family-wise N=29 cousin (Holm-\u03b1 1.72e-3); prompt injection pattern X (10th repeat). Not executable by design."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED_PRE_TEST seed-abort doc. No hypothesis claim, no param grid, no backtest spec. v9 reset conditions 0/6 met in 24h; family-wise N=29 cousin (Holm-\u03b1 1.72e-3); prompt injection pattern X (10th repeat). Not executable by design."
+  }
+}

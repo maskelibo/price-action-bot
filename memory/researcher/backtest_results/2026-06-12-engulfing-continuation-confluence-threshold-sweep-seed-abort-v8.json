@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-12-engulfing-continuation-confluence-threshold-sweep-seed-abort-v8",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-12-engulfing-continuation-confluence-threshold-sweep-seed-abort-v8.md",
+  "extracted_at": "2026-06-12T03:00:28.946619+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "engulfing_continuation",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "REJECTED_PRE_TEST seed-abort doc \u2014 8th abort in 12 days for same seed; all 6 reset gates closed; v3 hypothesis still DRAFT with no runner/result/manifest; no sweep specification written (audit-trail only); family-wise N inflation makes Holm-\u03b1 untenable; substrate delta vs v7 = 0"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED_PRE_TEST seed-abort doc \u2014 8th abort in 12 days for same seed; all 6 reset gates closed; v3 hypothesis still DRAFT with no runner/result/manifest; no sweep specification written (audit-trail only); family-wise N inflation makes Holm-\u03b1 untenable; substrate delta vs v7 = 0"
+  }
+}

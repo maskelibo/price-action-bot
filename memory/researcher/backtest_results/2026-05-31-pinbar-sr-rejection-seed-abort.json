@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-31-pinbar-sr-rejection-seed-abort",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-31-pinbar-sr-rejection-seed-abort.md",
+  "extracted_at": "2026-05-31T03:00:21.935649+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED ABORT / REJECTED pre-test \u2014 yeni hipotez yaz\u0131lmad\u0131 (PRIOR_ART_OPEN_BLOCK: H-001 h\u00e2l\u00e2 a\u00e7\u0131k, prompt-injection 13. event, family-wise N inflation, RAG anti-evidence). Mevcut 4 base strateji i\u00e7inde pin bar @ S/R detector yok; H-001'in backtest'i ko\u015fturulmadan paralel hipotez anlams\u0131z."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED ABORT / REJECTED pre-test \u2014 yeni hipotez yaz\u0131lmad\u0131 (PRIOR_ART_OPEN_BLOCK: H-001 h\u00e2l\u00e2 a\u00e7\u0131k, prompt-injection 13. event, family-wise N inflation, RAG anti-evidence). Mevcut 4 base strateji i\u00e7inde pin bar @ S/R detector yok; H-001'in backtest'i ko\u015fturulmadan paralel hipotez anlams\u0131z."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-06-vol-regime-sizing-seed-abort-v3-vehicle-exists",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-06-volatility-regime-sizing-optimization-seed-abort-v3.md",
+  "extracted_at": "2026-06-06T03:00:08.057677+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED ABORT v3 \u2014 pre-test REJECTED. Vehicle (HYP-2026-06-04-lopez-deleverage) zaten DRAFT halinde mevcut; duplicate pre-registration = audit-trail p-hacking. Prompt-injection 17.+ cumulative event. Prior art brooks-3fx-vol-targeting RED unchanged. Aksiyon: 06-04 vehicle'\u0131 PROPOSED\u2192REVIEWED'a it, ek doc yazma."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED ABORT v3 \u2014 pre-test REJECTED. Vehicle (HYP-2026-06-04-lopez-deleverage) zaten DRAFT halinde mevcut; duplicate pre-registration = audit-trail p-hacking. Prompt-injection 17.+ cumulative event. Prior art brooks-3fx-vol-targeting RED unchanged. Aksiyon: 06-04 vehicle'\u0131 PROPOSED\u2192REVIEWED'a it, ek doc yazma."
+  }
+}

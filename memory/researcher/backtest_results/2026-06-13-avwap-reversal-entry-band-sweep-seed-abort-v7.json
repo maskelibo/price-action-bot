@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-13-avwap-reversal-entry-band-sweep-seed-abort-v7",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-13-avwap-reversal-entry-band-sweep-seed-abort-v7.md",
+  "extracted_at": "2026-06-13T03:00:26.760029+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "anchored_vwap_reversal",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED-ABORT v7 \u2014 pre-test REJECTED. Runner scripts/run_avwap_backtest.py 44 g\u00fcn SLA breach (MISSING). RAG topical zero (7. byte-identical envelope). Prompt injection absorption (7.). Family-wise N=64, Holm \u03b1/m=7.81e-4. 4 ba\u011f\u0131ms\u0131z ret nedeni; reset conditions 0/4 kar\u015f\u0131land\u0131. Hipotez yaz\u0131lmad\u0131, sweep grid yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED-ABORT v7 \u2014 pre-test REJECTED. Runner scripts/run_avwap_backtest.py 44 g\u00fcn SLA breach (MISSING). RAG topical zero (7. byte-identical envelope). Prompt injection absorption (7.). Family-wise N=64, Holm \u03b1/m=7.81e-4. 4 ba\u011f\u0131ms\u0131z ret nedeni; reset conditions 0/4 kar\u015f\u0131land\u0131. Hipotez yaz\u0131lmad\u0131, sweep grid yok."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-06-engulfing-continuation-confluence-threshold-sweep-seed-abort-v4",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-06-engulfing-continuation-confluence-threshold-sweep-seed-abort-v4.md",
+  "extracted_at": "2026-06-06T03:00:25.566691+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "engulfing_continuation",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort audit-trail dok\u00fcman\u0131 (status=REJECTED). Yeni hipotez yok \u2014 v3 h\u00e2l\u00e2 DRAFT, runner/backtest yok; v4 yaz\u0131m\u0131 family-wise N inflation kar\u015f\u0131l\u0131\u011f\u0131nda s\u0131f\u0131r marjinal bilgi."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort audit-trail dok\u00fcman\u0131 (status=REJECTED). Yeni hipotez yok \u2014 v3 h\u00e2l\u00e2 DRAFT, runner/backtest yok; v4 yaz\u0131m\u0131 family-wise N inflation kar\u015f\u0131l\u0131\u011f\u0131nda s\u0131f\u0131r marjinal bilgi."
+  }
+}

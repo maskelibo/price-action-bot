@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-05-30-vsaclimax-volz-threshold-sweep-seed-abort-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-05-30-vsaclimax-volz-threshold-sweep-seed-abort-v2.md",
+  "extracted_at": "2026-05-30T03:30:06.560390+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort v2 doc \u2014 pre-test REJECTED, family-wise N inflation guard. v1 (researcher-20260530T103000-vsaclimax-volz-threshold-sweep) zaten pre-registered. No executable grid; doc serves as audit-trail entry only."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort v2 doc \u2014 pre-test REJECTED, family-wise N inflation guard. v1 (researcher-20260530T103000-vsaclimax-volz-threshold-sweep) zaten pre-registered. No executable grid; doc serves as audit-trail entry only."
+  }
+}

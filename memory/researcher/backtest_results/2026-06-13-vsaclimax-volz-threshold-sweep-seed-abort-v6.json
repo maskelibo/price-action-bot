@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-13-vsaclimax-volz-threshold-sweep-seed-abort-v6",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-13-vsaclimax-volz-threshold-sweep-seed-abort-v6.md",
+  "extracted_at": "2026-06-13T03:00:11.568343+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED ABORT v6 \u2014 REJECTED pre-test, minimal-audit doc. State-delta zero, 0/7 reset gates open, prior-art open-block (v5 DRAFT backtest pending). No substantive pre-registration; self-throttle ARMED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED ABORT v6 \u2014 REJECTED pre-test, minimal-audit doc. State-delta zero, 0/7 reset gates open, prior-art open-block (v5 DRAFT backtest pending). No substantive pre-registration; self-throttle ARMED."
+  }
+}

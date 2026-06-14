@@ -1,0 +1,39 @@
+{
+  "hypothesis_id": "2026-06-03-kaufman-atr-breakout-1d-cross-edge",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-03-kaufman-atr-breakout-1d-cross-edge.md",
+  "extracted_at": "2026-06-03T06:30:10.609710+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "atr_k": [
+        0.5,
+        0.75,
+        1.0
+      ],
+      "atr_window": [
+        14
+      ],
+      "stop_atr_mult": [
+        1.25,
+        1.5,
+        2.0
+      ]
+    },
+    "accept_gates": [
+      "mean_R_net >= +0.08R",
+      "shuffle_p_gross < 0.05",
+      "per_year_sign >= 5/6",
+      "is_oos_sharpe_ratio <= 1.5",
+      "|rho_daily| < 0.25",
+      "stress_dd <= 30%",
+      "bh_fdr_significant_symbols >= 3"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Kaufman ATR-breakout 1D timeframe is a novel mechanism (prev_bar_close + k*ATR(14) breakout with bar_close mandatory exit) not implemented in current backtest engine; requires new signal logic + time-exit-at-close handler. DEFERRED until engine supports daily-bar breakout + mandatory-close exit primitives."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Kaufman ATR-breakout 1D timeframe is a novel mechanism (prev_bar_close + k*ATR(14) breakout with bar_close mandatory exit) not implemented in current backtest engine; requires new signal logic + time-exit-at-close handler. DEFERRED until engine supports daily-bar breakout + mandatory-close exit primitives."
+  }
+}

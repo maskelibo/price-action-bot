@@ -1,0 +1,27 @@
+{
+  "hypothesis_id": "2026-06-13-volman-ii-double-inside-bar-d1-vsa-diversifier",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-13-volman-ii-double-inside-bar-d1-vsa-diversifier.md",
+  "extracted_at": "2026-06-13T10:30:10.691493+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "monthly_net_roi_avg >= 1.0%",
+      "sharpe_annualized >= 0.80",
+      "max_dd_account_equity <= 22%",
+      "profit_factor >= 1.35",
+      "win_rate in [38%, 52%]",
+      "n_trades_pool_total >= 120",
+      "abs(corr_monthly_with_vsa_climax_test) <= 0.20",
+      "abs(corr_monthly_with_iii_marubozu_1d) <= 0.45",
+      "OOS Sharpe >= 55% of IS Sharpe"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Volman 'ii' (double inside bar) 1D breakout pattern mevcut 4 stratejinin (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) hi\u00e7biriyle \u00f6rt\u00fc\u015fm\u00fcyor. Yeni signal logic (3-bar nested inside compression + stop entry breakout) gerektirir. Backtest motoru hen\u00fcz bu pattern'\u0131 ko\u015fturamaz \u2014 DEFERRED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Volman 'ii' (double inside bar) 1D breakout pattern mevcut 4 stratejinin (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) hi\u00e7biriyle \u00f6rt\u00fc\u015fm\u00fcyor. Yeni signal logic (3-bar nested inside compression + stop entry breakout) gerektirir. Backtest motoru hen\u00fcz bu pattern'\u0131 ko\u015fturamaz \u2014 DEFERRED."
+  }
+}

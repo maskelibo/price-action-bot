@@ -1,0 +1,49 @@
+{
+  "hypothesis_id": "researcher-20260609T053100-atr-k-volatility-breakout-1d-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-09-atr-k-volatility-breakout-1d-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-09T06:30:12.734863+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": null,
+    "param_grid": {
+      "k": [
+        0.5,
+        0.7,
+        1.0
+      ],
+      "sl_atr_mult": [
+        1.5
+      ],
+      "tp_atr_mult": [
+        2.0
+      ],
+      "atr_window": [
+        14
+      ]
+    },
+    "accept_gates": [
+      "net_annualized_return >= 0.30",
+      "oos_sharpe >= 0.8",
+      "max_dd <= 0.25",
+      "profit_factor >= 1.30",
+      "trade_count >= 200",
+      "pearson_corr_vsa_climax_test in (-0.30, +0.30)",
+      "shuffle_baseline_pvalue < 0.05",
+      "bonferroni_pvalue < 0.0167",
+      "dsr >= 0.5",
+      "pbo <= 0.5",
+      "walk_forward_positive_slices >= 4/6",
+      "param_perturb_sharpe_loss < 0.25",
+      "symbol_out_cv_min_sharpe >= 0.5",
+      "regime_positive_in_at_least_2_regimes",
+      "stress_period_dd < 0.15",
+      "in_sample_vs_oos_sharpe_ratio < 3.0"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: ATR-K volatility breakout (Kaufman) mevcut 4 base strategy'den biri de\u011fil; backtest motorumuz bu hipotezi hen\u00fcz ko\u015fturamaz (DEFERRED)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: ATR-K volatility breakout (Kaufman) mevcut 4 base strategy'den biri de\u011fil; backtest motorumuz bu hipotezi hen\u00fcz ko\u015fturamaz (DEFERRED)."
+  }
+}

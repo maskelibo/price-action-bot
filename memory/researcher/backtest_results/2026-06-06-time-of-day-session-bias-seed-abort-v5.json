@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-06-time-of-day-session-bias-seed-abort-v5",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-06-time-of-day-session-bias-seed-abort-v5.md",
+  "extracted_at": "2026-06-06T03:00:17.531450+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED ABORT v5 \u2014 hipotez reddedildi, pre-test. Kod yaz\u0131lmad\u0131, backtest tan\u0131m\u0131 yok. RAG topical=0/10, prompt injection 5. absorption, prior open pre-reg block (06-04 DRAFT backtest ko\u015fulmad\u0131), family-wise N=30 enflasyonu. Self-throttle armed, JSONL-only."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED ABORT v5 \u2014 hipotez reddedildi, pre-test. Kod yaz\u0131lmad\u0131, backtest tan\u0131m\u0131 yok. RAG topical=0/10, prompt injection 5. absorption, prior open pre-reg block (06-04 DRAFT backtest ko\u015fulmad\u0131), family-wise N=30 enflasyonu. Self-throttle armed, JSONL-only."
+  }
+}

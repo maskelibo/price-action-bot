@@ -1,0 +1,27 @@
+{
+  "hypothesis_id": "2026-06-10-marubozu-bearish-continuation-low-corr-to-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-10-marubozu-bearish-continuation-low-corr-to-vsa.md",
+  "extracted_at": "2026-06-10T22:30:10.496674+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "Net annual return >= 25%",
+      "Sharpe (annualized, daily) >= 0.8",
+      "MaxDD <= 22%",
+      "Profit factor >= 1.3",
+      "Trade count >= 120",
+      "|Pearson corr(daily PnL, vsa_climax_test daily PnL)| <= 0.25",
+      "Bonferroni-corrected p-value < 0.000758",
+      "DSR > 0.7",
+      "PBO < 0.4"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: marubozu/belt-hold bearish continuation yeni bir signal logic (body/range ratio + EMA50 slope + close-at-low) tan\u0131ml\u0131yor; mevcut backtest motoru (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) bu detector'\u0131 ko\u015fturamaz. DEFERRED \u2014 signal_chief taraf\u0131ndan detector implementasyonu gerekir."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: marubozu/belt-hold bearish continuation yeni bir signal logic (body/range ratio + EMA50 slope + close-at-low) tan\u0131ml\u0131yor; mevcut backtest motoru (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) bu detector'\u0131 ko\u015fturamaz. DEFERRED \u2014 signal_chief taraf\u0131ndan detector implementasyonu gerekir."
+  }
+}

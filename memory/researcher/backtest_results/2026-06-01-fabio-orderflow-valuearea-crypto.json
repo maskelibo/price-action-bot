@@ -1,0 +1,34 @@
+{
+  "hypothesis_id": "HYP-2026-06-01-fabio-orderflow-valuearea-crypto",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-01-fabio-orderflow-valuearea-crypto.md",
+  "extracted_at": "2026-06-01T00:00:08.370085+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": {
+      "value_area_pct": [
+        0.7
+      ],
+      "proximity_k": [
+        0.25,
+        0.5
+      ],
+      "stop_m": [
+        0.5
+      ]
+    },
+    "accept_gates": [
+      "mean_R_after_fees(55bps) > +0.10",
+      "shuffle p < 0.05",
+      "n_trades >= 200",
+      "walk-forward >=3/5 y\u0131l pozitif",
+      "Bonferroni m=6 d\u00fczeltmesi"
+    ],
+    "executable": false,
+    "reason_if_not": "New strategy \u2014 value-area / VAL/VAH rejection logic requires new signal detector + previous-day volume profile computation; mevcut backtest motoru bu stratejiyi ko\u015fturamaz (DEFERRED). Ayr\u0131ca hipotez metninde zaten REJECT stat\u00fcs\u00fc var (2026-06-01)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "New strategy \u2014 value-area / VAL/VAH rejection logic requires new signal detector + previous-day volume profile computation; mevcut backtest motoru bu stratejiyi ko\u015fturamaz (DEFERRED). Ayr\u0131ca hipotez metninde zaten REJECT stat\u00fcs\u00fc var (2026-06-01)."
+  }
+}

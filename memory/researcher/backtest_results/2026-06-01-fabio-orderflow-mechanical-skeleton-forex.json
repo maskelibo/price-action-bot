@@ -1,0 +1,23 @@
+{
+  "hypothesis_id": "researcher-20260601T020000-fabio-orderflow-mechanical-skeleton-forex",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-01-fabio-orderflow-mechanical-skeleton-forex.md",
+  "extracted_at": "2026-05-31T23:30:19.325649+00:00",
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [
+      "mean_R_after_cost > 0 (t-test p<0.05)",
+      "shuffle baseline ge\u00e7er: ger\u00e7ek mean_R, 1000 shuffle'\u0131n %95 persantilinin \u00fcst\u00fcnde (p<0.05)",
+      "en az 2 seans/parite kombinasyonunda pozitif",
+      "walk-forward: y\u0131ll\u0131k OOS dilimlerinin \u2265%50'sinde mean_R_after_cost > 0",
+      "n_trades \u2265 200 (parite ba\u015f\u0131na \u2265 50)"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Fabio order-flow iskeleti (seans-filtreli S/R rejection + ATR-bazl\u0131 s\u0131k\u0131 stop + BE/trailing) mevcut 4 base strateji'nin (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) hi\u00e7birine map edilmiyor; yeni detector (\u00f6nceki-g\u00fcn H/L + round-number proxy, seans filtresi, rejection bar geometrisi) ve forex-spesifik maliyet modeli (pip-bazl\u0131 spread+komisyon) gerektiriyor. Mevcut sweep runner ko\u015fturamaz \u2014 DEFERRED, scripts/research/fabio_orderflow_skeleton_forex.py kodlanmas\u0131 gerek."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Fabio order-flow iskeleti (seans-filtreli S/R rejection + ATR-bazl\u0131 s\u0131k\u0131 stop + BE/trailing) mevcut 4 base strateji'nin (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) hi\u00e7birine map edilmiyor; yeni detector (\u00f6nceki-g\u00fcn H/L + round-number proxy, seans filtresi, rejection bar geometrisi) ve forex-spesifik maliyet modeli (pip-bazl\u0131 spread+komisyon) gerektiriyor. Mevcut sweep runner ko\u015fturamaz \u2014 DEFERRED, scripts/research/fabio_orderflow_skeleton_forex.py kodlanmas\u0131 gerek."
+  }
+}
