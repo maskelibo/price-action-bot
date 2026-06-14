@@ -93,3 +93,9 @@ htmlcov/
 # Claude Code runtime artefaktları (track edilmemeli)
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+.claude/skills/watch/
+
+# Scratch / runtime (oturum içi tek-seferlik)
+.tmp_*
+scripts/tmp/
+scripts/*.log
