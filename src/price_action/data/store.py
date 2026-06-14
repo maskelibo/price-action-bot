@@ -37,6 +37,21 @@ _CONN_LOCKS: dict[str, list[threading.RLock]] = {}
 _POOL_RR_INDEX: dict[str, int] = {}  # round-robin counter
 _POOL_GUARD = threading.Lock()
 
+# FIX 2026-06-02 (PROD-INCIDENT): Poisoned-handle detection strings.
+# DuckDB "Invalid bitmask for FixedSizeAllocator" is a fatal internal allocator
+# error triggered by concurrent writers to the same file (CEO run_hourly +
+# launchd ingest15m both write market_ingest.duckdb at the same second). Once
+# this error fires, DuckDB marks the entire connection handle as permanently
+# invalidated — every subsequent call raises "database has been invalidated...
+# must be restarted". The module-level pool holds this dead handle for the rest
+# of the process lifetime, so every hourly run_hourly call keeps failing.
+# Fix: detect the invalidation strings in _conn() and evict + reconnect.
+_INVALIDATED_MARKERS: tuple[str, ...] = (
+    "has been invalidated because of a previous fatal error",
+    "Invalid bitmask for FixedSizeAllocator",
+    "database must be restarted",
+)
+
 
 def _connect_write_with_retry(
     path: str,
@@ -315,11 +330,36 @@ class OHLCVStore:
         başına tek bir pooled connection tutuyoruz, RLock ile serialize
         ediyoruz. ``with self._conn() as con:`` API'si değişmiyor, sadece
         altında havuz çalışıyor.
+
+        FIX 2026-06-02 (PROD-INCIDENT): Poisoned-handle reconnect.
+        Concurrent writers (CEO run_hourly + launchd ingest15m) to the same
+        market_ingest.duckdb file can trigger DuckDB's internal
+        "Invalid bitmask for FixedSizeAllocator" fatal error. DuckDB then
+        permanently invalidates the connection handle: every subsequent call
+        raises "database has been invalidated... must be restarted". Because
+        the pool keeps that dead handle forever, all hourly ingest calls fail
+        for the rest of the process lifetime. Fix: on any exception whose
+        message contains an invalidation marker, evict the pool entry for this
+        path (close the dead handle) and retry with a fresh connection once.
+        The retry is still guarded by the per-path RLock so write-mode
+        serialization is preserved.
         """
         path = str(self.duckdb_path)
         con, lock = _get_pooled_connection(path, force_write=self.force_write)
         with lock:
-            yield con
+            try:
+                yield con
+            except Exception as exc:
+                msg = str(exc)
+                if any(marker in msg for marker in _INVALIDATED_MARKERS):
+                    # Dead handle — evict the pool entry so the next caller
+                    # gets a fresh connection. Log loudly; do NOT silently swallow.
+                    logger.warning(
+                        "store.conn_invalidated_evict",
+                        extra={"path": path, "err": msg[:300]},
+                    )
+                    close_pool_for_path(path)
+                raise  # always re-raise — caller decides retry policy
 
     def _ensure_schema(self) -> None:
         # Faz 5.2: read_only mode'da DDL çalıştırma — schema zaten var varsayılır.
@@ -333,21 +373,32 @@ class OHLCVStore:
             "yes",
         ):
             return
-        with self._conn() as con:
-            con.execute(_OHLCV_DDL)
-            con.execute(_INSTRUMENTS_DDL)
-            con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_ohlcv_lookup "
-                "ON ohlcv (venue, symbol, timeframe, ts);"
-            )
-            # FIX 2026-05-28 (audit-Y4): MAX(ts) sorguları için DESC index.
-            # last_ts() ingest tarafından her saat 50 sembol × 3 TF = 150 kez
-            # çağrılıyor. Mevcut ASC index MAX için yardımcı oluyor ama DESC
-            # doğrudan index seek yapar (~10ms → <1ms per query).
-            con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_ohlcv_last_ts "
-                "ON ohlcv (venue, symbol, timeframe, ts DESC);"
-            )
+        # FIX 2026-06-02 (PROD-INCIDENT): retry once after invalidated-handle eviction.
+        # If the pool held a dead handle (from a prior "Invalid bitmask" fatal), _conn()
+        # evicts it and re-raises. The second attempt gets a fresh connection.
+        _attempts = 0
+        while True:
+            try:
+                with self._conn() as con:
+                    con.execute(_OHLCV_DDL)
+                    con.execute(_INSTRUMENTS_DDL)
+                    con.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_ohlcv_lookup "
+                        "ON ohlcv (venue, symbol, timeframe, ts);"
+                    )
+                    # FIX 2026-05-28 (audit-Y4): MAX(ts) sorguları için DESC index.
+                    # last_ts() ingest tarafından her saat 50 sembol × 3 TF = 150 kez
+                    # çağrılıyor. Mevcut ASC index MAX için yardımcı oluyor ama DESC
+                    # doğrudan index seek yapar (~10ms → <1ms per query).
+                    con.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_ohlcv_last_ts "
+                        "ON ohlcv (venue, symbol, timeframe, ts DESC);"
+                    )
+                return  # success
+            except Exception as exc:
+                _attempts += 1
+                if _attempts >= 2 or not any(m in str(exc) for m in _INVALIDATED_MARKERS):
+                    raise  # non-invalidation error or retry exhausted — fail loud
 
     # ----- Read ------------------------------------------------------
     def read(

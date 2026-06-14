@@ -18,7 +18,7 @@ import io
 import os
 import sys
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # sys.stdout wrapping sadece __main__'de (import durumunda Streamlit'i bozar)
@@ -30,6 +30,7 @@ if __name__ == "__main__":
 
 os.environ["PA_LOG_QUIET"] = "1"
 import warnings
+
 warnings.filterwarnings("ignore")
 
 import duckdb
@@ -41,25 +42,26 @@ sys.path.insert(0, str(ROOT / "src"))
 
 # .env load (python-dotenv: quote+comment trim, mevcut env korunur)
 from dotenv import load_dotenv
+
 load_dotenv(ROOT / ".env", override=False)
 
 import ccxt
 import yaml
 
-from scripts.paper_trade_daily import scan_signals, init_journal
+from price_action.contracts import Position
+from price_action.execution.capital_cap import load_capital_cap
+from price_action.execution.post_only_router import (
+    SlippageExceededError,
+    place_post_only_with_fallback,
+)
+from scripts.lib.cooldown import filter_signals_by_cooldown
 from scripts.lib.risk_integration import (
     build_futures_account_state,
     build_returns_df,
     build_signal_from_scan,
     load_risk_officer,
 )
-from scripts.lib.cooldown import filter_signals_by_cooldown
-from price_action.contracts import Position
-from price_action.execution.capital_cap import load_capital_cap, check_warn_threshold
-from price_action.execution.post_only_router import (
-    SlippageExceededError,
-    place_post_only_with_fallback,
-)
+from scripts.paper_trade_daily import init_journal, scan_signals
 
 # Multi-bot futures support — PA_BOT_NAME env var (atlas | phoenix | rsi2 | vwap | …)
 # FIX 2026-05-27 (Faz 14.26): generic — herhangi bir bot adı per-bot journal alır.
@@ -135,7 +137,7 @@ def get_futures_exchange():
 # Önceki bug: schema migration implicit (CREATE TABLE IF NOT EXISTS) →
 # yeni kolon eklenmesi sessizce başarısız oluyordu eski DB'lerde.
 # Şimdi: schema_version tablosu + migration kayıt.
-_JOURNAL_SCHEMA_VERSION = 2  # Faz 14.27 — phantom_symbols + sync_mismatches eklendi
+_JOURNAL_SCHEMA_VERSION = 3  # 2026-05-31 — futures_partial_closes + partial-aware PnL
 
 def init_futures_journal():
     con = duckdb.connect(str(JOURNAL))
@@ -153,13 +155,16 @@ def init_futures_journal():
     except Exception:
         cur_ver = None
     if cur_ver is None or cur_ver < _JOURNAL_SCHEMA_VERSION:
-        # Migration kayıt
-        from datetime import datetime as _dt, timezone as _tz
-        con.execute(
-            "INSERT INTO schema_version VALUES (?, ?, ?)",
-            [_JOURNAL_SCHEMA_VERSION, _dt.now(_tz.utc),
-             f"Faz 14.27 schema v{_JOURNAL_SCHEMA_VERSION} migration"],
-        )
+        # Migration kayıt — INSERT OR IGNORE: eski version satırları PK çakışır
+        from datetime import datetime as _dt
+        try:
+            con.execute(
+                "INSERT OR IGNORE INTO schema_version VALUES (?, ?, ?)",
+                [_JOURNAL_SCHEMA_VERSION, _dt.now(UTC),
+                 f"2026-05-31 partial-closes schema v{_JOURNAL_SCHEMA_VERSION}"],
+            )
+        except Exception:
+            pass
     con.execute("""
         CREATE TABLE IF NOT EXISTS futures_signals (
             signal_id VARCHAR PRIMARY KEY,
@@ -232,6 +237,32 @@ def init_futures_journal():
     """)
     con.execute("CREATE INDEX IF NOT EXISTS idx_ftc_close_ts ON futures_trades_closed (ts_close)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_ftc_sym ON futures_trades_closed (sym)")
+    # 2026-05-31: Kısmi TP dilimleri için yeni tablo (partial-aware close model).
+    # Semantik: TP1/TP2 partial fill → buraya yaz. Final runner kapanışı → trades_closed.
+    # PnL sorguları her iki tabloyu toplar (çift sayım yok).
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS futures_partial_closes (
+            close_id TEXT PRIMARY KEY,
+            trade_id TEXT NOT NULL,
+            ts_close TIMESTAMP,
+            sym TEXT,
+            side TEXT,
+            strategy TEXT,
+            qty_closed DOUBLE,
+            exit_price DOUBLE,
+            realized_pnl_usdt DOUBLE,
+            realized_r DOUBLE,
+            close_reason TEXT
+        )
+    """)
+    con.execute(
+        "CREATE INDEX IF NOT EXISTS idx_fpc_trade_id "
+        "ON futures_partial_closes (trade_id)"
+    )
+    con.execute(
+        "CREATE INDEX IF NOT EXISTS idx_fpc_ts_close "
+        "ON futures_partial_closes (ts_close)"
+    )
     con.commit()
     con.close()
 
@@ -271,11 +302,17 @@ def fetch_futures_state(exchange):
         algo_orders = []
         algo_orders_ok = False
 
+    # SEC-#3A: totalInitialMargin — pozisyon stale dedektörü için gerekli.
+    # fetch_positions() boş dönse bile borsada açık pozisyon varsa bu değer > 0.
+    # "pozisyonlar boş AMA initialMargin > 0" = stale veri, giriş atlanmalı.
+    total_initial_margin = float(raw.get('totalInitialMargin', 0))
+
     return {
         'wallet_balance': wallet,
         'unrealized_pnl': unrealized,
         'margin_balance': margin_bal,
         'available_balance': available,
+        'total_initial_margin': total_initial_margin,
         'n_positions': len(active_pos),
         'n_open_orders': len(regular_orders) + len(algo_orders),
         'n_regular_orders': len(regular_orders),
@@ -576,7 +613,7 @@ def submit_to_futures(signals: list[dict], dry_run: bool = False, max_pos_usdt: 
         print(f"[EXECUTION] POST-ONLY enabled: timeout={post_only_timeout_sec}s, "
               f"slippage_limit={slippage_limit_bps:.1f}bps")
     else:
-        print(f"[EXECUTION] MARKET-ONLY (post-only disabled, sec26.b-5 paper test pending)")
+        print("[EXECUTION] MARKET-ONLY (post-only disabled, sec26.b-5 paper test pending)")
 
     exchange = get_futures_exchange()
     state = fetch_futures_state(exchange)
@@ -630,7 +667,7 @@ def submit_to_futures(signals: list[dict], dry_run: bool = False, max_pos_usdt: 
                     sig_date = sig_ts.date() if hasattr(sig_ts, 'date') else sig_ts.to_pydatetime().date()
                 else:
                     sig_date = pd.Timestamp(sig_ts).date()
-                today_utc = datetime.now(timezone.utc).date()
+                today_utc = datetime.now(UTC).date()
                 stale_days = (today_utc - sig_date).days
                 if stale_days > 2:
                     rejected += 1
@@ -776,14 +813,14 @@ def submit_to_futures(signals: list[dict], dry_run: bool = False, max_pos_usdt: 
                     notes = None
                 con.execute("""
                     INSERT INTO futures_protection_orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (uuid.uuid4().hex[:16], datetime.now(timezone.utc), sig_id, sym, s['side'],
+                """, (uuid.uuid4().hex[:16], datetime.now(UTC), sig_id, sym, s['side'],
                       filled_qty, prot['tp_price'], prot['sl_price'],
                       prot['tp_order_id'], prot['sl_order_id'], 'placed', notes))
             else:
                 print(f"    [PROTECT] ERROR: {prot.get('reason')}")
                 con.execute("""
                     INSERT INTO futures_protection_orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (uuid.uuid4().hex[:16], datetime.now(timezone.utc), sig_id, sym, s['side'],
+                """, (uuid.uuid4().hex[:16], datetime.now(UTC), sig_id, sym, s['side'],
                       filled_qty, float(s['tp_price']), float(s['sl_price']),
                       None, None, 'error', prot.get('reason')))
 
@@ -799,9 +836,9 @@ def submit_to_futures(signals: list[dict], dry_run: bool = False, max_pos_usdt: 
                         current_price=avg_px,
                         unrealized_pnl_usdt=0.0,
                         realized_pnl_usdt=0.0,
-                        opened_at=datetime.now(timezone.utc),
+                        opened_at=datetime.now(UTC),
                         strategy_id=s['strategy'],
-                        last_updated=datetime.now(timezone.utc),
+                        last_updated=datetime.now(UTC),
                     )
                 )
                 account.free_margin_usdt = max(0.0, account.free_margin_usdt - margin)
@@ -830,7 +867,7 @@ def submit_to_futures(signals: list[dict], dry_run: bool = False, max_pos_usdt: 
 
 def load_risk_yaml() -> dict:
     """risk_balanced.yaml'ı parse et (raw dict döndür)."""
-    with open(RISK_YAML, "r", encoding="utf-8") as f:
+    with open(RISK_YAML, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 
@@ -890,9 +927,9 @@ if __name__ == "__main__":
     print("=" * 80)
     print(f"Mode: {'DRY-RUN' if args.dry_run else 'LIVE TESTNET'}")
     print(f"Leverage: {LEVERAGE}x | Risk: {RISK_PCT*100:.1f}% | Max notional: {MAX_NOTIONAL_PCT*100:.0f}% wallet")
-    print(f"LONG + SHORT ikisi de calisir, TP+SL Binance tarafinda otomatik")
+    print("LONG + SHORT ikisi de calisir, TP+SL Binance tarafinda otomatik")
 
-    today = datetime.now(timezone.utc)
+    today = datetime.now(UTC)
     for d in range(args.days, 0, -1):
         target = today - timedelta(days=d)
         print(f"\n{'='*80}\nDay {target.date()}\n{'='*80}", flush=True)
