@@ -195,3 +195,45 @@ Tekrar eden episode (x23): [claude-opus-4-7] prompt=SOP-1 Günlük KPI Brief. A�
 Tekrar eden episode (x21): [claude-opus-4-7] prompt=What-if counterfactual analysis. Son 7 gündeki WIDESTOP
 
 ---
+
+### 2026-05-31 — recurring-20260531-053004 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x28): [claude-opus-4-7] prompt=SOP-1 Günlük KPI Brief. Aşağıdaki trade listesini kulla
+
+---
+
+### 2026-05-31 — recurring-20260531-053004 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x26): [claude-opus-4-7] prompt=What-if counterfactual analysis. Son 7 gündeki WIDESTOP
+
+---
+
+### 2026-06-07 — recurring-20260607-053003 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Günlük KPI Brief. Aşağıdaki trade listesini kulla
+
+---
+
+### 2026-06-07 — recurring-20260607-053003 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=What-if counterfactual analysis. Son 7 gündeki WIDESTOP
+
+---
+
+### 2026-06-14 — recurring-20260614-053004 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x6): [claude-opus-4-7] prompt=SOP-1 Günlük KPI Brief. Aşağıdaki trade listesini kulla
+
+---
+
+### 2026-06-14 — recurring-20260614-053004 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x6): [claude-opus-4-7] prompt=What-if counterfactual analysis. Son 7 gündeki WIDESTOP
+
+---

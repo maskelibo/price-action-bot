@@ -196,3 +196,52 @@ Tekrar eden episode (x22): [claude-opus-4-7] prompt=Tournament Report — sayıs
 Tekrar eden episode (x22): [claude-opus-4-7] prompt=RAG Refresh özeti. Aşağıdaki yeni belgelerden 5-10 madd
 
 ---
+
+### 2026-05-31 — recurring-20260531-053004 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x141): [claude-opus-4-7] prompt=Aşağıdaki hipotez dokümanını oku ve JSON formatında yap
+
+---
+
+### 2026-05-31 — recurring-20260531-053004 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x32): [claude-opus-4-7] prompt=Tournament Report — sayısal sonuçlar verildi. CEO için
+
+---
+
+### 2026-05-31 — recurring-20260531-053004 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x23): [claude-opus-4-7] prompt=RAG Refresh özeti. Aşağıdaki yeni belgelerden 5-10 madd
+
+---
+
+### 2026-06-07 — recurring-20260607-053003 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x55): [claude-opus-4-7] prompt=Aşağıdaki hipotez dokümanını oku ve JSON formatında yap
+
+---
+
+### 2026-06-07 — recurring-20260607-053003 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x8): [claude-opus-4-7] prompt=Tournament Report — sayısal sonuçlar verildi. CEO için
+
+---
+
+### 2026-06-14 — recurring-20260614-053004 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x59): [claude-opus-4-7] prompt=Aşağıdaki hipotez dokümanını oku ve JSON formatında yap
+
+---
+
+### 2026-06-14 — recurring-20260614-053004 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x8): [claude-opus-4-7] prompt=Tournament Report — sayısal sonuçlar verildi. CEO için
+
+---

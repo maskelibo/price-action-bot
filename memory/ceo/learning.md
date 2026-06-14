@@ -387,3 +387,59 @@ Tekrar eden episode (x12): [claude-opus-4-7] prompt=SOP-4 Departmanlar Arası Ç
 Tekrar eden episode (x7): daily_brief produced for 2026-05-26
 
 ---
+
+### 2026-05-31 — recurring-20260531-053004 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x50): [claude-opus-4-7] prompt=SOP-2 Haftalık Executive Summary üret. Net P&L, Sharpe,
+
+---
+
+### 2026-05-31 — recurring-20260531-053004 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x29): [claude-opus-4-7] prompt=SOP-1 Günlük Morning Brief üret. Önce dünkü Analytics r
+
+---
+
+### 2026-05-31 — recurring-20260531-053004 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x17): daily_brief produced for 2026-05-25
+
+---
+
+### 2026-05-31 — recurring-20260531-053004 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x17): [claude-opus-4-7] prompt=SOP-4 Departmanlar Arası Çatışma. Aşağıdaki çatışmayı s
+
+---
+
+### 2026-05-31 — recurring-20260531-053004 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x8): daily_brief produced for 2026-05-26
+
+---
+
+### 2026-06-07 — recurring-20260607-053003 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Günlük Morning Brief üret. Önce dünkü Analytics r
+
+---
+
+### 2026-06-07 — recurring-20260607-053003 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x3): [claude-opus-4-7] prompt=SOP-2 Haftalık Executive Summary üret. Net P&L, Sharpe,
+
+---
+
+### 2026-06-14 — recurring-20260614-053004 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x6): [claude-opus-4-7] prompt=SOP-1 Günlük Morning Brief üret. Önce dünkü Analytics r
+
+---

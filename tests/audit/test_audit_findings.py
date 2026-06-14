@@ -124,6 +124,22 @@ def test_audit_data_no_lock_no_finding():
     assert f is None
 
 
+def test_audit_data_catches_duckdb_invalidation_critical():
+    """REGRESYON — 2026-06-01 saatlik ingest invalidation'ı (CT-DAT-04 kör noktası).
+
+    Eski dedektör yalnız lock string'i arıyordu; bu gerçek hata satırını (allocator
+    bozulması / handle invalidation) KAÇIRIYORDU. Artık FATAL sınıfı → critical.
+    """
+    real_err = (
+        "scheduler.ingest_skip: FATAL Error: Failed: database has been invalidated "
+        "because of a previous fatal error. The database must be restarted prior to "
+        'being used again.\nOriginal error: "Invalid bitmask for FixedSizeAllocator"'
+    )
+    f = ct_dat_04_duckdb_lock(real_err, max_allowed=0)
+    assert f is not None and f.control_id == "CT-DAT-04"
+    assert f.severity == "critical", "invalidation = veri kaybı/restart → critical olmalı"
+
+
 # ---------------------------------------------------------------------------
 # 5. CT-CHF-01 — kapsama-boşluğu
 # ---------------------------------------------------------------------------
@@ -300,6 +316,93 @@ def test_auto_verify_closes_resolved_finding(isolated_env):
     r4 = asyncio.run(agent.run_controls())
     assert fid in r4["closed"]
     assert agent._latest_state()[fid]["status"] == "CLOSED"
+
+
+# ---------------------------------------------------------------------------
+# 6c. SLA + owner-close + audit-verify döngüsü (kullanıcı şartı 2026-06-02)
+# ---------------------------------------------------------------------------
+def test_finding_default_sla_is_one_day(isolated_env):
+    from price_action.agents.audit_execution import ct_exe_01_journal_drift
+
+    agent = _make_exec_agent(isolated_env)
+    agent.emit_finding(ct_exe_01_journal_drift({"XLM/USDT": 1448.0}, {}))
+    row = next(iter(agent._latest_state().values()))
+    from datetime import datetime
+
+    opened = datetime.strptime(row["opened_at"], "%Y-%m-%dT%H:%M:%SZ")
+    due = datetime.strptime(row["due_at"], "%Y-%m-%dT%H:%M:%SZ")
+    assert (due - opened).days == 1, "SLA 1 gün olmalı"
+
+
+def test_owner_remediation_then_audit_verify_closes(isolated_env):
+    """Owner 'kapatıldı raporu' verir → denetçi testi yeniden koşar → temizse CLOSED."""
+    import asyncio
+
+    from price_action.agents.audit_execution import ct_exe_01_journal_drift
+
+    agent = _make_exec_agent(isolated_env)
+    mode = {"v": "problem"}
+    agent.controls = lambda: {  # type: ignore
+        "CT-EXE-01": lambda: (
+            ct_exe_01_journal_drift({"XLM/USDT": 1448.0}, {}) if mode["v"] == "problem" else None
+        )
+    }
+    asyncio.run(agent.run_controls())  # OPEN
+    fid = next(iter(agent._latest_state()))
+
+    # owner closure raporu → REMEDIATION_FILED (kapanmaz, denetçi doğrulamadı)
+    agent.record_remediation(fid, remediation_doc="reports/exec-fix.md", by="execution_chief")
+    assert agent._latest_state()[fid]["status"] == "REMEDIATION_FILED"
+
+    # denetçi yeniden koşar, artık TEMİZ → CLOSED (owner raporu referanslı)
+    mode["v"] = "clean"
+    r = asyncio.run(agent.run_controls())
+    assert fid in r["closed"]
+    closed = agent._latest_state()[fid]
+    assert closed["status"] == "CLOSED"
+    assert closed["remediation_doc"] == "reports/exec-fix.md"
+
+
+def test_owner_claims_fixed_but_test_still_fails_reopens(isolated_env):
+    """Owner 'düzelttim' der ama kontrol hâlâ kırıksa → REOPENED (boş iddia yakalanır)."""
+    import asyncio
+
+    from price_action.agents.audit_execution import ct_exe_01_journal_drift
+
+    agent = _make_exec_agent(isolated_env)
+    agent.controls = lambda: {  # type: ignore
+        "CT-EXE-01": lambda: ct_exe_01_journal_drift({"XLM/USDT": 1448.0}, {})
+    }
+    asyncio.run(agent.run_controls())  # OPEN
+    fid = next(iter(agent._latest_state()))
+    agent.record_remediation(fid, remediation_doc="reports/bogus.md", by="execution_chief")
+
+    r = asyncio.run(agent.run_controls())  # problem hâlâ var
+    assert fid in r["reopened"]
+    assert agent._latest_state()[fid]["status"] == "REOPENED"
+
+
+def test_escalate_overdue_is_idempotent(isolated_env):
+    """1-gün SLA aşan açık bulgu → escalate (bir kez); ikinci çağrı tekrar etmez."""
+    from datetime import UTC, datetime, timedelta
+
+    from price_action.agents.audit_execution import ct_exe_01_journal_drift
+
+    agent = _make_exec_agent(isolated_env)
+    agent.emit_finding(ct_exe_01_journal_drift({"XLM/USDT": 1448.0}, {}))
+    fid = next(iter(agent._latest_state()))
+
+    # due_at'i geçmişe çek (SLA aşıldı)
+    row = dict(agent._latest_state()[fid])
+    row["due_at"] = (datetime.now(UTC) - timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    agent._append_register(row)
+
+    first = agent.escalate_overdue()
+    assert fid in first
+    assert agent._latest_state()[fid]["escalated_at"] is not None
+
+    second = agent.escalate_overdue()  # idempotent — tekrar yükseltme
+    assert fid not in second
 
 
 # ---------------------------------------------------------------------------

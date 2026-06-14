@@ -36,6 +36,11 @@ from .base import LLMAgentBase
 # Severity sıralaması (escalation için)
 _SEVERITY_ORDER = ("low", "med", "high", "critical")
 
+# SLA politikası (kullanıcı şartı 2026-06-02): açık bulgular ilgili 1. hat tarafından
+# 1 GÜN içinde remediate + closure raporu ile kapatılmalı; geçerse Principal'a escalate.
+# Tek kaynak — emit_finding bunu uygular (per-control due_days hint'i override eder).
+SLA_DAYS = 1
+
 # Kontrol-testi "denetlenemedi" sentinel'i (örn borsaya ulaşılamadı).
 # None = TEMİZ (problem yok → auto-verify CLOSE), SKIP = bilgi yok (dokunma).
 # Bu ayrım kritik: skip'i "temiz" sanıp açık bulguyu yanlışlıkla kapatmayalım.
@@ -73,7 +78,7 @@ class Finding:
         effect: str,
         recommendation: str,
         evidence: dict[str, Any] | None = None,
-        due_days: int = 7,
+        due_days: int = 1,
     ) -> None:
         self.control_id = control_id
         self.severity = severity.lower()
@@ -236,7 +241,8 @@ class AuditAgentBase(LLMAgentBase):
             tags=tags,
         )
 
-        due_at = (ts + timedelta(days=f.due_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # SLA politikası: per-control due_days hint'i değil, tek-kaynak SLA_DAYS.
+        due_at = (ts + timedelta(days=SLA_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
         self._append_register(
             {
                 "finding_id": finding_id,
@@ -251,6 +257,7 @@ class AuditAgentBase(LLMAgentBase):
                 "doc_path": str(path.relative_to(self._repo_root())),
                 "remediation_doc": None,
                 "verified_at": None,
+                "escalated_at": None,
                 "recurrence_count": recurrence,
             }
         )
@@ -320,6 +327,100 @@ class AuditAgentBase(LLMAgentBase):
         return path
 
     # ------------------------------------------------------------------
+    # REMEDIATION — owner (1. hat) "kapatıldı raporu" (closure report)
+    # ------------------------------------------------------------------
+    def record_remediation(
+        self, finding_id: str, *, remediation_doc: str, by: str
+    ) -> dict[str, Any]:
+        """Owner 1. hat ajanı düzeltmeyi yapınca "kapatıldı raporu" kaydeder.
+
+        Bu bulguyu KAPATMAZ — yalnız ``REMEDIATION_FILED``'a taşır. Kapatma yetkisi
+        denetçide kalır: sonraki ``run_controls``'ta CT-XXX yeniden koşulur →
+        PASS ise CLOSED (owner raporu referanslı), FAIL ise REOPENED (owner
+        "düzelttim" dedi ama kontrol hâlâ kırık → severity escalate + recurrence++).
+        Bağımsızlık: owner kendi işini "kapandı" ilan EDEMEZ, denetçi doğrular.
+        """
+        state = self._latest_state().get(finding_id)
+        if state is None:
+            raise ValueError(f"finding_id bulunamadı: {finding_id}")
+        new_row = dict(state)
+        new_row["status"] = "REMEDIATION_FILED"
+        new_row["remediation_doc"] = remediation_doc
+        new_row["remediated_by"] = by
+        new_row["remediated_at"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._append_register(new_row)
+        logger.info("audit.remediation_filed", extra={"finding_id": finding_id, "by": by})
+        return new_row
+
+    # ------------------------------------------------------------------
+    # OVERDUE — 1-gün SLA aşımı → Principal'a escalate (idempotent)
+    # ------------------------------------------------------------------
+    def escalate_overdue(self) -> list[str]:
+        """SLA (``SLA_DAYS``) aşan, henüz kapanmamış bulguları Principal'a yükselt.
+
+        OPEN/REOPENED/REMEDIATION_FILED + due_at geçmiş + henüz escalate edilmemiş.
+        Idempotent: ``escalated_at`` set'liyse tekrar yükseltmez (alarm-spam yok).
+        """
+        now = datetime.now(UTC)
+        escalated: list[str] = []
+        for fid, row in self._latest_state().items():
+            if row.get("status") not in self._OPEN_STATES:
+                continue
+            if row.get("escalated_at"):
+                continue
+            due = row.get("due_at")
+            if not due:
+                continue
+            try:
+                due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+            except ValueError:
+                continue
+            if now <= due_dt:
+                continue
+            overdue_h = (now - due_dt).total_seconds() / 3600.0
+            body = (
+                f"# Audit SLA İHLALİ {fid} — {row.get('title')}\n\n"
+                f"- **Control:** {row.get('control_id')}\n"
+                f"- **Severity:** {str(row.get('severity', '')).upper()}\n"
+                f"- **Owner (1. hat):** {row.get('owner')}\n"
+                f"- **Açıldı:** {row.get('opened_at')} · **Vade:** {due} "
+                f"(**{overdue_h:.0f}s gecikme**)\n"
+                f"- **Durum:** {row.get('status')} · remediation_doc: "
+                f"{row.get('remediation_doc') or '(YOK — owner düzeltme yapmadı)'}\n\n"
+                f"{SLA_DAYS}-gün SLA aşıldı; owner bulguyu süresinde kapatmadı. "
+                f"Principal müdahalesi gerekli.\n"
+            )
+            path = self.write_protocol_doc(
+                doc_type="audit_followup",
+                body=body,
+                slug=f"{fid}-overdue",
+                target_dir=self._audit_reports_dir(),
+                status="PROPOSED",
+                confidence="high",
+                requested_review_from=[row.get("owner", "ceo"), "audit_chief"],
+                tags=["audit", "sla_breach", "principal_escalation", str(row.get("severity", ""))],
+            )
+            new_row = dict(row)
+            new_row["escalated_at"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+            new_row["escalation_doc"] = str(path.relative_to(self._repo_root()))
+            self._append_register(new_row)
+            escalated.append(fid)
+            try:
+                from price_action.orchestrator.notifications import push_critical
+
+                push_critical(
+                    f"AUDIT SLA İHLALİ: {fid} ({row.get('control_id')}, "
+                    f"{str(row.get('severity', '')).upper()}) — owner={row.get('owner')} "
+                    f"{SLA_DAYS}-gün SLA'da kapatmadı ({overdue_h:.0f}s gecikme).",
+                    source="audit_sla",
+                )
+            except Exception:
+                pass
+        if escalated:
+            logger.info("audit.overdue_escalated", extra={"auditor": self.name, "escalated": escalated})
+        return escalated
+
+    # ------------------------------------------------------------------
     # Kontrol-testi registry + emit/AUTO-VERIFY/dedup döngüsü (Faz 4)
     # ------------------------------------------------------------------
     def controls(self) -> dict[str, Any]:
@@ -331,10 +432,12 @@ class AuditAgentBase(LLMAgentBase):
         """
         return {}
 
+    _OPEN_STATES = ("OPEN", "REOPENED", "REMEDIATION_FILED")
+
     def _open_findings_for(self, control_id: str) -> list[dict[str, Any]]:
         return [
             r for r in self._latest_state().values()
-            if r.get("control_id") == control_id and r.get("status") in ("OPEN", "REOPENED")
+            if r.get("control_id") == control_id and r.get("status") in self._OPEN_STATES
         ]
 
     async def run_controls(self) -> dict[str, Any]:
@@ -346,6 +449,7 @@ class AuditAgentBase(LLMAgentBase):
         """
         emitted: list[str] = []
         closed: list[str] = []
+        reopened: list[str] = []
         for cid, runner in self.controls().items():
             try:
                 f = runner()
@@ -356,21 +460,36 @@ class AuditAgentBase(LLMAgentBase):
                 continue  # denetlenemedi — durumu değiştirme
             open_f = self._open_findings_for(cid)
             if f is not None:
-                if not open_f:
+                # Problem HÂLÂ var. Owner "düzelttim" (REMEDIATION_FILED) dediyse ama
+                # kontrol hâlâ kırıksa → REOPENED (boş kapatma iddiası yakalanır).
+                filed = [r for r in open_f if r.get("status") == "REMEDIATION_FILED"]
+                if filed:
+                    for r in filed:
+                        self.verify_remediation(
+                            r["finding_id"], passed=False,
+                            remediation_doc=r.get("remediation_doc"),
+                        )
+                        reopened.append(r["finding_id"])
+                elif not open_f:
                     emitted.append(str(self.emit_finding(f)))  # yeni problem
-                # else: zaten açık → dedup (günlük tekrar emit etme)
+                # else: zaten OPEN/REOPENED → dedup (günlük tekrar emit etme)
             else:
-                # TEMİZ → açık bulgu varsa otomatik doğrula+kapat
+                # TEMİZ → açık bulgu varsa doğrula+kapat (owner closure raporu referanslı).
                 for r in open_f:
                     self.verify_remediation(
                         r["finding_id"], passed=True,
-                        remediation_doc="auto-verify: kontrol-testi artık TEMİZ",
+                        remediation_doc=r.get("remediation_doc")
+                        or "auto-verify: kontrol-testi artık TEMİZ (owner raporu yok)",
                     )
                     closed.append(r["finding_id"])
-        if closed:
-            logger.info("audit.auto_verified_closed",
-                        extra={"auditor": self.name, "closed": closed})
-        return {"emitted": emitted, "closed": closed}
+        # Her koşuda SLA aşımı taraması (1-gün geçen açık bulgu → Principal).
+        overdue = self.escalate_overdue()
+        if closed or reopened:
+            logger.info(
+                "audit.lifecycle_done",
+                extra={"auditor": self.name, "closed": closed, "reopened": reopened},
+            )
+        return {"emitted": emitted, "closed": closed, "reopened": reopened, "overdue": overdue}
 
     async def daily_control_review(self) -> list[Any]:
         """Geriye uyumlu giriş: run_controls çağırır, emit edilen path'leri döner.

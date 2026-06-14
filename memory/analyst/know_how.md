@@ -139,3 +139,24 @@ Haftalık episodic tag dağılımı: llm_call:42
 Haftalık episodic tag dağılımı: llm_call:44
 
 ---
+
+### 2026-05-31 — weekly-tag-snapshot-20260531 (med)
+- tags: consolidation
+
+Haftalık episodic tag dağılımı: llm_call:54
+
+---
+
+### 2026-06-07 — weekly-tag-snapshot-20260607 (med)
+- tags: consolidation
+
+Haftalık episodic tag dağılımı: llm_call:14
+
+---
+
+### 2026-06-14 — weekly-tag-snapshot-20260614 (med)
+- tags: consolidation
+
+Haftalık episodic tag dağılımı: llm_call:12
+
+---

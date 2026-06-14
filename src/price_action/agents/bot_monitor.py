@@ -553,11 +553,13 @@ class BotMonitorAgent(LLMAgentBase):
             current_equity = equity[-1] if equity else 0.0  # cum realized PnL (gösterim)
             # FIX 2026-05-30: DD gerçek hesap equity'sine oranlı (kill-criteria
             # ile aynı). Sıfır-bazlı eğri DD'yi zirve-kâra oranlayıp şişiriyordu.
-            _acct_eq = float(
+            # SEC-#2D: Config fallback + gerçek cüzdan override (bot_kill_criteria değişmez).
+            _config_acct_eq_snap = float(
                 bot_cfg.get("account_equity_usdt")
                 or (cfg.get("defaults") or {}).get("account_equity_usdt")
                 or 10000.0
             )
+            _acct_eq = self._fetch_live_equity(_config_acct_eq_snap)
             dd30 = self._calc_drawdown(self._equity_curve(trades, starting_equity=_acct_eq))
             # Son 24h P&L
             cutoff_24h = now - timedelta(hours=24)
@@ -660,6 +662,43 @@ class BotMonitorAgent(LLMAgentBase):
                 extra={"ts_raw": str(ts)[:50], "err": str(_ts_exc)[:120]},
             )
             return datetime.now(UTC)
+
+    @staticmethod
+    def _fetch_live_equity(config_equity_fallback: float) -> float:
+        """Gerçek cüzdan bakiyesini borsa API'sinden çek.
+
+        SEC-#2D: bot_kill_criteria.yaml'daki account_equity_usdt değeri sabit
+        (10000.0) ama gerçek hesap ~5000$ olabilir → DD bazı şişik → yanlış-pozitif
+        PAUSE alarmı. Bu helper gerçek wallet_balance'ı çekmeye çalışır; herhangi
+        bir hata durumunda config fallback değerini döner.
+
+        Önemli kısıtlar:
+        - Bu metod SADECE okuma yapar, borsa işlemi gerçekleştirmez.
+        - Exception'da config fallback değeri kullanılır — alarm asla sessiz değil.
+        - .env yüklü değilse (test ortamı) fallback anında döner.
+        - Borsa bağlantısı 5 saniyede timeout olmadıysa bu metod yavaş kalabilir;
+          caller timeout ile sarmalamamışsa risk var.
+        """
+        try:
+            import os as _os
+            # API key yoksa (test ortamı) erken çık
+            if not _os.environ.get("BINANCE_FUTURES_TESTNET_API_KEY"):
+                return config_equity_fallback
+            from scripts.futures_trade_daily import (  # type: ignore[import]
+                fetch_futures_state,
+                get_futures_exchange,
+            )
+            _ex = get_futures_exchange()
+            _state = fetch_futures_state(_ex)
+            _wb = float(_state.get("wallet_balance", 0))
+            if _wb > 0:
+                return _wb
+        except Exception as _live_exc:
+            logger.warning(
+                "bot_monitor.live_equity_fetch_fail",
+                extra={"err": str(_live_exc)[:200], "fallback": config_equity_fallback},
+            )
+        return config_equity_fallback
 
     def _heartbeat_check(self, bot_name: str) -> bool:
         """`data/dms_heartbeat_*{bot_name}*.txt` son 1h içinde update mı?"""
@@ -1107,9 +1146,24 @@ class BotMonitorAgent(LLMAgentBase):
             # oran (örn +100$ yapıp 43$ geri verince "%43"), hesap büyüklüğüne
             # değil → ŞİŞMİŞ yanlış-pozitif PAUSE alarmı. acct_eq baseline ile
             # 10000$'lık hesapta o 43$ = %0.43 (gerçek).
-            acct_eq = float(
+            #
+            # SEC-#2D: Gerçek cüzdan bakiyesini çekmeyi dene.
+            # Config'deki 10000.0 fallback olarak kalır; gerçek equity varsa onu
+            # kullan (bot_kill_criteria.yaml DEĞİŞTİRİLMEZ — sadece runtime override).
+            # Örnek: config=10000, gerçek=5000 → DD bazı 5000 olur (daha hassas tetik).
+            _config_acct_eq = float(
                 bot_cfg.get("account_equity_usdt") or defaults.get("account_equity_usdt") or 10000.0
             )
+            acct_eq = self._fetch_live_equity(_config_acct_eq)
+            if acct_eq != _config_acct_eq:
+                logger.info(
+                    "bot_monitor.live_equity_override",
+                    extra={
+                        "bot": bot_name,
+                        "config_equity": _config_acct_eq,
+                        "live_equity": acct_eq,
+                    },
+                )
             # cum loss 7d / 14d — hesap equity'sine oranlı realized loss
             cum_pnl_7d = sum(float(t.get("realized_pnl_usdt", 0) or 0) for t in trades_7d)
             cum_pnl_14d = sum(float(t.get("realized_pnl_usdt", 0) or 0) for t in trades_14d)

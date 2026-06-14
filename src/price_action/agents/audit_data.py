@@ -9,8 +9,10 @@ count-control reconciliation + data-lineage/provenance.
 Kontrol-testleri:
   CT-DAT-01  ingest evreni ↔ trading evreni tutarlılığı (bu seansın 3538-vs-14 bug'ı;
              her iki yön: çok büyük=israf/gürültü, çok küçük=eksik veri).
-  CT-DAT-04  DuckDB kilit-bütünlüğü (ÖNGÖRÜ — bugün ingest15m exit-1; gelecekte
-             tek-yazıcı açlığı / dosya bozulması). Log'da kilit-çakışması izi.
+  CT-DAT-04  DuckDB depolama-bütünlüğü (SINIF-bazlı): (a) lock-çakışması/açlığı →
+             high; (b) handle-invalidation / allocator-bozulması ('Invalid bitmask',
+             'has been invalidated', 'must be restarted') → critical. 2026-06-01
+             saatlik invalidation'ı (eski lock-only dedektör kaçırmıştı) artık yakalanır.
 """
 
 from __future__ import annotations
@@ -81,38 +83,87 @@ def ct_dat_01_universe(
     return None
 
 
+# DuckDB arıza SINIFLARI — spesifik string değil, sınıf yakala (denetimin klasik
+# zaafı: yalnız son ısıran varyantı aramak). İki tier:
+#   LOCK     = çok-yazıcı çakışması/açlığı → ingest exit-1, taze veri kaçar (high).
+#   FATAL    = handle invalidation / allocator-bozulması / corruption → process'in
+#              DB handle'ı zehirlenir, restart gerekir, veri KAYBI riski (critical).
 _LOCK_PATTERNS = (
     "Conflicting lock",
     "Could not set lock",
     "database is locked",
     "IOException",
 )
+_FATAL_PATTERNS = (
+    "has been invalidated",
+    "must be restarted",
+    "Invalid bitmask",
+    "FixedSizeAllocator",
+    "FATAL Error",
+    "Corruption",
+    "Checksum",
+    "database is invalid",
+)
+
+
+def _count_hits(log_text: str, patterns: tuple[str, ...]) -> int:
+    return sum(len(re.findall(re.escape(p), log_text)) for p in patterns)
 
 
 def ct_dat_04_duckdb_lock(log_text: str, *, max_allowed: int = 0) -> Finding | None:
-    """DETERMİNİSTİK ÇEKİRDEK (ÖNGÖRÜ) — DuckDB kilit-çakışması izi.
+    """DETERMİNİSTİK ÇEKİRDEK (ÖNGÖRÜ) — DuckDB SINIF-bazlı arıza izi.
 
-    Log metninde kilit-hata desenlerini sayar; max_allowed'ı aşarsa bulgu.
-    (Bugün ingest15m exit-1; gelecekte tek-yazıcı açlığı / bozulma sınıfı.)
+    İki arıza sınıfını da sayar (lock + fatal/corruption); ``max_allowed``'ı aşarsa
+    bulgu. FATAL sınıfı (handle invalidation / allocator-bozulması) lock'tan ağırdır:
+    process handle'ı zehirler, restart ister, veri kaybı riski taşır → ``critical``.
+    Lock yalnız taze-veri gecikmesi → ``high``.
+
+    Eski isim/imza korunur (geriye uyumluluk); davranış genişledi: artık sadece
+    kilit değil, bu gecenin "Invalid bitmask / has been invalidated" sınıfını da yakalar.
     """
-    hits = sum(len(re.findall(re.escape(p), log_text)) for p in _LOCK_PATTERNS)
-    if hits <= max_allowed:
+    fatal_hits = _count_hits(log_text, _FATAL_PATTERNS)
+    lock_hits = _count_hits(log_text, _LOCK_PATTERNS)
+    if fatal_hits + lock_hits <= max_allowed:
         return None
+
+    if fatal_hits > 0:
+        return Finding(
+            control_id="CT-DAT-04",
+            severity="critical",
+            owner=_OWNER,
+            title="DuckDB handle invalidation / bozulma (FATAL — restart gerekir)",
+            condition=f"Log'da {fatal_hits} kez DuckDB FATAL deseni "
+            f"('has been invalidated' / 'Invalid bitmask for FixedSizeAllocator' / "
+            f"'must be restarted'){f' + {lock_hits} kilit izi' if lock_hits else ''}.",
+            criteria="DuckDB bağlantısı bir fatal hata sonrası zehirlenmişse process "
+            "AYNI handle'ı yeniden kullanmamalı (reconnect); tek dosyaya eşzamanlı "
+            "yazıcı (run_hourly + ingest15m + snapshot) çakışması olmamalı.",
+            cause="Zehirlenmiş/yeniden-kullanılan global DuckDB handle veya eşzamanlı "
+            "çok-process write → allocator/dosya bozulması; handle ömür boyu invalid kalıyor.",
+            effect="ingest yolu KALICI ölü (her saat tekrar); kötü durumda WAL/dosya "
+            "bozulması + VERİ KAYBI. Snapshot backstop arızayı maskeliyor.",
+            recommendation="reconnect-on-invalidation (zehirli handle'ı kapat→yeniden aç) + "
+            "run_hourly'de bağlantı izolasyonu (aç→kullan→kapat) + yazıcıları serialize et + "
+            "yedek/disk-doluluk izle. En erken 'Invalid bitmask' zaman damgasını bul (ne zaman başladı).",
+            evidence={"fatal_hits": fatal_hits, "lock_hits": lock_hits},
+            due_days=1,
+        )
     return Finding(
         control_id="CT-DAT-04",
-        severity="high" if hits > 5 else "med",
+        severity="high" if lock_hits > 5 else "med",
         owner=_OWNER,
         title="DuckDB kilit-çakışması / tek-yazıcı açlığı",
-        condition=f"Log'da {hits} kez DuckDB kilit-hatası deseni ({', '.join(_LOCK_PATTERNS[:3])}...).",
+        condition=f"Log'da {lock_hits} kez DuckDB kilit-hatası deseni "
+        f"({', '.join(_LOCK_PATTERNS[:3])}...).",
         criteria="Çok-yazıcılı DuckDB erişimi bounded-retry + lock-release ile "
         "çakışmasız olmalı; yazıcı process lock'u ömür boyu tutmamalı.",
         cause="CEO run_hourly + ingest15m + snapshot aynı DB'ye → single-writer "
         "starvation; lock-release/retry eksik veya regresyona uğramış.",
-        effect="ingest exit-1 (taze veri kaçar), kötü durumda WAL/dosya bozulması, " "veri kaybı.",
+        effect="ingest exit-1 (taze veri kaçar), kötü durumda WAL/dosya bozulması, veri kaybı.",
         recommendation="write-mode bounded lock-retry + run_hourly sonrası "
         "close_pool_for_path(lock release); yedek bütünlüğü + disk doluluk izle.",
-        evidence={"lock_error_hits": hits},
-        due_days=5,
+        evidence={"lock_error_hits": lock_hits},
+        due_days=1,
     )
 
 
