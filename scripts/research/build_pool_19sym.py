@@ -10,7 +10,9 @@ Merge: data/pool_19sym_20260610.pkl
 Kullanım:
   ./.venv/bin/python scripts/research/build_pool_19sym.py [--workers 6]
 """
+
 from __future__ import annotations
+
 import argparse
 import os
 import pickle
@@ -20,6 +22,7 @@ from pathlib import Path
 
 os.environ["PA_LOG_QUIET"] = "1"
 import warnings
+
 warnings.filterwarnings("ignore")
 import logging
 
@@ -29,10 +32,25 @@ sys.path.insert(0, str(ROOT / "src"))
 logging.getLogger("price_action").setLevel(logging.ERROR)
 
 SYMBOLS_19 = [
-    "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "ADA/USDT",
-    "AVAX/USDT", "LINK/USDT", "DOT/USDT", "DOGE/USDT", "XRP/USDT",
-    "ZEC/USDT", "NEAR/USDT", "FIL/USDT", "XLM/USDT",
-    "TRX/USDT", "UNI/USDT", "ATOM/USDT", "AAVE/USDT", "ALGO/USDT",
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "BNB/USDT",
+    "ADA/USDT",
+    "AVAX/USDT",
+    "LINK/USDT",
+    "DOT/USDT",
+    "DOGE/USDT",
+    "XRP/USDT",
+    "ZEC/USDT",
+    "NEAR/USDT",
+    "FIL/USDT",
+    "XLM/USDT",
+    "TRX/USDT",
+    "UNI/USDT",
+    "ATOM/USDT",
+    "AAVE/USDT",
+    "ALGO/USDT",
 ]
 STRATS = [
     ("vsa_climax_test", "VSAClimaxTestStrategy"),
@@ -49,18 +67,35 @@ STRATS_EXTRA6 = [
     ("cvd_spike_fade", "CVDSpikeFadeStrategy"),
     ("fvg_fill_reversal", "FVGFillReversalStrategy"),
 ]
+TF = "15m"
 CELL_DIR = ROOT / "data" / "pool_19sym_20260610"
 OUT = ROOT / "data" / "pool_19sym_20260610.pkl"
 OUT_EXTRA6 = ROOT / "data" / "pool_19sym_extra6_20260610.pkl"
 
 
 def gather_cell(args):
-    """(module, cls, sym) -> trade list. sec31 _gather_peakR_single birebir."""
-    module_name, class_name, sym = args
+    """(module, cls, sym, tf) -> trade list. sec31 _gather_peakR_single birebir.
+
+    NOT: tf task-tuple ile taşınır — multiprocessing spawn worker'ları modülü
+    taze import ettiği için module-level TF global'i worker'da sıfırlanır.
+    """
+    module_name, class_name, sym, tf = args
     import duckdb
     import pandas as pd
+
     from price_action.backtest.engine import BacktestEngine
     from price_action.signals.filters import volume_zscore
+
+    # "4h@15m" formati: 15m verisinden 4h'a resample (native 4h verisi
+    # 10 sym / 3 yilla sinirli; 15m tum 19 sembolde listing'den itibaren tam).
+    resample_rule = None
+    if "@" in tf:
+        tf, src_tf = tf.split("@", 1)
+        resample_rule = {"4h": "4h", "1h": "1h", "30m": "30min"}.get(tf)
+        if resample_rule is None:
+            return ("ERR_TF", "resample hedefi taninmiyor: " + tf)
+    else:
+        src_tf = tf
 
     try:
         mod = __import__(
@@ -68,7 +103,7 @@ def gather_cell(args):
             fromlist=[class_name, "_default_manifest"],
         )
         cls = getattr(mod, class_name)
-        s = cls(getattr(mod, "_default_manifest")())
+        s = cls(mod._default_manifest())
     except Exception as e:
         return ("ERR_IMPORT", str(e))
 
@@ -76,17 +111,30 @@ def gather_cell(args):
         con = duckdb.connect(str(ROOT / "data" / "market.duckdb"), read_only=True)
         df = con.execute(
             "SELECT ts, open, high, low, close, volume FROM ohlcv "
-            "WHERE venue='binance' AND symbol=? AND timeframe='15m' ORDER BY ts",
-            [sym],
+            "WHERE venue='binance' AND symbol=? AND timeframe=? ORDER BY ts",
+            [sym, src_tf],
         ).fetchdf()
         con.close()
         if df.empty:
             return ("ERR_DATA", "empty")
         df["ts"] = pd.to_datetime(df["ts"], utc=True)
+        if resample_rule is not None:
+            # UTC sınırlarına hizalı OHLCV resample (bar-close konvansiyonu korunur)
+            df = (
+                df.set_index("ts")
+                .resample(resample_rule, label="left", closed="left")
+                .agg(
+                    {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+                )
+                .dropna(subset=["open", "close"])
+                .reset_index()
+            )
+            if df.empty:
+                return ("ERR_DATA", "resample bos")
         df = df.sort_values("ts").reset_index(drop=True)
         df["symbol"] = sym
         df["venue"] = "binance"
-        df["timeframe"] = "15m"
+        df["timeframe"] = tf
         try:
             df["vol_z_pre"] = volume_zscore(df["volume"], period=20)
         except Exception:
@@ -96,12 +144,22 @@ def gather_cell(args):
         def prov(*a, **k):
             return df.copy()
 
-        e = BacktestEngine(risk_officer=None, store_load=None)
+        # PA_EXIT_VARIANT (2026-06-11): exit-geometri sweep'i. Widestop için TP
+        # geometrisi hiç optimize edilmedi (2026-05-17 dar-stop ayarı). Env var
+        # spawn worker'lara miras kalır (TF global'inin aksine güvenli).
+        _exit_kwargs = {}
+        _ev = os.environ.get("PA_EXIT_VARIANT", "")
+        if _ev:
+            import json as _json
+
+            _exit_kwargs = _json.loads(_ev)
+        e = BacktestEngine(risk_officer=None, store_load=None, **_exit_kwargs)
         r = e.run(
-            s, [sym],
+            s,
+            [sym],
             start=df["ts"].iloc[0].to_pydatetime(),
             end=df["ts"].iloc[-1].to_pydatetime(),
-            timeframe="15m",
+            timeframe=tf,
             initial_capital=10_000.0,
             fees={"taker": 0.00075, "maker": -0.00010},
             slippage_bps=5.0,
@@ -135,25 +193,33 @@ def gather_cell(args):
                 idx = ts_map[mask].index[-1]
                 vz_val = df["vol_z_pre"].iloc[idx]
                 vz = float(vz_val) if not pd.isna(vz_val) else 0.0
-            out.append({
-                "entry_ts": ts_e, "exit_ts": ts_x,
-                "entry_price": entry_price, "initial_sl": initial_sl,
-                "R": final_R, "peak_R": peak_R, "symbol": sym,
-                "side": str(t["side"]), "conf": conf,
-                "strategy": module_name, "vol_z": vz,
-            })
+            out.append(
+                {
+                    "entry_ts": ts_e,
+                    "exit_ts": ts_x,
+                    "entry_price": entry_price,
+                    "initial_sl": initial_sl,
+                    "R": final_R,
+                    "peak_R": peak_R,
+                    "symbol": sym,
+                    "side": str(t["side"]),
+                    "conf": conf,
+                    "strategy": module_name,
+                    "vol_z": vz,
+                }
+            )
         except Exception:
             continue
     return ("OK", out)
 
 
 def run_cell(args):
-    module_name, class_name, sym = args
-    cell = CELL_DIR / ("%s__%s.pkl" % (module_name, sym.replace("/", "")))
+    module_name, class_name, sym, tf, cell_dir = args
+    cell = Path(cell_dir) / ("%s__%s.pkl" % (module_name, sym.replace("/", "")))
     if cell.exists():
         return (module_name, sym, "cached", -1, 0.0)
     t0 = time.time()
-    status, payload = gather_cell(args)
+    status, payload = gather_cell((module_name, class_name, sym, tf))
     if status != "OK":
         return (module_name, sym, status + ":" + str(payload)[:60], 0, time.time() - t0)
     with cell.open("wb") as f:
@@ -164,21 +230,32 @@ def run_cell(args):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--workers", type=int, default=6)
-    ap.add_argument("--extra6", action="store_true",
-                    help="kalan 6 Phoenix stratejisini üret (ayrı çıktı pkl)")
+    ap.add_argument(
+        "--extra6", action="store_true", help="kalan 6 Phoenix stratejisini üret (ayrı çıktı pkl)"
+    )
+    ap.add_argument("--timeframe", default="15m", help="OHLCV timeframe (örn. 4h)")
     args = ap.parse_args()
-    CELL_DIR.mkdir(parents=True, exist_ok=True)
 
-    global STRATS, OUT
-    if args.extra6:
-        STRATS = STRATS_EXTRA6
-        OUT = OUT_EXTRA6
+    strats = STRATS_EXTRA6 if args.extra6 else STRATS
+    out = OUT_EXTRA6 if args.extra6 else OUT
+    tf = args.timeframe
+    cell_dir = CELL_DIR
+    if tf != "15m":
+        tf_tag = tf.replace("@", "_")
+        cell_dir = CELL_DIR.parent / (CELL_DIR.name + "_" + tf_tag)
+        out = out.parent / out.name.replace(".pkl", "_%s.pkl" % tf_tag)
+    _exit_tag = os.environ.get("PA_EXIT_TAG", "")
+    if _exit_tag:
+        cell_dir = cell_dir.parent / (cell_dir.name + "_" + _exit_tag)
+        out = out.parent / out.name.replace(".pkl", "_%s.pkl" % _exit_tag)
+    cell_dir.mkdir(parents=True, exist_ok=True)
 
-    tasks = [(m, c, sym) for m, c in STRATS for sym in SYMBOLS_19]
+    tasks = [(m, c, sym, tf, str(cell_dir)) for m, c in strats for sym in SYMBOLS_19]
     print("[build] %d hücre, %d worker" % (len(tasks), args.workers), flush=True)
 
     if args.workers > 1:
         import multiprocessing as mp
+
         with mp.get_context("spawn").Pool(args.workers) as pool:
             for m, sym, st, n, dt in pool.imap_unordered(run_cell, tasks):
                 print("  %-26s %-10s %-8s n=%-6d %.0fs" % (m, sym, st, n, dt), flush=True)
@@ -189,9 +266,9 @@ def main():
 
     merged = []
     missing = []
-    for m, c in STRATS:
+    for m, c in strats:
         for sym in SYMBOLS_19:
-            cell = CELL_DIR / ("%s__%s.pkl" % (m, sym.replace("/", "")))
+            cell = cell_dir / ("%s__%s.pkl" % (m, sym.replace("/", "")))
             if not cell.exists():
                 missing.append((m, sym))
                 continue
@@ -199,9 +276,9 @@ def main():
                 merged.extend(pickle.load(f))
     if missing:
         print("[uyari] eksik hücreler: %s" % missing, flush=True)
-    with OUT.open("wb") as f:
+    with out.open("wb") as f:
         pickle.dump(merged, f)
-    print("[saved] %s — %d trade" % (OUT, len(merged)), flush=True)
+    print("[saved] %s — %d trade" % (out, len(merged)), flush=True)
 
 
 if __name__ == "__main__":

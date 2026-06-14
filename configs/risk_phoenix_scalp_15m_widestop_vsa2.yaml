@@ -184,7 +184,11 @@ stop_loss:
     atr_period: 14
     # DIFF vs 1d: 3.0 → 2.0 (scalp'te runner daha kısa sürer)
     # FIX 2026-05-29 (deploy): 2.0 → 3.0 (winner-let-run; runner'a daha geniş trail).
-    multiplier: 3.0
+    # REVERT 2026-06-02: 3.0 → 1.5. Characterization (champion_characterization.md §11,
+    #   55bps): trail 3.0 = edge-yıkıcı (−%1.1/ay, MaxDD −%66). BASELINE 1.5 = +%7.6/ay,
+    #   MaxDD −%18. Canlı daemon bu alanı OKUMUYOR (hardcoded _TRAIL_PCT=0.04) → bu sadece
+    #   landmine temizliği; backtest araçları bundan sonra doğrulanmış 1.5 okur.
+    multiplier: 1.5
     activate_after_R: 1.0
 
 take_profit:

@@ -108,12 +108,40 @@ H2/L2 ile aynı slot zamanları, ensemble katkısı zero — PROVISIONAL RED.
    spring riski yüksek (deeper test = ana trend exhaustion sinyali). Crypto'da
    "deeper pullback = failure" yapısal mı? Per-year split bul.
 
-## Sonuçlar (boş — backlog)
+## Sonuçlar (EXECUTED 2026-06-11 — yeni-alfa programı #1) — VERDICT: PASS (15m)
 
-- [ ] Backtest planlanmış sprint: TBD (SEC25 sonrası)
-- [ ] Standalone metrics
-- [ ] Orthogonality (H2/L2)
-- [ ] Per-symbol / per-year breakdown
+Detector: `src/price_action/strategies/grimes_abc_pullback.py` (vektörize features
++ bounded scan, lookahead-safe, `_default_manifest()`). Havuz: 19 sym, 15m + 4h@15m.
+Değerlendirme: hardened_v14 ilk geçiş (pyramid YOK, reblend YOK, +57bps honest,
+widestop sl>=0.025 & conf>=0.25, ay-bağımsız taze-$10k fixed-notional).
+
+**15m kolu (PASS):**
+- n_widestop=7233, aylık ort=+8.94% (med +9.23), neg=6/62 ay
+- TRAIN +8.50% (n=43) / OOS +9.93% (n=19, **0 negatif OOS ay**)
+- continuous-compounding DD = −12.4%, worst ay −4.89% (2024-03 BTC ATH)
+- honest meanR=+0.698, WR=0.480
+
+**Robustness (8/8 değerlendirildi, 7 PASS + 1 FLAG):**
+- shuffle sign-flip p<0.0005 ✓ | per-symbol 19/19 pozitif (train VE OOS) ✓
+- **lookahead-delay+1bar testi: edge %92 korundu → SIZINTI YOK** (yapısal drift,
+  same-bar artifact değil) ✓
+- orthogonality: aylık corr=+0.12, trade-(sym,hour) jaccard=0.019 vs mevcut kol,
+  0.012 vs brooks → **çok ortogonal** ✓ (slot bottleneck guard geçti)
+- max_R<10 gate: **FLAG** — %4 trade >10R (max 15.81), engine-native trend-runner
+  exit'leri, sızıntı değil ama R-kuyruğu şişkin → dürüstçe kaydedildi
+
+**4h kolu: ZAYIF (RED) —** aylık +1.15%, OOS +1.04% ama 5/18 neg OOS ay. 15m tercih.
+
+**DÜRÜSTLÜK UYARISI (Feynman):** +8.94%/ay bu metodolojinin (ay-bağımsız taze-$10k)
+ŞİŞİK ölçeğinde. Mevcut 15m kol AYNI ölçüde +9.34%/ay; canlı champion ~1-2%/ay
+(memory: backtest-compounding-inflation). Yani standalone canlı-eşdeğer edge
+champion mertebesinde, **TEK BAŞINA %25/ay yolu DEĞİL**. Gerçek değer: düşük
+korelasyon (0.12) → **ensemble diversifier** olarak yüksek kol değeri.
+
+**Karar:** Lab tournament'a 15m standalone diversifier adayı teslim. Sonuç JSON:
+`memory/researcher/backtest_results/2026-06-11-grimes-abc-two-leg-pullback.json`.
+CH-1 (H2/L2 overlap) çürüdü (jaccard 0.012). CH-2/CH-3 (n bottleneck) çürüdü
+(n=7233). CH-4 (deeper-retrace=failure) çürüdü (WR 0.48, 19/19 pozitif).
 
 ## Reproducibility (planlı)
 

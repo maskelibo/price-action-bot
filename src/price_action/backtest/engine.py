@@ -6,11 +6,11 @@ böylece live ile bit-identical sizing logic kullanılır.
 vectorbt (numba) varsa onun simülatörü kullanılır; yoksa saf-pandas
 fallback (yavaşlık karşılığında bağımlılık-bağımsız).
 """
+
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
@@ -27,10 +27,10 @@ from price_action.logging_config import logger
 from price_action.risk.sizing import AccountState, RiskOfficer
 from price_action.strategies.base import Strategy
 
-
 # =====================================================================
 # Result schema
 # =====================================================================
+
 
 class BacktestResult(BaseModel):
     """Backtest çıktısı."""
@@ -58,6 +58,7 @@ class BacktestResult(BaseModel):
 # Engine
 # =====================================================================
 
+
 class BacktestEngine:
     """Bar-by-bar backtest. Long & short, ATR-bazlı SL, R-multiple TP.
 
@@ -69,16 +70,18 @@ class BacktestEngine:
         *,
         risk_officer: RiskOfficer | None = None,
         store_load: Any | None = None,
-        runner_trail_mult: float = 1.5,   # v1.5 sec13.4 WIN: 1.0 -> 1.5 (artifact-free w/ time-exit)
+        runner_trail_mult: float = 1.5,  # v1.5 sec13.4 WIN: 1.0 -> 1.5 (artifact-free w/ time-exit)
         trail_activate_stage: int = 2,
         tp1_R: float = 1.0,
-        tp2_R: float = 1.5,                # v1.2 sec11b WIN: 2.0 -> 1.5
+        tp2_R: float = 1.5,  # v1.2 sec11b WIN: 2.0 -> 1.5
         tp1_close_pct: float = 0.30,
         tp2_close_pct: float = 0.30,
         runner_force_exit_method: str = "time",  # v1.5 sec13.4 WIN: artifact prevention
         runner_force_exit_bars: int | None = 30,  # v1.5 sec13.4 WIN: 30bar force exit
         runner_force_exit_ema: int = 20,
         force_exit_from_entry: bool = False,  # SEC21: pre-trail-stage force-exit
+        runner_trail_pct: float
+        | None = None,  # trail-pct grid: fiyat-bazli trail (None=ATR mod kullan)
     ) -> None:
         """`store_load` = lazy callable: (symbol, tf, start, end) -> DataFrame.
 
@@ -114,11 +117,16 @@ class BacktestEngine:
             Stage<trail_activate_stage trade'leri (TP1'e bile ulasamayanlar) icin
             time-based "stuck trade" guard saglar. No-lookahead: t bar karari
             t-1 close bilgisiyle alinir (EMA causal, time t-entry_bar arithmetic).
+        `runner_trail_pct`: None (default) = ATR-bazli trail (runner_trail_mult*ATR).
+            float (0.03..0.10) = fiyat-yuzde-bazli trail: peak*(1-pct) LONG, peak*(1+pct) SHORT.
+            Daemon'daki _TRAIL_PCT ile birebir eslesen mekanizma (backtest-live parity).
+            BE kilit: stage>=trail_activate_stage iken SL tabanı en az entry olur.
         """
         self.risk_officer = risk_officer
         self.store_load = store_load
         self.runner_trail_mult = float(runner_trail_mult)
         self.trail_activate_stage = int(trail_activate_stage)
+        self.runner_trail_pct = float(runner_trail_pct) if runner_trail_pct is not None else None
         self.tp1_R = float(tp1_R)
         self.tp2_R = float(tp2_R)
         self.tp1_close_pct = float(tp1_close_pct)
@@ -243,7 +251,9 @@ class BacktestEngine:
             equity_curve = pd.Series(initial_capital, index=full_index)
 
         trades_df = pd.DataFrame(all_trades)
-        trade_pnls = trades_df["realized_pnl_usdt"] if not trades_df.empty else pd.Series(dtype=float)
+        trade_pnls = (
+            trades_df["realized_pnl_usdt"] if not trades_df.empty else pd.Series(dtype=float)
+        )
 
         from price_action.backtest.metrics import compute_kpis
 
@@ -255,18 +265,16 @@ class BacktestEngine:
             our_total = equity_curve.iloc[-1] / equity_curve.iloc[0] - 1.0
             oracle_total = oracle_eq.iloc[-1] / oracle_eq.iloc[0] - 1.0
             kpis["oracle_baseline_return"] = oracle_total
-            kpis["oracle_efficiency"] = (
-                our_total / oracle_total if oracle_total > 0 else 0.0
-            )
+            kpis["oracle_efficiency"] = our_total / oracle_total if oracle_total > 0 else 0.0
             # Bayrak: oracle %200'ün altındaysa lookahead riski; üstündeyse normal
             if oracle_total < 1.0:
                 logger.bind(oracle=oracle_total).warning("oracle_baseline_low_alarm")
 
         manifest = self._build_manifest(strategy, universe, start, end, fees, slippage_bps)
         elapsed = time.perf_counter() - t0
-        self._log.bind(
-            strategy=strategy.name, n_trades=len(all_trades), elapsed=elapsed
-        ).info("backtest.run.done")
+        self._log.bind(strategy=strategy.name, n_trades=len(all_trades), elapsed=elapsed).info(
+            "backtest.run.done"
+        )
 
         return BacktestResult(
             strategy_name=strategy.name,
@@ -309,12 +317,9 @@ class BacktestEngine:
         signals_sorted = sorted(signals, key=lambda s: s.ts)
 
         # Force-exit precompute: EMA series for runner exit (sec13.4)
-        _force_exit_active = (
-            self.runner_force_exit_method != "atr_only"
-            and (
-                self.runner_force_exit_bars is not None
-                or self.runner_force_exit_method in ("ema_cross", "combined", "either")
-            )
+        _force_exit_active = self.runner_force_exit_method != "atr_only" and (
+            self.runner_force_exit_bars is not None
+            or self.runner_force_exit_method in ("ema_cross", "combined", "either")
         )
         ema_close_arr: np.ndarray | None = None
         if _force_exit_active and "close" in df.columns:
@@ -417,8 +422,16 @@ class BacktestEngine:
             tp2_R = self.tp2_R
             tp1_close_pct = self.tp1_close_pct
             tp2_close_pct = self.tp2_close_pct
-            tp1_price = entry_price + tp1_R * initial_R_dist if side == "long" else entry_price - tp1_R * initial_R_dist
-            tp2_price = entry_price + tp2_R * initial_R_dist if side == "long" else entry_price - tp2_R * initial_R_dist
+            tp1_price = (
+                entry_price + tp1_R * initial_R_dist
+                if side == "long"
+                else entry_price - tp1_R * initial_R_dist
+            )
+            tp2_price = (
+                entry_price + tp2_R * initial_R_dist
+                if side == "long"
+                else entry_price - tp2_R * initial_R_dist
+            )
 
             qty1 = qty * tp1_close_pct  # TP1 partial
             qty2 = qty * tp2_close_pct  # TP2 partial
@@ -445,7 +458,9 @@ class BacktestEngine:
                     mfe = max(mfe, (hi - entry_price) / entry_price)
                     peak = max(peak, hi)
                     if lo <= current_sl:
-                        remaining = qty - qty1 * (1 if stage >= 1 else 0) - qty2 * (1 if stage >= 2 else 0)
+                        remaining = (
+                            qty - qty1 * (1 if stage >= 1 else 0) - qty2 * (1 if stage >= 2 else 0)
+                        )
                         partial_pnls.append((j, remaining, current_sl * (1 - slip)))
                         exit_idx = j
                         break
@@ -485,15 +500,25 @@ class BacktestEngine:
                         elif method_pre == "either":
                             should_exit_pre = time_hit_pre or ema_hit_pre
                         if should_exit_pre:
-                            remaining = qty - qty1 * (1 if stage >= 1 else 0) - qty2 * (1 if stage >= 2 else 0)
+                            remaining = (
+                                qty
+                                - qty1 * (1 if stage >= 1 else 0)
+                                - qty2 * (1 if stage >= 2 else 0)
+                            )
                             if remaining > 0:
                                 partial_pnls.append((j, remaining, close_j * (1 - slip)))
                             exit_idx = j
                             break
                     if stage >= self.trail_activate_stage:
-                        # Trail: max(+1R, peak - mult*ATR) — runner kar lock + trail
-                        trail_sl = peak - self.runner_trail_mult * atr_for_trail
-                        current_sl = max(current_sl, tp1_price, trail_sl)
+                        # Trail: ATR-bazli (default) veya fiyat-yuzde-bazli (runner_trail_pct)
+                        if self.runner_trail_pct is not None:
+                            # Fiyat-yuzde trail: BE kilidi = entry (daemon _desired_sl_price parity)
+                            trail_sl = peak * (1.0 - self.runner_trail_pct)
+                            current_sl = max(current_sl, entry_price, trail_sl)
+                        else:
+                            # ATR trail (mevcut davranis): TP1 klamp korunuyor
+                            trail_sl = peak - self.runner_trail_mult * atr_for_trail
+                            current_sl = max(current_sl, tp1_price, trail_sl)
                         # sec13.4: runner force-exit (artifact prevention)
                         if _force_exit_active:
                             if trail_active_bar is None:
@@ -516,7 +541,11 @@ class BacktestEngine:
                             elif method == "either":
                                 should_exit = time_hit or ema_hit
                             if should_exit:
-                                remaining = qty - qty1 * (1 if stage >= 1 else 0) - qty2 * (1 if stage >= 2 else 0)
+                                remaining = (
+                                    qty
+                                    - qty1 * (1 if stage >= 1 else 0)
+                                    - qty2 * (1 if stage >= 2 else 0)
+                                )
                                 if remaining > 0:
                                     partial_pnls.append((j, remaining, close_j * (1 - slip)))
                                 exit_idx = j
@@ -526,7 +555,9 @@ class BacktestEngine:
                     mfe = min(mfe, (lo - entry_price) / entry_price)
                     peak = min(peak, lo)
                     if hi >= current_sl:
-                        remaining = qty - qty1 * (1 if stage >= 1 else 0) - qty2 * (1 if stage >= 2 else 0)
+                        remaining = (
+                            qty - qty1 * (1 if stage >= 1 else 0) - qty2 * (1 if stage >= 2 else 0)
+                        )
                         partial_pnls.append((j, remaining, current_sl * (1 + slip)))
                         exit_idx = j
                         break
@@ -563,14 +594,25 @@ class BacktestEngine:
                         elif method_pre == "either":
                             should_exit_pre = time_hit_pre or ema_hit_pre
                         if should_exit_pre:
-                            remaining = qty - qty1 * (1 if stage >= 1 else 0) - qty2 * (1 if stage >= 2 else 0)
+                            remaining = (
+                                qty
+                                - qty1 * (1 if stage >= 1 else 0)
+                                - qty2 * (1 if stage >= 2 else 0)
+                            )
                             if remaining > 0:
                                 partial_pnls.append((j, remaining, close_j * (1 + slip)))
                             exit_idx = j
                             break
                     if stage >= self.trail_activate_stage:
-                        trail_sl = peak + self.runner_trail_mult * atr_for_trail
-                        current_sl = min(current_sl, tp1_price, trail_sl)
+                        # Trail: ATR-bazli (default) veya fiyat-yuzde-bazli (runner_trail_pct)
+                        if self.runner_trail_pct is not None:
+                            # Fiyat-yuzde trail: BE kilidi = entry (daemon _desired_sl_price parity)
+                            trail_sl = peak * (1.0 + self.runner_trail_pct)
+                            current_sl = min(current_sl, entry_price, trail_sl)
+                        else:
+                            # ATR trail (mevcut davranis): TP1 klamp korunuyor
+                            trail_sl = peak + self.runner_trail_mult * atr_for_trail
+                            current_sl = min(current_sl, tp1_price, trail_sl)
                         if _force_exit_active:
                             if trail_active_bar is None:
                                 trail_active_bar = j
@@ -592,7 +634,11 @@ class BacktestEngine:
                             elif method == "either":
                                 should_exit = time_hit or ema_hit
                             if should_exit:
-                                remaining = qty - qty1 * (1 if stage >= 1 else 0) - qty2 * (1 if stage >= 2 else 0)
+                                remaining = (
+                                    qty
+                                    - qty1 * (1 if stage >= 1 else 0)
+                                    - qty2 * (1 if stage >= 2 else 0)
+                                )
                                 if remaining > 0:
                                     partial_pnls.append((j, remaining, close_j * (1 + slip)))
                                 exit_idx = j
@@ -618,7 +664,9 @@ class BacktestEngine:
                 fee_total += (entry_price + ep) * q * fees.get("taker", 0.00075)
                 total_qty_closed += q
                 weighted_exit_sum += ep * q
-            exit_price = weighted_exit_sum / total_qty_closed if total_qty_closed > 0 else entry_price
+            exit_price = (
+                weighted_exit_sum / total_qty_closed if total_qty_closed > 0 else entry_price
+            )
             net = gross - fee_total
             initial_risk = abs(entry_price - sl_price) * qty
             r_multiple = net / initial_risk if initial_risk > 0 else 0.0
@@ -629,8 +677,12 @@ class BacktestEngine:
                 venue=sig.venue,
                 symbol=sig.symbol,
                 side=side,  # type: ignore[arg-type]
-                entry_ts=entry_ts.to_pydatetime() if hasattr(entry_ts, "to_pydatetime") else datetime.now(timezone.utc),
-                exit_ts=exit_ts.to_pydatetime() if hasattr(exit_ts, "to_pydatetime") else datetime.now(timezone.utc),
+                entry_ts=entry_ts.to_pydatetime()
+                if hasattr(entry_ts, "to_pydatetime")
+                else datetime.now(UTC),
+                exit_ts=exit_ts.to_pydatetime()
+                if hasattr(exit_ts, "to_pydatetime")
+                else datetime.now(UTC),
                 entry_price=entry_price,
                 exit_price=exit_price,
                 quantity=qty,
@@ -706,12 +758,8 @@ class BacktestEngine:
         slippage_bps: float,
     ) -> ReproducibilityManifest:
         config_hash = stable_hash(strategy.manifest.model_dump(mode="json"))
-        data_hash = stable_hash(
-            {"universe": sorted(universe), "start": start, "end": end}
-        )
-        code_hash = stable_hash(
-            {"strategy": strategy.name, "version": strategy.version}
-        )
+        data_hash = stable_hash({"universe": sorted(universe), "start": start, "end": end})
+        code_hash = stable_hash({"strategy": strategy.name, "version": strategy.version})
         return ReproducibilityManifest(
             git_hash=_safe_git_hash(),
             config_hash=config_hash,
@@ -723,6 +771,7 @@ class BacktestEngine:
 # =====================================================================
 # helpers
 # =====================================================================
+
 
 def _default_loader(symbol: str, tf: str, start: datetime, end: datetime) -> pd.DataFrame:
     """OHLCVStore default loader. Test ortamında DB yoksa boş döner."""
@@ -742,9 +791,7 @@ def _safe_git_hash() -> str:
     try:
         import subprocess
 
-        out = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
-        )
+        out = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL)
         return out.decode().strip()[:40]
     except Exception:
         return "no_git"

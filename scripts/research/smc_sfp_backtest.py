@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
@@ -70,7 +71,9 @@ UNIVERSE = [
     "TRX",
 ]
 
-FEE_RT_BPS = 55.0  # round-trip fees+slippage in basis points
+FEE_RT_BPS = float(
+    os.environ.get("PA_FEE_RT_BPS", "55.0")
+)  # round-trip fees+slippage in bps (env-overridable for fee-sensitivity study)
 
 
 # --------------------------------------------------------------------------- #
@@ -140,6 +143,16 @@ def load_ohlcv(symbol: str, tf: str) -> pd.DataFrame | None:
 # --------------------------------------------------------------------------- #
 # Detectors (causal)
 # --------------------------------------------------------------------------- #
+def _atr(df, period):
+    h = df["high"].values
+    l = df["low"].values
+    c = df["close"].values
+    pc = np.concatenate([[c[0]], c[:-1]])
+    tr = np.maximum(h - l, np.maximum(np.abs(h - pc), np.abs(l - pc)))
+    atr = pd.Series(tr).rolling(period, min_periods=1).mean().values
+    return atr
+
+
 def detect_swings(df: pd.DataFrame, L: int):
     """+/-L fractal swings. A swing high at i requires high[i] == max(high[i-L:i+L+1]).
     A pivot is only KNOWN (confirmed) at bar i+L. We return per-pivot-index arrays plus
@@ -300,6 +313,21 @@ def _ob_quality(df, ob, break_idx, L, min_gap_frac, direction):
     return False
 
 
+def _swing_leg_atr(h, l, pivot, kind, L, atr):
+    """Size of the swing leg at `pivot` in ATR units. For a swing high: high[pivot] minus
+    the lowest low in the L bars leading up to it (the up-leg into the pivot). Mirror for low.
+    Causal: uses only bars at/before the pivot."""
+    a = atr[pivot] if atr[pivot] > 0 else np.nan
+    if not np.isfinite(a) or a <= 0:
+        return 0.0
+    lo = max(0, pivot - L)
+    if kind == "high":
+        leg = h[pivot] - l[lo : pivot + 1].min()
+    else:
+        leg = h[lo : pivot + 1].max() - l[pivot]
+    return float(leg / a)
+
+
 def detect_sfp(df: pd.DataFrame, L: int, sweep_lookback: int):
     """SFP: bar i wicks beyond the most recent prior CONFIRMED fractal swing
     low/high within sweep_lookback bars, but CLOSES back inside.
@@ -344,6 +372,44 @@ def detect_sfp(df: pd.DataFrame, L: int, sweep_lookback: int):
     sh_lvl = pd.Series(avail_sh_level).ffill().values
     sh_piv = pd.Series(np.where(avail_sh_pivot < 0, np.nan, avail_sh_pivot)).ffill().values
 
+    atr = _atr(df, 14)
+    o = df["open"].values
+    # For selectivity (lever #2) we need, per decision bar i: how many CONFIRMED swing
+    # lows/highs sit within eqh_tol of the swept level (a "pool"). We precompute, for each
+    # confirmation time, the running set; but tolerance is param-dependent so we instead
+    # carry the list of (confirmed-by-i) swing levels and count at signal time using a wide
+    # tol that the candidate stage can re-threshold. To keep it cheap+causal we count, among
+    # the last `sweep_lookback` confirmed swings of that side, how many are within 0.25*ATR
+    # of the swept level (a permissive pool radius) and also store the raw nearest-neighbour
+    # distance so the candidate stage can apply the exact eqh_tol_atr threshold.
+
+    def _pool_features(piv_idx, side, decision_i, swept):
+        # confirmed swings of `side` with pivot <= decision_i-1-L, within sweep_lookback
+        if side == "low":
+            cand = sl_idx
+            levs = l
+        else:
+            cand = sh_idx
+            levs = h
+        cutoff = decision_i - 1 - L
+        lb0 = decision_i - sweep_lookback
+        sel = cand[(cand <= cutoff) & (cand >= lb0)]
+        if sel.size == 0:
+            return 0, np.inf, 0.0
+        a = atr[decision_i] if atr[decision_i] > 0 else np.nan
+        vals = levs[sel]
+        d = np.abs(vals - swept)
+        # nearest OTHER swing (exclude the swept one itself, dist 0)
+        other = d[d > 0]
+        nn = float(other.min() / a) if (other.size and np.isfinite(a) and a > 0) else np.inf
+        # pool count: swings within 0.30*ATR of swept (permissive; candidate re-thresholds)
+        if np.isfinite(a) and a > 0:
+            n_pool = int((d <= 0.30 * a).sum())
+        else:
+            n_pool = 1
+        leg = _swing_leg_atr(h, l, int(piv_idx), side, L, atr)
+        return n_pool, nn, leg
+
     signals = []
     for i in range(L + 1, n):
         lb_start = i - sweep_lookback
@@ -351,6 +417,10 @@ def detect_sfp(df: pd.DataFrame, L: int, sweep_lookback: int):
         if not np.isnan(sl_lvl[i]) and sl_piv[i] >= lb_start:
             swept = sl_lvl[i]
             if l[i] < swept and c[i] > swept:
+                n_pool, nn_atr, leg_atr = _pool_features(sl_piv[i], "low", i, swept)
+                # displacement: how far past the swept level did the close reclaim, vs wick depth
+                wick_depth = swept - l[i]
+                disp = (c[i] - swept) / wick_depth if wick_depth > 0 else 0.0
                 signals.append(
                     {
                         "idx": i,
@@ -358,12 +428,19 @@ def detect_sfp(df: pd.DataFrame, L: int, sweep_lookback: int):
                         "swept_level": float(swept),
                         "swept_pivot": int(sl_piv[i]),
                         "wick_tip": float(l[i]),
+                        "n_pool": n_pool,
+                        "nn_atr": float(nn_atr),
+                        "leg_atr": leg_atr,
+                        "disp": float(disp),
                     }
                 )
         # bearish sweep of swing high
         if not np.isnan(sh_lvl[i]) and sh_piv[i] >= lb_start:
             swept = sh_lvl[i]
             if h[i] > swept and c[i] < swept:
+                n_pool, nn_atr, leg_atr = _pool_features(sh_piv[i], "high", i, swept)
+                wick_depth = h[i] - swept
+                disp = (swept - c[i]) / wick_depth if wick_depth > 0 else 0.0
                 signals.append(
                     {
                         "idx": i,
@@ -371,6 +448,10 @@ def detect_sfp(df: pd.DataFrame, L: int, sweep_lookback: int):
                         "swept_level": float(swept),
                         "swept_pivot": int(sh_piv[i]),
                         "wick_tip": float(h[i]),
+                        "n_pool": n_pool,
+                        "nn_atr": float(nn_atr),
+                        "leg_atr": leg_atr,
+                        "disp": float(disp),
                     }
                 )
     return signals
@@ -389,20 +470,33 @@ class Params:
     use_msb_filter: bool = False
     entry: str = "A"  # A=SFP close, B=next confirmation bar close
     sl_buffer_atr: float = 0.10
-    tp_mode: str = "fixed"  # fixed | structure
+    tp_mode: str = "fixed"  # fixed | structure | trail
     R: float = 2.0
     max_hold: int = 48
     atr_period: int = 14
-
-
-def _atr(df, period):
-    h = df["high"].values
-    l = df["low"].values
-    c = df["close"].values
-    pc = np.concatenate([[c[0]], c[:-1]])
-    tr = np.maximum(h - l, np.maximum(np.abs(h - pc), np.abs(l - pc)))
-    atr = pd.Series(tr).rolling(period, min_periods=1).mean().values
-    return atr
+    # --- ITER-2 lever #1: ATR-floored stop ---
+    # SL distance = max(sweep_wick_dist + buffer, k_atr_floor * ATR). k=0 => legacy wick stop.
+    k_atr_floor: float = 0.0
+    # --- ITER-2 lever #2: selective SFP ---
+    require_pool: bool = False  # swept level must be an EQH/EQL cluster OR a significant swing
+    eqh_tol_atr: float = 0.10  # two highs/lows within this*ATR count as "equal" (a pool)
+    min_leg_atr: float = (
+        0.0  # if >0: lone fractal must have a leg >= this*ATR to qualify as significant
+    )
+    require_displacement: bool = (
+        False  # reclaim bar must show displacement (strong body close past 50%)
+    )
+    disp_body_frac: float = 0.5  # close must travel >= this frac of the swept range back inside
+    # --- ITER-2 lever #3: strict inside-zone confluence + advanced exits ---
+    confluence_inside: bool = (
+        False  # require wick INSIDE the OB/FVG zone (distance 0), not within 0.5 ATR
+    )
+    fresh_zone_only: bool = False  # zone must be unmitigated (no prior bar traded through it)
+    # advanced exit (tp_mode='trail'): partial at R1, move to BE, ATR-trail the rest
+    partial_R: float = 1.0
+    partial_frac: float = 0.5  # fraction of position taken off at partial_R
+    be_after_partial: bool = True
+    trail_atr: float = 2.0  # ATR-multiple trailing stop on the runner
 
 
 _DETECT_CACHE: dict = {}
@@ -455,11 +549,23 @@ def _build_candidates(df: pd.DataFrame, p: Params):
         p.use_msb_filter,
         p.entry,
         round(p.confluence_dist_atr, 4),
+        # iter-2 selectivity / confluence params (affect which candidates survive)
+        p.require_pool,
+        round(p.eqh_tol_atr, 4),
+        round(p.min_leg_atr, 4),
+        p.require_displacement,
+        round(p.disp_body_frac, 4),
+        p.confluence_inside,
+        p.fresh_zone_only,
+        round(p.k_atr_floor, 4),
+        round(p.sl_buffer_atr, 4),
     )
     if key in _CAND_CACHE:
         return _CAND_CACHE[key]
 
     c = df["close"].values
+    hh_arr = df["high"].values
+    ll_arr = df["low"].values
     atr = _atr(df, p.atr_period)
     n = len(df)
     sfp, msb_dir, obs, fvg = _detect_all(df, p)
@@ -483,10 +589,38 @@ def _build_candidates(df: pd.DataFrame, p: Params):
             cur = msb_dir[i]
         struct[i] = cur
 
-    e_idx_l, ent_l, tip_l, base_dir_l, atr_l = [], [], [], [], []
+    def _zone_fresh(zi, decision_i):
+        """Unmitigated: no bar in (z_f, decision_i) traded INTO the zone band [lo,hi].
+        Causal (only bars <= decision_i-1 examined)."""
+        f0 = int(z_f[zi]) + 1
+        if f0 >= decision_i:
+            return True
+        lo, hi = z_lo[zi], z_hi[zi]
+        seg_hi = hh_arr[f0:decision_i]
+        seg_lo = ll_arr[f0:decision_i]
+        # mitigated if any bar's range overlaps the zone band
+        touched = (seg_lo <= hi) & (seg_hi >= lo)
+        return not bool(touched.any())
+
+    e_idx_l, ent_l, tip_l, base_dir_l, atr_l, sl_l = [], [], [], [], [], []
     for s in sfp:
         i = s["idx"]
         direction = s["dir"]
+
+        # --- lever #2a: selective SFP — require a genuine liquidity pool / significant swing ---
+        if p.require_pool:
+            is_pool = (s["n_pool"] >= 2) or (s["nn_atr"] <= p.eqh_tol_atr)
+            is_signif = (p.min_leg_atr > 0) and (s["leg_atr"] >= p.min_leg_atr)
+            if not (is_pool or is_signif):
+                continue
+        elif p.min_leg_atr > 0:
+            if s["leg_atr"] < p.min_leg_atr:
+                continue
+
+        # --- lever #2c: displacement confirmation on the reclaim bar ---
+        if p.require_displacement and s["disp"] < p.disp_body_frac:
+            continue
+
         if p.entry == "A":
             e_idx = i
             entry_price = c[i]
@@ -497,29 +631,43 @@ def _build_candidates(df: pd.DataFrame, p: Params):
             entry_price = c[i + 1]
         a = atr[i] if atr[i] > 0 else (c[i] * 0.005)
 
-        if p.confluence and z_kind.size:
+        # --- lever #2b: HTF/MSB structure bias filter ---
+        if p.use_msb_filter and struct[i] != direction:
+            continue
+
+        # --- lever #3: confluence (inside-zone strict OR distance-tolerant), optional freshness ---
+        if p.confluence:
+            if not z_kind.size:
+                continue
             want = 1 if direction == 1 else -1
             tip = s["wick_tip"]
             m = (z_f <= i) & (z_kind == want)
             if not m.any():
                 continue
-            zlo = z_lo[m]
-            zhi = z_hi[m]
+            idxs = np.where(m)[0]
+            zlo = z_lo[idxs]
+            zhi = z_hi[idxs]
             inside = (zlo <= tip) & (tip <= zhi)
-            d = np.where(inside, 0.0, np.minimum(np.abs(tip - zlo), np.abs(tip - zhi)))
-            if not (d <= p.confluence_dist_atr * a).any():
+            if p.confluence_inside:
+                hit = inside
+            else:
+                d = np.where(inside, 0.0, np.minimum(np.abs(tip - zlo), np.abs(tip - zhi)))
+                hit = d <= p.confluence_dist_atr * a
+            if p.fresh_zone_only and hit.any():
+                hit = np.array([hit[k] and _zone_fresh(idxs[k], i) for k in range(len(idxs))])
+            if not hit.any():
                 continue
-        elif p.confluence and not z_kind.size:
-            continue
 
-        if p.use_msb_filter and struct[i] != direction:
-            continue
+        # --- lever #1: ATR-floored stop (store the symmetric MAGNITUDE so shuffle can flip it) ---
+        wick_sl_dist = abs(entry_price - s["wick_tip"]) + p.sl_buffer_atr * a
+        sl_dist = max(wick_sl_dist, p.k_atr_floor * a) if p.k_atr_floor > 0 else wick_sl_dist
 
         e_idx_l.append(e_idx)
         ent_l.append(entry_price)
         tip_l.append(s["wick_tip"])
         base_dir_l.append(direction)
         atr_l.append(a)
+        sl_l.append(sl_dist)
 
     cand = dict(
         e_idx=np.array(e_idx_l, dtype=int),
@@ -527,6 +675,7 @@ def _build_candidates(df: pd.DataFrame, p: Params):
         tip=np.array(tip_l, dtype=float),
         base_dir=np.array(base_dir_l, dtype=np.int8),
         atr=np.array(atr_l, dtype=float),
+        sl_dist=np.array(sl_l, dtype=float),
         z_kind=z_kind,
         z_mid=z_mid,
         z_f=z_f,
@@ -535,6 +684,79 @@ def _build_candidates(df: pd.DataFrame, p: Params):
         _CAND_CACHE.clear()
     _CAND_CACHE[key] = cand
     return cand
+
+
+def _backtest_trail(df, p, e_idx_a, ent_a, dir_a, sl_a, risk_safe, atr_a, fee_R_a, valid, n):
+    """Path-dependent exit: partial at partial_R -> BE -> ATR-trail the runner.
+    Scalar per-trade scan over [e+1, e+max_hold]. Conservative: SL-first on same-bar ties;
+    partial fill assumed at the partial target price (not better). Fees: full round-trip fee_R
+    charged on the whole position (conservative)."""
+    h = df["high"].values
+    l = df["low"].values
+    c = df["close"].values
+    ts_index = df.index
+    H = p.max_hold
+    trades = []
+    for k in range(len(e_idx_a)):
+        if not valid[k]:
+            continue
+        e = int(e_idx_a[k])
+        d = int(dir_a[k])
+        ent = ent_a[k]
+        risk = risk_safe[k]
+        a = atr_a[k]
+        sl = sl_a[k]
+        partial_price = ent + d * p.partial_R * risk
+        took_partial = False
+        partial_R_realized = 0.0
+        exit_bar = e
+        exit_R = None  # runner R (in R units) at final exit
+        for step in range(1, H + 1):
+            j = e + step
+            if j >= n:
+                break
+            exit_bar = j
+            hi, lo = h[j], l[j]
+            # --- SL check first (conservative) ---
+            sl_hit = (lo <= sl) if d == 1 else (hi >= sl)
+            if sl_hit:
+                runner_R = ((sl - ent) / risk) * d
+                exit_R = runner_R
+                break
+            # --- partial target ---
+            if not took_partial:
+                pt_hit = (hi >= partial_price) if d == 1 else (lo <= partial_price)
+                if pt_hit:
+                    took_partial = True
+                    partial_R_realized = p.partial_frac * p.partial_R
+                    if p.be_after_partial:
+                        sl = ent  # move stop to breakeven
+                    # after taking partial, start trailing from this bar's close
+                    new_sl = (c[j] - p.trail_atr * a) if d == 1 else (c[j] + p.trail_atr * a)
+                    sl = max(sl, new_sl) if d == 1 else min(sl, new_sl)
+                    continue
+            # --- trail the runner once partial taken ---
+            if took_partial:
+                new_sl = (c[j] - p.trail_atr * a) if d == 1 else (c[j] + p.trail_atr * a)
+                sl = max(sl, new_sl) if d == 1 else min(sl, new_sl)
+        if exit_R is None:
+            # timed/last-bar close exit on runner
+            cj = c[exit_bar]
+            exit_R = ((cj - ent) / risk) * d
+        runner_frac = (1.0 - p.partial_frac) if took_partial else 1.0
+        R_gross = partial_R_realized + runner_frac * exit_R
+        R_net = R_gross - fee_R_a[k]
+        trades.append(
+            {
+                "entry_ts": ts_index[e],
+                "exit_ts": ts_index[int(exit_bar)],
+                "dir": d,
+                "R_gross": float(R_gross),
+                "R_net": float(R_net),
+                "fee_R": float(fee_R_a[k]),
+            }
+        )
+    return trades
 
 
 def backtest_symbol(df: pd.DataFrame, p: Params, randomize_dir: np.random.Generator | None = None):
@@ -564,10 +786,21 @@ def backtest_symbol(df: pd.DataFrame, p: Params, randomize_dir: np.random.Genera
         dir_a = cand["base_dir"]
 
     # ---- 2) SL / risk / TP (vectorized) ----
-    sl_a = np.where(dir_a == 1, tip_a - p.sl_buffer_atr * atr_a, tip_a + p.sl_buffer_atr * atr_a)
-    risk_a = np.where(dir_a == 1, ent_a - sl_a, sl_a - ent_a)
+    # ITER-2: SL distance is the precomputed symmetric magnitude (wick+buffer floored at k*ATR).
+    sl_dist_a = cand["sl_dist"]
+    sl_a = ent_a - dir_a * sl_dist_a
+    risk_a = sl_dist_a.copy()
     valid = risk_a > 0
     risk_safe = np.where(valid, risk_a, np.nan)  # avoid div-by-zero warnings
+
+    fee_frac = FEE_RT_BPS / 10000.0
+    fee_R_a = fee_frac / (risk_safe / ent_a)
+
+    # ---- trail exit mode (partial-TP + BE + ATR-trail), path-dependent scalar loop ----
+    if p.tp_mode == "trail":
+        return _backtest_trail(
+            df, p, e_idx_a, ent_a, dir_a, sl_a, risk_safe, atr_a, fee_R_a, valid, n
+        )
 
     if p.tp_mode == "fixed":
         tp_a = ent_a + dir_a * p.R * risk_a
@@ -640,8 +873,6 @@ def backtest_symbol(df: pd.DataFrame, p: Params, randomize_dir: np.random.Genera
     timed_R = np.where(dir_a == 1, (cc_at - ent_a), (ent_a - cc_at)) / risk_safe
     R_gross = np.where(sl_wins, -1.0, np.where(tp_wins, tp_R, timed_R))
 
-    fee_frac = FEE_RT_BPS / 10000.0
-    fee_R_a = fee_frac / (risk_safe / ent_a)
     R_net = R_gross - fee_R_a
     exit_bar = np.clip(e_idx_a + 1 + exit_step, 0, n - 1)
 
