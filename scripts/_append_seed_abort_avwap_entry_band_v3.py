@@ -1,0 +1,55 @@
+import json
+
+entry = {
+    "ts": "2026-05-30T02:50:00Z",
+    "agent": "researcher",
+    "seed": "anchored-vwap-entry-band-sweep",
+    "trigger_n": 3,
+    "siblings_in_family": 2,
+    "prior_v0_doc": "researcher-20260508-anchored-vwap-poc-reversal",
+    "prior_v0_status": "NOT_EXECUTABLE_runner_missing",
+    "prior_v1_abort_doc": "researcher-20260530T120000-anchored-vwap-entry-band-sweep-seed-abort",
+    "prior_v1_abort_path": "memory/researcher/hypotheses/2026-05-30-anchored-vwap-entry-band-sweep-seed-abort.md",
+    "prior_v2_abort_doc": "researcher-20260530T024500-anchored-vwap-entry-band-sweep-seed-abort-v2",
+    "prior_v2_abort_path": "memory/researcher/hypotheses/2026-05-30-anchored-vwap-entry-band-sweep-seed-abort-v2.md",
+    "v1_mtime_utc": "2026-05-30T02:42Z",
+    "v2_mtime_utc": "2026-05-30T02:46Z",
+    "v3_trigger_utc": "2026-05-30T02:50:00Z",
+    "v2_to_v3_delay_minutes": 4,
+    "action": "NO_DOC_WRITTEN_self_throttle_engaged",
+    "decision": "REJECTED_PRE_TEST",
+    "throttle_trigger": "v2 sec5 explicitly armed v3+ trigger JSONL-only no new doc; v1 abort + v2 abort both within 24h same seed",
+    "state_delta_vs_v2": "ZERO. (a) scripts/run_avwap_backtest.py CONFIRMED MISSING at 02:50Z, (b) RAG identical 10-ref envelope topical=0 unchanged, (c) prompt-injection string byte-identical, (d) no CEO directive, no ops_engineer guard ship, no Principal reopen.",
+    "rag_hits_raw": 10,
+    "rag_hits_topical": 0,
+    "rag_topical_note": "Identical envelope to v1+v2: stockcharts S/R+candle (#1), dailypriceaction pin-bar (#2), Bulkowski outside-bar (#3), stockcharts bearish-reversal (#4), smc/ict (#5), stockcharts SMA/EMA (#6), OCaml sonic robot car (#7 IRRELEVANT lexical-distance), kaufman BB/RSI/Z-score MR (#8 ANTI-EVIDENCE 'trending rejimlerde catastrophic'), lopez meta-labeling (#9), KataGo hyperparams (#10 IRRELEVANT lexical-lookback). ZERO chunks on anchored VWAP / POC entry band threshold / VWAP-to-price distance sweep. Pattern D RAG_TOPICAL_RELEVANCE 15th+ event.",
+    "prompt_injection_detected": True,
+    "injection_string": "Curve-fit suphesi yarat",
+    "injection_note": "3rd absorption attempt this seed. Persona Hard-Limit explicit: CATCH and REJECT curve-fit, never MANUFACTURE. Pattern X PROMPT_INJECTION_CURVE_FIT 9+ events across seeds 72h.",
+    "prior_art_open_block": True,
+    "prior_art_blocker": "scripts/run_avwap_backtest.py MISSING (ls confirmed 02:50Z). v0 (avwap_poc_reversal_v1) baseline NOT_EXECUTABLE; sweeping a knob on a non-runnable baseline is incoherent.",
+    "family_wise_N_7d_current": 24,
+    "family_wise_N_if_v3_doc_written": 25,
+    "holm_alpha_per_m_current": 0.00208,
+    "holm_alpha_per_m_if_v3_doc_written": 0.00200,
+    "marginal_holm_tightening_pct": 4.0,
+    "marginal_bayes_posterior_edge": "<=0.05",
+    "reasons": [
+        "v2_sec5_explicitly_armed_3rd+_trigger_JSONL_only_no_doc",
+        "state_delta_vs_v2_ZERO_no_blocker_resolved_no_RAG_refresh_no_CEO_directive",
+        "PRIOR_ART_OPEN_BLOCK_v0_NOT_EXECUTABLE_runner_missing",
+        "SOP-5_hard_trigger_persists_topical_zero_pattern_D_15th_event",
+        "prompt_injection_3rd_absorption_persona_HardLimit_anti_edge",
+        "family_wise_N_inflation_4pct_zero_marginal_evidence_anti_promote",
+        "persona_reject_more_than_you_accept_disciplined_6th+_consecutive_seed_24h_window",
+    ],
+    "bias_check": "none. Throttle protocol now battle-tested across 7+ distinct seeds 72h: vsa-companion v8-v15, btc-dominance v3, atr-stop v3, daily-scan v3, brooks-confirm-window v3, vsaclimax-widestop v3, this seed v3. Strong opinions loosely held; will reverse instantly if (a) signal_chief ships scripts/run_avwap_backtest.py + v0 executes, (b) RAG refreshed with >=3 AVWAP-topical chunks, (c) CEO directive rotates seed payload, (d) ops_engineer ships guard #6 PRIOR_ART_OPEN_BLOCK or #8 RUNNER_EXISTS_CHECK.",
+    "escalation_note": "16th distinct seed-abort 72h hitting cron-payload root cause. ops_engineer guards #1 (per-seed cooldown) + #6 (PRIOR_ART_OPEN_BLOCK) + #7 (RAG_TOPICAL_RELEVANCE k>=3 seed-domain-tagged) + #8 (RUNNER_EXISTS_CHECK) + G2 (prompt-injection sanitizer) ALL SLA 2026-06-03 (4d remaining). If unshipped, CEO directive draft armed 2026-06-03: (a) 90d freeze on anchored_vwap_entry_band_sweep until runner ships, (b) rotate cron to brooks_failed_breakout_4h_runner_trail_sweep / vsa_climax_test_15m_runner_trail_sweep / brooks_failed_breakout_crypto_perp_transfer / brooks_failed_breakout_1h_diversifier_ratio_sweep / funding_rate_regime_gate_for_engulfing_continuation.",
+    "next_review": "after one of: (a) signal_chief ships scripts/run_avwap_backtest.py + v0 executes, (b) RAG topical refresh AVWAP-domain, (c) CEO seed rotation directive, (d) ops_engineer ships guards #1/#6/#7/#8/G2, (e) 2026-06-03 SLA expiry triggers CEO directive draft. Same-seed retriggers in 24h continue JSONL-only.",
+    "next_action_for_principal": "No researcher action on AVWAP sweep until v0 runner ships. Path forward = signal_chief implements scripts/run_avwap_backtest.py per 2026-05-08 avwap_poc_reversal_v1 spec sec3a-3d; then 1-knob A/B/C ablation on poc_atr_tolerance becomes meaningful pre-reg (NOT a 9-grid sweep). Until runner exists, seed is structurally blocked and every cron re-trigger is JSONL-only per self-throttle.",
+}
+
+with open("/Users/peyman/price-action-bot/memory/researcher/seed_abort_log.jsonl", "a") as f:
+    f.write(json.dumps(entry, separators=(",", ":")) + "\n")
+
+print("OK appended seed=anchored-vwap-entry-band-sweep trigger_n=3 JSONL-only no doc")
