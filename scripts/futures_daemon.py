@@ -1042,7 +1042,8 @@ def position_check():
             # yok (TP artıkları heal'i bloklamaz; SL hâlâ borsadaysa pozisyon
             # stale-read olabilir → heal bekler, çıplaklaştırma riski yok).
             _open_sigs = _heal_con.execute("""
-                SELECT s.signal_id, s.symbol, p.sl_order_id
+                SELECT s.signal_id, s.symbol, p.sl_order_id,
+                       s.ts, s.side, s.strategy, s.fill_price, s.fill_qty, s.sl_price
                 FROM futures_signals s
                 LEFT JOIN futures_protection_orders p ON p.signal_id = s.signal_id
                 WHERE s.status='filled'
@@ -1055,7 +1056,10 @@ def position_check():
                 if abs(float(_p.get("contracts", 0) or 0)) > 1e-9:
                     _pos_syms_now.add(_p.get("symbol", "").split(":")[0].replace("/", ""))
             _seen_heal: set[str] = set()
-            for _sid, _ssym, _sl_oid in _open_sigs:
+            for (
+                _sid, _ssym, _sl_oid,
+                _h_ts, _h_side, _h_strat, _h_entry, _h_qty, _h_sl,
+            ) in _open_sigs:
                 _sym_raw = str(_ssym).replace("/", "").replace(":USDT", "")
                 _sl_still_open = bool(_sl_oid) and str(_sl_oid) in _algo_ids_now
                 if _sym_raw in _pos_syms_now or _sl_still_open:
@@ -1066,6 +1070,58 @@ def position_check():
                 _JOURNAL_HEAL_TICKS[_sid] = _streak
                 if _streak < 2:
                     continue
+                # CT-EXE-02 (2026-06-15): heal'de GERÇEK borsa realized PnL'ini yaz.
+                # Eskiden heal yalnız status='closed' yapardı, trades_closed'a PnL satırı
+                # YOKtu → kayıplar gizlenirdi (AF-EXE-20260531-001; ATOM/ZEC −80 görünmezdi).
+                # Borsa income (REALIZED_PNL+COMMISSION+FUNDING) penceresi [ts_open, now].
+                # Best-effort: income alınamazsa eski davranış (PnL satırı atlanır, heal sürer).
+                try:
+                    from datetime import UTC as _UTC
+                    from datetime import datetime as _dtheal
+
+                    from price_action.execution.exchange_income import (
+                        fetch_realized_income as _fetch_income,
+                    )
+                    from price_action.execution.trade_journal import (
+                        TradeJournal as _TJheal,
+                    )
+
+                    _h_ts_open = _h_ts
+                    if _h_ts_open is not None and getattr(_h_ts_open, "tzinfo", None) is None:
+                        _h_ts_open = _h_ts_open.replace(tzinfo=_UTC)
+                    _h_start_ms = (
+                        int(_h_ts_open.timestamp() * 1000) if _h_ts_open else None
+                    )
+                    _h_income = _fetch_income(ex, _ssym, _h_start_ms)
+                    if _h_income is not None:
+                        _tj_heal = _TJheal(db_path=str(JOURNAL))
+                        # FULL income − önceki partial'lar = runner dilimi (çift-sayma yok)
+                        _h_runner = _h_income - _tj_heal.get_partial_pnl_sum(str(_sid))
+                        _tj_heal.record_close(
+                            trade_id=str(_sid),
+                            ts_open=_h_ts_open or _dtheal.now(_UTC),
+                            ts_close=_dtheal.now(_UTC),
+                            sym=str(_ssym),
+                            side=str(_h_side or "long").lower(),
+                            strategy=str(_h_strat or ""),
+                            entry_price=float(_h_entry or 0.0),
+                            exit_price=float(_h_entry or 0.0),  # exit bilinmiyor; PnL override'dan
+                            qty=float(_h_qty or 0.0),
+                            sl_price=float(_h_sl or 0.0),
+                            close_reason="reconcile_orphan",
+                            realized_pnl_override=_h_runner,
+                        )
+                        log(
+                            f"JOURNAL_HEAL_PNL: {_ssym} sig={_sid} "
+                            f"income=${_h_runner:+.2f} (borsa REALIZED) → trades_closed"
+                        )
+                    else:
+                        log(
+                            f"JOURNAL_HEAL_PNL_MISS: {_ssym} sig={_sid} — borsa income "
+                            f"alınamadı, PnL satırı yazılmadı (eski davranış)"
+                        )
+                except Exception as _hp_err:
+                    log(f"JOURNAL_HEAL_PNL_ERR: {_ssym} {str(_hp_err)[:100]}")
                 _heal_con.execute(
                     "UPDATE futures_signals SET status='closed' WHERE signal_id=?",
                     [_sid],
@@ -1380,6 +1436,34 @@ def position_check():
                                             log(
                                                 f"  PROT_SLIP_RECORD_ERR prot_id={prot_id}: {str(_st_prot_err)[:100]}"
                                             )
+                                        # CT-EXE-02 (2026-06-15): realized_pnl'i borsa income'dan
+                                        # yaz (fee/funding dahil). Lokal (exit-entry)*qty fee'yi
+                                        # atlıyor (clean-sembol ~−10 gap). income yoksa None →
+                                        # record_close lokal hesaba düşer (eski davranış).
+                                        _prot_pnl_override = None
+                                        try:
+                                            from datetime import UTC as _UTCp
+
+                                            from price_action.execution.exchange_income import (
+                                                fetch_realized_income as _fetch_income_p,
+                                            )
+
+                                            _ts_op = ts_open
+                                            if _ts_op is not None and getattr(
+                                                _ts_op, "tzinfo", None
+                                            ) is None:
+                                                _ts_op = _ts_op.replace(tzinfo=_UTCp)
+                                            _p_start_ms = (
+                                                int(_ts_op.timestamp() * 1000) if _ts_op else None
+                                            )
+                                            _p_income = _fetch_income_p(ex, sym_sig, _p_start_ms)
+                                            if _p_income is not None:
+                                                _prot_pnl_override = (
+                                                    _p_income
+                                                    - tj.get_partial_pnl_sum(str(sig_id))
+                                                )
+                                        except Exception as _pio_err:
+                                            log(f"  PROT_INCOME_ERR sig={sig_id}: {str(_pio_err)[:80]}")
                                         # Canonical writer (SEC26.B-4) — idempotent.
                                         try:
                                             inserted = tj.record_close(
@@ -1394,6 +1478,7 @@ def position_check():
                                                 qty=float(_final_qty),
                                                 sl_price=float(sl_p or 0.0),
                                                 close_reason=close_reason_str,
+                                                realized_pnl_override=_prot_pnl_override,
                                             )
                                             log(
                                                 f"  TRADE_CLOSED: sig={sig_id} {triggered_kind} "

@@ -190,8 +190,14 @@ def _fetch_journal_open_positions() -> list[dict]:
     return records
 
 
-def _close_orphan(orphan: dict, exit_price: float) -> bool:
-    """Journal'da orphan trade'i close olarak kaydet."""
+def _close_orphan(
+    orphan: dict, exit_price: float, realized_pnl_override: float | None = None
+) -> bool:
+    """Journal'da orphan trade'i close olarak kaydet.
+
+    CT-EXE-02 (2026-06-15): realized_pnl_override (borsa income'ından runner dilimi)
+    verilirse onu yaz; yoksa exit_price'tan lokal hesap (eski davranış).
+    """
     try:
         from price_action.execution.trade_journal import TradeJournal
 
@@ -221,6 +227,7 @@ def _close_orphan(orphan: dict, exit_price: float) -> bool:
             qty=float(_remaining),
             sl_price=float(orphan["sl_price"] or 0.0),
             close_reason="reconcile_orphan",  # type: ignore[arg-type]
+            realized_pnl_override=realized_pnl_override,
         )
     except Exception as exc:
         _log(f"close_orphan_fail({orphan.get('signal_id')}): {exc}")
@@ -478,7 +485,29 @@ def reconcile() -> dict:
                 exit_px = _actual_exit
         except Exception as _ex_err:
             _log(f"ORPHAN_EXIT_FETCH_ERR {o['symbol']}: {str(_ex_err)[:80]}")
-        if _close_orphan(o, exit_px):
+        # CT-EXE-02 (2026-06-15): borsa income'ından runner realized PnL (override).
+        # Best-effort: ex tanımsız/hata → None, _close_orphan lokal hesaba düşer.
+        _orphan_pnl_override = None
+        try:
+            from price_action.execution.exchange_income import (
+                fetch_realized_income as _fetch_income_o,
+            )
+            from price_action.execution.trade_journal import TradeJournal as _TJo
+
+            _o_ts = o.get("ts")
+            if hasattr(_o_ts, "to_pydatetime"):
+                _o_ts = _o_ts.to_pydatetime()
+            if _o_ts is not None and getattr(_o_ts, "tzinfo", None) is None:
+                _o_ts = _o_ts.replace(tzinfo=UTC)
+            _o_start_ms = int(_o_ts.timestamp() * 1000) if _o_ts else None
+            _o_income = _fetch_income_o(ex, o["symbol"], _o_start_ms)
+            if _o_income is not None:
+                _orphan_pnl_override = _o_income - _TJo(
+                    db_path=str(_JOURNAL)
+                ).get_partial_pnl_sum(str(o["signal_id"]))
+        except Exception as _oio_err:
+            _log(f"ORPHAN_INCOME_ERR {o['symbol']}: {str(_oio_err)[:80]}")
+        if _close_orphan(o, exit_px, _orphan_pnl_override):
             stats["orphans_closed"] += 1
             _log(
                 f"ORPHAN_CLOSED: {o['symbol']} {o['side']} sig={o['signal_id']} "

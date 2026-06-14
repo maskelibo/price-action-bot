@@ -184,6 +184,7 @@ class TradeJournal:
         qty: float,
         sl_price: float,
         close_reason: Literal["tp", "sl", "time", "force", "reconcile_orphan"] = "tp",
+        realized_pnl_override: float | None = None,
     ) -> bool:
         # G8 fix (hard review 2026-05-21): _ensure_schema her record_close çağrısında
         # da garanti edilir. Daemon farklı DB path ile (phoenix/atlas bot JOURNAL)
@@ -213,7 +214,14 @@ class TradeJournal:
         ts_close = _strip_tz(ts_close)
 
         side = side.lower()  # type: ignore[assignment]
-        realized_pnl = _compute_realized_pnl(entry_price, exit_price, qty, side)
+        # CT-EXE-02 (2026-06-15): realized_pnl_override verilirse (borsa income'ından
+        # gerçek REALIZED_PNL+COMMISSION+FUNDING) onu yaz — lokal (exit-entry)*qty
+        # fee/funding'i atlıyor + heal yolu hiç yazmıyordu. None ise eski lokal hesap.
+        # realized_r fiyat-bazlı kalır (R = fiyat-hareketi oranı, fee'den bağımsız).
+        if realized_pnl_override is not None:
+            realized_pnl = float(realized_pnl_override)
+        else:
+            realized_pnl = _compute_realized_pnl(entry_price, exit_price, qty, side)
         realized_r = _compute_realized_r(entry_price, exit_price, side, sl_price)
         win = realized_pnl > 0.0
 
@@ -352,6 +360,27 @@ class TradeJournal:
             return max(0.0, remaining)
         except duckdb.CatalogException:
             return float(fill_qty)
+        finally:
+            con.close()
+
+    def get_partial_pnl_sum(self, trade_id: str) -> float:
+        """Bu trade için daha önce kaydedilmiş partial realized PnL toplamı (USDT).
+
+        CT-EXE-02: borsa income penceresi ([ts_open, ts_close]) trade'in TÜM
+        realized'ını (partial TP'ler dahil) kapsar. record_close'a override olarak
+        FULL income − bu toplam (= runner dilimi) geçilmeli; yoksa partial'lar hem
+        futures_partial_closes'ta hem trades_closed'da çift sayılır. Partial yoksa 0.0.
+        """
+        con = duckdb.connect(self.db_path, read_only=True)
+        try:
+            row = con.execute(
+                "SELECT COALESCE(SUM(realized_pnl_usdt), 0.0) FROM futures_partial_closes "
+                "WHERE trade_id = ?",
+                [trade_id],
+            ).fetchone()
+            return float(row[0]) if row and row[0] is not None else 0.0
+        except duckdb.CatalogException:
+            return 0.0
         finally:
             con.close()
 
