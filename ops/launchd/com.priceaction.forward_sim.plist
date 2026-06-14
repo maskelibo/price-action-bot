@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.priceaction.forward_sim</string>
+
+  <!--
+    forward_sim_compare.py daemon — Champion vs V13 side-by-side paper-sim.
+
+    STATUS: STAGED — NOT bootstrapped. Principal activates manually:
+      launchctl bootstrap gui/501 ops/launchd/com.priceaction.forward_sim.plist
+      launchctl kickstart gui/501/com.priceaction.forward_sim
+
+    SAFETY NOTES:
+    - NO real orders. NO PA_LIVE_CONFIRM. NO testnet account writes.
+    - Fills are simulated (next-bar open + fee + slippage model).
+    - Does NOT touch futures_journal*.duckdb or idempotency.duckdb.
+    - Uses data/forward_sim.duckdb (its own isolated journal).
+    - Running champion daemons (PID 53708 / 70580) are UNTOUCHED.
+    - ccxt connection is read-only market data fetch only.
+
+    ROLLBACK:
+      launchctl bootout gui/501/com.priceaction.forward_sim
+      (or simply: do not bootstrap — it is staged-only until activated)
+
+    DAILY REPORT:
+      cat reports/forward_sim/daily.md
+      python scripts/forward_sim_compare.py --report
+  -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/peyman/price-action-bot/.venv/bin/python</string>
+    <string>-u</string>
+    <string>scripts/forward_sim_compare.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/peyman/price-action-bot</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONPATH</key>
+    <string>/Users/peyman/price-action-bot/src</string>
+    <!-- CRITICAL: paper sim mode — never live -->
+    <key>PA_RUN_MODE</key>
+    <string>paper</string>
+    <!-- DB read-only: market.duckdb never written by this process -->
+    <key>PA_DUCKDB_READ_ONLY</key>
+    <string>true</string>
+    <!-- Suppress verbose logging from internal strategies -->
+    <key>PA_LOG_QUIET</key>
+    <string>1</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+    <key>TZ</key>
+    <string>UTC</string>
+  </dict>
+
+  <!-- NOT RunAtLoad: Principal bootstraps and starts manually -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/forward_sim.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/forward_sim.stderr.log</string>
+
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>2048</integer>
+  </dict>
+</dict>
+</plist>

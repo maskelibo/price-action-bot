@@ -1,0 +1,279 @@
+# =============================================================================
+# MULTI-TF STACK PAPER VALIDATION CONFIG — L=1.2  (2026-06-02)
+# =============================================================================
+# Purpose : 30-day paper-validation deploy of VSA-WIDESTOP + BASELINE exit
+#           multi-TF stack (5m + 15m + 30m + 45m), pooled single risk account.
+# Status  : PAPER / TESTNET ONLY — PA_RUN_MODE=paper, PA_LIVE_CONFIRM NOT SET.
+# Config  : risk_phoenix_scalp_15m_widestop_vsa2.yaml + L=1.2 risk scaling.
+#
+# LEVERAGE L=1.2 WIRING:
+#   v9 build_cfg(lev=1.2) scales:
+#     risk_pct * lev          = 0.005 * 1.2 = 0.006  ← backtest_risk_pct here
+#     max_notional_pct * lev  = 0.15  * 1.2 = 0.18
+#   The daemon reads backtest_risk_pct from this file at startup.
+#   DO NOT raise leverage further without explicit Principal DD-budget ADR.
+#
+# VALIDATED PROFILE @ L=1.2 (multitf_tournament_verdict.md):
+#   mean +15.2%/mo · MaxDD -22.9% · 95% pos months · Sharpe 4.90
+#   Principal accepted DD <= -25%; abort paper run if DD > -25%.
+#
+# BASE CONFIG INHERITANCE:
+#   This file overrides ONLY the risk-scaled fields.
+#   All strategy, symbol, regime-filter, DMS, concentration logic is read
+#   from risk_phoenix_scalp_15m_widestop_vsa2.yaml by the daemon.
+#   This file is used by futures_daemon_multitf.py PA_MULTITF_CONFIG env var.
+#
+# DELTA vs risk_phoenix_scalp_15m_widestop_vsa2.yaml (the base):
+#   1. backtest_risk_pct     0.005 -> 0.006  (L=1.2 scale)
+#   2. max_notional_pct_equity 0.15 -> 0.18  (L=1.2 scale)
+#   3. preset_name / bot_name updated to identify this deploy
+#
+# ABORT THRESHOLDS (30-day paper window):
+#   abort_if_live_monthly_return_below_pct: 8.0   (< +8%/mo = ABORT, rollback)
+#   abort_if_drawdown_exceeds_pct:          25.0   (> -25% DD = ABORT)
+#   monitoring_window_days:                 30
+#   rollback_target: champion 15m single-TF (PID 53708 — keep warm entire window)
+#
+# PAPER MONITORING KPIs (check daily):
+#   - Cumulative paper PnL vs expected +8-11%/mo band
+#   - MaxDD vs -25% hard abort
+#   - Fill rate > 80% (post-only)
+#   - Slippage bps actual vs model (flag if > 2x expected)
+#   - 30m/45m feed parity: compare resampled triggers vs 15m+5m baseline
+#
+# REAL-MONEY GATE (DO NOT remove this block):
+#   live_deploy_blocked: true
+#   reason: "30-day paper window required; 30m/45m feed parity unverified"
+#   required_before_live:
+#     - paper window >= 30 days, live >= +8%/mo, DD <= -25%
+#     - 30m/45m resample bit-identical to backtest verified
+#     - 5m capacity/slippage check on thin alts completed
+#     - Separate ADR for L>1 DD budget (L=1.2 already accepted; L>1.2 needs new ADR)
+#     - Principal sign-off
+# =============================================================================
+
+_meta:
+  config_version: "multitf_stack_paper_l12_v1"
+  deploy_date: "2026-06-02"
+  author: "execution_chief"
+  base_config: "configs/risk_phoenix_scalp_15m_widestop_vsa2.yaml"
+  leverage: 1.2
+  paper_only: true
+  live_deploy_blocked: true
+
+defaults:
+  account_currency: USDT
+  preset_name: multitf_stack_paper_l12
+  bot_name: MULTITF-STACK-PAPER-L12
+  timeframe: multitf  # pooled; individual legs use their own TF
+  sim_only: true
+
+execution:
+  fee_bps_per_trade: 18.0   # true empirical (v9 validated), was 15 in base — more accurate
+  sl_pct_min: 0.025         # WIDESTOP — DO NOT lower (fee-erosion shield, memory-locked)
+  post_only_limit_enabled: true
+  post_only_fallback_seconds: 30
+  slippage_limit_bps: 25
+  pyramid_slippage_limit_bps: 50
+
+position_sizing:
+  method: confidence_dynamic
+  # L=1.2 scaled: 0.005 * 1.2 = 0.006
+  risk_per_trade: 0.006
+  backtest_risk_pct: 0.006
+  kelly_cap: 0.15
+  min_quantity_usdt: 10
+  size_rounding: exchange_step
+  # L=1.2 scaled: 0.15 * 1.2 = 0.18
+  max_notional_pct_equity: 0.18
+  max_same_side_concurrent: 4
+
+stop_loss:
+  method: atr
+  atr_period: 14
+  atr_multiplier: 1.5
+  structural_buffer_pct: 0.003
+  trailing:
+    enabled: true
+    method: atr_chandelier
+    atr_period: 14
+    multiplier: 1.5         # BASELINE exit (validated by tournament)
+    activate_after_R: 1.0
+
+take_profit:
+  method: r_multiple
+  primary_R: 1.0            # BASELINE: TP1 at 1R
+  partial_close_at_R: 1.0   # TP1 30% @ 1R
+  partial_close_pct: 0.30   # TP1 closes 30%
+  tp2_R: 1.5                # TP2 30% @ 1.5R
+  tp2_close_pct: 0.30       # TP2 closes 30%
+  runner_pct: 0.40          # runner 40% (not 50% — BASELINE vs live champion diff)
+  runner_trail: true
+
+# BASELINE exit: runner time-stop 30 bars, clock from TP1 (NOT from entry)
+exit_engine:
+  runner_max_bars: 30
+  force_exit_from_entry: false  # clock from TP1 hit (BASELINE = force_exit_from_entry: false)
+  runner_trail_mult: 1.5
+  trail_activate_stage: 2   # trail activates at TP1/stage2
+
+drawdown_breakers:
+  daily_loss_pct: 0.02
+  weekly_loss_pct: 0.05
+  monthly_loss_pct: 0.99
+  monthly_halt_days: 3
+  daily_halt_days: 1
+  weekly_halt_days: 2
+  monthly_loss_pct_long: 0.12
+  monthly_loss_pct_short: 0.04
+  consecutive_losses: 5
+  consecutive_loss_pause_days: 1.0
+  reset:
+    daily: 00:00 UTC
+    weekly: Monday 00:00 UTC
+    monthly: 1st 00:00 UTC
+
+concentration_limits:
+  max_open_positions: 16
+  max_per_category_pct: 0.35
+  max_per_symbol_pct: 0.15
+  backtest_apply_concentration_gate: true
+
+correlation_gate:
+  enabled: true
+  max_pairwise_corr: 0.7
+  reduction_factor: 0.5
+  hard_block_at: 0.9
+
+strategy_portfolio:
+  enabled: true
+  symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - ADA/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - DOT/USDT
+    - DOGE/USDT
+    - XRP/USDT
+    - ZEC/USDT
+    - NEAR/USDT
+    - FIL/USDT
+    - XLM/USDT
+    - TRX/USDT
+    - UNI/USDT
+    - ATOM/USDT
+    - AAVE/USDT
+    - ALGO/USDT
+  pyramid_enabled: false      # WIDESTOP = pyramid OFF (validated)
+  signal_confidence_min: 0.25
+
+# Paper-run abort config — read by futures_daemon_multitf.py monitor loop
+paper_validation:
+  window_days: 30
+  abort_if_monthly_return_below_pct: 8.0
+  abort_if_drawdown_exceeds_pct: 25.0
+  report_every_hours: 24
+  champion_rollback_config: "configs/risk_phoenix_scalp_15m_widestop_vsa2.yaml"
+
+# TF legs for the pooled daemon
+multitf_legs:
+  # 5m: 10 symbols (existing PID 70580 must be counted, NOT duplicated)
+  # IMPORTANT: futures_daemon_multitf.py reads 5m signals from PID 70580's
+  # journal (futures_journal_5m.duckdb) for risk accounting; it does NOT
+  # run a duplicate 5m signal scan. Pooled risk budget includes 5m positions.
+  "5m":
+    symbols:
+      - BTC/USDT
+      - ETH/USDT
+      - SOL/USDT
+      - BNB/USDT
+      - ADA/USDT
+      - AVAX/USDT
+      - LINK/USDT
+      - DOT/USDT
+      - DOGE/USDT
+      - XRP/USDT
+    sl_pct_min: 0.030    # 5m uses stricter widestop threshold
+    managed_by_existing_daemon: true   # PID 70580 — do NOT scan again
+  "15m":
+    symbols:
+      - BTC/USDT
+      - ETH/USDT
+      - SOL/USDT
+      - BNB/USDT
+      - ADA/USDT
+      - AVAX/USDT
+      - LINK/USDT
+      - DOT/USDT
+      - DOGE/USDT
+      - XRP/USDT
+      - ZEC/USDT
+      - NEAR/USDT
+      - FIL/USDT
+      - XLM/USDT
+      - TRX/USDT
+      - UNI/USDT
+      - ATOM/USDT
+      - AAVE/USDT
+      - ALGO/USDT
+    sl_pct_min: 0.025
+    managed_by_existing_daemon: true   # PID 53708 — do NOT scan again
+  "30m":
+    symbols:
+      - BTC/USDT
+      - ETH/USDT
+      - SOL/USDT
+      - BNB/USDT
+      - ADA/USDT
+      - AVAX/USDT
+      - LINK/USDT
+      - DOT/USDT
+      - DOGE/USDT
+      - XRP/USDT
+    sl_pct_min: 0.025
+    resample_from: "5m"  # STAGED: pending feed parity verification
+    feed_status: "staged"  # NOT active — see BLOCKERS below
+  "45m":
+    symbols:
+      - BTC/USDT
+      - ETH/USDT
+      - SOL/USDT
+      - BNB/USDT
+      - ADA/USDT
+      - AVAX/USDT
+      - LINK/USDT
+      - DOT/USDT
+      - DOGE/USDT
+      - XRP/USDT
+    sl_pct_min: 0.025
+    resample_from: "5m"  # STAGED: pending feed parity verification
+    feed_status: "staged"  # NOT active — see BLOCKERS below
+
+# BLOCKERS — referenced by daemon startup check
+# If all blockers are not cleared, daemon refuses to trade 30m/45m legs
+deploy_blockers:
+  - id: B1
+    name: "30m/45m live bar feed parity"
+    status: "OPEN"
+    description: >
+      30m/45m backtest used 5m-resampled bars (resample(label='left',closed='left')).
+      Live must produce bit-identical bars. Run scripts/verify_resample_parity.py
+      for >= 7 days to confirm parity before enabling 30m/45m legs.
+  - id: B2
+    name: "5m capacity/slippage on thin alts"
+    status: "OPEN"
+    description: >
+      5m leg trades small-cap alts. Live order-book impact at intended size must
+      be measured. 40bps stress test is done (backtest only -0.4pp). Live fill
+      data needed from existing PID 70580 paper run.
+  - id: B3
+    name: "pooled-risk double-count audit"
+    status: "OPEN"
+    description: >
+      5m positions managed by PID 70580. 15m positions managed by PID 53708.
+      Pooled account state read from both journals; new daemon must not submit
+      new 5m or 15m orders (managed_by_existing_daemon: true). Verify at first
+      paper trade that concentration_gate counts all open positions.

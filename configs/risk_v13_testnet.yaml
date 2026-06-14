@@ -1,0 +1,232 @@
+# =============================================================================
+# V13 TESTNET DEPLOY CONFIG — VSA-WIDESTOP + HTF-1d-ALIGNED (2026-06-03)
+# =============================================================================
+# Status : TESTNET / paper ONLY — PA_LIVE_CONFIRM NEVER SET
+# Bot name: PHOENIX-V13-TESTNET
+# Journals: data/futures_journal_v13.duckdb  (separate from champion)
+# PID sep : PA_BOT_NAME=v13  (idempotency_v13.duckdb, pyramid_store_v13.duckdb, etc.)
+#
+# PRINCIPAL DECISION (2026-06-03):
+#   Replace champion once paper-validated on fresh ~$10k testnet wallet.
+#   Champion (PID 53708) STAYS RUNNING until Principal runs swap script.
+#
+# DELTA vs champion (risk_phoenix_scalp_15m_widestop_vsa2.yaml):
+#   1. exit fractions: 25/25/50 → 30/30/40  (BASELINE validated in v12 OOS)
+#   2. trail_pct   : 0.04 (4% pct) → 0.015 (1.5% ATR-chandelier equivalent)
+#      NOTE: daemon _TRAIL_PCT is overridden to 0.015 by PA_V13_TRAIL_PCT env var
+#      until ATR-chandelier is wired to live position-check loop (planned Phase 2).
+#   3. HTF filter  : 1d EMA50 alignment — skip signals where close(t-1) < EMA50(t-1)
+#      for LONG; close(t-1) > EMA50(t-1) for SHORT.  NO look-ahead.
+#   4. sizing      : FIXED-FRACTION (risk_pct constant, NOT compounding).
+#      risk_per_trade = 0.005 (0.5% of STARTING equity, never grows).
+#   5. timeframes  : 5m + 15m ONLY.  30m/45m DISABLED (B1 blocker: feed unverified).
+#
+# BACKTEST REFERENCE (forward_sim_compare.py BASELINE_EXIT):
+#   runner_trail_mult=1.5, trail_activate_stage=2,
+#   tp1_R=1.0, tp2_R=1.5, tp1_close_pct=0.30, tp2_close_pct=0.30,
+#   runner_force_exit_bars=30, force_exit_from_entry=False
+#
+# WALLET: fresh ~$10k testnet wallet (see swap script / faucet step).
+# MEASUREMENT: exchange income (fapiPrivateGetIncome REALIZED_PNL) — NOT journal.
+# =============================================================================
+
+defaults:
+  account_currency: USDT
+  preset_name: v13_testnet
+  bot_name: PHOENIX-V13-TESTNET
+  timeframe: 15m
+  sim_only: false  # paper=testnet (real testnet API, fake funds) — NOT sim_only
+
+# =============================================================================
+# EXECUTION — fee model + widestop gate + post-only
+# =============================================================================
+execution:
+  fee_bps_per_trade: 18.0       # round-trip 9bps entry + 9bps exit (conservative)
+  sl_pct_min: 0.025             # WIDESTOP gate for 15m; 5m uses 0.030 (read from 5m config)
+
+  # HTF filter (V13 lever) — validated in v12_entry_quality.py (OOS delta > 0, BH-FDR sig)
+  # Consuming code: v13 daemon _htf_filter_ok() helper
+  htf_1d_filter_enabled: true
+  htf_1d_ema_period: 50         # EMA50 on 1d bars
+
+  post_only_limit_enabled: true
+  post_only_fallback_seconds: 30
+  slippage_limit_bps: 25
+  pyramid_slippage_limit_bps: 50
+
+# =============================================================================
+# POSITION SIZING — FIXED-FRACTION (non-compounding)
+# =============================================================================
+position_sizing:
+  method: fixed_fraction         # constant % of starting equity, NOT compounding
+  risk_per_trade: 0.005          # 0.5% risk per trade
+  backtest_risk_pct: 0.005
+  kelly_cap: 0.15
+  min_quantity_usdt: 10
+  size_rounding: exchange_step
+  max_notional_pct_equity: 0.15
+  max_same_side_concurrent: 4
+
+# =============================================================================
+# STOP LOSS — ATR chandelier (1.5 multiplier = BASELINE)
+# =============================================================================
+stop_loss:
+  method: atr
+  atr_period: 14
+  atr_multiplier: 1.5
+  structural_buffer_pct: 0.003
+  trailing:
+    enabled: true
+    method: atr_chandelier
+    atr_period: 14
+    multiplier: 1.5              # BASELINE: 1.5 (vs champion 3.0)
+    activate_after_R: 1.0        # trail starts at TP1 (+1R) — force_exit_from_entry=False
+
+# =============================================================================
+# TAKE PROFIT — BASELINE: 30%@1R + 30%@1.5R + 40% runner
+# =============================================================================
+take_profit:
+  method: r_multiple
+  primary_R: 1.0
+  tp1_close_pct: 0.30            # BASELINE: 30% at TP1 (champion=25%)
+  tp2_close_pct: 0.30            # BASELINE: 30% at TP2 (champion=25%)
+  runner_pct: 0.40               # BASELINE: 40% runner  (champion=50%)
+  tp2_R: 1.5
+  runner_force_exit_method: time
+  runner_force_exit_bars: 30     # 30-bar = 7.5h runner cap (15m bars)
+  force_exit_from_entry: false   # anchor = TP1 fill ts, NOT entry ts
+
+# =============================================================================
+# LEVERAGE
+# =============================================================================
+leverage:
+  enabled: true
+  max_leverage_per_symbol: 3
+  max_portfolio_notional_x_equity: 3
+  margin_safety_ratio: 0.5
+  confidence_tiers:
+    - {min: 0.00, max: 0.32, leverage: 1}
+    - {min: 0.32, max: 0.52, leverage: 2}
+    - {min: 0.52, max: 1.01, leverage: 3}
+
+# =============================================================================
+# DRAWDOWN BREAKERS
+# =============================================================================
+drawdown_breakers:
+  daily_loss_pct: 0.02
+  weekly_loss_pct: 0.05
+  monthly_loss_pct: 0.99
+  monthly_halt_days: 3
+  daily_halt_days: 1
+  weekly_halt_days: 2
+  monthly_loss_pct_long: 0.12
+  monthly_loss_pct_short: 0.04
+  consecutive_losses: 5
+  consecutive_loss_pause_days: 1.0
+  reset:
+    daily: 00:00 UTC
+    weekly: Monday 00:00 UTC
+    monthly: 1st 00:00 UTC
+
+# =============================================================================
+# CONCENTRATION LIMITS
+# =============================================================================
+concentration_limits:
+  max_open_positions: 16
+  max_per_category_pct: 0.35
+  max_per_symbol_pct: 0.15
+  backtest_apply_concentration_gate: true
+
+# =============================================================================
+# REGIME FILTER — 1d BTC halt (same as champion)
+# =============================================================================
+regime_filter:
+  btc_capitulation_halt_enabled: false
+  atr_pct_threshold: 6.0
+  ema200_streak_days: 10
+  dd_90d_threshold_pct: -25.0
+  resume_atr_threshold: 4.0
+  resume_streak_days: 5
+
+# =============================================================================
+# ALT DATA
+# =============================================================================
+alt_data:
+  fng_short_skip_enabled: true
+  fng_short_skip_threshold: 20
+  funding_filter_enabled: false
+
+# =============================================================================
+# STRATEGY PORTFOLIO — same 4-strategy set as champion, 5m + 15m
+# 30m/45m DISABLED — B1 blocker: live bar feed parity unverified
+# =============================================================================
+strategy_portfolio:
+  enabled: true
+  timeframes_enabled: [5m, 15m]   # 30m, 45m OFF until B1 cleared
+  symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - ADA/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - DOT/USDT
+    - DOGE/USDT
+    - XRP/USDT
+    - ZEC/USDT
+    - NEAR/USDT
+    - FIL/USDT
+    - XLM/USDT
+    - TRX/USDT
+    - UNI/USDT
+    - ATOM/USDT
+    - AAVE/USDT
+    - ALGO/USDT
+  strategies:
+    - vsa_climax_test
+    - brooks_failed_breakout
+    - anchored_vwap_reversal
+    - engulfing_continuation
+  same_symbol_side_cooldown_days: 0.010
+  max_concurrent_positions: 16
+  pyramid_enabled: false           # wide-stop = pyramid OFF (same as champion)
+  pyramid_triggers: [1.0, 1.5]
+  pyramid_sizes: [0.50, 0.30]
+  signal_confidence_min: 0.25
+  expected_annual_return: 0.60
+  expected_max_dd: 0.25
+
+# =============================================================================
+# REGIME FILTER PER-STRATEGY (same as champion — tested safe)
+# =============================================================================
+regime_filter_per_strategy:
+  enabled: true
+  features_max_age_hours: 24
+  features_path: data/regime_features_latest.parquet
+  cache_freshness:
+    warn_hours: 6
+    reject_hours: 24
+    hard_reject_hours: 48
+    grace_minutes: 30
+    strict_mode: true
+  filters:
+    F1_avwap_range:
+      strategy: anchored_vwap_reversal
+      side: BOTH
+      btc_atr_pct_lt: 3.0
+      btc_return_30d_abs_lt_pct: 3.0
+    F2_brooks_fb_bull:
+      strategy: brooks_failed_breakout
+      side: SHORT
+      btc_ema200_above: true
+      btc_return_30d_gt_pct: 5.0
+    F3_vsa_bear:
+      strategy: vsa_climax_test
+      side: LONG
+      btc_fng_lt: 15
+      btc_return_30d_lt_pct: -10.0
+    F4_engulfing_high_vol:
+      strategy: engulfing_continuation
+      side: BOTH
+      btc_realized_vol_7d_annualized_gt_pct: 100.0

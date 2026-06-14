@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.priceaction.multitf_paper</string>
+
+  <!--
+    Multi-TF Stack Paper Validation Daemon (2026-06-02).
+
+    PAPER / TESTNET ONLY — PA_RUN_MODE=paper, PA_LIVE_CONFIRM NOT SET.
+    DO NOT load this plist if PA_LIVE_CONFIRM is set in .env.
+
+    PURPOSE:
+      30-day paper validation of VSA-WIDESTOP + BASELINE exit multi-TF stack
+      (5m + 15m + 30m + 45m) at L=1.2. Monitors pooled DD + abort gates.
+      Does NOT disrupt running daemons:
+        - com.priceaction.futures15m (PID 53708): champion, read-only
+        - com.priceaction.futures5m  (PID 70580): existing, read-only
+      30m/45m signals are STAGED (B1 blocker: feed parity unverified).
+
+    LOAD (safe — paper only):
+      launchctl bootstrap gui/501 \
+        ~/Library/LaunchAgents/com.priceaction.multitf_paper.plist
+
+    UNLOAD (stop paper monitoring):
+      launchctl bootout gui/501/com.priceaction.multitf_paper
+
+    ABORT if DD > -25% or monthly return < +8%/mo: Telegram alert fires,
+    Principal decides rollback. champion (PID 53708) always stays warm.
+
+    NOTE: Do NOT copy this file to LaunchAgents until you confirm:
+      1. PA_RUN_MODE=paper is set in .env
+      2. PA_LIVE_CONFIRM is NOT set
+      3. PIDs 53708 and 70580 are confirmed running
+  -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/peyman/price-action-bot/.venv/bin/python</string>
+    <string>-u</string>
+    <string>scripts/futures_daemon_multitf.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/peyman/price-action-bot</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONPATH</key>
+    <string>/Users/peyman/price-action-bot/src</string>
+    <key>PA_RUN_MODE</key>
+    <string>paper</string>
+    <!-- PA_LIVE_CONFIRM: intentionally NOT set — paper only -->
+    <key>PA_MULTITF_CONFIG</key>
+    <string>configs/risk_multitf_stack_paper_l12.yaml</string>
+    <key>PA_DUCKDB_READ_ONLY</key>
+    <string>true</string>
+    <key>TZ</key>
+    <string>UTC</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+
+  <key>ExitTimeOut</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/multitf_paper.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/multitf_paper.stderr.log</string>
+
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>4096</integer>
+  </dict>
+</dict>
+</plist>
