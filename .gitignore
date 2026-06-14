@@ -89,3 +89,7 @@ htmlcov/
 # Docker
 .docker/
 .env.backup-*
+
+# Claude Code runtime artefaktları (track edilmemeli)
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
