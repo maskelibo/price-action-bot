@@ -120,6 +120,39 @@ def test_get_partial_pnl_sum(tmp_path):
     assert tj.get_partial_pnl_sum("sig-1") == pytest.approx(5.0)
 
 
+def test_record_close_while_rw_connection_open(tmp_path):
+    """REGRESYON (2026-06-15b): daemon kapanış-yolu, JOURNAL'a AÇIK bir rw bağlantı
+    (_heal_con / con) tutarken record_close çağırıyor. DuckDB rw+rw aynı dosyada SORUNSUZ
+    olmalı (ro+rw ise 'different configuration' hatası verir — o yüzden daemon partial
+    toplamını ASLA ro get_partial_pnl_sum ile değil, açık con üzerinden inline sorgular).
+
+    Bu test yazılmadığı için heal-PnL bug'ı canlıya kaçtı (JOURNAL_HEAL_PNL_ERR).
+    """
+    import duckdb
+
+    db = str(tmp_path / "j.duckdb")
+    tj = TradeJournal(db_path=db)
+    rw = duckdb.connect(db)  # daemon'un açık rw bağlantısını simüle et
+    try:
+        # 1) record_close (rw) açık rw varken çalışmalı (in-daemon yolu)
+        assert tj.record_close(**_close_kwargs(realized_pnl_override=-42.5)) is True
+        # 2) partial toplamı AÇIK con üzerinden inline sorgu (daemon'un yaptığı) çalışmalı
+        row = rw.execute(
+            "SELECT COALESCE(SUM(realized_pnl_usdt),0.0) FROM futures_partial_closes "
+            "WHERE trade_id=?",
+            ["sig-1"],
+        ).fetchone()
+        assert row[0] == 0.0
+    finally:
+        rw.close()
+    # rw kapandıktan sonra (defer-heal yolu) ro metod da sorunsuz çalışmalı
+    assert tj.get_partial_pnl_sum("sig-1") == 0.0
+    pnl = tj.get_realized_pnl_window(
+        datetime(2026, 6, 14, 0, 0, tzinfo=UTC), datetime(2026, 6, 15, 0, 0, tzinfo=UTC)
+    )
+    assert pnl == pytest.approx(-42.5)
+
+
 def test_runner_income_avoids_double_count(tmp_path):
     """heal/in-daemon: override = FULL income − partial_sum = runner dilimi.
 

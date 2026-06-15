@@ -1056,6 +1056,7 @@ def position_check():
                 if abs(float(_p.get("contracts", 0) or 0)) > 1e-9:
                     _pos_syms_now.add(_p.get("symbol", "").split(":")[0].replace("/", ""))
             _seen_heal: set[str] = set()
+            _heal_pnl_todo: list = []  # CT-EXE-02 PnL yazımı _heal_con kapandıktan SONRA
             for (
                 _sid, _ssym, _sl_oid,
                 _h_ts, _h_side, _h_strat, _h_entry, _h_qty, _h_sl,
@@ -1070,11 +1071,36 @@ def position_check():
                 _JOURNAL_HEAL_TICKS[_sid] = _streak
                 if _streak < 2:
                     continue
-                # CT-EXE-02 (2026-06-15): heal'de GERÇEK borsa realized PnL'ini yaz.
-                # Eskiden heal yalnız status='closed' yapardı, trades_closed'a PnL satırı
-                # YOKtu → kayıplar gizlenirdi (AF-EXE-20260531-001; ATOM/ZEC −80 görünmezdi).
-                # Borsa income (REALIZED_PNL+COMMISSION+FUNDING) penceresi [ts_open, now].
-                # Best-effort: income alınamazsa eski davranış (PnL satırı atlanır, heal sürer).
+                # CT-EXE-02 (2026-06-15): heal'de GERÇEK borsa realized PnL'i yazılmalı —
+                # eskiden heal yalnız status='closed' yapardı → kayıplar gizlenirdi
+                # (AF-EXE-20260531-001; ATOM/ZEC −80 görünmezdi).
+                # FIX 2026-06-15b (REGRESYON): PnL yazımı buradan ÇIKARILDI. Burada açık
+                # rw _heal_con varken TradeJournal'ın read_only bağlantısı (get_partial_
+                # pnl_sum) DuckDB "different configuration" hatası veriyordu → income asla
+                # yazılamıyordu. Çözüm: sinyali kuyruğa al, PnL'i _heal_con KAPANDIKTAN
+                # SONRA yaz (eşzamanlı bağlantı yok).
+                _heal_pnl_todo.append(
+                    (_sid, _ssym, _h_ts, _h_side, _h_strat, _h_entry, _h_qty, _h_sl)
+                )
+                _heal_con.execute(
+                    "UPDATE futures_signals SET status='closed' WHERE signal_id=?",
+                    [_sid],
+                )
+                _JOURNAL_HEAL_TICKS.pop(_sid, None)
+                log(
+                    f"JOURNAL_HEAL: {_ssym} signal={_sid} — borsada pozisyon+SL yok "
+                    f"(2 ardışık tick) → journal 'closed' yapıldı (kaçan kapanış telafisi)"
+                )
+            for _stale in [k for k in _JOURNAL_HEAL_TICKS if k not in _seen_heal]:
+                _JOURNAL_HEAL_TICKS.pop(_stale, None)
+            _heal_con.commit()
+            _heal_con.close()
+            # CT-EXE-02 PnL yazımı — _heal_con KAPALI olduğu için artık DuckDB
+            # bağlantı çakışması yok. Her sinyal kendi try'ında: income oku → record_close.
+            # Best-effort: income yok → MISS (PnL satırı yazılmaz), hata → ERR (heal bozulmaz).
+            for (
+                _sid, _ssym, _h_ts, _h_side, _h_strat, _h_entry, _h_qty, _h_sl,
+            ) in _heal_pnl_todo:
                 try:
                     from datetime import UTC as _UTC
                     from datetime import datetime as _dtheal
@@ -1089,52 +1115,37 @@ def position_check():
                     _h_ts_open = _h_ts
                     if _h_ts_open is not None and getattr(_h_ts_open, "tzinfo", None) is None:
                         _h_ts_open = _h_ts_open.replace(tzinfo=_UTC)
-                    _h_start_ms = (
-                        int(_h_ts_open.timestamp() * 1000) if _h_ts_open else None
-                    )
+                    _h_start_ms = int(_h_ts_open.timestamp() * 1000) if _h_ts_open else None
                     _h_income = _fetch_income(ex, _ssym, _h_start_ms)
-                    if _h_income is not None:
-                        _tj_heal = _TJheal(db_path=str(JOURNAL))
-                        # FULL income − önceki partial'lar = runner dilimi (çift-sayma yok)
-                        _h_runner = _h_income - _tj_heal.get_partial_pnl_sum(str(_sid))
-                        _tj_heal.record_close(
-                            trade_id=str(_sid),
-                            ts_open=_h_ts_open or _dtheal.now(_UTC),
-                            ts_close=_dtheal.now(_UTC),
-                            sym=str(_ssym),
-                            side=str(_h_side or "long").lower(),
-                            strategy=str(_h_strat or ""),
-                            entry_price=float(_h_entry or 0.0),
-                            exit_price=float(_h_entry or 0.0),  # exit bilinmiyor; PnL override'dan
-                            qty=float(_h_qty or 0.0),
-                            sl_price=float(_h_sl or 0.0),
-                            close_reason="reconcile_orphan",
-                            realized_pnl_override=_h_runner,
-                        )
-                        log(
-                            f"JOURNAL_HEAL_PNL: {_ssym} sig={_sid} "
-                            f"income=${_h_runner:+.2f} (borsa REALIZED) → trades_closed"
-                        )
-                    else:
+                    if _h_income is None:
                         log(
                             f"JOURNAL_HEAL_PNL_MISS: {_ssym} sig={_sid} — borsa income "
                             f"alınamadı, PnL satırı yazılmadı (eski davranış)"
                         )
+                        continue
+                    _tj_heal = _TJheal(db_path=str(JOURNAL))
+                    # FULL income − önceki partial'lar = runner dilimi (çift-sayma yok)
+                    _h_runner = _h_income - _tj_heal.get_partial_pnl_sum(str(_sid))
+                    _tj_heal.record_close(
+                        trade_id=str(_sid),
+                        ts_open=_h_ts_open or _dtheal.now(_UTC),
+                        ts_close=_dtheal.now(_UTC),
+                        sym=str(_ssym),
+                        side=str(_h_side or "long").lower(),
+                        strategy=str(_h_strat or ""),
+                        entry_price=float(_h_entry or 0.0),
+                        exit_price=float(_h_entry or 0.0),  # exit bilinmiyor; PnL override'dan
+                        qty=float(_h_qty or 0.0),
+                        sl_price=float(_h_sl or 0.0),
+                        close_reason="reconcile_orphan",
+                        realized_pnl_override=_h_runner,
+                    )
+                    log(
+                        f"JOURNAL_HEAL_PNL: {_ssym} sig={_sid} "
+                        f"income=${_h_runner:+.2f} (borsa REALIZED) → trades_closed"
+                    )
                 except Exception as _hp_err:
                     log(f"JOURNAL_HEAL_PNL_ERR: {_ssym} {str(_hp_err)[:100]}")
-                _heal_con.execute(
-                    "UPDATE futures_signals SET status='closed' WHERE signal_id=?",
-                    [_sid],
-                )
-                _JOURNAL_HEAL_TICKS.pop(_sid, None)
-                log(
-                    f"JOURNAL_HEAL: {_ssym} signal={_sid} — borsada pozisyon+SL yok "
-                    f"(2 ardışık tick) → journal 'closed' yapıldı (kaçan kapanış telafisi)"
-                )
-            for _stale in [k for k in _JOURNAL_HEAL_TICKS if k not in _seen_heal]:
-                _JOURNAL_HEAL_TICKS.pop(_stale, None)
-            _heal_con.commit()
-            _heal_con.close()
         except Exception as _heal_err:
             log(f"JOURNAL_HEAL_ERR: {str(_heal_err)[:100]}")
 
@@ -1458,10 +1469,19 @@ def position_check():
                                             )
                                             _p_income = _fetch_income_p(ex, sym_sig, _p_start_ms)
                                             if _p_income is not None:
-                                                _prot_pnl_override = (
-                                                    _p_income
-                                                    - tj.get_partial_pnl_sum(str(sig_id))
+                                                # FIX 2026-06-15b: partial toplamını AÇIK rw con
+                                                # üzerinden sorgula — TradeJournal.get_partial_pnl_sum
+                                                # read_only bağlantı açar, con (rw) açıkken DuckDB
+                                                # "different configuration" çakışması verir.
+                                                _ppr = con.execute(
+                                                    "SELECT COALESCE(SUM(realized_pnl_usdt),0.0) "
+                                                    "FROM futures_partial_closes WHERE trade_id=?",
+                                                    [str(sig_id)],
+                                                ).fetchone()
+                                                _p_partial = (
+                                                    float(_ppr[0]) if _ppr and _ppr[0] is not None else 0.0
                                                 )
+                                                _prot_pnl_override = _p_income - _p_partial
                                         except Exception as _pio_err:
                                             log(f"  PROT_INCOME_ERR sig={sig_id}: {str(_pio_err)[:80]}")
                                         # Canonical writer (SEC26.B-4) — idempotent.
