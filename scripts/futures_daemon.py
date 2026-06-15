@@ -752,6 +752,31 @@ def _desired_sl_price(
     return min(entry, trail_sl)
 
 
+def _remaining_qty_on_con(con, trade_id: str, fill_qty: float) -> float:
+    """TradeJournal.get_remaining_qty mantığı ama AÇIK (rw) con üzerinde hesaplar.
+
+    FIX 2026-06-16: kapanış-yolunda con (rw) açıkken tj.get_remaining_qty (read_only
+    bağlantı açar) DuckDB "different configuration" çakışması veriyordu
+    (TRADE_CLOSED_LOOKUP_FAIL → in-daemon kapanış kaydı başarısız, heal backstop'a
+    düşüyordu). Aynı sonuç, YENİ bağlantı yok. fill_qty − SUM(partials); trade
+    trades_closed'da ise 0; tablo yoksa fill_qty (get_remaining_qty ile birebir).
+    """
+    try:
+        if con.execute(
+            "SELECT 1 FROM futures_trades_closed WHERE trade_id=?", [trade_id]
+        ).fetchone():
+            return 0.0
+        row = con.execute(
+            "SELECT COALESCE(SUM(qty_closed),0.0) FROM futures_partial_closes "
+            "WHERE trade_id=?",
+            [trade_id],
+        ).fetchone()
+        partial_sum = float(row[0]) if row and row[0] is not None else 0.0
+        return max(0.0, float(fill_qty) - partial_sum)
+    except Exception:
+        return float(fill_qty)
+
+
 def position_check():
     """Açık pozisyonları + algo (TP/SL) protection order durumu."""
     from scripts.futures_trade_daily import fetch_futures_state, get_futures_exchange
@@ -1328,8 +1353,9 @@ def position_check():
                                         )
 
                                         tj = TradeJournal(db_path=str(JOURNAL))
-                                        _remaining_before = tj.get_remaining_qty(
-                                            str(sig_id), float(fill_qty_sig or 0.0)
+                                        # FIX 2026-06-16: açık con üzerinde inline (ro+rw çakışması)
+                                        _remaining_before = _remaining_qty_on_con(
+                                            con, str(sig_id), float(fill_qty_sig or 0.0)
                                         )
                                         _closed_qty = max(
                                             0.0, _remaining_before - _exchange_qty_now
@@ -1405,8 +1431,9 @@ def position_check():
                                         )
 
                                         tj = TradeJournal(db_path=str(JOURNAL))
-                                        _remaining_qty = tj.get_remaining_qty(
-                                            str(sig_id), float(fill_qty_sig or 0.0)
+                                        # FIX 2026-06-16: açık con üzerinde inline (ro+rw çakışması)
+                                        _remaining_qty = _remaining_qty_on_con(
+                                            con, str(sig_id), float(fill_qty_sig or 0.0)
                                         )
                                         # 0'a yakınsa en az sembolik qty yaz (borsanın yuvarlama toleransı)
                                         _final_qty = max(_remaining_qty, 0.0)

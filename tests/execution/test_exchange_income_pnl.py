@@ -153,6 +153,45 @@ def test_record_close_while_rw_connection_open(tmp_path):
     assert pnl == pytest.approx(-42.5)
 
 
+def test_remaining_qty_on_con_while_rw_open(tmp_path):
+    """REGRESYON (2026-06-16): in-daemon kapanış yolu açık rw con tutarken kalan-qty
+    hesaplar. TradeJournal.get_remaining_qty (read_only) açık rw ile DuckDB 'different
+    configuration' çakışıyordu (TRADE_CLOSED_LOOKUP_FAIL → kapanış kaydı heal'e düşüyordu).
+    _remaining_qty_on_con açık con üzerinde inline hesaplar — get_remaining_qty ile birebir.
+    """
+    import duckdb
+
+    from scripts.futures_daemon import _remaining_qty_on_con
+
+    db = str(tmp_path / "j.duckdb")
+    tj = TradeJournal(db_path=db)
+    rw = duckdb.connect(db)  # daemon'un con'u gibi rw açık
+    try:
+        assert _remaining_qty_on_con(rw, "t1", 100.0) == 100.0  # partial yok → fill_qty
+        tj.record_partial_close(
+            close_id="t1_a",
+            trade_id="t1",
+            ts_close=datetime(2026, 6, 15, tzinfo=UTC),
+            sym="X/USDT",
+            side="long",
+            strategy="g",
+            entry_price=1.0,
+            exit_price=1.1,
+            qty_closed=30.0,
+            sl_price=0.9,
+            close_reason="tp1",
+        )
+        assert _remaining_qty_on_con(rw, "t1", 100.0) == 70.0  # fill − partial
+        tj.record_close(
+            **_close_kwargs(
+                trade_id="t1", qty=70.0, sym="X/USDT", entry_price=1.0, exit_price=1.1, sl_price=0.9
+            )
+        )
+        assert _remaining_qty_on_con(rw, "t1", 100.0) == 0.0  # tam kapandı → 0
+    finally:
+        rw.close()
+
+
 def test_runner_income_avoids_double_count(tmp_path):
     """heal/in-daemon: override = FULL income − partial_sum = runner dilimi.
 
