@@ -385,8 +385,8 @@ strategy_portfolio:
     - FIL/USDT
     - XLM/USDT
     # DEPLOY 2026-05-30: 14 → 19. TRX/UNI/ATOM/AAVE/ALGO (vsa+brooks 5y backtest-kanıtlı).
+    # CUT 2026-06-25 (Principal): UNI çıkarıldı (19→18) — temiz dönem -$123, evrenin en kötüsü.
     - TRX/USDT
-    - UNI/USDT
     - ATOM/USDT
     - AAVE/USDT
     - ALGO/USDT

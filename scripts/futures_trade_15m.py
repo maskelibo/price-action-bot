@@ -84,8 +84,11 @@ SYMBOLS: list[str] = [
     # DEPLOY 2026-05-30: yerleşik likit genişletme (14→19). vsa+brooks backtest
     # 5y: hepsi mean_R baseline'a yakın/üstü, totR pozitif (TRX +0.378, UNI/ATOM/
     # AAVE/ALGO +0.29..+0.34). Meme/hisse/emtia değil, gerçek-kullanım coinleri.
+    # CUT 2026-06-25 (Principal onayı): UNI çıkarıldı (19→18). Canlı temiz dönem
+    # (15→25 Haz) UNI -$123 realized — evrenin en kötüsü, choppy'de tekrar tekrar
+    # SL. Stop ÇALIŞIYORDU (felaket yok) ama strateji UNI'de ısrarla yanlış
+    # kuruluma giriyordu. Bkz memory uni-watchlist-candidate-cut.
     "TRX/USDT",
-    "UNI/USDT",
     "ATOM/USDT",
     "AAVE/USDT",
     "ALGO/USDT",
