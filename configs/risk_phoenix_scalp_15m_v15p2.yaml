@@ -1,5 +1,5 @@
 # ============================================================================
-# v15 "FILO" DRAFT — 2026-07-02 gece vardiyası (AKTİF DEĞİL, Principal OK bekler)
+# v15p2 "KONSANTRE FILO" DRAFT — 2026-07-02 (AKTİF DEĞİL; robustness+OK bekler)
 # ============================================================================
 # Temel: v14p3 birebir + SADECE 2 delta (kanıt: reports/research/
 # v15_filo_blend_2026-07-02.md, production_replay 19-sym, UNI-siz, 57bps, pyrOFF):
@@ -154,10 +154,14 @@
 # Backtest (tur 15, commit d1105ce): +26.09/ay, 0 neg ay/62, worst +1.66,
 # OOS +30.84, contDD -28.5 (hardened 57bps, wght+thr, trig 1.2/1.8)
 strategies_enabled:
+  # v15p2 (d' agresif): kombinasyon araması — grimes+vsa EŞİT, geri kalan ÇIKARILDI.
+  # Kanıt: 2-kol equal → backtest +21.36/ay, contDD -14.9 (v15-baz -21.5'ten İYİ),
+  # neg 1/61, en-kötü ay -0.05, Sharpe 5.33 — v15-baz'ı HER eksende geçiyor.
+  # Balast standalone: avwap 4.17 / engulf 1.47 (~0 edge). brooks (12.79) ÇIKARILDI
+  # çünkü serbest slotları geri-doldurup grimes+vsa'yı bastırıyordu (slot-crowding).
+  # ŞERH: 2-kol = konsantrasyon riski; grimes VEYA vsa bozulursa %50 çeşitlilik
+  # kaybı. Walk-forward OOS top-2 teyidi ŞART (in-sample top-2 bu pencerede).
   - vsa_climax_test
-  - brooks_failed_breakout
-  - anchored_vwap_reversal
-  - engulfing_continuation
   - grimes_abc_pullback
 
 defaults:
@@ -218,15 +222,16 @@ position_sizing:
   # NOTE: confidence_risk_tiers below have NO consumer in src/ (engine uses
   # backtest_risk_pct; use_confidence_dynamic_sizing not set) — left as-is.
   risk_per_trade: 0.010   # v15: 0.0075->0.010 (frontier çalışma noktası; DD bütçesi içinde)
-  backtest_risk_pct: 0.0075  # v14p2
+  backtest_risk_pct: 0.010   # v15p2: 0.0075->0.010 (engine + daemon-verify paritesi)
   # FAZ-2a: strateji risk ağırlıkları (ölçülen meanR'den: vsa 1.80 / brooks 0.84
   # / avwap 0.40 / engulf 0.33). Cap'lerden ÖNCE çarpılır (lab.py paritesi).
   strategy_risk_weights:
-    vsa_climax_test: 1.4
-    brooks_failed_breakout: 1.1
-    anchored_vwap_reversal: 0.6
-    engulfing_continuation: 0.6
-    grimes_abc_pullback: 1.5   # v15: 1.0->1.5 upweight (blend raporu; native-exit kanıtı)
+    # v15p2 (d'): grimes+vsa EŞİT risk (1.0/1.0). Diğerleri enabled değil (yukarı bak).
+    vsa_climax_test: 1.0
+    grimes_abc_pullback: 1.0
+    brooks_failed_breakout: 1.1   # enabled DEĞİL (v15p2-conservative fallback için tutuldu)
+    anchored_vwap_reversal: 0.6   # enabled DEĞİL
+    engulfing_continuation: 0.6   # enabled DEĞİL
   # FAZ-2b: DD-throttle — peak-equity'den %6 düşüşte yeni giriş riski yarıya.
   dd_throttle:
     enabled: true
@@ -428,7 +433,7 @@ strategy_portfolio:
   max_concurrent_positions: 16
   # WIRE-widestop (2026-05-22): true -> false. Wide-stop honest edge was
   # verified pyramid-OFF (DEPLOY_widestop_15m.md DEPLOYABLE CONFIG).
-  pyramid_enabled: true          # v14-frontier: pyr-pool backtest paritesi (KRİTİK)
+  pyramid_enabled: false         # v15p2: KAPALI — validasyon pyr-OFF (Principal onayı 2 Tem); wide-stop honest edge pyr-OFF doğrulandı
   # SEC-SCALP-P0 FIX (2026-05-17): triggers/sizes önceden TANIMSIZ -> lab.py:643
   # pyramid_triggers boş tuple -> falsy -> kod tarafında pyramid kapalıydı.
   # 1d Phoenix v2.0.4 preset değerleri (yıllık +%150 katkı). Forensic raporu:

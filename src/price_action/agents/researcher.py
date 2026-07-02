@@ -203,18 +203,25 @@ class ResearcherAgent(LLMAgentBase):
             # bankadan çıkarıldı → yerlerine DÜŞÜK-KORELASYON yeni mekanizma
             # SINIFLARI kondu. Not: vsa-z EK-3'te falsifiye edildi; doğru testi
             # vintage-eşleşmiş re-detection ister (tema #3'e gömülü).
+            # NOT (2026-07-02): funding temaları ÇIKARILDI — 6. falsifikasyon.
+            # standalone reversal −2.39%/ay (önceki −5.7 teyit), tilt overlay
+            # favorable<baseline (iki kolda da), fav_extreme EN KÖTÜ (anti-monoton),
+            # işaret grimes↔brooks arası TERS dönüyor = gürültü. 15m'de trade 8h
+            # settlement'ı geçmiyor → carry geliri ≈0. Yerine cross-sectional RV.
             theme_bank = [
                 # YENİ-ALFA SINIFLARI (filoya düşük-korelasyon kol adayları)
-                "Funding-rate tilt overlay: pozitif-funding sembollerde short-önyargı "
-                "(data/funding.duckdb join; borsa-truth tarihsel, vintage-riski yok)",
+                "Cross-sectional CARRY: funding-dispersiyon hasadı, YAVAŞ haftalık "
+                "adanmış kitap (üst-k funding short / alt-k long, delta-nötr, ~21 "
+                "settlement/tutuş); fiyat-yönüne kurgu-gereği DİK. #6/#7'den AYRI: "
+                "brüt dispersiyon ~26-38%/yıl mevcut, risk=fiyat-ezmesi (hedge şart)",
                 "Higher-timeframe vol-breakout arm: 1h/4h NR7/squeeze breakout, "
                 "15m filodan bağımsız getiri akışı (pool_19sym HTF re-sample)",
                 "vsa_climax_test vintage-eşleşmiş re-detection: dondurulmuş OHLCV "
                 "snapshot üzerinde vol_z trigger sweep (EK-3 bulgusunun doğru testi)",
                 "Weekend/session gap mean-reversion: Cuma-kapanış→Pazartesi-açılış "
                 "asimetrisi, kripto 7/24 ama likidite-rejim farkı ölçülebilir",
-                "Cross-strategy carry blend: mevcut kolların funding-maliyet "
-                "farkındalıklı yön seçimi (aynı sinyal, funding-lehine taraf)",
+                "Pairs/lead-lag: BTC-ETH ve yüksek-korelasyon çiftlerde spread "
+                "mean-reversion (panel-içi, yönsüz)",
                 # KORUNAN DISCOVERY temaları (hâlâ açık alanlar)
                 "Volatility regime sizing optimization",
                 "Time-of-day session bias",

@@ -43,18 +43,24 @@ from pathlib import Path
 # değerleriyle startup-verify edilir — yanlış config = gürültülü ABORT.
 _PHASE = os.environ.get("PA_V14_PHASE", "1").strip()
 _PHASE_CONFIGS = {
-    "1": ("configs/risk_phoenix_scalp_15m_v14_frontier.yaml", 0.0062, False),
-    "3": ("configs/risk_phoenix_scalp_15m_v14p3.yaml", 0.0075, True),
+    "1": ("configs/risk_phoenix_scalp_15m_v14_frontier.yaml", 0.0062, "frontier"),
+    "3": ("configs/risk_phoenix_scalp_15m_v14p3.yaml", 0.0075, "p3"),
+    # v15p2 (2026-07-02, Principal onayı): grimes+vsa konsantre filo, risk 0.010,
+    # PYRAMID OFF (validasyonla birebir — robustness TAM PASS + lookahead-audit GO).
+    # 3. eleman artık mode-string (eski bool → "frontier"/"p3"/"v15p2").
+    "v15p2": ("configs/risk_phoenix_scalp_15m_v15p2.yaml", 0.010, "v15p2"),
 }
 if _PHASE not in _PHASE_CONFIGS:
-    raise SystemExit(f"[V14] PA_V14_PHASE={_PHASE} tanımsız (1 veya 3)")
+    raise SystemExit(f"[V14] PA_V14_PHASE={_PHASE} tanımsız (1 / 3 / v15p2)")
 V14_CONFIG, _EXPECT_RISK, _EXPECT_P3 = _PHASE_CONFIGS[_PHASE]
 _prev_cfg = os.environ.get("PA_15M_CONFIG")
 if _prev_cfg and _prev_cfg != V14_CONFIG:
     sys.stderr.write(
         f"[V14] UYARI: PA_15M_CONFIG={_prev_cfg} override ediliyor → {V14_CONFIG}\n"
     )
-os.environ["PA_BOT_NAME"] = "v14"
+# v15p2 → ayrı bot-adı: temiz journal (futures_journal_v15p2.duckdb) + temiz
+# breaker state (Principal "temiz başlangıç" direktifi, 2026-07-02).
+os.environ["PA_BOT_NAME"] = "v15p2" if _EXPECT_P3 == "v15p2" else "v14"
 os.environ["PA_RUN_MODE"] = "paper"
 os.environ["PA_15M_CONFIG"] = V14_CONFIG
 os.environ.setdefault("PA_DUCKDB_READ_ONLY", "true")
@@ -81,9 +87,10 @@ try:
 except Exception:
     pass
 
-LOG_FILE = ROOT / "logs" / "futures_daemon_v14.log"
+_LOG_TAG = "v15p2" if _EXPECT_P3 == "v15p2" else "v14"
+LOG_FILE = ROOT / "logs" / f"futures_daemon_{_LOG_TAG}.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-PID_FILE = ROOT / "logs" / "v14_daemon.pid"
+PID_FILE = ROOT / "logs" / f"{_LOG_TAG}_daemon.pid"
 
 
 def _vlog(msg: str) -> None:
@@ -124,9 +131,10 @@ def _verify_v14_config() -> dict:
         "drawdown_breakers.weekly_loss_pct": (
             float(cfg.get("drawdown_breakers", {}).get("weekly_loss_pct", 0)), 0.08),
         "strategy_portfolio.pyramid_enabled": (
-            bool(cfg.get("strategy_portfolio", {}).get("pyramid_enabled", False)), True),
+            bool(cfg.get("strategy_portfolio", {}).get("pyramid_enabled", False)),
+            _EXPECT_P3 != "v15p2"),  # v15p2 → pyramid OFF beklenir; diğerleri ON
     }
-    if _EXPECT_P3:
+    if _EXPECT_P3 == "p3":
         ps = cfg.get("position_sizing", {})
         checks["strategy_risk_weights.vsa"] = (
             float((ps.get("strategy_risk_weights") or {}).get("vsa_climax_test", 0)), 1.4)
@@ -136,6 +144,17 @@ def _verify_v14_config() -> dict:
             bool((ps.get("dd_throttle") or {}).get("enabled", False)), True)
         checks["strategies_enabled (5)"] = (
             len(cfg.get("strategies_enabled") or []), 5)
+    elif _EXPECT_P3 == "v15p2":
+        # v15p2 konsantre filo: grimes+vsa EŞİT (1.0/1.0), 2 strateji, dd_throttle ON.
+        ps = cfg.get("position_sizing", {})
+        checks["strategy_risk_weights.vsa"] = (
+            float((ps.get("strategy_risk_weights") or {}).get("vsa_climax_test", 0)), 1.0)
+        checks["strategy_risk_weights.grimes"] = (
+            float((ps.get("strategy_risk_weights") or {}).get("grimes_abc_pullback", 0)), 1.0)
+        checks["dd_throttle.enabled"] = (
+            bool((ps.get("dd_throttle") or {}).get("enabled", False)), True)
+        checks["strategies_enabled (2)"] = (
+            len(cfg.get("strategies_enabled") or []), 2)
     bad = [(k, got, want) for k, (got, want) in checks.items() if got != want]
     if bad:
         for k, got, want in bad:
@@ -145,7 +164,8 @@ def _verify_v14_config() -> dict:
     _n_strat = len(cfg.get("strategies_enabled") or []) or 4
     _vlog(
         f"VERIFY_OK: faz={_PHASE} risk={_EXPECT_RISK*100:.2f}% d04/w08 "
-        f"sl_min=0.025 pyramid=ON symbols={n_syms} strategies={_n_strat}"
+        f"sl_min=0.025 pyramid={'OFF' if _EXPECT_P3 == 'v15p2' else 'ON'} "
+        f"symbols={n_syms} strategies={_n_strat}"
     )
     return cfg
 
@@ -176,9 +196,15 @@ try:
     _vlog("UNPATCHED: HTF 1d filtresi geri alındı (v14 backtest paritesi — HTF yok)")
 
     # PYRAMID doğrulama: router init'inin gerçekten açılacağını logla
-    if not _daemon._pyramid_enabled_15m():
+    if _EXPECT_P3 == "v15p2":
+        # v15p2 PYRAMID OFF bekler (validasyonla birebir). Router init edilmemeli.
+        if _daemon._pyramid_enabled_15m():
+            raise RuntimeError("v15p2 pyramid-OFF bekler ama config ON okudu — ABORT")
+        _vlog("PYRAMID: v15p2 → OFF doğrulandı (PyramidRouter init EDİLMEYECEK)")
+    elif not _daemon._pyramid_enabled_15m():
         raise RuntimeError("pyramid_enabled=false okundu — v14 tezi pyramid-ON gerektirir")
-    _vlog("PYRAMID: enabled=true doğrulandı (PyramidRouter init edilecek)")
+    else:
+        _vlog("PYRAMID: enabled=true doğrulandı (PyramidRouter init edilecek)")
 except Exception as _patch_err:
     _vlog(f"PATCH_FAIL: {_patch_err} — ABORT")
     raise SystemExit(f"V14 daemon patch failed: {_patch_err}") from _patch_err
