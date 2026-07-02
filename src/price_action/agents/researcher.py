@@ -7,11 +7,12 @@ Faz 3.1: respond_to_drift(drift_doc_path) — drift_alert dokümanını okur,
 RAG'den ilgili literatür çeker, hipotez kartı (DRAFT) üretir. Cooldown:
 aynı drift_alert için max 3 hipotez yanıtı; reject sonrası 7g bekleme.
 """
+
 from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -64,14 +65,87 @@ class ResearcherAgent(LLMAgentBase):
     # SOP
     # ------------------------------------------------------------------
 
+    def _seed_cooldown_reason(self, seed_topic: str) -> str | None:
+        """FIX 2026-07-02 (fabrika RW P0-1): kalıcı seed-cooldown guard.
+
+        Eskiden hiçbir kod-seviyesi blacklist yoktu — "self-throttle" LLM'in
+        her uyanışta elle abort-script yazmasıydı (80+ çöp script, aynı seed
+        32 günde 28× reddedildi). Şimdi: seed_abort_log.jsonl'de son 14 günde
+        bu seed'le eşleşen ≥2 abort varsa → cooldown, LLM hiç çağrılmaz.
+        Eşleşme: seed'in anlamlı token'larının (≥4 harf) ≥%60'ı kayıtta geçiyor.
+        Her hata sessizce None döner (guard asla üretimi kırmaz).
+        """
+        try:
+            import json as _json
+            import re as _re
+            from datetime import datetime as _dt
+            from datetime import timedelta as _td
+
+            log_path = self.settings.memory_dir / self.name / "seed_abort_log.jsonl"
+            if not log_path.exists():
+                return None
+            tokens = [t for t in _re.findall(r"[a-z0-9]{4,}", seed_topic.lower())]
+            if not tokens:
+                return None
+            cutoff = _dt.now(UTC) - _td(days=14)
+            n_hits = 0
+            for line in log_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = _json.loads(line)
+                except Exception:
+                    continue
+                ts_raw = str(rec.get("ts", rec.get("timestamp", "")))
+                try:
+                    ts = _dt.fromisoformat(ts_raw.replace("Z", "+00:00"))
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=UTC)
+                except Exception:
+                    continue
+                if ts < cutoff:
+                    continue
+                blob = line.lower()
+                matched = sum(1 for t in tokens if t in blob)
+                if matched / len(tokens) >= 0.6:
+                    n_hits += 1
+                    if n_hits >= 2:
+                        return f"son 14 günde {n_hits}+ abort (aynı seed) — cooldown"
+            return None
+        except Exception:
+            return None
+
     async def propose_hypothesis(self, seed_topic: str) -> str:
         """SOP-1: Hipotez üretim. RAG'den 8-10 kaynak çekip hipotez yazar."""
+        # FIX 2026-07-02 (P0-1): tükenmiş seed'e LLM çağrısı yapma — churn kes.
+        cooldown = self._seed_cooldown_reason(seed_topic)
+        if cooldown:
+            logger.info(
+                "researcher.seed_cooldown_skip",
+                extra={"seed": seed_topic[:80], "reason": cooldown},
+            )
+            return f"SEED-COOLDOWN-SKIP: {cooldown} — seed: {seed_topic[:80]}"
+
         hits = retrieve_for_hypothesis(seed_topic, k=10)
-        rag_block = "\n\n".join(
-            f"[#{i+1} score={h.score:.3f} src={h.metadata.get('source_id', '?')} "
-            f"author={h.metadata.get('author', '?')}]\n{h.text[:600]}"
-            for i, h in enumerate(hits)
-        ) or "(RAG corpus boş veya hit yok)"
+
+        # FIX 2026-07-02 (hafıza RW): SOP-5 artık KOD-seviyesi enforce — RAG'de
+        # 0 dayanak varsa hipotez üretilmez (eskiden yumuşak prompt-tavsiyesiydi;
+        # boş corpus'la LLM yine de üretiyordu → çöp hipotez seli).
+        if not hits:
+            logger.info("researcher.sop5_rag_zero_abort", extra={"seed": seed_topic[:80]})
+            return (
+                "SEED-ABORT (SOP-5): RAG=0 hit — corpus'ta dayanak yok, "
+                f"hipotez üretilmedi. Seed: {seed_topic[:80]}"
+            )
+        rag_block = (
+            "\n\n".join(
+                f"[#{i+1} score={h.score:.3f} src={h.metadata.get('source_id', '?')} "
+                f"author={h.metadata.get('author', '?')}]\n{h.text[:600]}"
+                for i, h in enumerate(hits)
+            )
+            or "(RAG corpus boş veya hit yok)"
+        )
 
         prompt = (
             f"SOP-1 Hipotez Üretim. Seed konu: '{seed_topic}'.\n"
@@ -82,9 +156,7 @@ class ResearcherAgent(LLMAgentBase):
             f"--- RAG REFERENCES ---\n{rag_block}"
         )
         text = await self.run(prompt)
-        self.record_episodic(
-            f"propose_hypothesis seed={seed_topic[:80]}", tags=["hypothesis"]
-        )
+        self.record_episodic(f"propose_hypothesis seed={seed_topic[:80]}", tags=["hypothesis"])
         return text
 
     async def propose_5_batch(self, themes: list[str] | None = None) -> list[str]:
@@ -105,9 +177,10 @@ class ResearcherAgent(LLMAgentBase):
         import asyncio
 
         if themes is None:
-            from datetime import datetime, timezone
+            from datetime import datetime
+
             # Haftalık rotation — gün × 5 ile farklı seed seti
-            day = datetime.now(timezone.utc).timetuple().tm_yday
+            day = datetime.now(UTC).timetuple().tm_yday
             # REVIZE 2026-05-29: OHLCV-türevli price-action temaları.
             # Önceki bank'ta funding-rate / OI / BTC-dominance / FOMC-CPI /
             # cross-strategy temaları "evren-dışı veri" (bizde ingest YOK) →
@@ -122,22 +195,40 @@ class ResearcherAgent(LLMAgentBase):
             # Yeni-pattern hipotezleri executable=false (detector yok). Bu yüzden
             # bank'ın ÇOĞU bu 4 stratejinin param-sweep'i (base != null → AUTO-BACKTEST
             # kapanır); kalanı discovery (PROPOSED → Signal Chief implementasyonu).
+            # REVIZE-3 2026-07-02 (v15 Filo RW + Principal %15-20 hedefi):
+            # Frontier README + blend raporu + slot deneyi BAĞIMSIZ 3 KEZ aynı
+            # hükmü verdi: "%20+ = parametre değil YENİ-ALFA". Tükenmiş
+            # kripto-15m param-sweep temaları (32 gün churn kaynağı; brooks-ATR,
+            # vsa-z, avwap-band, engulfing-conf hepsi test edilip kapandı)
+            # bankadan çıkarıldı → yerlerine DÜŞÜK-KORELASYON yeni mekanizma
+            # SINIFLARI kondu. Not: vsa-z EK-3'te falsifiye edildi; doğru testi
+            # vintage-eşleşmiş re-detection ister (tema #3'e gömülü).
             theme_bank = [
-                # AUTO-BACKTESTABLE — tanınan stratejilerin param-sweep'leri
-                "brooks_failed_breakout: ATR stop-distance parameter sweep",
-                "brooks_failed_breakout: confirmation-window parameter sweep",
-                "vsa_climax_test: volume-z threshold parameter sweep",
-                "vsa_climax_test: wide-stop sl_pct_min parameter sweep",
-                "anchored_vwap_reversal: entry-band distance parameter sweep",
-                "engulfing_continuation: confluence-score threshold sweep",
-                # DISCOVERY — yeni-pattern (PROPOSED → Signal Chief)
+                # YENİ-ALFA SINIFLARI (filoya düşük-korelasyon kol adayları)
+                "Funding-rate tilt overlay: pozitif-funding sembollerde short-önyargı "
+                "(data/funding.duckdb join; borsa-truth tarihsel, vintage-riski yok)",
+                "Higher-timeframe vol-breakout arm: 1h/4h NR7/squeeze breakout, "
+                "15m filodan bağımsız getiri akışı (pool_19sym HTF re-sample)",
+                "vsa_climax_test vintage-eşleşmiş re-detection: dondurulmuş OHLCV "
+                "snapshot üzerinde vol_z trigger sweep (EK-3 bulgusunun doğru testi)",
+                "Weekend/session gap mean-reversion: Cuma-kapanış→Pazartesi-açılış "
+                "asimetrisi, kripto 7/24 ama likidite-rejim farkı ölçülebilir",
+                "Cross-strategy carry blend: mevcut kolların funding-maliyet "
+                "farkındalıklı yön seçimi (aynı sinyal, funding-lehine taraf)",
+                # KORUNAN DISCOVERY temaları (hâlâ açık alanlar)
                 "Volatility regime sizing optimization",
                 "Time-of-day session bias",
                 "Multi-symbol confluence opportunities",
                 "Pin bar rejection at support/resistance",
+                "grimes_abc_pullback: conf-eşiği pre-registered tek-test "
+                "(yalnız 1 eşik, DSR n_trials disiplini)",
             ]
             # 5 sliding theme
-            start = (day * 5) % len(theme_bank)
+            # FIX 2026-07-02 (fabrika RW P0-1): eski `(day*5) % 10` yalnız
+            # {0,5} üretiyordu → her gün AYNI İKİ sabit 5'li set dönüyordu
+            # (aynı tükenmiş seed'ler 32 gün boyunca). `day % len` günde 1
+            # kaydırır → 10 günde tam bank kapsanır.
+            start = day % len(theme_bank)
             themes = [theme_bank[(start + i) % len(theme_bank)] for i in range(5)]
 
         # Paralel yürütme
@@ -147,7 +238,7 @@ class ResearcherAgent(LLMAgentBase):
         )
 
         successful = []
-        for theme, result in zip(themes, results):
+        for theme, result in zip(themes, results, strict=False):
             if isinstance(result, Exception):
                 logger.warning(
                     "researcher.batch_item_fail",
@@ -204,9 +295,7 @@ class ResearcherAgent(LLMAgentBase):
             tags=["hypothesis", "pre_register"],
         )
 
-        logger.info(
-            "researcher.pre_registered", extra={"path": str(path), "slug": slug}
-        )
+        logger.info("researcher.pre_registered", extra={"path": str(path), "slug": slug})
         self.record_episodic(
             f"pre_registered hypothesis {slug}",
             tags=["hypothesis", "pre_register"],
@@ -234,15 +323,18 @@ class ResearcherAgent(LLMAgentBase):
             return {}, ""
         try:
             import yaml
+
             content = path.read_text(encoding="utf-8")
             m = self._FRONTMATTER_RE.match(content)
             if not m:
                 return {}, content
             fm = yaml.safe_load(m.group(1)) or {}
-            body = content[m.end():]
+            body = content[m.end() :]
             return fm, body
         except Exception as exc:
-            logger.warning("researcher.parse_fail", extra={"path": str(path), "err": str(exc)[:200]})
+            logger.warning(
+                "researcher.parse_fail", extra={"path": str(path), "err": str(exc)[:200]}
+            )
             return {}, ""
 
     def _drift_response_count(self, drift_doc_id: str) -> int:
@@ -281,23 +373,19 @@ class ResearcherAgent(LLMAgentBase):
         # FIX 2026-05-26 (H8): content[:3000]/[:5000] string match yerine
         # YAML frontmatter parse + full body fallback. Symbol/strategy footer'da
         # ise miss riskini eliminer eder.
-        cutoff_7d = datetime.now(timezone.utc) - timedelta(days=7)
+        cutoff_7d = datetime.now(UTC) - timedelta(days=7)
         for h in hdir.glob("*.md"):
             try:
-                mtime = datetime.fromtimestamp(h.stat().st_mtime, tz=timezone.utc)
+                mtime = datetime.fromtimestamp(h.stat().st_mtime, tz=UTC)
                 if mtime < cutoff_7d:
                     continue
                 content = h.read_text(encoding="utf-8")
                 # Frontmatter parse → daha güvenilir match
                 frontmatter, body = self._parse_doc_metadata(content)
                 tags = frontmatter.get("tags", []) or []
-                has_symbol = (
-                    symbol.lower() in str(tags).lower()
-                    or symbol.lower() in body.lower()
-                )
+                has_symbol = symbol.lower() in str(tags).lower() or symbol.lower() in body.lower()
                 has_strategy = (
-                    strategy.lower() in str(tags).lower()
-                    or strategy.lower() in body.lower()
+                    strategy.lower() in str(tags).lower() or strategy.lower() in body.lower()
                 )
                 # REJECTED hem status field hem text içinde olabilir
                 is_rejected = (
@@ -305,8 +393,11 @@ class ResearcherAgent(LLMAgentBase):
                     or "REJECTED" in body.upper()
                 )
                 if has_symbol and has_strategy and is_rejected:
-                    days_ago = (datetime.now(timezone.utc) - mtime).days
-                    return True, f"recent_reject_within_7d (symbol={symbol}, strategy={strategy}, days_ago={days_ago})"
+                    days_ago = (datetime.now(UTC) - mtime).days
+                    return (
+                        True,
+                        f"recent_reject_within_7d (symbol={symbol}, strategy={strategy}, days_ago={days_ago})",
+                    )
             except Exception:
                 continue
 
@@ -315,20 +406,16 @@ class ResearcherAgent(LLMAgentBase):
         recent_count_same_pair = 0
         for h in hdir.glob("*.md"):
             try:
-                mtime = datetime.fromtimestamp(h.stat().st_mtime, tz=timezone.utc)
+                mtime = datetime.fromtimestamp(h.stat().st_mtime, tz=UTC)
                 if mtime < cutoff_7d:
                     continue
                 content = h.read_text(encoding="utf-8")
                 frontmatter, body = self._parse_doc_metadata(content)
                 tags = frontmatter.get("tags", []) or []
                 # tags ve full body — char limit YOK (H8 fix)
-                has_symbol = (
-                    symbol.lower() in str(tags).lower()
-                    or symbol.lower() in body.lower()
-                )
+                has_symbol = symbol.lower() in str(tags).lower() or symbol.lower() in body.lower()
                 has_strategy = (
-                    strategy.lower() in str(tags).lower()
-                    or strategy.lower() in body.lower()
+                    strategy.lower() in str(tags).lower() or strategy.lower() in body.lower()
                 )
                 if has_symbol and has_strategy:
                     recent_count_same_pair += 1
@@ -336,7 +423,10 @@ class ResearcherAgent(LLMAgentBase):
                 continue
 
         if recent_count_same_pair >= 1:
-            return True, f"weekly_pair_limit (symbol={symbol}, strategy={strategy}, count={recent_count_same_pair})"
+            return (
+                True,
+                f"weekly_pair_limit (symbol={symbol}, strategy={strategy}, count={recent_count_same_pair})",
+            )
 
         return False, "ok"
 
@@ -347,6 +437,7 @@ class ResearcherAgent(LLMAgentBase):
         Returns (frontmatter dict, body str). Frontmatter yoksa ({}, content).
         """
         import yaml as _yaml
+
         if not content.startswith("---"):
             return {}, content
         try:
@@ -405,10 +496,13 @@ class ResearcherAgent(LLMAgentBase):
             logger.warning("researcher.rag_fail", extra={"err": str(exc)[:200]})
             hits = []
 
-        rag_block = "\n\n".join(
-            f"[#{i+1} score={h.score:.3f} src={h.metadata.get('source_id', '?')}]\n{h.text[:500]}"
-            for i, h in enumerate(hits)
-        ) or "(RAG corpus boş veya hit yok)"
+        rag_block = (
+            "\n\n".join(
+                f"[#{i+1} score={h.score:.3f} src={h.metadata.get('source_id', '?')}]\n{h.text[:500]}"
+                for i, h in enumerate(hits)
+            )
+            or "(RAG corpus boş veya hit yok)"
+        )
 
         prompt = (
             "Drift alert geldi. Yanıt olarak pre-registration formatında DRAFT "
@@ -511,7 +605,7 @@ class ResearcherAgent(LLMAgentBase):
         except Exception:
             return False
 
-        ts_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        ts_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         modified = False
         new_lines: list[str] = []
         for line in lines:
@@ -561,8 +655,7 @@ class ResearcherAgent(LLMAgentBase):
         self.write_decision(adr, slug=f"strategy-{result.get('strategy_id', 'x')}")
         # Rapor da yaz
         report_path = self._reports_dir() / (
-            f"{result.get('strategy_id', 'unknown')}-"
-            f"{datetime.now(timezone.utc).strftime('%Y%m%d')}.md"
+            f"{result.get('strategy_id', 'unknown')}-" f"{datetime.now(UTC).strftime('%Y%m%d')}.md"
         )
         report_path.write_text(
             f"# Research Report — {result.get('strategy_id', 'unknown')}\n\n"

@@ -10,10 +10,11 @@ Yapı `memory/README.md` ile uyumludur.
 - Shared facts (`memory/shared/facts/*.md`) ve shared lessons
   (`memory/shared/lessons/*.md`) tüm agent'lar tarafından okunur.
 """
+
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -247,8 +248,9 @@ class MemoryStore:
         if not reports_root.exists():
             return []
 
-        from datetime import datetime as _dt, timezone as _tz
-        cutoff = _dt.now(_tz.utc).timestamp() - since_days * 86400
+        from datetime import datetime as _dt
+
+        cutoff = _dt.now(UTC).timestamp() - since_days * 86400
 
         # Hangi dizinleri tara
         if agent:
@@ -284,22 +286,56 @@ class MemoryStore:
     def boot_context(self, agent: str) -> str:
         """Her LLM çağrısı öncesi system prompt'a girecek özet.
 
-        Identity + know_how + son 5 learning entry + son 5 shared lesson +
-        shared facts başlık özetlerini içerir.
+        Identity + know_how + son N learning entry + sidecar learning özetleri
+        + son 5 shared lesson + shared facts başlık özetlerini içerir.
+
+        FIX 2026-07-02 (hafıza RW): "sistem biriktirdiğinin %5'ini hatırlıyor"
+        bulgusuna cevap — (1) learning son-5-blok hapsi → son 25 blok +
+        char-cap 24K (researcher 278KB / 115 blok biriktirmişti, %96'sı hiç
+        yüklenmiyordu); (2) sidecar `learning_*.md` dosyaları (20 dosya,
+        ~120KB forensik içerik, SIFIR okuyucu) artık başlık+ilk-paragraf
+        özetiyle boot'a giriyor; (3) shared facts sadece başlık değil kısa
+        içerik önizlemesiyle yüklenir.
         """
         identity = self.read_identity(agent).strip()
         know_how = self.read_know_how(agent).strip()
         learning_full = self.read_learning(agent).strip()
-        last_learning = _last_n_blocks(learning_full, n=5)
+        # Son 25 blok, toplam 24K char tavanı (prompt şişme emniyeti)
+        last_learning = _last_n_blocks(learning_full, n=25)
+        if len(last_learning) > 24_000:
+            last_learning = last_learning[-24_000:]
         last_lessons = self.read_shared_lessons(limit=5)
         facts = self.read_shared_facts()
 
         parts: list[str] = []
         parts.append(f"## IDENTITY\n{identity or '(empty)'}\n")
         parts.append(f"## KNOW-HOW\n{know_how or '(empty)'}\n")
-        parts.append(
-            f"## RECENT LEARNINGS (last 5)\n{last_learning or '(no recent learnings)'}\n"
-        )
+        parts.append(f"## RECENT LEARNINGS (last 25)\n{last_learning or '(no recent learnings)'}\n")
+        # Sidecar learning dosyaları — başlık + ilk anlamlı satırlar (özet)
+        try:
+            agent_dir = self.base_dir / agent
+            sidecars = sorted(
+                agent_dir.glob("learning_*.md"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )[:8]
+            if sidecars:
+                sc_parts: list[str] = []
+                for p in sidecars:
+                    try:
+                        txt = p.read_text(encoding="utf-8").strip()
+                    except OSError:
+                        continue
+                    head = "\n".join(txt.splitlines()[:12])[:1200]
+                    sc_parts.append(f"[{p.name}]\n{head}")
+                if sc_parts:
+                    parts.append(
+                        "## SIDECAR LEARNING DIGESTS (en yeni 8 dosya, özet)\n"
+                        + "\n\n---\n\n".join(sc_parts)
+                        + "\n"
+                    )
+        except Exception:
+            pass  # sidecar özetleme asla boot'u kırmasın
         if last_lessons:
             parts.append(
                 "## RECENT SHARED LESSONS (last 5)\n"
@@ -307,8 +343,11 @@ class MemoryStore:
                 + "\n"
             )
         if facts:
-            fact_titles = ", ".join(sorted(facts.keys()))
-            parts.append(f"## SHARED FACTS AVAILABLE\n{fact_titles}\n")
+            fact_lines: list[str] = []
+            for k in sorted(facts.keys()):
+                v = str(facts.get(k, "")).strip().replace("\n", " ")
+                fact_lines.append(f"- {k}: {v[:280]}")
+            parts.append("## SHARED FACTS\n" + "\n".join(fact_lines) + "\n")
         return "\n".join(parts)
 
 
@@ -335,6 +374,7 @@ def _last_n_blocks(markdown: str, n: int = 5) -> str:
 # Yardımcılar — public
 # ----------------------------------------------------------------------
 
+
 def make_entry(
     agent: str,
     body: str,
@@ -351,7 +391,7 @@ def make_entry(
         type=entry_type,  # type: ignore[arg-type]
         slug=_slugify(slug or body[:40]),
         body=body,
-        ts=ts or datetime.now(timezone.utc),
+        ts=ts or datetime.now(UTC),
         confidence=confidence,  # type: ignore[arg-type]
         tags=list(tags or []),
     )

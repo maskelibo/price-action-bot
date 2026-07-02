@@ -230,7 +230,10 @@ processes:
     auditor: audit_research
     inherent_risk: critical
     cadence: weekly
-    controls: []               # (Faz 3) gate gerçekten uygulandı mı
+    # FIX 2026-07-02 (sistem RW): CT-OPS-09 promotion-throughput watchdog —
+    # "cron koşuyor ama 32 gündür 0 terfi" körlüğünü kapatır (autopilot açık +
+    # 14g pencerede ≥10 tournament + 0 promote_candidate → finding).
+    controls: [CT-OPS-09]
   research.drift_detection:
     domain: research
     owner_agent: lab_scientist
@@ -238,6 +241,17 @@ processes:
     inherent_risk: med
     cadence: weekly
     controls: []
+
+  # ============ PERFORMANS (audit_ops köprü — 2026-07-02 sistem RW) ============
+  # Kapsam boşluğu kapatması: "botun varlık sebebi (canlı aylık pace) hiçbir
+  # kontrolce izlenmiyordu". Band = gap-waterfall dürüst bandı +5..9%/ay.
+  performance.pnl_pace:
+    domain: performance
+    owner_agent: ceo
+    auditor: audit_ops
+    inherent_risk: critical
+    cadence: daily
+    controls: [CT-OPS-08]
 
   # ============ OPS / KONTROL-ORTAMI (audit_ops) ============
   ops.notifications_mute:

@@ -11,6 +11,11 @@ strategies_in_rotation:
   - vsa_climax_test
   - brooks_failed_breakout
   - anchored_vwap_reversal
+  # FIX 2026-07-02 (challenger yolu, RW Faz 4): grimes-abc rotasyona alındı.
+  # Envanterdeki TEK verdict=PASS hipotez (7/8 gate, lookahead-temiz,
+  # champion'a korelasyon 0.12); pool'u hazır+taze (data/pool_grimes_abc_15m.pkl,
+  # 18.5K trade, 2020-05→2026-06-10). Dar ön-taahhütlü grid'i grids.yaml'da.
+  - grimes_abc_pullback
 
 chunk_state_file: data/state/param_sweep_chunks.json
 

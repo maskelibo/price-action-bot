@@ -3,16 +3,17 @@
 Tournament, drift detection, RAG refresh, departman toplantısı.
 İstatistik: ``scipy.stats``.
 """
+
 from __future__ import annotations
 
 import math
-from datetime import datetime, timedelta, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, ClassVar, Sequence
+from typing import Any, ClassVar
 
 from price_action.logging_config import logger
 from price_action.rag import summarize_recent_additions
-from price_action.settings import get_settings
 
 from .base import LLMAgentBase
 
@@ -50,6 +51,7 @@ class LabScientistAgent(LLMAgentBase):
         """
         try:
             import yaml
+
             cfg_path = self.settings.reports_dir.parent / "configs" / "lab_gates.yaml"
             if not cfg_path.exists():
                 return {}
@@ -73,9 +75,7 @@ class LabScientistAgent(LLMAgentBase):
     # İstatistiksel testler
     # ------------------------------------------------------------------
 
-    def welch_ttest(
-        self, a: Sequence[float], b: Sequence[float]
-    ) -> dict[str, float]:
+    def welch_ttest(self, a: Sequence[float], b: Sequence[float]) -> dict[str, float]:
         """İki returns serisi arasında Welch's t-test."""
         stats = self._import_scipy()
         if stats is None or len(a) < 2 or len(b) < 2:
@@ -83,9 +83,7 @@ class LabScientistAgent(LLMAgentBase):
         result = stats.ttest_ind(a, b, equal_var=False, nan_policy="omit")
         return {"t": float(result.statistic), "p": float(result.pvalue)}
 
-    def ks_test(
-        self, a: Sequence[float], b: Sequence[float]
-    ) -> dict[str, float]:
+    def ks_test(self, a: Sequence[float], b: Sequence[float]) -> dict[str, float]:
         """Kolmogorov-Smirnov dağılım eşitliği testi."""
         stats = self._import_scipy()
         if stats is None or not a or not b:
@@ -100,28 +98,65 @@ class LabScientistAgent(LLMAgentBase):
         n_obs: int,
         skew: float = 0.0,
         kurt: float = 3.0,
+        returns: Sequence[float] | None = None,
     ) -> dict[str, float]:
         """DSR (Deflated Sharpe Ratio) — Bailey & López de Prado.
 
         Çoklu test sayısına ve örnek istatistiklere göre düzeltilmiş p-value.
+
+        FIX 2026-07-02 (fabrika RW P0-2): ``returns`` verilirse istatistik
+        DOĞRU birimde hesaplanır — per-obs SR örneklemden türetilir ve
+        z = SR_obs·√(n−1)/denom − E[maxZ(n_trials)] karşılaştırması yapılır.
+        Eski yol (annualized sharpe'ı Z-birimiyle karıştıran) yalnız returns
+        yokken fallback olarak kalır. Eski yolda ayrıca n_trials'a yanlışlıkla
+        TRADE sayısı besleniyordu (kaynak fix: sweep_aggregator) — ikisi
+        birlikte dsr_p'yi kalıcı ~1.0'a çiviliyordu → 0 terfi.
         """
         stats = self._import_scipy()
-        if stats is None or n_obs < 30 or n_trials < 1:
+        if stats is None or n_trials < 1:
             return {"dsr": math.nan, "p": math.nan}
-        # Beklenen maksimum Sharpe (n_trials denemesi içinde)
+        # Beklenen maksimum Z (n_trials bağımsız deneme içinde)
         # E[max(Z)] ≈ (1 - γ) * Φ⁻¹(1 - 1/n) + γ * Φ⁻¹(1 - 1/(n*e))
         gamma = 0.5772156649  # Euler-Mascheroni
         try:
             inv1 = stats.norm.ppf(1 - 1.0 / max(n_trials, 2))
             inv2 = stats.norm.ppf(1 - 1.0 / (max(n_trials, 2) * math.e))
-            sharpe0 = (1 - gamma) * inv1 + gamma * inv2
-            # PSR (Probabilistic Sharpe Ratio) ile deflated p-value
+            e_max_z = (1 - gamma) * inv1 + gamma * inv2
+
+            if returns is not None and len(returns) >= 30:
+                # --- Doğru yol: per-obs SR, skew/kurt örneklemden ---
+                import numpy as _np
+
+                r = _np.asarray(list(returns), dtype=float)
+                r = r[_np.isfinite(r)]
+                n = int(r.size)
+                if n < 30:
+                    return {"dsr": math.nan, "p": math.nan}
+                sd = float(r.std(ddof=1))
+                if sd <= 1e-12:
+                    return {"dsr": math.nan, "p": math.nan}
+                sr_obs = float(r.mean()) / sd
+                skew_s = float(stats.skew(r))
+                kurt_s = float(stats.kurtosis(r, fisher=False))  # Pearson (normal=3)
+                denom = math.sqrt(max(1e-9, 1 - skew_s * sr_obs + ((kurt_s - 1) / 4.0) * sr_obs**2))
+                z = sr_obs * math.sqrt(n - 1) / denom - float(e_max_z)
+                p = 1.0 - float(stats.norm.cdf(z))
+                return {
+                    "dsr": float(z),
+                    "p": p,
+                    "sr_obs": sr_obs,
+                    "expected_max_z": float(e_max_z),
+                    "n_obs_used": float(n),
+                }
+
+            # --- Legacy fallback (returns yok): eski davranış korunur ---
+            if n_obs < 30:
+                return {"dsr": math.nan, "p": math.nan}
+            sharpe0 = e_max_z
             denom = math.sqrt(
                 max(
                     1e-9,
-                    1
-                    - skew * sharpe
-                    + ((kurt - 1) / 4.0) * sharpe**2,
+                    1 - skew * sharpe + ((kurt - 1) / 4.0) * sharpe**2,
                 )
             )
             z = (sharpe - sharpe0) * math.sqrt(n_obs - 1) / denom
@@ -164,6 +199,7 @@ class LabScientistAgent(LLMAgentBase):
         # Kaynak 1 — gerçek sayısal challenger (param sweep cells)
         try:
             from price_action.lab.sweep_aggregator import top_cells_as_challengers
+
             sweep_challengers = top_cells_as_challengers(
                 since_days=since_days,
                 top_n_per_strategy=3,
@@ -184,6 +220,7 @@ class LabScientistAgent(LLMAgentBase):
         # Kaynak 2 — hipotez "place-holder" listesi (metadata only, oos=0)
         try:
             from price_action.memory.store import MemoryStore
+
             store = MemoryStore()
             hyp_docs = store.list_recent_docs(
                 agent="researcher",
@@ -200,9 +237,7 @@ class LabScientistAgent(LLMAgentBase):
             HYP_SKIP_SUFFIXES = (".tmpl", "_template.md")
             # FIX 2026-05-27 (Faz 14.15): hipotez backtest_results/ varsa
             # PENDING_BACKTEST placeholder yerine GERÇEK sonuçları kullan.
-            results_dir = (
-                self.settings.memory_dir / "researcher" / "backtest_results"
-            )
+            results_dir = self.settings.memory_dir / "researcher" / "backtest_results"
             for doc in hyp_docs[:15]:
                 name = doc.name
                 if any(name.startswith(p) for p in HYP_SKIP_PREFIXES):
@@ -214,52 +249,68 @@ class LabScientistAgent(LLMAgentBase):
                 if result_path.exists():
                     try:
                         import json as _json
+
                         rdata = _json.loads(result_path.read_text())
                         rstatus = rdata.get("result", {}).get("status", "")
                         rtype = rdata.get("spec", {}).get("type", "")
                         if rstatus == "OK" and rtype == "param_sweep":
                             best = rdata["result"].get("best_cell", {})
-                            challengers.append({
-                                "id": doc.stem,
-                                "source_doc": str(doc),
-                                "oos_returns": list(best.get("returns_R_sample", [])),
-                                "oos_sharpe": float(best.get("sharpe_annualized", 0.0)),
-                                "oos_maxdd": float(
-                                    best.get("max_drawdown_R", 0.0)
-                                ) * float(best.get("risk_pct", 0.005)),
-                                "n_trials": int(best.get("n_trades", 0)),
-                                "mean_R_after_fees": float(best.get("mean_R_after_fees", 0.0)),
-                                "hypothesis_spec": rdata.get("spec"),
-                                "status": "BACKTESTED_FROM_HYP",
-                            })
+                            challengers.append(
+                                {
+                                    "id": doc.stem,
+                                    "source_doc": str(doc),
+                                    "oos_returns": list(best.get("returns_R_sample", [])),
+                                    "oos_sharpe": float(best.get("sharpe_annualized", 0.0)),
+                                    "oos_maxdd": float(best.get("max_drawdown_R", 0.0))
+                                    * float(best.get("risk_pct", 0.005)),
+                                    "n_trials": int(best.get("n_trades", 0)),
+                                    "mean_R_after_fees": float(best.get("mean_R_after_fees", 0.0)),
+                                    "hypothesis_spec": rdata.get("spec"),
+                                    "status": "BACKTESTED_FROM_HYP",
+                                }
+                            )
                             continue
                         elif rstatus == "OK" and rtype == "analysis":
                             # Analysis sonucu — sayısal challenger değil ama
                             # findings olarak ekle (informational)
-                            challengers.append({
-                                "id": doc.stem,
-                                "source_doc": str(doc),
-                                "oos_returns": [],
-                                "oos_sharpe": 0.0,
-                                "oos_maxdd": 0.0,
-                                "n_trials": 0,
-                                "analysis_findings": rdata["result"],
-                                "status": "ANALYSIS_RESULT",
-                            })
+                            challengers.append(
+                                {
+                                    "id": doc.stem,
+                                    "source_doc": str(doc),
+                                    "oos_returns": [],
+                                    "oos_sharpe": 0.0,
+                                    "oos_maxdd": 0.0,
+                                    "n_trials": 0,
+                                    "analysis_findings": rdata["result"],
+                                    "status": "ANALYSIS_RESULT",
+                                }
+                            )
                             continue
                         # NOT_EXECUTABLE / DEFERRED / ERROR — fall through to placeholder
                     except Exception:
                         pass
+                # FIX 2026-06-22 (turnuva hijyeni): seed-abort hipotezleri seed
+                # eleme aşamasında iptal edildi — backtest'leri OLMAYACAK, yani
+                # "pending" değil ölü. Bunları PENDING_BACKTEST placeholder olarak
+                # turnuvaya sokmak 0-row sahte "challenger" tortusu üretiyordu
+                # (W24/W25'te 21 adayın ~14'ü bu tortuydu, raporu yanıltıyordu).
+                # Gerçek sonucu olan dosyalar yukarıda zaten BACKTESTED_FROM_HYP /
+                # ANALYSIS_RESULT ile `continue` edildi; buraya yalnızca placeholder
+                # düşer — seed-abort placeholder'ı ele (gerçek challenger asla düşmez).
+                if "seed-abort" in name:
+                    continue
                 # Default: PENDING_BACKTEST placeholder (sweep_aggregator dolduracak)
-                challengers.append({
-                    "id": doc.stem,
-                    "source_doc": str(doc),
-                    "oos_returns": [],
-                    "oos_sharpe": 0.0,
-                    "oos_maxdd": 0.0,
-                    "n_trials": 0,
-                    "status": "PENDING_BACKTEST",
-                })
+                challengers.append(
+                    {
+                        "id": doc.stem,
+                        "source_doc": str(doc),
+                        "oos_returns": [],
+                        "oos_sharpe": 0.0,
+                        "oos_maxdd": 0.0,
+                        "n_trials": 0,
+                        "status": "PENDING_BACKTEST",
+                    }
+                )
         except Exception as exc:
             logger.warning(
                 "lab.hyp_collect_fail",
@@ -315,18 +366,21 @@ class LabScientistAgent(LLMAgentBase):
         for ch in challengers:
             ch_returns = list(ch.get("oos_returns", []) or [])
             tt = self.welch_ttest(ch_returns, c_returns)
+            # FIX 2026-07-02 (P0-2): returns örneklemini DSR'ye geçir — per-obs
+            # SR + doğru çoklu-test düzeltmesi. n_trials artık kaynak tarafında
+            # (sweep_aggregator) denenen-konfig sayısı olarak geliyor.
             dsr = self.deflated_sharpe(
                 float(ch.get("oos_sharpe", 0)),
                 int(ch.get("n_trials", 1)),
                 len(ch_returns) or 30,
+                returns=ch_returns or None,
             )
-            effect = (
-                (float(ch.get("oos_sharpe", 0)) - c_sharpe) / max(abs(c_sharpe), 1e-9)
-            )
+            effect = (float(ch.get("oos_sharpe", 0)) - c_sharpe) / max(abs(c_sharpe), 1e-9)
             promote = (
                 effect >= effect_min
                 and dsr.get("p", 1.0) < dsr_max
-                and float(ch.get("oos_maxdd", 1)) <= float(champion.get("oos_maxdd", 1)) + maxdd_excess
+                and float(ch.get("oos_maxdd", 1))
+                <= float(champion.get("oos_maxdd", 1)) + maxdd_excess
             )
             rows.append(
                 {
@@ -347,7 +401,7 @@ class LabScientistAgent(LLMAgentBase):
             f"CHAMPION: {champion.get('id')}\nROWS: {rows}"
         )
         commentary = await self.run(prompt)
-        iso = datetime.now(timezone.utc).isocalendar()
+        iso = datetime.now(UTC).isocalendar()
         week_label = f"{iso.year}-W{iso.week:02d}"
 
         body = (
@@ -367,7 +421,9 @@ class LabScientistAgent(LLMAgentBase):
             slug=f"tournament-{week_label}",
             target_dir=self._reports_dir(),
             status="PROPOSED",
-            confidence="high" if rows and any(r.get("decision") == "promote_candidate" for r in rows) else "med",
+            confidence="high"
+            if rows and any(r.get("decision") == "promote_candidate" for r in rows)
+            else "med",
             depends_on=[ch.get("source_doc", "") for ch in challengers if ch.get("source_doc")],
             requested_review_from=["risk_officer", "ceo"],
             tags=["tournament", "weekly", week_label],
@@ -463,7 +519,7 @@ class LabScientistAgent(LLMAgentBase):
         body = (
             f"# Drift Alert — {strategy} on {symbol}\n\n"
             "## Detection\n"
-            f"- Detected at: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}\n"
+            f"- Detected at: {datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}\n"
             f"- Test window: live n={len(live_returns)} vs backtest n={len(backtest_returns)}\n"
             f"- Strategy: {strategy}\n"
             f"- Symbol scope: {symbol}\n\n"
@@ -513,7 +569,7 @@ class LabScientistAgent(LLMAgentBase):
 
     async def rag_refresh(self, since_days: int = 7) -> Path:
         """Son N günde eklenen RAG belgelerini özetler."""
-        since = datetime.now(timezone.utc) - timedelta(days=since_days)
+        since = datetime.now(UTC) - timedelta(days=since_days)
         hits = summarize_recent_additions(since)
         prompt = (
             "RAG Refresh özeti. Aşağıdaki yeni belgelerden 5-10 maddelik "
@@ -526,7 +582,7 @@ class LabScientistAgent(LLMAgentBase):
             )
         )
         text = await self.run(prompt)
-        iso = datetime.now(timezone.utc).isocalendar()
+        iso = datetime.now(UTC).isocalendar()
         path = self._reports_dir() / f"rag-refresh-{iso.year}-W{iso.week:02d}.md"
         path.write_text(text, encoding="utf-8")
         return path
@@ -544,7 +600,7 @@ class LabScientistAgent(LLMAgentBase):
             f"--- SUMMARIES ---\n{joined}"
         )
         text = await self.run(prompt)
-        iso = datetime.now(timezone.utc).isocalendar()
+        iso = datetime.now(UTC).isocalendar()
         path = self._reports_dir() / f"meeting-{iso.year}-W{iso.week:02d}.md"
         path.write_text(text, encoding="utf-8")
         return path

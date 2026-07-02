@@ -9,11 +9,12 @@ regime breakdown). Bu modül o veriyi tournament'a köprüler.
 
 Tek public fonksiyon: `top_cells_as_challengers()`.
 """
+
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -42,9 +43,9 @@ class CellRanking:
     sharpe_like: float
     sharpe_annualized: float
     sum_R: float
-    max_drawdown_R: float            # R cinsinden (param_sweep_runner çıktısı)
+    max_drawdown_R: float  # R cinsinden (param_sweep_runner çıktısı)
     trades_per_year: float
-    returns_R_sample: list[float]    # 500-trade sample (Welch t-test için)
+    returns_R_sample: list[float]  # 500-trade sample (Welch t-test için)
     bull_mean_R: float | None
     bear_mean_R: float | None
     source_chunk: str
@@ -87,6 +88,7 @@ class CellRanking:
             }
         try:
             import numpy as np
+
             r = np.array(self.returns_R_sample, dtype=float)
             n = len(r)
             risk = float(self.risk_pct) or 0.005
@@ -142,7 +144,7 @@ class CellRanking:
                 "max_dd_compound_pct": 0.0,
             }
 
-    def to_challenger_dict(self) -> dict[str, Any]:
+    def to_challenger_dict(self, n_trials: int | None = None) -> dict[str, Any]:
         """Lab tournament'ın beklediği dict şemasına dönüş.
 
         Yeni alanlar:
@@ -151,6 +153,13 @@ class CellRanking:
         - oos_maxdd: equity %DD (R*risk dönüşümü, lower-bound proxy)
         - monthly_*: Faz 14.13 — Principal'in anladığı dilde metrik
           (aylık ROI ortalama %, neg ay sayısı, max DD compound)
+
+        FIX 2026-07-02 (fabrika RW P0-2): ``n_trials`` artık PARAMETRE —
+        çağıran, seçim havuzundaki DENENEN KONFİG sayısını vermeli (DSR'nin
+        çoklu-test düzeltmesi bunu bekler). Eski davranış n_trials=n_trades
+        (2206 gibi) idi → beklenen-max-Sharpe ~3.5'a fırlıyor, dsr_p≈1.0
+        oluyordu → HİÇBİR aday terfi kapısını geçemiyordu (1 Tem turnuvasında
+        champion'ı +%21.5 geçen vsa-z adayı dahi bu yüzden reddedildi).
         """
         monthly = self.monthly_metrics()
         return {
@@ -164,7 +173,11 @@ class CellRanking:
             "oos_sharpe": float(self.sharpe_annualized),
             "oos_returns": list(self.returns_R_sample),
             "oos_maxdd": self.oos_maxdd_pct,
-            "n_trials": int(self.n_trades),
+            # Çoklu-test sayısı (konfig). None → legacy fallback n_trades
+            # (bilinçli: eski çağıranlar kırılmasın; tournament yolunda
+            # top_cells_as_challengers HER ZAMAN doğru değeri geçer).
+            "n_trials": int(n_trials) if n_trials is not None else int(self.n_trades),
+            "n_trades": int(self.n_trades),
             # Diagnostik
             "mean_R_after_fees": float(self.mean_R_after_fees),
             "sum_R": float(self.sum_R),
@@ -196,11 +209,11 @@ def _load_chunks(
             extra={"path": str(chunks_dir)},
         )
         return []
-    cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
+    cutoff = datetime.now(UTC) - timedelta(days=since_days)
     rows: list[dict[str, Any]] = []
     for chunk_path in sorted(chunks_dir.glob("*.jsonl")):
         try:
-            mtime = datetime.fromtimestamp(chunk_path.stat().st_mtime, tz=timezone.utc)
+            mtime = datetime.fromtimestamp(chunk_path.stat().st_mtime, tz=UTC)
             if mtime < cutoff:
                 continue
             with chunk_path.open("r", encoding="utf-8") as f:
@@ -249,12 +262,20 @@ def top_cells_as_challengers(
 
     # Strateji bazında topla
     by_strategy: dict[str, list[CellRanking]] = {}
+    # FIX 2026-07-02 (P0-2 inceliği): n_trials = GEÇERLİ-ÖRNEKLEMLİ tüm denenen
+    # tekil (sl,tp) konfigler — kârlılık filtresinden ÖNCE sayılır. Kârlılık
+    # filtresi de bir SEÇİMDİR; sadece survivor'ları saymak çoklu-test cezasını
+    # eksik gösterir (grimes 4 cell denedi, 2'si +meanR → n_trials 4 olmalı, 2 değil).
+    evaluated_configs: dict[str, set[tuple[float, float]]] = {}
     for cell in cells:
         strategy = cell.get("strategy", "unknown")
         n_trades = int(cell.get("n_trades", 0))
         mean_R_fees = float(cell.get("mean_R_after_fees", 0.0))
         if n_trades < min_trades:
-            continue
+            continue  # geçersiz örneklem (gürültü) — deneme sayılmaz
+        evaluated_configs.setdefault(strategy, set()).add(
+            (float(cell.get("sl_multiplier", 0)), float(cell.get("tp_r", 0)))
+        )
         if mean_R_fees < min_mean_R_after_fees:
             continue
         sl = float(cell.get("sl_multiplier", 0))
@@ -303,8 +324,10 @@ def top_cells_as_challengers(
                 if existing and existing.sharpe_annualized != 0
                 else (existing.sharpe_like if existing else float("-inf"))
             )
-            if existing is None or r_sort > ex_sort or (
-                r_sort == ex_sort and r.risk_pct < existing.risk_pct
+            if (
+                existing is None
+                or r_sort > ex_sort
+                or (r_sort == ex_sort and r.risk_pct < existing.risk_pct)
             ):
                 deduped[key] = r
         unique = sorted(
@@ -313,8 +336,13 @@ def top_cells_as_challengers(
             reverse=True,
         )
         top = unique[:top_n_per_strategy]
+        # FIX 2026-07-02 (P0-2): n_trials = bu stratejide DEĞERLENDİRİLEN tekil
+        # (sl,tp) konfig sayısı — kârlılık filtresi ÖNCESİ (evaluated_configs).
+        # Top-N seçimi fiilen bu havuzdan yapıldı; DSR'nin düzeltmesi gereken
+        # çoklu-test sayısı budur.
+        n_eval = len(evaluated_configs.get(strategy, set())) or len(deduped)
         for r in top:
-            challengers.append(r.to_challenger_dict())
+            challengers.append(r.to_challenger_dict(n_trials=n_eval))
 
     logger.info(
         "sweep_aggregator.top_cells_collected",
@@ -331,6 +359,7 @@ def top_cells_as_challengers(
 if __name__ == "__main__":
     # Manuel debug — top cells'i yazdır
     import sys
+
     challengers = top_cells_as_challengers()
     if not challengers:
         print("HİÇ challenger toplanamadı — chunk dosyaları boş veya filtre sıkı.")

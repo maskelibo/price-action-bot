@@ -16,10 +16,11 @@ Output:
   - reports/researcher_iterate_queue/<date>-iterate-queue.md
   - memory/researcher/iterate_targets.json (tracker)
 """
+
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,7 +33,7 @@ HYPOTHESES_DIR = ROOT / "memory" / "researcher" / "hypotheses"
 CHAMPION_DD_PCT = 15.5  # vsa wide-stop maxDD
 CHAMPION_MONTHLY_ROI = 13.0  # vsa wide-stop aylık
 MIN_MONTHLY_ROI = 0.5  # bu altında pozitif edge sayılmaz
-MIN_N_TRADES = 100   # n yeterli
+MIN_N_TRADES = 100  # n yeterli
 MAX_DD_BAD_THRESHOLD = -25.0  # bu altı 'kötü risk'
 MAX_ITERATE_VERSIONS = 5
 
@@ -85,6 +86,15 @@ def find_promising() -> list[dict]:
         bad_dd = (dd < MAX_DD_BAD_THRESHOLD) or (abs(dd) > CHAMPION_DD_PCT * 1.5)
         if not bad_dd:
             continue
+        # FIX 2026-07-02 (fabrika RW P1-5): FELAKET-DD üst sınırı. "Pozitif
+        # edge ama kötü risk → iterate et" tasarımının üst sınırı yoktu;
+        # maxDD −58..−87 ölü sinyaller kuyruğu dolduruyordu (iterate_targets
+        # 5 çöp seed, 33 gün boşa iterate). DD < −40 veya ayların >%40'ı
+        # negatifse sinyalin KENDİSİ bozuk — tp/risk ayarı düzeltemez, alma.
+        neg_m = int(r.get("neg_months", 0) or 0)
+        tot_m = int(r.get("total_months", 0) or 0)
+        if dd < -40.0 or (tot_m > 0 and neg_m / tot_m > 0.40):
+            continue
         # Strategy adı çıkar
         strategy = r.get("strategy", r.get("hyp", "unknown"))
         if isinstance(strategy, str):
@@ -95,19 +105,21 @@ def find_promising() -> list[dict]:
         existing_iters = _count_existing_iterates(base)
         if existing_iters >= MAX_ITERATE_VERSIONS:
             continue
-        candidates.append({
-            "hypothesis_id": r.get("hyp", r.get("hypothesis_id", "?")),
-            "base_strategy": base,
-            "monthly_roi": roi,
-            "max_dd": dd,
-            "n_trades": n,
-            "annualized": float(r.get("annualized", r.get("annualized_compound_pct", 0))),
-            "neg_months": int(r.get("monthly_neg_count", 0)),
-            "total_months": int(r.get("monthly_total", 0)),
-            "existing_iterate_versions": existing_iters,
-            "next_version": existing_iters + 2,  # v1 = base, v2 = first iterate
-            "source_file": r["_source_file"],
-        })
+        candidates.append(
+            {
+                "hypothesis_id": r.get("hyp", r.get("hypothesis_id", "?")),
+                "base_strategy": base,
+                "monthly_roi": roi,
+                "max_dd": dd,
+                "n_trades": n,
+                "annualized": float(r.get("annualized", r.get("annualized_compound_pct", 0))),
+                "neg_months": int(r.get("monthly_neg_count", 0)),
+                "total_months": int(r.get("monthly_total", 0)),
+                "existing_iterate_versions": existing_iters,
+                "next_version": existing_iters + 2,  # v1 = base, v2 = first iterate
+                "source_file": r["_source_file"],
+            }
+        )
     # Pozitif ROI'ye göre sırala (en umut verici önce)
     candidates.sort(key=lambda c: c["monthly_roi"], reverse=True)
     return candidates
@@ -116,7 +128,7 @@ def find_promising() -> list[dict]:
 def write_iterate_queue(candidates: list[dict]) -> Path:
     """Researcher için iterate talep doc'u yaz."""
     QUEUE_DIR.mkdir(parents=True, exist_ok=True)
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H%M")
+    date_str = datetime.now(UTC).strftime("%Y-%m-%d-%H%M")
     out_path = QUEUE_DIR / f"iterate-queue-{date_str}.md"
 
     body = [
@@ -151,31 +163,33 @@ def write_iterate_queue(candidates: list[dict]) -> Path:
             f"{c['existing_iterate_versions']} | "
             f"v{c['next_version']} |"
         )
-    body.extend([
-        "",
-        "## Eylem",
-        "",
-        "Researcher: bu listeye bak. Her aday için **min 1 iterate hipotezi**",
-        "pre-register et (`memory/researcher/hypotheses/<date>-<base>-iterate-v<N>-<theme>.md`).",
-        "",
-        "Tahmini compute: her iterate ~15-30 dk Lab tournament + realistic_backtest.",
-        "",
-        "## Çıktı şablonu",
-        "",
-        "```yaml",
-        "doc_type: hypothesis",
-        "iterate_from: <base hyp_id>",
-        "iterate_version: v2",
-        "iterate_theme: risk_reduction | trade_quality | position_management | symbol_subset",
-        "param_grid:",
-        "  risk_pct: [0.001, 0.002, 0.003]  # baseline 0.005'ten azaltılmış",
-        "  ...",
-        "accept_gates:",
-        "  monthly_roi_mean >= 5%",
-        "  max_dd >= -20%",
-        "  neg_month_count <= 10/61",
-        "```",
-    ])
+    body.extend(
+        [
+            "",
+            "## Eylem",
+            "",
+            "Researcher: bu listeye bak. Her aday için **min 1 iterate hipotezi**",
+            "pre-register et (`memory/researcher/hypotheses/<date>-<base>-iterate-v<N>-<theme>.md`).",
+            "",
+            "Tahmini compute: her iterate ~15-30 dk Lab tournament + realistic_backtest.",
+            "",
+            "## Çıktı şablonu",
+            "",
+            "```yaml",
+            "doc_type: hypothesis",
+            "iterate_from: <base hyp_id>",
+            "iterate_version: v2",
+            "iterate_theme: risk_reduction | trade_quality | position_management | symbol_subset",
+            "param_grid:",
+            "  risk_pct: [0.001, 0.002, 0.003]  # baseline 0.005'ten azaltılmış",
+            "  ...",
+            "accept_gates:",
+            "  monthly_roi_mean >= 5%",
+            "  max_dd >= -20%",
+            "  neg_month_count <= 10/61",
+            "```",
+        ]
+    )
     out_path.write_text("\n".join(body), encoding="utf-8")
     return out_path
 
@@ -189,7 +203,7 @@ def update_tracker(candidates: list[dict]) -> None:
             existing = json.loads(TRACKER_PATH.read_text())
         except Exception:
             existing = {}
-    existing["last_scan"] = datetime.now(timezone.utc).isoformat()
+    existing["last_scan"] = datetime.now(UTC).isoformat()
     existing["n_candidates"] = len(candidates)
     existing["candidates"] = candidates
     TRACKER_PATH.write_text(json.dumps(existing, indent=2, default=str), encoding="utf-8")
@@ -207,11 +221,14 @@ def main() -> int:
         print(f"{'Strateji':50} {'Aylık':>8} {'DD':>8} {'n':>6}")
         print("-" * 80)
         for c in candidates:
-            print(f"{c['hypothesis_id'][:50]:50} {c['monthly_roi']:>+7.2f}% "
-                  f"{c['max_dd']:>+7.2f}% {c['n_trades']:>6}")
+            print(
+                f"{c['hypothesis_id'][:50]:50} {c['monthly_roi']:>+7.2f}% "
+                f"{c['max_dd']:>+7.2f}% {c['n_trades']:>6}"
+            )
     return 0
 
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(main())

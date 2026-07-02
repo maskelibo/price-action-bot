@@ -123,18 +123,22 @@ def ct_exe_02_pnl_recon(
         owner=_OWNER,
         title="journal↔borsa realized PnL mutabakatsızlığı (kapanan-trade şişmesi)",
         condition=f"Journal net realized={jt:+.2f}$ ↔ borsa (income REALIZED_PNL)="
-                  f"{et:+.2f}$ — fark {total_diff:+.2f}$." +
-                  ("\n  - " + "\n  - ".join(offenders) if offenders else ""),
+        f"{et:+.2f}$ — fark {total_diff:+.2f}$."
+        + ("\n  - " + "\n  - ".join(offenders) if offenders else ""),
         criteria="Kapanan-trade realized PnL borsanın gerçek REALIZED_PNL income'ı ile "
-                 "eşleşmeli; GERÇEK fill fiyatı × ACTUAL qty'den hesaplanmalı.",
+        "eşleşmeli; GERÇEK fill fiyatı × ACTUAL qty'den hesaplanmalı.",
         cause="Kapanış realized_pnl HEDEFLENEN TP/SL fiyatı × intended-qty'den yazılıyor "
-              "(gerçek fill değil); reconcile_orphan tahmini fiyat. Bot performansı şişer.",
+        "(gerçek fill değil); reconcile_orphan tahmini fiyat. Bot performansı şişer.",
         effect="Şişmiş kâr → yanlış strateji/deploy/sizing kararı; gerçek edge gizlenir. "
-               "(Bu seansta journal +57.73 vs gerçek −11.58.)",
+        "(Bu seansta journal +57.73 vs gerçek −11.58.)",
         recommendation="Kapanış realized_pnl'i borsa income/fetch_order'dan yaz; eski "
-                       "kayıtları borsa income'a reconcile et; günlük PnL mutabakatı (bu CT).",
-        evidence={"journal_total": round(jt, 2), "exchange_total": round(et, 2),
-                  "diff": round(total_diff, 2), "offenders": " | ".join(offenders[:6])},
+        "kayıtları borsa income'a reconcile et; günlük PnL mutabakatı (bu CT).",
+        evidence={
+            "journal_total": round(jt, 2),
+            "exchange_total": round(et, 2),
+            "diff": round(total_diff, 2),
+            "offenders": " | ".join(offenders[:6]),
+        },
         due_days=2,
     )
 
@@ -151,7 +155,10 @@ class AuditExecutionAgent(AuditAgentBase):
         try:
             import duckdb
 
-            jpath = self._repo_root() / "data" / "futures_journal.duckdb"
+            # FIX 2026-07-02 (audit RW): canlı bot v14 journal'ı. Eski
+            # futures_journal.duckdb 15 Haz'da dondu (emekli champion) —
+            # denetçi 17 gün ölü veriyi okudu, v14'e kördü.
+            jpath = self._repo_root() / "data" / "futures_journal_v14.duckdb"
             if not jpath.exists():
                 return {}
             con = duckdb.connect(str(jpath), read_only=True)
@@ -217,7 +224,8 @@ class AuditExecutionAgent(AuditAgentBase):
         try:
             import duckdb
 
-            jpath = self._repo_root() / "data" / "futures_journal.duckdb"
+            # FIX 2026-07-02 (audit RW): v14 journal — bkz _journal_open_positions.
+            jpath = self._repo_root() / "data" / "futures_journal_v14.duckdb"
             if not jpath.exists():
                 return {}
             con = duckdb.connect(str(jpath), read_only=True)

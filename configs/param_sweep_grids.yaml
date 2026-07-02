@@ -27,6 +27,24 @@ per_strategy:
     pool: data/sec53_15m_pool_v11.pkl
     sl_pct_min: 0.025
 
+  # FIX 2026-07-02 (challenger yolu, RW Faz 4): grimes-abc — tek verdict=PASS
+  # aday. Grid BİLİNÇLİ DAR: DSR cezası n_trials=denenen-konfig — 80-cell
+  # default'a sokmak dürüst barı E[maxZ]≈2.2'ye iterdi.
+  # AMENDMENT v2 (2026-07-02 03:3x, falsifikasyon-kaynaklı): ilk pre-reg
+  # (tp_r [1.5,2.0]) v15 blend analizinde ÇÜRÜDÜ — flat-TP grimes'in
+  # winner-let-run edge'ini öldürüyor (tp2.0 → −0.39%/ay, DD −36.9; native →
+  # +10.52%/ay, DD −15.7, per production_replay 19-sym). tp_r=999 = native
+  # exit (runner: peak_R asla ≥999 → pool realized R). Eski 4 flat-TP hücre
+  # pencerede denenen-konfig olarak SAYILMAYA DEVAM EDER (n_trials dürüstlüğü:
+  # toplam 6). Yeni ön-taahhüt: bu 2 hücre dışında genişletme = yeni pre-reg.
+  grimes_abc_pullback:
+    pool: data/pool_grimes_abc_15m.pkl
+    sl_pct_min: 0.025
+    grid:
+      sl_multiplier: [1.0, 1.25]
+      tp_r: [999]
+      risk_pct: [0.003]
+
 regime_split:
   enabled: true
   bull_ema_period: 200

@@ -109,7 +109,9 @@ class AuditRiskAgent(AuditAgentBase):
             import duckdb
             import yaml
 
-            jpath = self._repo_root() / "data" / "futures_journal.duckdb"
+            # FIX 2026-07-02 (audit RW): canlı bot v14 journal'ı — eski dosya
+            # 15 Haz'da dondu; CT-RSK-01 bu yüzden perma-SKIP kaldı (0 bulgu).
+            jpath = self._repo_root() / "data" / "futures_journal_v14.duckdb"
             cfg_path = self._repo_root() / "configs" / "bot_kill_criteria.yaml"
             if not jpath.exists() or not cfg_path.exists():
                 return SKIP
@@ -146,6 +148,7 @@ class AuditRiskAgent(AuditAgentBase):
         """En yeni bot_monitor raporundan 'Rolling 30d MaxDD: %X' değerini parse et."""
         try:
             import re
+
             rdir = self._repo_root() / "reports" / "bot_monitor"
             if not rdir.exists():
                 return None

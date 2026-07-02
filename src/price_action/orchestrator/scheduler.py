@@ -19,6 +19,7 @@ Job listesi:
 
 from __future__ import annotations
 
+import math
 from datetime import UTC
 from pathlib import Path
 from typing import Any
@@ -331,6 +332,92 @@ async def _job_hypothesis_backtest_runner() -> None:
         )
 
 
+def _champion_live_oos() -> dict[str, Any] | None:
+    """Canlı v14'ün borsa-truth kapanış R-serisinden champion dict'i üret.
+
+    FIX 2026-07-02 (fabrika RW P0-3): önceki champion `oos_returns=[]`
+    hardcoded → welch_p daima NaN, champion karşılaştırması ölüydü (1 Tem
+    W27 turnuvasında tüm satırlar NaN). Şimdi:
+      - TEMİZ dönem (eski champion emekliliği 2026-06-14T21:53Z sonrası)
+        REALIZED_PNL income kayıtları → per-close R = pnl / (5000×0.0075).
+      - oos_sharpe = per-obs SR × √(yıllık kapanış sayısı) — sweep
+        aggregator'ın annualized konvansiyonuyla aynı birim.
+      - KONSERVATİF taban: canlı-annualized, backtest tabanı 1.5'in altına
+        düşerse 1.5 kullanılır → champion'ın kötü haftasında bar düşüp
+        zayıf aday terfi etmesin (slump-promotion koruması).
+      - oos_maxdd 0.193 sabit (backtest 5y compound DD) — challenger
+        DD'leri de 5y compound; 17 günlük canlı DD ile kıyas elma-armut.
+    Borsaya ulaşılamazsa None → çağıran statik fallback kullanır.
+    """
+    try:
+        import statistics
+        import sys
+        from datetime import datetime as _dt
+
+        repo_root = Path(__file__).resolve().parents[3]
+        if str(repo_root / "scripts") not in sys.path:
+            sys.path.insert(0, str(repo_root / "scripts"))
+        if str(repo_root) not in sys.path:
+            sys.path.insert(0, str(repo_root))
+        from scripts.futures_trade_daily import get_futures_exchange  # type: ignore
+
+        ex = get_futures_exchange()
+        clean_ms = int(_dt(2026, 6, 14, 21, 53, tzinfo=UTC).timestamp() * 1000)
+        now_ms = int(_dt.now(UTC).timestamp() * 1000)
+        risk_usd = 5000.0 * 0.0075  # v14p3 risk_per_trade — R normalizasyonu
+
+        rows: list[dict[str, Any]] = []
+        cur = clean_ms
+        while cur < now_ms:
+            batch = ex.fapiPrivateGetIncome({"startTime": cur, "endTime": now_ms, "limit": 1000})
+            if not batch:
+                break
+            rows.extend(batch)
+            if len(batch) < 1000:
+                break
+            cur = int(batch[-1]["time"]) + 1
+
+        seen: set[tuple] = set()
+        rr: list[float] = []
+        for r in rows:
+            if r.get("incomeType") != "REALIZED_PNL":
+                continue
+            k = (r.get("tranId"), r.get("time"), r.get("income"))
+            if k in seen:
+                continue
+            seen.add(k)
+            v = float(r.get("income") or 0.0)
+            if v != 0.0:
+                rr.append(v / risk_usd)
+
+        if len(rr) < 30:  # örneklem çok küçük → güvenilir değil
+            return None
+        sd = statistics.stdev(rr)
+        if sd <= 1e-12:
+            return None
+        sr_obs = statistics.mean(rr) / sd
+        days = max(1e-9, (now_ms - clean_ms) / 86_400_000)
+        ann = sr_obs * math.sqrt(len(rr) * 365.0 / days)
+        # NOT (kalibrasyon, 2026-07-02): effect-gate BARI = 1.5 (backtest-bazlı,
+        # challenger'ların 5y-backtest annualized birimiyle elma-elma). Canlı
+        # 17g annualized (~4.8) kısa-örneklem + frekans şişmesiyle KIYAS DIŞI —
+        # bar yapılsaydı yeni bir geçilmez duvar olurdu (aday ≥5.5 gerekirdi).
+        # Canlı R-serisi Welch dağılım testinde kullanılır (P0-3'ün asıl amacı);
+        # ham canlı-annualized diagnostik olarak raporda taşınır.
+        return {
+            "id": "live_v14_champion_income",
+            "oos_returns": rr,
+            "oos_sharpe": 1.5,  # backtest-bazlı bar (birim paritesi)
+            "oos_maxdd": 0.193,  # backtest 5y compound DD (birim paritesi)
+            "n_trials": 1,
+            "live_ann_sharpe_raw": float(ann),
+            "n_closes": len(rr),
+        }
+    except Exception as exc:
+        logger.warning("scheduler.champion_live_fail", extra={"err": str(exc)[:200]})
+        return None
+
+
 async def _job_weekly_tournament() -> None:
     """Lab tournament — sweep chunk'larından gerçek challenger ile.
 
@@ -340,22 +427,36 @@ async def _job_weekly_tournament() -> None:
     → `_collect_active_challengers()` sweep aggregator + hipotez
     placeholder'ı birleştirir → gerçek rows üretir.
 
-    Champion proxy: canlı bot (vsa_climax_test wide-stop), backtest
-    header summary'den sharpe ~1.5 + DD -17%. İleride bot_monitor'dan
-    rolling-7g live KPI okuyabilirsek otomatik bağlanır.
+    FIX 2026-07-02 (fabrika RW P0-3): champion artık canlı borsa-truth
+    R-serisiyle besleniyor (_champion_live_oos) — Welch testi ilk kez
+    gerçek veriyle çalışır. Borsa erişilemezse eski statik proxy fallback.
     """
     try:
+        import asyncio
+
         from price_action.agents import LabScientistAgent
 
-        # Champion: canlı widestop_vsa2 bot proxy
-        # (backtest header: continuous-curve DD -17%, aylik +19.30%)
-        champion = {
-            "id": "live_vsa_climax_widestop_15m",
-            "oos_returns": [],
-            "oos_sharpe": 1.5,
-            "oos_maxdd": 0.17,
-            "n_trials": 30,
-        }
+        champion = await asyncio.to_thread(_champion_live_oos)
+        if champion is None:
+            # Fallback: statik proxy (backtest header: DD -17%, sharpe ~1.5)
+            champion = {
+                "id": "live_vsa_climax_widestop_15m",
+                "oos_returns": [],
+                "oos_sharpe": 1.5,
+                "oos_maxdd": 0.17,
+                "n_trials": 30,
+            }
+        logger.info(
+            "scheduler.tournament_champion",
+            extra={
+                "extra": {
+                    "id": champion.get("id"),
+                    "n_returns": len(champion.get("oos_returns", [])),
+                    "oos_sharpe": champion.get("oos_sharpe"),
+                    "live_ann_raw": champion.get("live_ann_sharpe_raw"),
+                }
+            },
+        )
         result = await LabScientistAgent().weekly_tournament(
             champion=champion,
             challengers=None,  # auto-collect: sweep cells + hyp placeholders
@@ -1554,11 +1655,12 @@ def _check_freshness(now=None) -> list[dict[str, Any]]:
         )
 
     # --- 4) futures daemon heartbeat > 20dk ------------------------------
+    # FIX 2026-07-02 (ops RW B1): 5m daemon 30 Haz'da KALICI emekli edildi
+    # (com.priceaction.futures5m bootout+disable+plist→disabled/). Hardcoded
+    # 5m heartbeat beklentisi saatlik false-CRIT üretiyordu ("heartbeat YOK")
+    # → alarm yorgunluğu. Emeklilikle senkron: sadece canlı daemon'lar listede.
     try:
-        for hb_name in (
-            "dms_heartbeat_futures_daemon_15m.txt",
-            "dms_heartbeat_futures_daemon_5m.txt",
-        ):
+        for hb_name in ("dms_heartbeat_futures_daemon_15m.txt",):
             hb = data_dir / hb_name
             if not hb.exists():
                 violations.append(
@@ -2167,10 +2269,20 @@ def _run_tf_exploration_chunk_sync() -> None:
             tf_list=["5m", "15m"],
             pool_paths=pool_paths,
         )
-        # render report — basit dump (full markdown rapor explore_tf'in kendisi yazar)
+        # FIX 2026-06-22: result önceden hesaplanıp atılıyordu — out_path hiç
+        # kullanılmıyordu, rapor dosyası yazılmıyordu ("atrophied output" bug'ı,
+        # tf_exploration/ 2026-05-25'ten beri boştu). Runner'ın test edilmiş
+        # render_markdown()'ı ile out_path'e yaz.
+        from scripts.tf_exploration_runner import render_markdown
+
+        out_path.write_text(render_markdown(result), encoding="utf-8")
         logger.info(
             "scheduler.tf_exploration_done",
-            extra={"strategy": strategy, "best_tf": result.get("best_tf")},
+            extra={
+                "strategy": strategy,
+                "best_tf": result.get("best_tf"),
+                "out": str(out_path),
+            },
         )
     except ImportError:
         logger.warning("scheduler.tf_exploration_import_fail")
@@ -2439,10 +2551,13 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     # Günlük
     ("daily_research", "cron", "0 2 * * *", _job_daily_research),
     ("researcher_5batch", "cron", "30 2 * * *", _job_researcher_5batch),  # Faz 12
-    # FIX 2026-05-26: gün içi Researcher pulse (her 4 saatte 1, gece 02:00 main hariç)
-    ("researcher_pulse", "cron", "0 6,10,14,18,22 * * *", _job_researcher_improvement_pulse),
-    # FIX 2026-05-26: gün içi Lab Scientist hızlı tarama (her 2 saatte 1)
-    ("lab_quick_scan", "cron", "25 0,2,4,6,8,10,12,14,16,18,20,22 * * *", _job_lab_quick_scan),
+    # FIX 2026-07-02 (fabrika yeniden-açılış, token disiplini): pulse 5×→2×/gün,
+    # quick_scan 12×→4×/gün. Gerekçe: researcher 7 günde 27.7M token yaktı
+    # (çağrı başı ~733K input) ve çıktı 0 terfiydi; kalite kapıları düzeldi,
+    # hacim değil İSABET istiyoruz. Cooldown-guard + SOP-5 + dar grid'lerle
+    # birlikte bu cadence yeterli sinyal üretir.
+    ("researcher_pulse", "cron", "0 6,18 * * *", _job_researcher_improvement_pulse),
+    ("lab_quick_scan", "cron", "25 0,6,12,18 * * *", _job_lab_quick_scan),
     ("adversary_daily_stress", "cron", "0 4 * * *", _job_adversary_daily_stress),  # Faz 9
     ("tf_exploration_chunk", "cron", "30 4 * * *", _job_tf_exploration_chunk),  # Faz 10
     ("signal_scan", "cron", "5 0 * * *", _job_signal_scan),
@@ -2489,14 +2604,39 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
         "0 9 28-31 * *",
         _job_monthly_strategy_portfolio_review,
     ),  # Faz 12
-    # İç Denetim (3. savunma hattı) — Faz 2 otonom. Üretim cron'larından sonra.
-    ("audit_execution", "cron", "30 5 * * *", _job_audit_execution),  # günlük 05:30
-    ("audit_risk", "cron", "45 5 * * *", _job_audit_risk),  # günlük 05:45
-    ("audit_data", "cron", "0 6 * * *", _job_audit_data),  # günlük 06:00
-    ("audit_research", "cron", "15 6 * * mon", _job_audit_research),  # haftalık Pzt 06:15
-    ("audit_ops", "cron", "30 6 * * *", _job_audit_ops),  # günlük 06:30
-    ("audit_chief_weekly", "cron", "0 7 * * mon", _job_audit_chief_weekly),  # Pzt 07:00
-    ("audit_chief_monthly", "cron", "0 7 1 * *", _job_audit_chief_monthly),  # ayın 1'i 07:00
+    # İç Denetim (3. savunma hattı) — Faz 2 otonom.
+    # Principal şartı (2026-06-18): günlük sweep SABAH 06:00 TR (= 03:00 UTC) penceresinde
+    # koşar; bulgu owner'a route + 1-gün SLA (audit_base.SLA_DAYS). audit_ops artık daemon
+    # ERROR loglarını da tarar (CT-OPS-03..07 log-pattern) — "audit körlüğü" kapatıldı.
+    ("audit_execution", "cron", "0 3 * * *", _job_audit_execution),  # günlük 06:00 TR
+    ("audit_risk", "cron", "5 3 * * *", _job_audit_risk),  # günlük 06:05 TR
+    ("audit_data", "cron", "10 3 * * *", _job_audit_data),  # günlük 06:10 TR
+    ("audit_ops", "cron", "15 3 * * *", _job_audit_ops),  # günlük 06:15 TR (log-pattern tarama)
+    ("audit_research", "cron", "20 3 * * mon", _job_audit_research),  # haftalık Pzt 06:20 TR
+    ("audit_chief_weekly", "cron", "30 3 * * mon", _job_audit_chief_weekly),  # Pzt 06:30 TR
+    ("audit_chief_monthly", "cron", "0 4 1 * *", _job_audit_chief_monthly),  # ayın 1'i 07:00 TR
+)
+
+
+# FIX 2026-06-30 (Principal "israfı kes"): araştırma-otopilotu job kümesi.
+# Kanıt: researcher/iterate mill 28 May→29 Haz arası 195 seed_abort kaydı üretti —
+# 193'ü REJECTED_PRE_TEST, 0 backtest, 0 promote. Aynı tükenmiş kripto-15m seed'lerini
+# self-throttle döngüsünde tekrar tekrar reddedip token+CPU yakıyordu (boşa churn).
+# Bu yüksek-frekanslı job'lar artık SADECE PA_RESEARCH_AUTOPILOT=1 iken kayıt edilir.
+# Geri açmak / forex-4H'ye yönlendirmek: env flag set + ceo_loop restart. Diğer tüm
+# job'lar (reconcile/health/token/bot-monitor/DMS/truth-report/audit) ETKİLENMEZ.
+_RESEARCH_AUTOPILOT_JOBS = frozenset(
+    {
+        "daily_research",
+        "researcher_5batch",
+        "researcher_pulse",
+        "scan_drift_alerts",
+        "lab_quick_scan",
+        "hypothesis_backtest_runner",
+        "find_promising_to_iterate",
+        "auto_iterate_orchestrator",
+        "tf_exploration_chunk",
+    }
 )
 
 
@@ -2537,14 +2677,26 @@ def register_jobs(scheduler: Any) -> list[str]:
 
     FIX 2026-05-28 (Faz 14.27 FINAL): Event handlers da burada wire ediliyor.
     """
+    import os
+
     # Event bus handlers — tek seferlik (idempotent)
     _register_event_handlers_once()
 
+    # Araştırma-otopilotu default KAPALI (boşa churn'ı kes). Açmak için
+    # PA_RESEARCH_AUTOPILOT=1 + ceo_loop restart. Bkz _RESEARCH_AUTOPILOT_JOBS.
+    autopilot_on = os.getenv("PA_RESEARCH_AUTOPILOT", "0") == "1"
+
     registered: list[str] = []
+    skipped: list[str] = []
     for job_id, kind, expr, func in JOB_TABLE:
         if kind != "cron":
             continue
+        if job_id in _RESEARCH_AUTOPILOT_JOBS and not autopilot_on:
+            skipped.append(job_id)
+            continue
         _add_cron(scheduler, expr, func, job_id)
         registered.append(job_id)
+    if skipped:
+        logger.info("scheduler.research_autopilot_skipped", extra={"jobs": skipped})
     logger.info("scheduler.jobs_registered", extra={"jobs": registered})
     return registered
