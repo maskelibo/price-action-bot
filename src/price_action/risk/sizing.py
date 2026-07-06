@@ -2,15 +2,17 @@
 
 Tüm hard limit yorumları `agents/risk_officer.md` ve `configs/risk.yaml`'den geliyor.
 """
+
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
+
+
 from pathlib import Path
 from typing import Any
 
@@ -33,12 +35,18 @@ from price_action.risk.gates import (
     leverage_gate,
     liquidity_gate,
 )
-from price_action.risk.regime_filter import BTCFeatures, CacheFreshnessConfig, PerStrategyRegimeFilter, RegimeCacheStatus, RegimeFilter
-
+from price_action.risk.regime_filter import (
+    BTCFeatures,
+    CacheFreshnessConfig,
+    PerStrategyRegimeFilter,
+    RegimeCacheStatus,
+    RegimeFilter,
+)
 
 # =====================================================================
 # Sizing primitives
 # =====================================================================
+
 
 def fixed_fractional(equity: float, risk_pct: float, sl_distance_pct: float) -> float:
     """Fixed fractional sizing.
@@ -55,9 +63,7 @@ def fixed_fractional(equity: float, risk_pct: float, sl_distance_pct: float) -> 
     return float(notional_at_risk)
 
 
-def kelly_capped(
-    win_rate: float, avg_win: float, avg_loss: float, cap: float = 0.25
-) -> float:
+def kelly_capped(win_rate: float, avg_win: float, avg_loss: float, cap: float = 0.25) -> float:
     """Kelly fraction = W - (1-W)/R.
 
     `cap` ile sınırlanır (default 0.25 — Risk YAML).
@@ -93,6 +99,7 @@ def atr_normalized_size(
 # Account state
 # =====================================================================
 
+
 @dataclass
 class AccountState:
     """Risk ve Portfolio için hafif hesap durumu snapshot'ı."""
@@ -119,8 +126,29 @@ class AccountState:
 # Risk Officer
 # =====================================================================
 
+# P1-7 (2026-07-06): extra="forbid" DENENDİ ve REDDEDİLDİ — aktif config'ler
+# (v15p2/v14p3/balanced/c2) 6-8 meşru ek anahtar taşıyor (alt_data,
+# regime_filter, strategy_portfolio, vol_target...) ve diğer bileşenler bunları
+# extra-attr olarak okuyor; forbid = canlı daemon startup çökmesi olurdu.
+# Orta yol: allowlist + bilinmeyen anahtarda WARN (typo artık sessiz yutulmaz).
+_KNOWN_EXTRA_KEYS = frozenset(
+    {
+        "alt_data",
+        "defaults",
+        "exit_engine",
+        "live_capital_cap",
+        "regime_filter",
+        "regime_filter_per_strategy",
+        "strategies_enabled",
+        "strategy_portfolio",
+        "vol_target",
+    }
+)
+
+
 class _RiskConfig(BaseModel):
     """Risk YAML'ın strict olmayan modeli."""
+
     model_config = ConfigDict(extra="allow")
 
     position_sizing: dict[str, Any] = Field(default_factory=dict)
@@ -150,6 +178,14 @@ class RiskOfficer:
     ) -> None:
         if isinstance(config, dict):
             self.config = _RiskConfig.model_validate(config)
+            # P1-7: yazım hatalı / bilinmeyen top-level risk anahtarı sessizce
+            # yutulmasın — allowlist dışındakileri gürültülü logla.
+            unknown = set(config.keys()) - set(_RiskConfig.model_fields.keys()) - _KNOWN_EXTRA_KEYS
+            if unknown:
+                logger.warning(
+                    "risk_config.unknown_keys",
+                    extra={"unknown_keys": sorted(unknown)},
+                )
         else:
             self.config = config
         self.breaker = breaker or DDBreaker(self.config.drawdown_breakers)
@@ -163,14 +199,14 @@ class RiskOfficer:
         self._alt_data_short_skip: dict = {}
         cfg_dict = self.config.model_dump() if hasattr(self.config, "model_dump") else {}
         alt_cfg = cfg_dict.get("alt_data", {}) or {}
-        any_filter_on = (
-            alt_cfg.get("funding_filter_enabled", False)
-            or alt_cfg.get("fng_short_skip_enabled", False)
+        any_filter_on = alt_cfg.get("funding_filter_enabled", False) or alt_cfg.get(
+            "fng_short_skip_enabled", False
         )
         if any_filter_on:
             try:
                 # Reuse lab.py helper (single source-of-truth, funding+F&G union)
                 from price_action.backtest.lab import _lazy_build_funding_filters
+
                 ls, ss = _lazy_build_funding_filters(alt_cfg)
                 self._alt_data_long_skip = ls or {}
                 self._alt_data_short_skip = ss or {}
@@ -195,7 +231,9 @@ class RiskOfficer:
         # YAML regime_filter_per_strategy block'undan lazy-load.
         # enabled=False (default) → no-op, 1d Phoenix v2.0.4 etkilenmez.
         per_strat_cfg = cfg_dict.get("regime_filter_per_strategy", {}) or {}
-        self.per_strategy_regime_filter: PerStrategyRegimeFilter = PerStrategyRegimeFilter(per_strat_cfg)
+        self.per_strategy_regime_filter: PerStrategyRegimeFilter = PerStrategyRegimeFilter(
+            per_strat_cfg
+        )
         # Features cache: None → fail-safe ALLOW
         self._regime_features_cache: BTCFeatures | None = None
         self._regime_features_path: str = str(
@@ -247,13 +285,10 @@ class RiskOfficer:
         """
         try:
             import pandas as pd
-            from datetime import timezone as _tz
 
             p = Path(self._regime_features_path)
             if not p.exists():
-                self._log.bind(path=str(p)).warning(
-                    "regime_features.file_missing"
-                )
+                self._log.bind(path=str(p)).warning("regime_features.file_missing")
                 status = (
                     RegimeCacheStatus.REJECT
                     if self._freshness_cfg.strict_mode
@@ -262,9 +297,7 @@ class RiskOfficer:
                 return None, status
             df = pd.read_parquet(p)
             if df.empty:
-                self._log.bind(path=str(p)).warning(
-                    "regime_features.file_empty"
-                )
+                self._log.bind(path=str(p)).warning("regime_features.file_empty")
                 status = (
                     RegimeCacheStatus.REJECT
                     if self._freshness_cfg.strict_mode
@@ -276,11 +309,11 @@ class RiskOfficer:
             fetched_at_raw = row.get("fetched_at", None)
             if fetched_at_raw is None:
                 # No fetched_at column: treat as just-loaded (assume fresh)
-                fetched_at = datetime.now(_tz.utc)
+                fetched_at = datetime.now(UTC)
             elif hasattr(fetched_at_raw, "to_pydatetime"):
                 fetched_at = fetched_at_raw.to_pydatetime()
                 if fetched_at.tzinfo is None:
-                    fetched_at = fetched_at.replace(tzinfo=_tz.utc)
+                    fetched_at = fetched_at.replace(tzinfo=UTC)
             elif isinstance(fetched_at_raw, str):
                 # FIX 2026-05-28 (Faz 14.27): parquet'te fetched_at string olarak
                 # yazılıyor (ISO 8601). Önceki silent fallback (datetime.now)
@@ -289,18 +322,18 @@ class RiskOfficer:
                 try:
                     fetched_at = datetime.fromisoformat(fetched_at_raw)
                     if fetched_at.tzinfo is None:
-                        fetched_at = fetched_at.replace(tzinfo=_tz.utc)
+                        fetched_at = fetched_at.replace(tzinfo=UTC)
                 except (ValueError, TypeError):
                     # Parse fail → defensive: log + treat as MISSING
                     self._log.bind(raw=fetched_at_raw).warning(
                         "regime_features.fetched_at.parse_fail"
                     )
-                    fetched_at = datetime.now(_tz.utc)  # son çare; status REJECT'a düşmesin
+                    fetched_at = datetime.now(UTC)  # son çare; status REJECT'a düşmesin
             else:
-                fetched_at = datetime.now(_tz.utc)
+                fetched_at = datetime.now(UTC)
 
             # Classify staleness
-            age_hours = (datetime.now(_tz.utc) - fetched_at).total_seconds() / 3600.0
+            age_hours = (datetime.now(UTC) - fetched_at).total_seconds() / 3600.0
             status = self._freshness_cfg.classify(age_hours)
 
             if status == RegimeCacheStatus.WARN:
@@ -312,6 +345,7 @@ class RiskOfficer:
                 # Telegram alert (throttled — import lazily to avoid circular import)
                 try:
                     from price_action.ops import get_telegram_throttle
+
                     get_telegram_throttle().send_throttled(
                         alert_type="regime_cache_stale_warn",
                         message=(
@@ -332,6 +366,7 @@ class RiskOfficer:
                 ).error("regime_features.stale.reject")
                 try:
                     from price_action.ops import get_telegram_throttle
+
                     lvl = "CRITICAL" if status == RegimeCacheStatus.HARD_REJECT else "ERROR"
                     get_telegram_throttle().send_throttled(
                         alert_type="regime_cache_stale_reject",
@@ -353,6 +388,7 @@ class RiskOfficer:
                 ts_date = ts_raw.date()
             else:
                 from datetime import date as _date
+
                 ts_date = _date.fromisoformat(str(ts_raw))
 
             features = BTCFeatures(
@@ -394,9 +430,7 @@ class RiskOfficer:
                 return 1.0
             dd_threshold = float(thr_cfg.get("dd_threshold", 0.06))
             risk_mult = float(thr_cfg.get("risk_mult", 0.5))
-            state_path = _Path(
-                thr_cfg.get("state_path", "logs/risk/equity_peak.json")
-            )
+            state_path = _Path(thr_cfg.get("state_path", "logs/risk/equity_peak.json"))
             peak = equity
             try:
                 if state_path.exists():
@@ -478,14 +512,22 @@ class RiskOfficer:
                 signal=signal,
                 rejected_by="risk",
                 reason="alt_data_funding_filter",
-                detail={"side": "long", "date": str(sig_date), "rationale": "overheated_long_funding"},
+                detail={
+                    "side": "long",
+                    "date": str(sig_date),
+                    "rationale": "overheated_long_funding",
+                },
             )
         if signal.direction == "short" and self._alt_data_short_skip.get(sig_date, False):
             return Reject(
                 signal=signal,
                 rejected_by="risk",
                 reason="alt_data_funding_filter",
-                detail={"side": "short", "date": str(sig_date), "rationale": "overshort_squeeze_funding"},
+                detail={
+                    "side": "short",
+                    "date": str(sig_date),
+                    "rationale": "overshort_squeeze_funding",
+                },
             )
 
         # 1.6) SEC26.B-2: BTC capitulation regime halt (live wiring).
@@ -554,11 +596,13 @@ class RiskOfficer:
                     },
                 )
 
-            allow_strat, filter_reason = self.per_strategy_regime_filter.evaluate_strategy_regime_filter(
-                strategy=signal.pattern_id,
-                side=signal.direction,
-                ts=signal.ts,
-                btc_features=btc_features,
+            allow_strat, filter_reason = (
+                self.per_strategy_regime_filter.evaluate_strategy_regime_filter(
+                    strategy=signal.pattern_id,
+                    side=signal.direction,
+                    ts=signal.ts,
+                    btc_features=btc_features,
+                )
             )
             if not allow_strat:
                 return Reject(
@@ -575,9 +619,7 @@ class RiskOfficer:
         # 2) Sermaye check
         # Neden: free margin yoksa giriş yok
         if account_state.free_margin_usdt <= 0:
-            return Reject(
-                signal=signal, rejected_by="risk", reason="insufficient_free_margin"
-            )
+            return Reject(signal=signal, rejected_by="risk", reason="insufficient_free_margin")
 
         # 3) Pozisyon limiti
         # Neden: risk.yaml concentration_limits.max_open_positions (default 8)
@@ -603,9 +645,7 @@ class RiskOfficer:
         if max_same_side is not None:
             max_same_side_int = int(max_same_side)
             same_side_count = sum(
-                1
-                for p in account_state.open_positions
-                if p.side == signal.direction
+                1 for p in account_state.open_positions if p.side == signal.direction
             )
             # lab.py semantiği: same_side_count >= limit → reject (>= , not >).
             if same_side_count >= max_same_side_int:
@@ -668,9 +708,7 @@ class RiskOfficer:
         # state_path}. enabled=false / hata → NO-OP (fail-open + log).
         _thr = cfg.position_sizing.get("dd_throttle") or {}
         if _thr.get("enabled", False):
-            risk_pct *= self._dd_throttle_multiplier(
-                float(account_state.equity_usdt), _thr
-            )
+            risk_pct *= self._dd_throttle_multiplier(float(account_state.equity_usdt), _thr)
 
         method = str(cfg.position_sizing.get("method", "fixed_fractional"))
         price = float(market_price if market_price is not None else _entry_price(signal))

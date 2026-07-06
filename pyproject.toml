@@ -122,6 +122,12 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF"]
 # olarak işaretliyor. Kod tabanı Türkçe-öncelikli (yorum/docstring) → ignore.
 ignore = ["E501", "RUF001", "RUF002", "RUF003"]
 
+[tool.ruff.lint.per-file-ignores]
+# P1-7 (2026-07-06): sizing.py pre-existing yapısal ihlaller — canlı risk
+# motorunda import yeniden düzeni (E402) ve R adlandırması (N806, trading
+# konvansiyonu) davranış riski taşır; dosya bazlı muaf.
+"src/price_action/risk/sizing.py" = ["E402", "N806"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = false
