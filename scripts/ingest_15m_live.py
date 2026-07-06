@@ -33,10 +33,10 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from price_action.data.quality import run_quality_checks, write_daily_manifest
-from price_action.data.store import OHLCVStore
-from price_action.logging_config import logger
-from price_action.settings import get_settings
+from price_action.data.quality import run_quality_checks, write_daily_manifest  # noqa: E402
+from price_action.data.store import OHLCVStore  # noqa: E402
+from price_action.logging_config import logger  # noqa: E402
+from price_action.settings import get_settings  # noqa: E402
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -58,8 +58,13 @@ SYMBOLS: list[str] = [
     "FIL/USDT",
     "XLM/USDT",
     # DEPLOY 2026-05-30: 14 → 19 (TRX/UNI/ATOM/AAVE/ALGO, backtest-kanıtlı).
+    # KARAR (P1-6, 2026-07-06): UNI 25 Haz'da TRADING evreninden çıkarıldı
+    # (otoriter kaynak: configs/risk_phoenix_scalp_15m_v15p2.yaml:417, 19→18).
+    # INGEST evreninde BİLİNÇLİ tutuluyor: veri sürekliliği (araştırma/geri
+    # dönüş ihtimali) maliyeti ~1 sembol fetch/5dk. ingest ⊇ trading bilinçli
+    # bir süperset'tir — CT-DAT-01 denetimi bu notu referans alabilir.
     "TRX/USDT",
-    "UNI/USDT",
+    "UNI/USDT",  # data-only; trading evreninde DEĞİL (bkz. yukarıdaki KARAR)
     "ATOM/USDT",
     "AAVE/USDT",
     "ALGO/USDT",
@@ -195,7 +200,7 @@ def main() -> None:  # pragma: no cover - integration
         for venue in VENUE_PRIORITY:
             try:
                 exchange = _build_exchange(venue)
-                written = ingest_symbol_15m(symbol, store, exchange, venue)
+                written = ingest_symbol_15m(symbol, store, exchange, venue)  # noqa: F841 — log içinde raporlanıyor
                 # Quality check — anomali işaretle, ham veri koru.
                 df = store.read(symbol, TF, venue=venue)
                 if not df.empty:
