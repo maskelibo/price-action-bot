@@ -13,16 +13,18 @@ Bu sınıf:
   dış orchestrator (Claude Agent SDK MCP) yapar; biz sadece deklare eder
   ve loglarız.
 """
+
 from __future__ import annotations
 
 import abc
 import asyncio
+import contextlib
 import json
 import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -38,7 +40,6 @@ from price_action.logging_config import logger
 from price_action.memory import EpisodicLog, MemoryStore
 from price_action.memory.store import make_entry
 from price_action.settings import get_settings
-
 
 # FIX 2026-05-26 (H5): Global semaphore for CLI subprocess calls.
 # Önceden 11 agent paralel claude CLI çağırabiliyordu — Max Pro 5-saatlik
@@ -65,7 +66,7 @@ def _get_cli_semaphore() -> asyncio.Semaphore:
 # Half-open: T sonra 1 trial; başarılı ise CLOSE, fail ise yine OPEN.
 _CIRCUIT_FAIL_THRESHOLD = int(os.environ.get("PA_CIRCUIT_FAIL_THRESHOLD", "5"))
 _CIRCUIT_WINDOW_SECONDS = int(os.environ.get("PA_CIRCUIT_WINDOW_S", "300"))  # 5 dk
-_CIRCUIT_OPEN_SECONDS = int(os.environ.get("PA_CIRCUIT_OPEN_S", "600"))     # 10 dk
+_CIRCUIT_OPEN_SECONDS = int(os.environ.get("PA_CIRCUIT_OPEN_S", "600"))  # 10 dk
 _circuit_state: dict[str, dict[str, Any]] = {}  # agent_name → state
 
 # FIX 2026-05-28 (audit-F5): persistent circuit state — process restart sonrası restore.
@@ -79,6 +80,7 @@ def _circuit_save_state() -> None:
     """Mevcut circuit state'i diske yaz (best-effort, fail silently)."""
     try:
         import json as _json
+
         _CIRCUIT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         snapshot = {}
         for agent, st in _circuit_state.items():
@@ -100,8 +102,9 @@ def _circuit_load_state() -> None:
         return
     try:
         import json as _json
+
         raw = _json.loads(_CIRCUIT_STATE_FILE.read_text(encoding="utf-8"))
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for agent, st in raw.items():
             failures = []
             for ts_str in st.get("failures", []):
@@ -111,10 +114,8 @@ def _circuit_load_state() -> None:
                     continue
             open_until = None
             if st.get("open_until"):
-                try:
+                with contextlib.suppress(Exception):
                     open_until = datetime.fromisoformat(st["open_until"])
-                except Exception:
-                    pass
             # Eğer open_until geçmişse temizle (restore zamanında zaten kapanmış)
             if open_until and open_until < now:
                 open_until = None
@@ -147,7 +148,7 @@ def _circuit_check(agent_name: str) -> tuple[bool, str]:
     """
     _circuit_lazy_load()  # F7: ilk çağrıda 1 kez state file'dan restore
     state = _circuit_state.setdefault(agent_name, {"failures": [], "open_until": None})
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Eğer açık ise: timer geçti mi?
     if state["open_until"] is not None:
@@ -165,7 +166,7 @@ def _circuit_check(agent_name: str) -> tuple[bool, str]:
 def _circuit_record_failure(agent_name: str) -> None:
     """Failure kaydet — eşik aşılırsa circuit OPEN."""
     state = _circuit_state.setdefault(agent_name, {"failures": [], "open_until": None})
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     state["failures"].append(now)
     # Window dışındakileri at
     cutoff = now - timedelta(seconds=_CIRCUIT_WINDOW_SECONDS)
@@ -183,6 +184,7 @@ def _circuit_record_failure(agent_name: str) -> None:
         # Telegram CRIT alert
         try:
             from price_action.orchestrator.notifications import push_critical
+
             push_critical(
                 f"LLM circuit OPEN: {agent_name} — "
                 f"{len(state['failures'])} fail in {_CIRCUIT_WINDOW_SECONDS}s, "
@@ -205,9 +207,11 @@ def _circuit_record_success(agent_name: str) -> None:
     # FIX 2026-05-28 (audit-F5): persist
     _circuit_save_state()
 
+
 # ----------------------------------------------------------------------
 # Prometheus metrics — best-effort
 # ----------------------------------------------------------------------
+
 
 def _find_claude_cli() -> str | None:
     """Claude CLI'ı bul; Windows'ta .cmd wrapper yerine .exe'yi tercih et.
@@ -238,13 +242,15 @@ def _find_claude_cli() -> str | None:
 
 try:  # pragma: no cover - prometheus opsiyonel
     from price_action.api.prometheus_metrics import (
-        llm_calls_total as PA_LLM_CALLS,
-        llm_tokens_total as PA_LLM_TOKENS,
+        llm_calls_total as PA_LLM_CALLS,  # noqa: N812
+    )
+    from price_action.api.prometheus_metrics import (
+        llm_tokens_total as PA_LLM_TOKENS,  # noqa: N812
     )
 except Exception:  # pragma: no cover
 
     class _Noop:
-        def labels(self, **_kw: Any) -> "_Noop":
+        def labels(self, **_kw: Any) -> _Noop:
             return self
 
         def inc(self, *_a: Any, **_kw: Any) -> None:
@@ -257,6 +263,7 @@ except Exception:  # pragma: no cover
 # ----------------------------------------------------------------------
 # Veri sınıfları
 # ----------------------------------------------------------------------
+
 
 @dataclass
 class LLMResponse:
@@ -278,7 +285,8 @@ class LLMError(RuntimeError):
 # Base
 # ----------------------------------------------------------------------
 
-class LLMAgentBase(abc.ABC):
+
+class LLMAgentBase(abc.ABC):  # noqa: B024 — bilinçli: abstract metotsuz ortak taban
     """Tüm LLM agent'larının ortak temeli.
 
     Subclass'lar ``allowed_tools`` ve ``default_model`` sınıf değişkenlerini
@@ -335,9 +343,7 @@ class LLMAgentBase(abc.ABC):
         rules = self._load_rules().strip()
         boot = self.memory.boot_context(self.name).strip()
         protocol = self._load_protocol().strip()
-        tools_line = (
-            f"## ALLOWED TOOLS\n{', '.join(self.allowed_tools) or '(none)'}\n"
-        )
+        tools_line = f"## ALLOWED TOOLS\n{', '.join(self.allowed_tools) or '(none)'}\n"
         parts = [
             f"# AGENT: {self.name}",
             "## RULES (canonical)",
@@ -385,7 +391,7 @@ class LLMAgentBase(abc.ABC):
                 return
         # 2) claude_agent_sdk
         try:  # pragma: no cover - opsiyonel paket
-            import claude_agent_sdk  # type: ignore[import-not-found]  # noqa: F401
+            import claude_agent_sdk  # type: ignore[import-not-found]
 
             self._client_kind = "agent_sdk"
             self._client = claude_agent_sdk
@@ -397,7 +403,9 @@ class LLMAgentBase(abc.ABC):
             import anthropic  # type: ignore[import-not-found]
 
             api_key = self.settings.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY", "")
-            self._client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
+            self._client = (
+                anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
+            )
             self._client_kind = "anthropic"
         except Exception as exc:  # pragma: no cover
             logger.error("agent.client_init_failed", extra={"agent": self.name, "err": str(exc)})
@@ -482,12 +490,22 @@ class LLMAgentBase(abc.ABC):
         # bunu okuyup tüm-zaman cumulative sum verebiliyor.
         try:
             import json as _json
-            from datetime import datetime as _dt, timezone as _tz
+            import uuid as _uuid
+            from datetime import datetime as _dt
             from pathlib import Path as _Path
+
             _audit_path = _Path("data/llm_calls.jsonl")
             _audit_path.parent.mkdir(parents=True, exist_ok=True)
+            # FIX 2026-07-06 (P1-2 izlenebilirlik): call_id — bu çağrıdan doğan
+            # protokol dokümanı frontmatter'ında llm_call_id olarak görünür;
+            # çift yönlü iz (doc ↔ llm_calls) call_id üzerinden kurulur.
+            _call_id = (
+                f"{self.name}-{_dt.now(UTC).strftime('%Y%m%dT%H%M%S')}-{_uuid.uuid4().hex[:8]}"
+            )
+            self._last_llm_call_id = _call_id
             _audit_record = {
-                "ts": _dt.now(_tz.utc).isoformat(),
+                "ts": _dt.now(UTC).isoformat(),
+                "call_id": _call_id,
                 "agent": self.name,
                 "model": self.model,
                 "input_tokens": int(resp.input_tokens or 0),
@@ -517,9 +535,7 @@ class LLMAgentBase(abc.ABC):
         )
         return resp
 
-    def _build_user_message(
-        self, prompt: str, context_files: list[Path] | None
-    ) -> str:
+    def _build_user_message(self, prompt: str, context_files: list[Path] | None) -> str:
         parts = [prompt.strip()]
         for cf in context_files or []:
             try:
@@ -564,10 +580,8 @@ class LLMAgentBase(abc.ABC):
             raise
         except Exception as exc:
             _circuit_record_failure(self.name)
-            try:
+            with contextlib.suppress(Exception):  # pragma: no cover
                 PA_LLM_CALLS.labels(agent=self.name, model=self.model, status="error").inc()
-            except Exception:  # pragma: no cover
-                pass
             logger.warning(
                 "agent.llm_retry",
                 extra={"agent": self.name, "err": str(exc)[:200]},
@@ -634,9 +648,7 @@ class LLMAgentBase(abc.ABC):
         # Bilinmeyen şema → anthropic SDK'ya düş
         import anthropic  # type: ignore[import-not-found]
 
-        self._client = anthropic.Anthropic(
-            api_key=self.settings.anthropic_api_key or None
-        )
+        self._client = anthropic.Anthropic(api_key=self.settings.anthropic_api_key or None)
         self._client_kind = "anthropic"
         return self._call_anthropic(system_prompt, user_text, max_tokens, temperature)
 
@@ -720,9 +732,11 @@ class LLMAgentBase(abc.ABC):
 
         text = data.get("result", "") or ""
         usage = data.get("usage") or {}
-        in_t = int(usage.get("input_tokens", 0)) + int(
-            usage.get("cache_read_input_tokens", 0)
-        ) + int(usage.get("cache_creation_input_tokens", 0))
+        in_t = (
+            int(usage.get("input_tokens", 0))
+            + int(usage.get("cache_read_input_tokens", 0))
+            + int(usage.get("cache_creation_input_tokens", 0))
+        )
         out_t = int(usage.get("output_tokens", 0))
         return LLMResponse(
             text=text,
@@ -834,17 +848,29 @@ class LLMAgentBase(abc.ABC):
         Path
             Oluşturulan doc'un yolu.
         """
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         ts_compact = ts.strftime("%Y%m%dT%H%M%S")
         ts_iso = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
         if slug is None:
             slug = doc_type
         # Sanitize slug: slash, space, special chars → tire (filesystem safe)
         import re as _re
+
         slug = _re.sub(r"[^a-zA-Z0-9._-]+", "-", slug).strip("-").lower()
         if not slug:
             slug = doc_type
         doc_id = f"{self.name}-{ts_compact}-{slug}"
+
+        # FIX 2026-07-06 (P1-2 izlenebilirlik): artifact'ten üretim kökeni
+        # okunabilsin — model + persona/protokol hash'i + son LLM çağrı id'si.
+        # prompt_sha256 yalnızca STABİL girdileri (persona + protokol) kapsar;
+        # boot-context her çağrıda değiştiği için bilerek dışarıda.
+        import hashlib as _hashlib
+
+        _prompt_sha = _hashlib.sha256(
+            (self._load_rules() + self._load_protocol()).encode("utf-8")
+        ).hexdigest()[:16]
+        _llm_call_id = getattr(self, "_last_llm_call_id", None) or ""
 
         # Frontmatter
         fm_lines = [
@@ -853,6 +879,9 @@ class LLMAgentBase(abc.ABC):
             f"doc_type: {doc_type}",
             f"agent_id: {self.name}",
             f"created_at: {ts_iso}",
+            f"model: {self.model}",
+            f"prompt_sha256: {_prompt_sha}",
+            f"llm_call_id: {_llm_call_id}",
             f"status: {status}",
             f"confidence: {confidence}",
             f"depends_on: {json.dumps(depends_on or [])}",
@@ -946,7 +975,7 @@ class LLMAgentBase(abc.ABC):
                 self.name,
                 f"Tekrar eden episode (x{count}): {body_prefix}",
                 entry_type="learning",
-                slug=f"recurring-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}",
+                slug=f"recurring-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}",
                 confidence="med",
                 tags=["consolidation", "recurring"],
             )
@@ -957,7 +986,7 @@ class LLMAgentBase(abc.ABC):
             note = MemoryEntry(
                 agent=self.name,
                 type="know_how",
-                slug=f"weekly-tag-snapshot-{datetime.now(timezone.utc).strftime('%Y%m%d')}",
+                slug=f"weekly-tag-snapshot-{datetime.now(UTC).strftime('%Y%m%d')}",
                 body=f"Haftalık episodic tag dağılımı: {tags_str}",
                 tags=["consolidation"],
             )
