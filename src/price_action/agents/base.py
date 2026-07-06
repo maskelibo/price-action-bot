@@ -443,6 +443,45 @@ class LLMAgentBase(abc.ABC):  # noqa: B024 — bilinçli: abstract metotsuz orta
     ) -> LLMResponse:
         """Asenkron LLM çağrısı — tam cevap nesnesi."""
         self._ensure_client()
+
+        # FIX 2026-07-06 (P1-3): token bütçesi HARD-CAP. Önceden check_budget
+        # yalnızca saatlik cron'da alarm üretiyordu (soft) — kaçak harcamayı
+        # durduran fren yoktu. Bu agent 24h penceresinde CRIT'e (>=%100)
+        # ulaşmışsa çağrı YAPILMAZ; LLMError raise edilir (mevcut hata yolu,
+        # çağıranlar zaten tolere ediyor) + throttle'lı Telegram CRIT gider.
+        # dry-run bypass (testler gerçek llm_calls.jsonl'den etkilenmesin);
+        # PA_TOKEN_HARDCAP=0 ile acil devre dışı bırakma.
+        if self._client_kind != "dry" and os.environ.get("PA_TOKEN_HARDCAP", "1") != "0":
+            crit = None
+            with contextlib.suppress(Exception):  # bütçe altyapısı hatası çağrıyı engellemesin
+                from price_action.ops.token_budget import (
+                    check_budget,
+                    get_token_stats,
+                    load_budget_config,
+                )
+
+                alerts = check_budget(get_token_stats(window_hours=24), load_budget_config())
+                crit = next(
+                    (a for a in alerts if a["agent"] == self.name and a["level"] == "CRIT"),
+                    None,
+                )
+            if crit:
+                msg = (
+                    f"TOKEN HARD-CAP: {self.name} 24h bütçesini aştı "
+                    f"({crit['used']:,}/{crit['limit']:,} tok, %{crit['pct']}) — çağrı ATLANDI."
+                )
+                logger.warning(
+                    "agent.token_hardcap_skip",
+                    extra={"agent": self.name, "used": crit["used"], "limit": crit["limit"]},
+                )
+                with contextlib.suppress(Exception):
+                    from price_action.ops.telegram_throttle import get_telegram_throttle
+
+                    get_telegram_throttle().send_throttled(
+                        "token_budget_hardcap", msg, level="CRITICAL"
+                    )
+                raise LLMError(msg)
+
         system_prompt = self._load_system_prompt()
         user_text = self._build_user_message(prompt, context_files)
 
