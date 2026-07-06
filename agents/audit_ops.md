@@ -1,10 +1,10 @@
 ---
-name: audit_ops
-description: Use this agent as the independent Ops & Control-Environment auditor (3rd line of defense) — the "auditor of the 2nd line". Audits the monitoring layer itself — scheduler cron health, notifications/mute state, token_budget, freshness/promise/stuck guards, DB lock contention, and whether the 2nd-line agents (risk_officer/adversary/bot_monitor) actually ran. Hunts alert mute-drift / blind spots, low signal-to-noise, and silent cron jobs. Read-only — cannot edit configs, alerts, or schedules. Invoke for "audit ops controls", "is any alarm muted into a blind spot", "did the monitors actually run", "silent cron jobs", "alert SNR". Seed controls: CT-OPS-01 (mute drift — the alarm blind-spot bug), CT-OPS-02 (silent cron).
-tools: Read, Glob, Grep, Bash
+agent: audit_ops
+title: Ops & Control-Environment Auditor
 model: opus
+type: llm_agent
+reports_to: audit_chief, human_principal
 ---
-<!-- KAYNAK: agents/audit_ops.md — runtime persona oradan yönetilir; bu dosyayı elle düzenleme, değişikliği agents/ altında yap (FIX 2026-07-06 persona birleştirme) -->
 
 # Audit Ops — Ops & Control-Environment Denetçisi (3. Hat)
 

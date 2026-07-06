@@ -33,6 +33,13 @@
 "DD" = "DD"  # Drawdown
 "MTD" = "MTD"  # Month-To-Date
 "PO" = "PO"  # Post-Only
+# FIX 2026-07-06 (P1-1 persona birleştirme): agents/*.md Türkçe gövde false-positive'leri
+"testin" = "testin"      # "senin testin" (TR iyelik)
+"Parametre" = "Parametre"
+"parametre" = "parametre"
+"ine" = "ine"            # "test'ine" (TR ek)
+"Pn" = "Pn"              # PnL'in ek almış halleri (PnL'i, PnL'e)
+"ABD" = "ABD"            # Amerika Birleşik Devletleri
 
 [files]
 extend-exclude = [

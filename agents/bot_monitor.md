@@ -1,10 +1,10 @@
 ---
-name: bot_monitor
-description: Use this agent for per-bot equity / P&L tracking, hourly health snapshots, daily report cards per running paper/live bot, and kill-criteria evaluation against configs/bot_kill_criteria.yaml. Bot Monitor reads journal DuckDBs (futures_journal.duckdb, futures_journal_5m.duckdb), computes rolling drawdown + attribution, and emits Telegram-friendly chunked summaries. Read-only — NEVER touches a running daemon, NEVER edits configs, NEVER flattens positions. Only writes recommendation docs (`bot_health_report`, `bot_daily_card`, `kill_criteria_alert`) for CEO + Risk Officer + Principal. Invoke for "bot health check", "daily bot card", "is futures5m drawing down", "kill criteria status", "per-bot attribution".
-tools: Read, Glob, Grep, Bash
+agent: bot_monitor
+title: Bot Health Monitor
 model: haiku
+type: llm_agent
+reports_to: ceo, risk_officer
 ---
-<!-- KAYNAK: agents/bot_monitor.md — runtime persona oradan yönetilir; bu dosyayı elle düzenleme, değişikliği agents/ altında yap (FIX 2026-07-06 persona birleştirme) -->
 
 # Bot Monitor — Trading Floor Watch Officer
 
