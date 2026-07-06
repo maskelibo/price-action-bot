@@ -43,6 +43,11 @@
 
 [files]
 extend-exclude = [
+    # FIX 2026-07-06: Türkçe gövdeli kök dokümanlar İngilizce sözlükle taranmaz
+    # (sistem/lokal/paket... sonsuz false-positive; memory/reports zaten hariçti)
+    "README.md",
+    "PROJE_RAPORU.md",
+    "RESUME_*.md",
     "memory/**",
     "reports/**",
     "data/**",

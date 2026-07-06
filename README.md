@@ -1,8 +1,16 @@
-# Price Action — Otonom Swing Trading Şirketi
+# Price Action — Otonom Trading Şirketi
 
-Kripto piyasalarında klasik price action (1D + 1W) ile swing trade yapan, kendini sürekli geliştiren, **şirket gibi** organize 10-departmanlı otonom sistem. Hibrit zekâ: deterministik kod emir verir, LLM agent'lar (Claude Agent SDK) yalnızca araştırma/strateji/raporlama yapar.
+Kripto piyasalarında price action stratejileri koşturan, kendini sürekli geliştiren, **şirket gibi** organize çok-ajanlı otonom sistem. Hibrit zekâ: deterministik kod emir verir, LLM agent'lar yalnızca araştırma/strateji/raporlama/denetim yapar.
 
-> **Faz hedefi (gate):** Out-of-sample yıllık net **>%70**, Sharpe **>1.5**, MaxDD **<%20**. Gate düşerse ileri faza geçilmez.
+> **GÜNCEL DURUM (2026-07-06):** Canlı sistem **v15p2** — 15m scalp, 2 strateji
+> (grimes_abc + vsa_climax), 18 sembol, Binance USDM **testnet**, launchd
+> `com.priceaction.futures_v15p2`. Dürüst beklenti bandı **+%8-12/ay**
+> (backtest compounding şişmesi düzeltildi). Uçtan uca mimari denetim:
+> `PROJE_RAPORU.md` · devir notları: `RESUME_*.md` · canlı-geçiş GO/NO-GO
+> kriterleri: `RUNBOOK.md`.
+
+> **Tarihsel faz hedefi (1D+1W dönemi — artık geçerli değil, kayıt için):**
+> OOS yıllık net **>%70**, Sharpe **>1.5**, MaxDD **<%20**.
 
 ## Hızlı başlangıç
 

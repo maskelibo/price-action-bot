@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.priceaction.futures_v15p2</string>
+
+  <!-- v15p2 KONSANTRE FILO — 2026-07-02 Principal onayı ile deploy.
+       grimes+vsa eşit-ağırlık, risk %1.0, PYRAMID OFF (validasyonla birebir).
+       Robustness TAM PASS + lookahead-audit GO. Testnet shadow ≥2 hafta.
+       DURDURMA: launchctl bootout gui/501/com.priceaction.futures_v15p2
+       ROLLBACK v14: com.priceaction.futures_v14.plist geri yükle + bootstrap -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/peyman/price-action-bot/ops/launchd/run_futures_v15p2.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/peyman/price-action-bot</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+
+  <key>ExitTimeOut</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/futures_v15p2.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/futures_v15p2.stderr.log</string>
+
+  <key>Nice</key>
+  <integer>5</integer>
+
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>8192</integer>
+  </dict>
+
+  <key>LimitLoadToSessionType</key>
+  <array>
+    <string>Aqua</string>
+  </array>
+</dict>
+</plist>

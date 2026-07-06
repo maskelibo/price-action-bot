@@ -33,8 +33,10 @@ repos:
     rev: v1.23.6
     hooks:
       - id: typos
-        args: [--config, .typos.toml, --no-check-filenames]
-        exclude: ^(memory/|reports/|data/|logs/|src/|scripts/|tests/|configs/)
+        args: [--config, .typos.toml, --no-check-filenames, --force-exclude]
+        # FIX 2026-07-06: TR gövdeli kök md'ler eklendi (pre-commit dosyaları
+        # explicit geçirdiği için config exclude'u --force-exclude ile uygulanır)
+        exclude: ^(memory/|reports/|data/|logs/|src/|scripts/|tests/|configs/|README\.md|PROJE_RAPORU\.md|RESUME_)
 
   # FIX 2026-05-28 (Faz 14.27 C7): secret scanning beyond detect-private-key
   - repo: https://github.com/gitleaks/gitleaks

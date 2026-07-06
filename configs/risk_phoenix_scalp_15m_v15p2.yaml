@@ -1,5 +1,8 @@
 # ============================================================================
-# v15p2 "KONSANTRE FILO" DRAFT — 2026-07-02 (AKTİF DEĞİL; robustness+OK bekler)
+# v15p2 "KONSANTRE FILO" — 2026-07-02'den beri CANLI (testnet, Principal onaylı)
+# NOT (P1-5 doc-senkron 2026-07-06): eski "AKTİF DEĞİL" ibaresi bayattı —
+# robustness TAM PASS + lookahead GO sonrası 2 Tem'de v14 emekli edildi, bu
+# config canlıya alındı (launchd: com.priceaction.futures_v15p2, PA_V14_PHASE=v15p2).
 # ============================================================================
 # Temel: v14p3 birebir + SADECE 2 delta (kanıt: reports/research/
 # v15_filo_blend_2026-07-02.md, production_replay 19-sym, UNI-siz, 57bps, pyrOFF):
