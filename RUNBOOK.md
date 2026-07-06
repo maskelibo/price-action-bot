@@ -1067,3 +1067,29 @@ Bu sorun `order_manager.py` live broker implemente edildiğinde ortadan kalkar.
 - Geçmiş dersler: `memory/shared/lessons/`
 - RAG corpus durumu: `reports/lab/rag-refresh-*.md`
 - Faz durumu: `README.md` "Faz durumu" bölümü
+
+## GO/NO-GO — Mikro-Canlıya Geçiş Kriterleri (Principal onayı: 2026-07-06)
+
+> **Kapsam:** v15p2 (veya halefi) testnet forward-test'inden **mikro-canlıya**
+> ($1-2K gerçek sermaye, kaldıraç ≤2x) geçiş kararı. Bu bölüm karar SABİTİDİR;
+> tartışma yeri değil, kontrol listesidir.
+
+**GEÇİŞ = aşağıdakilerin HEPSİ birden sağlanır:**
+
+| # | Kriter | Eşik | Ölçüm kaynağı |
+|---|---|---|---|
+| 1 | Forward test süresi | ≥ **6 hafta** (kesintisiz, aynı config) | deploy ts → bugün (borsa income API) |
+| 2 | Kapanmış trade sayısı | ≥ **40** | borsa income REALIZED_PNL event'leri |
+| 3 | Net PnL (fee+funding dahil) | > **0** | borsa-truth income toplamı |
+| 4 | Max drawdown (dönem) | < **%2** (günlük breaker %4'ün yarısı) | equity eğrisi, borsa-truth |
+| 5 | Gerçekleşen slippage | backtest varsayımının **±%25** içinde | slippage_tracker vs config bps |
+| 6 | Açık overdue denetim bulgusu | **0** | memory/audit/findings_register.jsonl |
+
+**Kurallar:**
+- Herhangi biri sağlanmadıkça süre uzar — kriter geriye dönük **gevşetilemez**.
+- Gevşetme ihtiyacı doğarsa: KARAR-GUNLUGU'ne gerekçeli kayıt + **1 hafta zorunlu
+  bekleme** sonrası ancak yeni kriter setiyle değerlendirme (aynı gün karar yasak).
+- Config değişikliği (parametre/strateji/evren) forward-test saatini **sıfırlar**.
+- Forex: SPK gereği **paper-only kalır** — bu tablo forex'e uygulanmaz.
+- Mikro-canlı geçtikten sonra sermaye artışı ayrı bir GO/NO-GO turu gerektirir
+  (bu tablo + canlı dönemin kendi 6 haftası).
