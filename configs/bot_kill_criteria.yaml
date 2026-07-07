@@ -25,7 +25,21 @@
 # PAUSE alarmı (zirve kümülatif kâra oran, hesap büyüklüğüne değil). Paper
 # hesap = 10000 USDT (logs/execution/paper_state_faz6.json).
 bots:
+  # FIX 2026-07-07 (denetim CRIT): canlı v15p2 botu bu dosyada YOKTU —
+  # gece kill-eval emekli botların donmuş journal'larına bakıp sonsuza dek
+  # 0 hesaplıyordu; tek para-dokunur bot korumasızdı. Eşikler futures15m
+  # setinden devralındı; equity = v15p2 temiz anchor (2 Tem, $4963).
+  v15p2:
+    journal: data/futures_journal_v15p2.duckdb
+    account_equity_usdt: 4963.0
+    kill_thresholds:
+      cum_loss_7d_pct: 0.10
+      cum_loss_14d_pct: 0.15
+      max_drawdown_pct: 0.25
+      consecutive_losses: 7
+  # RETIRED 2026-06-15 (v13/v14 dönemi journal donuk) — kayıt için tutuluyor.
   futures15m:
+    enabled: false
     journal: data/futures_journal.duckdb
     account_equity_usdt: 10000.0
     kill_thresholds:
@@ -33,7 +47,9 @@ bots:
       cum_loss_14d_pct: 0.15
       max_drawdown_pct: 0.25
       consecutive_losses: 7
+  # RETIRED 2026-06-30 (5m bot kalıcı emekli) — kayıt için tutuluyor.
   futures5m:
+    enabled: false
     journal: data/futures_journal_5m.duckdb
     account_equity_usdt: 10000.0
     kill_thresholds:

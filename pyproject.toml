@@ -134,6 +134,8 @@ ignore = ["E501", "RUF001", "RUF002", "RUF003"]
 # F1-fix (2026-07-07): canlı scan dosyası ilk kez lint'e girdi — E402 import
 # sırası (sys.path/env kurulumu importlardan önce ŞART) + trading konvansiyonu.
 "scripts/futures_trade_15m.py" = ["E402", "N806", "N814", "SIM105"]
+# Kill-kriteri fix (2026-07-07): bot_monitor ilk kez lint'e girdi — pre-existing.
+"src/price_action/agents/bot_monitor.py" = ["B007", "RUF005", "SIM105"]
 
 [tool.mypy]
 python_version = "3.11"

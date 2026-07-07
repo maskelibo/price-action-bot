@@ -546,6 +546,10 @@ class BotMonitorAgent(LLMAgentBase):
         all_alerts: list[dict[str, Any]] = []  # FIX 2026-05-25 blind-spot
 
         for bot_name, bot_cfg in bots.items():
+            # FIX 2026-07-07: emekli botlar enabled:false ile atlanır —
+            # eskiden donmuş journal'lar sonsuza dek eval ediliyordu.
+            if bot_cfg.get("enabled", True) is False:
+                continue
             journal = self._resolve_journal_path(bot_cfg.get("journal", ""))
             ok = self._check_postgres_journal(journal)
             trades = self._read_trades(journal, since=since_30d) if ok else []
@@ -681,6 +685,7 @@ class BotMonitorAgent(LLMAgentBase):
         """
         try:
             import os as _os
+
             # API key yoksa (test ortamı) erken çık
             if not _os.environ.get("BINANCE_FUTURES_TESTNET_API_KEY"):
                 return config_equity_fallback
@@ -688,6 +693,7 @@ class BotMonitorAgent(LLMAgentBase):
                 fetch_futures_state,
                 get_futures_exchange,
             )
+
             _ex = get_futures_exchange()
             _state = fetch_futures_state(_ex)
             _wb = float(_state.get("wallet_balance", 0))
@@ -847,6 +853,10 @@ class BotMonitorAgent(LLMAgentBase):
         per_bot_summary_inputs: list[dict[str, Any]] = []
 
         for bot_name, bot_cfg in bots.items():
+            # FIX 2026-07-07: emekli botlar enabled:false ile atlanır —
+            # eskiden donmuş journal'lar sonsuza dek eval ediliyordu.
+            if bot_cfg.get("enabled", True) is False:
+                continue
             journal = self._resolve_journal_path(bot_cfg.get("journal", ""))
             trades_24h = self._read_trades(journal, since=since_24h)
             trades_7d = self._read_trades(journal, since=since_7d)
@@ -1131,6 +1141,10 @@ class BotMonitorAgent(LLMAgentBase):
         alerts_summary: list[str] = []
 
         for bot_name, bot_cfg in bots.items():
+            # FIX 2026-07-07: emekli botlar enabled:false ile atlanır —
+            # eskiden donmuş journal'lar sonsuza dek eval ediliyordu.
+            if bot_cfg.get("enabled", True) is False:
+                continue
             journal = self._resolve_journal_path(bot_cfg.get("journal", ""))
             thresholds = bot_cfg.get("kill_thresholds") or {}
 
