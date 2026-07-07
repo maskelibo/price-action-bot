@@ -603,8 +603,19 @@ class HypothesisRunner:
         ).total_seconds()
         years = max(span_sec / (365.25 * 86400), 1e-9)
         trades_per_year = len(r_arr) / years
-        r_std = float(r_arr.std(ddof=1)) if len(r_arr) > 1 else 0.0
-        sharpe_ann = mean_r / r_std * math.sqrt(trades_per_year) if r_std > 0 else 0.0
+        # FIX 2026-07-07 (denetim M9): sharpe GÜNLÜK-agregasyonlu — eski
+        # per-trade × sqrt(trades_per_year) formülü eşzamanlı işlemlerle
+        # ~10-80× şişiyordu (param_sweep_runner'ın 2 Tem'de kaldırdığı
+        # formül buraya sızmıştı; pipeline'da iki farklı oos_sharpe vardı).
+        daily_r = (
+            trades_df.assign(_ets=pd.to_datetime(trades_df["exit_ts"], utc=True))
+            .set_index("_ets")["R"]
+            .resample("1D")
+            .sum()
+        )
+        daily_r = daily_r[daily_r != 0.0]
+        d_std = float(daily_r.std(ddof=1)) if len(daily_r) > 2 else 0.0
+        sharpe_ann = float(daily_r.mean()) / d_std * math.sqrt(365.0) if d_std > 0 else 0.0
         verdict = "GO" if tier != "REJECT" and mean_r > 0 else "RED"
 
         return {

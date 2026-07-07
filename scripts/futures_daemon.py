@@ -181,10 +181,15 @@ def _kill_switch_active() -> tuple[bool, str]:
         if bool(ks.get("halted", False)):
             return True, str(ks.get("reason") or "no reason")
         return False, ""
+    except FileNotFoundError:
+        return False, ""  # dosya yok = halt yok (normal durum)
     except Exception as exc:
-        # FIX 2026-05-26 (H1): bozuk kill_switch.json fark edilsin
-        sys.stderr.write(f"WARN _kill_switch_active parse fail (treating as not halted): {exc}\n")
-        return False, ""  # bozuk dosya = halted değil (fail-safe)
+        # FIX 2026-07-07 (denetim MED-12): polarite DÜZELTİLDİ — bozuk/yarım
+        # yazılmış kill_switch.json tam da acil-durdurma ANINDA oluşur (torn
+        # write). Eski davranış "halted değil" sayıp halt'ın içinden trade
+        # ediyordu. Acil fren fail-CLOSED olmalı: parse edilemeyen dosya = HALT.
+        sys.stderr.write(f"CRIT _kill_switch_active parse fail (fail-closed → HALT): {exc}\n")
+        return True, f"kill_switch.json parse fail (fail-closed): {str(exc)[:100]}"
 
 
 _LOG_MAX_BYTES = 20 * 1024 * 1024  # 20 MB — yıllık ~250 MB cap

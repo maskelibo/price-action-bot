@@ -263,7 +263,15 @@ class LabScientistAgent(LLMAgentBase):
                                     "oos_sharpe": float(best.get("sharpe_annualized", 0.0)),
                                     "oos_maxdd": float(best.get("max_drawdown_R", 0.0))
                                     * float(best.get("risk_pct", 0.005)),
-                                    "n_trials": int(best.get("n_trades", 0)),
+                                    # FIX 2026-07-07 (denetim H3): n_trials =
+                                    # DENENEN HÜCRE sayısı (çoklu-test düzeltmesi
+                                    # bunu bekler) — eski n_trades (binlerce)
+                                    # E[maxZ]≈3.5 → dsr_p≈1 → otomatik reject
+                                    # üretiyordu (2 Tem fix'i bu yolu atlamıştı).
+                                    "n_trials": max(
+                                        int(rdata["result"].get("n_cells_evaluated") or 0),
+                                        1,
+                                    ),
                                     "mean_R_after_fees": float(best.get("mean_R_after_fees", 0.0)),
                                     "hypothesis_spec": rdata.get("spec"),
                                     "status": "BACKTESTED_FROM_HYP",

@@ -1001,7 +1001,9 @@ def _register_event_handlers_once() -> None:
 
             ae = AdversaryEngineerAgent()
             bot_id = env.payload.get("bot_id", "futures15m")
-            await ae.daily_stress_test([bot_id])
+            await ae.daily_stress_test(
+                bot_id
+            )  # FIX 2026-07-07: str bekler, liste config-miss yaratıyordu
             logger.info(
                 "event_handler.pause_alert_done",
                 extra={"extra": {"bot_id": bot_id, "event_id": env.event_id}},
@@ -1158,7 +1160,7 @@ async def _job_bot_monitor_adversary_hook() -> None:
         ae = AdversaryEngineerAgent()
         # PAUSE alert için stress test tetikle
         for alert in pause_alerts[:3]:
-            bot_id = "futures15m"  # default
+            bot_id = "futures15m"  # default (v15p2 pool'u yok; en yakın vekil)
             doc_id = alert.get("doc_id", "")
             if "futures5m" in doc_id:
                 bot_id = "futures5m"
@@ -1167,7 +1169,9 @@ async def _job_bot_monitor_adversary_hook() -> None:
             elif "v11" in doc_id or "vwap" in doc_id:
                 bot_id = "futures15m_v11"
             try:
-                path = await ae.daily_stress_test([bot_id])
+                path = await ae.daily_stress_test(
+                    bot_id
+                )  # FIX 2026-07-07: str bekler, liste config-miss yaratıyordu
                 logger.info(
                     "scheduler.bot_monitor_adversary_hook_done",
                     extra={

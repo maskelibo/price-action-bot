@@ -18,9 +18,11 @@ CRITICAL:
   - Slippage limit market fallback'te de korunur
   - Replay etkisi: ZERO (default OFF)
 """
+
 from __future__ import annotations
 
 import time
+from datetime import UTC
 from typing import Any
 
 
@@ -55,8 +57,9 @@ def _compute_slippage_bps(side: str, expected_px: float, fill_px: float) -> floa
     return (expected_px - fill_px) / expected_px * 10_000
 
 
-def _wait_for_fill(exchange: Any, order_id: str, symbol: str, timeout_sec: int,
-                   poll_interval: float = 1.0) -> str:
+def _wait_for_fill(
+    exchange: Any, order_id: str, symbol: str, timeout_sec: int, poll_interval: float = 1.0
+) -> str:
     """Order durumunu poll et. closed/filled/canceled doner.
 
     Returns: order status string ('closed', 'open', 'canceled', vb.)
@@ -112,6 +115,11 @@ def place_post_only_with_fallback(
     if client_order_id:
         params["newClientOrderId"] = client_order_id
 
+    # FIX 2026-07-07 (denetim CRIT-1): post-only KISMİ dolum takibi.
+    # Eskiden partial fill görünmezdi → market fallback FULL qty gönderiyordu
+    # → pozisyon risk-boyutundan büyük (overfill) + journal qty-drift.
+    partial_filled = 0.0
+
     # ===== FAZ 1: Post-only limit =====
     post_only_params = {**params, "timeInForce": "PO", "postOnly": True}
     order_id: str | None = None
@@ -160,10 +168,10 @@ def place_post_only_with_fallback(
         except Exception as _cnc_exc:
             try:
                 import logging as _lg
+
                 _lg.getLogger(__name__).warning(
                     "post_only_router.cancel_fail",
-                    extra={"symbol": symbol, "order_id": order_id,
-                           "err": str(_cnc_exc)[:200]},
+                    extra={"symbol": symbol, "order_id": order_id, "err": str(_cnc_exc)[:200]},
                 )
             except Exception:
                 pass
@@ -176,6 +184,8 @@ def place_post_only_with_fallback(
             if v_status in ("closed", "filled"):
                 # Cancel race — order tam o anda fill oldu → market submit etme!
                 return verify, "post_only_filled_late"
+            # CRIT-1 fix: iptal edilen limitin dolan kısmı fallback'ten düşülür
+            partial_filled = float(verify.get("filled") or 0.0)
         except Exception:
             pass  # Verify fail → market fallback'a güven, ama log
 
@@ -183,6 +193,7 @@ def place_post_only_with_fallback(
             # Cancel fail + verify de fail → BELİRSİZ STATE. Market YAPMA, alarm.
             try:
                 from price_action.orchestrator.notifications import push_critical
+
                 push_critical(
                     f"🚨 POST-ONLY CANCEL FAIL — {symbol} {side} qty={qty} "
                     f"order_id={order_id}. Market fallback ATLANDI (double position riski). "
@@ -196,17 +207,51 @@ def place_post_only_with_fallback(
             )
 
     # ===== FAZ 3: Market fallback =====
+    # CRIT-1 fix: kısmi dolum düşülür — sadece KALAN miktar market'e gider.
+    fb_qty = qty
+    if partial_filled > 0:
+        fb_qty = max(qty - partial_filled, 0.0)
+        try:
+            fb_qty = float(exchange.amount_to_precision(symbol, fb_qty))
+        except Exception:
+            pass
+        if fb_qty <= 0 or (partial_filled / max(qty, 1e-12)) >= 0.999:
+            # Fiilen tamamı dolmuş — partial'ı geç-fill olarak dön, market YAPMA.
+            return verify, "post_only_filled_late"
+        try:
+            import logging as _lg
+
+            _lg.getLogger(__name__).info(
+                "post_only_router.partial_fill_deducted",
+                extra={"symbol": symbol, "partial": partial_filled, "fb_qty": fb_qty},
+            )
+        except Exception:
+            pass
+
     fb_client_id = (client_order_id + "_fb") if client_order_id else None
     fb_params = {"newClientOrderId": fb_client_id} if fb_client_id else {}
     market_order = exchange.create_market_order(
         symbol=symbol,
         side=side,
-        amount=qty,
+        amount=fb_qty,
         params=fb_params,
     )
 
     # ===== FAZ 4: Slippage gate (market fallback) =====
-    fill_px = float(market_order.get("average") or market_order.get("price") or target_price)
+    # HIGH-7 fix (2026-07-07): Binance market yanıtında average sık None gelir
+    # → eski fallback zinciri fill_px=target yapıp slippage'ı 0 gösteriyordu
+    # (kapı kendi kendini baypas ediyordu). Önce fetch_order ile tazele.
+    fill_px = float(market_order.get("average") or 0.0)
+    if fill_px <= 0:
+        try:
+            _mk_fresh = exchange.fetch_order(str(market_order.get("id", "")), symbol)
+            fill_px = float(_mk_fresh.get("average") or 0.0)
+            if float(_mk_fresh.get("filled") or 0.0) > 0:
+                market_order = _mk_fresh
+        except Exception:
+            pass
+    if fill_px <= 0:
+        fill_px = float(market_order.get("price") or target_price)
     slip_bps = _compute_slippage_bps(side, target_price, fill_px)
 
     if slip_bps > slippage_limit_bps:
@@ -232,6 +277,7 @@ def place_post_only_with_fallback(
             # KRITIK: pozisyon orphan kaldı, Principal'a CRIT push
             try:
                 import logging as _lg
+
                 _log = _lg.getLogger(__name__)
                 _log.error(
                     "post_only_router.reverse_close_FAIL — ORPHAN POSITION",
@@ -250,6 +296,7 @@ def place_post_only_with_fallback(
                 pass
             try:
                 from price_action.orchestrator.notifications import push_critical
+
                 push_critical(
                     f"🚨 ORPHAN POSITION — {symbol} {side} qty={qty} fill=${fill_px} "
                     f"(slip={slip_bps:.0f}bps > limit={slippage_limit_bps:.0f}bps). "
@@ -260,24 +307,44 @@ def place_post_only_with_fallback(
                 pass
             # Orphan tracking — disk'e yaz reconciler tarafından okunabilsin
             try:
-                from pathlib import Path
                 import json as _json
-                from datetime import datetime as _dt, timezone as _tz
+                from datetime import datetime as _dt
+                from pathlib import Path
+
                 orphan_path = Path("data/orphan_positions.jsonl")
                 orphan_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(orphan_path, "a", encoding="utf-8") as _f:
-                    _f.write(_json.dumps({
-                        "ts": _dt.now(_tz.utc).isoformat(),
-                        "symbol": symbol,
-                        "side": side,
-                        "qty": qty,
-                        "fill_px": fill_px,
-                        "slip_bps": slip_bps,
-                        "rev_err": rev_err,
-                    }) + "\n")
+                    _f.write(
+                        _json.dumps(
+                            {
+                                "ts": _dt.now(UTC).isoformat(),
+                                "symbol": symbol,
+                                "side": side,
+                                "qty": qty,
+                                "fill_px": fill_px,
+                                "slip_bps": slip_bps,
+                                "rev_err": rev_err,
+                            }
+                        )
+                        + "\n"
+                    )
             except Exception:
                 pass
 
         raise SlippageExceededError(slip_bps, slippage_limit_bps, symbol=symbol)
+
+    # CRIT-1 fix: kısmi limit dolumu + market kalanı → çağırana TOPLAM yansıt
+    # (aksi halde journal/koruma emirleri sadece market bacağını boyutlar,
+    # limit bacağı korumasız kalırdı). average = ağırlıklı ortalama.
+    if partial_filled > 0:
+        try:
+            mk_fill = float(market_order.get("filled") or fb_qty)
+            total_fill = mk_fill + partial_filled
+            w_avg = ((fill_px * mk_fill) + (target_price * partial_filled)) / max(total_fill, 1e-12)
+            market_order["filled"] = total_fill
+            market_order["average"] = w_avg
+            market_order["partial_limit_qty"] = partial_filled
+        except Exception:
+            pass
 
     return market_order, "market_fallback"

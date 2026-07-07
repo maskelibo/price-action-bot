@@ -12,13 +12,15 @@ HARD LIMIT (`agents/adversary_engineer.md` §Hard Limits):
 İlham: lab_scientist.py'ın weekly_tournament + tour gate pattern'i,
 risk_officer.py'ın critique/endorse review pattern'i.
 """
+
 from __future__ import annotations
 
 import math
 import re
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar, Sequence
+from typing import Any, ClassVar
 
 from price_action.logging_config import logger
 
@@ -29,9 +31,9 @@ class AdversaryEngineerAgent(LLMAgentBase):
     name: ClassVar[str] = "adversary_engineer"
     default_model: ClassVar[str] = ""  # boşsa settings.claude_model_default (Opus)
     allowed_tools: ClassVar[tuple[str, ...]] = (
-        "read_file",       # config + bot YAML + replay pool okuma
-        "write_report",    # critique/endorse + stress raporu yazma
-        "backtest_run",    # replay engine çağrısı (orchestrator MCP)
+        "read_file",  # config + bot YAML + replay pool okuma
+        "write_report",  # critique/endorse + stress raporu yazma
+        "backtest_run",  # replay engine çağrısı (orchestrator MCP)
     )
 
     def __init__(self, **kw: Any) -> None:
@@ -58,6 +60,7 @@ class AdversaryEngineerAgent(LLMAgentBase):
         """
         try:
             import yaml
+
             cfg_path = self._configs_dir() / "adversarial_periods.yaml"
             if not cfg_path.exists():
                 logger.warning("adversary.periods_config_missing", extra={"path": str(cfg_path)})
@@ -72,6 +75,7 @@ class AdversaryEngineerAgent(LLMAgentBase):
         """`configs/risk_phoenix_scalp_<bot_id>.yaml` veya `configs/<bot_id>.yaml` oku."""
         try:
             import yaml
+
             candidates = [
                 self._configs_dir() / f"risk_phoenix_scalp_{bot_id}.yaml",
                 self._configs_dir() / f"risk_{bot_id}.yaml",
@@ -85,7 +89,9 @@ class AdversaryEngineerAgent(LLMAgentBase):
             logger.warning("adversary.bot_config_missing", extra={"bot": bot_id})
             return {}
         except Exception as exc:
-            logger.warning("adversary.bot_config_fail", extra={"bot": bot_id, "err": str(exc)[:200]})
+            logger.warning(
+                "adversary.bot_config_fail", extra={"bot": bot_id, "err": str(exc)[:200]}
+            )
             return {}
 
     # ------------------------------------------------------------------
@@ -135,10 +141,10 @@ class AdversaryEngineerAgent(LLMAgentBase):
         # Pool: list of trade dicts with keys: ts (iso str), pnl_pct (float).
         start_iso, end_iso = period_dates
         try:
-            start_dt = datetime.fromisoformat(start_iso).replace(tzinfo=timezone.utc)
-            end_dt = datetime.fromisoformat(end_iso).replace(tzinfo=timezone.utc)
+            start_dt = datetime.fromisoformat(start_iso).replace(tzinfo=UTC)
+            end_dt = datetime.fromisoformat(end_iso).replace(tzinfo=UTC)
         except ValueError:
-            start_dt = end_dt = datetime.now(timezone.utc)
+            start_dt = end_dt = datetime.now(UTC)
 
         in_window: list[dict[str, Any]] = []
         for tr in pool:
@@ -147,11 +153,11 @@ class AdversaryEngineerAgent(LLMAgentBase):
                 continue
             try:
                 if isinstance(ts_raw, datetime):
-                    ts = ts_raw if ts_raw.tzinfo else ts_raw.replace(tzinfo=timezone.utc)
+                    ts = ts_raw if ts_raw.tzinfo else ts_raw.replace(tzinfo=UTC)
                 else:
                     ts = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
                     if not ts.tzinfo:
-                        ts = ts.replace(tzinfo=timezone.utc)
+                        ts = ts.replace(tzinfo=UTC)
             except ValueError:
                 continue
             if start_dt <= ts <= end_dt:
@@ -215,7 +221,9 @@ class AdversaryEngineerAgent(LLMAgentBase):
                 # in_window[recovered_at-1] sona kadar olan trade
                 if recovered_at - 1 < len(in_window):
                     total_span = (end_dt - start_dt).days or 1
-                    recovery_days = max(1, int(round((recovered_at - worst_idx) / max(1, n) * total_span)))
+                    recovery_days = max(
+                        1, int(round((recovered_at - worst_idx) / max(1, n) * total_span))
+                    )
 
         wins = sum(1 for p in pnls if p > 0)
         wr = wins / n
@@ -225,9 +233,7 @@ class AdversaryEngineerAgent(LLMAgentBase):
         mid = len(equity) // 2
         first_half_delta = equity[mid] - equity[0]
         second_half_delta = equity[-1] - equity[mid]
-        concave = (
-            second_half_delta < first_half_delta and second_half_delta < 0
-        )
+        concave = second_half_delta < first_half_delta and second_half_delta < 0
 
         return {
             "period": period_dates,
@@ -282,20 +288,23 @@ class AdversaryEngineerAgent(LLMAgentBase):
             res["severity"] = pdata.get("severity", "unknown")
             res["passes_dd_gate"] = (
                 not math.isnan(res.get("worst_dd_pct", math.nan))
-                and res["worst_dd_pct"] <= thresholds.get("max_drawdown_pct_per_period", 0.20)
+                # FIX 2026-07-07 (denetim HIGH-2): birim uyumsuzluğu ~100× —
+                # worst_dd_pct YÜZDE-PUAN (5.0 = %5), eşik ORAN (0.20 = %20).
+                # Eski kıyas %0.2 gerçek DD'de fail edip kronik sahte CRIT üretiyordu.
+                and res["worst_dd_pct"]
+                <= thresholds.get("max_drawdown_pct_per_period", 0.20) * 100.0
                 # FIX 2026-05-28 (Faz 14.27 C8): liquidated period = otomatik FAIL
                 and not res.get("liquidated", False)
             )
-            res["passes_recovery_gate"] = (
-                res.get("recovery_days") is None
-                or res["recovery_days"] <= thresholds.get("min_recovery_days_acceptable", 30)
-            )
+            res["passes_recovery_gate"] = res.get("recovery_days") is None or res[
+                "recovery_days"
+            ] <= thresholds.get("min_recovery_days_acceptable", 30)
             results.append(res)
 
         n_pass = sum(1 for r in results if r["passes_dd_gate"] and r["passes_recovery_gate"])
         n_total = len(results)
-        verdict_label = "PASS" if n_pass == n_total else (
-            "CRIT" if n_pass < n_total // 2 else "MED"
+        verdict_label = (
+            "PASS" if n_pass == n_total else ("CRIT" if n_pass < n_total // 2 else "MED")
         )
 
         # LLM verdict üret
@@ -315,7 +324,7 @@ class AdversaryEngineerAgent(LLMAgentBase):
         )
         commentary = await self.run(prompt)
 
-        ts_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        ts_iso = datetime.now(UTC).strftime("%Y-%m-%d")
         body = (
             f"# Stress Test — {bot_id} — {ts_iso}\n\n"
             f"## Setup\n"
@@ -419,27 +428,23 @@ class AdversaryEngineerAgent(LLMAgentBase):
                     pool=pool,
                 )
                 r["period_id"] = pid
-                r["passes_dd_gate"] = (
-                    not math.isnan(r.get("worst_dd_pct", math.nan))
-                    and r["worst_dd_pct"] <= cfg.get("adversarial_thresholds", {}).get(
-                        "max_drawdown_pct_per_period", 0.20
-                    )
-                )
-                r["passes_recovery_gate"] = (
-                    r.get("recovery_days") is None
-                    or r["recovery_days"] <= cfg.get("adversarial_thresholds", {}).get(
-                        "min_recovery_days_acceptable", 30
-                    )
-                )
+                r["passes_dd_gate"] = not math.isnan(r.get("worst_dd_pct", math.nan)) and r[
+                    "worst_dd_pct"
+                ] <= cfg.get("adversarial_thresholds", {}).get("max_drawdown_pct_per_period", 0.20)
+                r["passes_recovery_gate"] = r.get("recovery_days") is None or r[
+                    "recovery_days"
+                ] <= cfg.get("adversarial_thresholds", {}).get("min_recovery_days_acceptable", 30)
                 results.append(r)
             score = self._compute_readiness_score(results, scoring=scoring)
             label = "CRIT" if score < crit_thr else ("MED" if score < med_thr else "OK")
-            per_bot.append({
-                "bot": bot,
-                "readiness": score,
-                "label": label,
-                "results": results,
-            })
+            per_bot.append(
+                {
+                    "bot": bot,
+                    "readiness": score,
+                    "label": label,
+                    "results": results,
+                }
+            )
 
         prompt = (
             "Sen Adversary Engineer'sın. Aşağıdaki tüm aktif bot'lar için "
@@ -452,7 +457,7 @@ class AdversaryEngineerAgent(LLMAgentBase):
         )
         commentary = await self.run(prompt)
 
-        iso = datetime.now(timezone.utc).isocalendar()
+        iso = datetime.now(UTC).isocalendar()
         week_label = f"{iso.year}-W{iso.week:02d}"
 
         body = (
@@ -460,12 +465,9 @@ class AdversaryEngineerAgent(LLMAgentBase):
             f"## Bot Summary\n"
             f"| Bot | Readiness | Label |\n"
             f"|---|---|---|\n"
-            + "\n".join(
-                f"| {b['bot']} | {b['readiness']} | **{b['label']}** |"
-                for b in per_bot
-            )
+            + "\n".join(f"| {b['bot']} | {b['readiness']} | **{b['label']}** |" for b in per_bot)
             + "\n\n"
-            f"## Per-Bot Details\n"
+            "## Per-Bot Details\n"
             + "\n\n".join(
                 f"### {b['bot']} — readiness {b['readiness']} ({b['label']})\n"
                 + "\n".join(
@@ -609,8 +611,7 @@ class AdversaryEngineerAgent(LLMAgentBase):
             checks["in_oos_sharpe_spread"] = ok
             if not ok:
                 fails.append(
-                    f"overfit_is_oos_spread {spread:.3f} > {max_spread} "
-                    f"(IS={is_s} OOS={oos_s})"
+                    f"overfit_is_oos_spread {spread:.3f} > {max_spread} " f"(IS={is_s} OOS={oos_s})"
                 )
         else:
             checks["in_oos_sharpe_spread"] = None  # unknown
@@ -633,9 +634,7 @@ class AdversaryEngineerAgent(LLMAgentBase):
             ok = ext <= max_ext
             checks["param_extremeness"] = ok
             if not ok:
-                fails.append(
-                    f"cherry_pick_grid_edge ext={ext:.3f} > {max_ext}"
-                )
+                fails.append(f"cherry_pick_grid_edge ext={ext:.3f} > {max_ext}")
         else:
             checks["param_extremeness"] = None
 
@@ -664,6 +663,12 @@ class AdversaryEngineerAgent(LLMAgentBase):
                 )
         else:
             checks["param_per_trade_ratio"] = None
+
+        # FIX 2026-07-07 (denetim HIGH-3): fail-open kapatıldı — hiçbir metrik
+        # parse edilemediyse (checks tümü None) eski kod passed=True verip
+        # kırmızı takımın OKUYAMADIĞI dokümanı ENDORSE etmesine yol açıyordu.
+        if not any(v is not None for v in checks.values()):
+            fails.append("no_metrics_parsed — kill-probe fail-closed (doc formatı okunamadı)")
 
         return {
             "passed": len(fails) == 0,
@@ -729,8 +734,7 @@ class AdversaryEngineerAgent(LLMAgentBase):
             confidence="high",
             depends_on=[original_id],
             requested_review_from=["ceo"] if is_fail else ["ceo", "risk_officer"],
-            tags=[doc_type, "kill_probe", "adversarial",
-                  "fail" if is_fail else "pass"],
+            tags=[doc_type, "kill_probe", "adversarial", "fail" if is_fail else "pass"],
         )
         logger.info(
             "adversary.candidate_evaluated",
@@ -763,10 +767,10 @@ class AdversaryEngineerAgent(LLMAgentBase):
         eğer CRIT bulgu varsa.
         """
         import subprocess
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
         from pathlib import Path
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         findings: list[dict[str, Any]] = []
         repo = Path("/Users/peyman/price-action-bot")
 
@@ -774,16 +778,21 @@ class AdversaryEngineerAgent(LLMAgentBase):
         try:
             git_status = subprocess.run(
                 ["git", "diff", "--name-only", "HEAD", "--", "configs/"],
-                cwd=str(repo), capture_output=True, text=True, timeout=10,
+                cwd=str(repo),
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             if git_status.returncode == 0 and git_status.stdout.strip():
                 changed = git_status.stdout.strip().splitlines()
-                findings.append({
-                    "severity": "warn",
-                    "kind": "config_drift",
-                    "summary": f"{len(changed)} config dosyası git HEAD'den sapmış",
-                    "details": changed[:10],
-                })
+                findings.append(
+                    {
+                        "severity": "warn",
+                        "kind": "config_drift",
+                        "summary": f"{len(changed)} config dosyası git HEAD'den sapmış",
+                        "details": changed[:10],
+                    }
+                )
         except Exception as exc:
             logger.warning("adversary.git_check_fail", extra={"err": str(exc)[:200]})
 
@@ -791,6 +800,7 @@ class AdversaryEngineerAgent(LLMAgentBase):
         # data/llm_calls.jsonl'i tara — son 7g hangi agent hiç çağrı yapmamış
         try:
             import json as _json
+
             audit = repo / "data" / "llm_calls.jsonl"
             if audit.exists():
                 cutoff = now - timedelta(days=7)
@@ -806,18 +816,25 @@ class AdversaryEngineerAgent(LLMAgentBase):
                         except Exception:
                             continue
                 expected_agents = [
-                    "ceo", "researcher", "lab_scientist", "analyst",
-                    "risk_officer", "bot_monitor", "adversary_engineer",
+                    "ceo",
+                    "researcher",
+                    "lab_scientist",
+                    "analyst",
+                    "risk_officer",
+                    "bot_monitor",
+                    "adversary_engineer",
                     "strategy_curator",
                 ]
                 missing = [a for a in expected_agents if agent_counts.get(a, 0) == 0]
                 if missing:
-                    findings.append({
-                        "severity": "crit",
-                        "kind": "silent_agent",
-                        "summary": f"{len(missing)} agent son 7g HİÇ LLM çağrısı yapmadı",
-                        "details": missing,
-                    })
+                    findings.append(
+                        {
+                            "severity": "crit",
+                            "kind": "silent_agent",
+                            "summary": f"{len(missing)} agent son 7g HİÇ LLM çağrısı yapmadı",
+                            "details": missing,
+                        }
+                    )
         except Exception as exc:
             logger.warning("adversary.silent_check_fail", extra={"err": str(exc)[:200]})
 
@@ -826,10 +843,11 @@ class AdversaryEngineerAgent(LLMAgentBase):
             promises_yaml = repo / "configs" / "promises.yaml"
             if promises_yaml.exists():
                 import yaml as _yaml
+
                 promises = _yaml.safe_load(promises_yaml.read_text(encoding="utf-8")) or {}
                 never_written: list[str] = []
                 for comp_name, comp_cfg in (promises.get("components") or {}).items():
-                    for check in (comp_cfg.get("checks") or []):
+                    for check in comp_cfg.get("checks") or []:
                         if check.get("kind") != "file_pattern":
                             continue
                         pattern = check.get("pattern", "")
@@ -839,12 +857,14 @@ class AdversaryEngineerAgent(LLMAgentBase):
                         if not matches:
                             never_written.append(f"{comp_name}: {pattern}")
                 if never_written:
-                    findings.append({
-                        "severity": "warn",
-                        "kind": "never_written",
-                        "summary": f"{len(never_written)} promised file pattern hiç oluşmamış",
-                        "details": never_written[:10],
-                    })
+                    findings.append(
+                        {
+                            "severity": "warn",
+                            "kind": "never_written",
+                            "summary": f"{len(never_written)} promised file pattern hiç oluşmamış",
+                            "details": never_written[:10],
+                        }
+                    )
         except Exception as exc:
             logger.warning("adversary.promises_check_fail", extra={"err": str(exc)[:200]})
 
@@ -857,19 +877,24 @@ class AdversaryEngineerAgent(LLMAgentBase):
                 if not d.exists():
                     continue
                 newest = max(
-                    (datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc)
-                     for f in d.rglob("*") if f.is_file()),
+                    (
+                        datetime.fromtimestamp(f.stat().st_mtime, tz=UTC)
+                        for f in d.rglob("*")
+                        if f.is_file()
+                    ),
                     default=None,
                 )
                 if newest is None or newest < cutoff_old:
                     stale_dirs.append(f"reports/{sub}/ (newest: {newest})")
             if stale_dirs:
-                findings.append({
-                    "severity": "warn",
-                    "kind": "atrophied_output",
-                    "summary": f"{len(stale_dirs)} report dizini 7g+ yazılmıyor",
-                    "details": stale_dirs,
-                })
+                findings.append(
+                    {
+                        "severity": "warn",
+                        "kind": "atrophied_output",
+                        "summary": f"{len(stale_dirs)} report dizini 7g+ yazılmıyor",
+                        "details": stale_dirs,
+                    }
+                )
         except Exception as exc:
             logger.warning("adversary.atrophy_check_fail", extra={"err": str(exc)[:200]})
 
@@ -908,6 +933,7 @@ class AdversaryEngineerAgent(LLMAgentBase):
         if crits:
             try:
                 from price_action.orchestrator.notifications import push_critical
+
                 msg = f"QUIET AUDIT — {len(crits)} CRIT bulgu:\n" + "\n".join(
                     f"- {c['summary']}" for c in crits
                 )

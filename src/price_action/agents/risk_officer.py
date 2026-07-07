@@ -14,16 +14,16 @@ HARD LIMIT (`agents/risk_officer.md` §How to Disagree):
 ADR-002 koruma — Risk Officer hâlâ "deterministic + read-only over configs"
 sınırlı; bu modül sadece **review** katmanını ekler.
 """
+
 from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
 from price_action.logging_config import logger
-from price_action.settings import get_settings
 
 from .base import LLMAgentBase
 
@@ -91,7 +91,7 @@ class RiskOfficerAgent(LLMAgentBase):
         except Exception:
             return False
 
-        ts_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        ts_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         modified = False
         new_lines: list[str] = []
         for line in lines:
@@ -131,15 +131,18 @@ class RiskOfficerAgent(LLMAgentBase):
             return {}, ""
         try:
             import yaml
+
             content = path.read_text(encoding="utf-8")
             m = self._FRONTMATTER_RE.match(content)
             if not m:
                 return {}, content
             fm = yaml.safe_load(m.group(1)) or {}
-            body = content[m.end():]
+            body = content[m.end() :]
             return fm, body
         except Exception as exc:
-            logger.warning("risk_officer.parse_fail", extra={"path": str(path), "err": str(exc)[:200]})
+            logger.warning(
+                "risk_officer.parse_fail", extra={"path": str(path), "err": str(exc)[:200]}
+            )
             return {}, ""
 
     def _deterministic_gate_check(self, fm: dict[str, Any], body: str) -> dict[str, Any]:
@@ -165,8 +168,15 @@ class RiskOfficerAgent(LLMAgentBase):
 
         # 1. INFO: hangi risk parametreleri menzilde (alarm değil)
         info_keywords = (
-            "risk_pct", "leverage", "concentration", "max_position", "drawdown",
-            "stop_loss", "tp_r", "kelly", "correlation",
+            "risk_pct",
+            "leverage",
+            "concentration",
+            "max_position",
+            "drawdown",
+            "stop_loss",
+            "tp_r",
+            "kelly",
+            "correlation",
         )
         for kw in info_keywords:
             if kw in body_lower:
@@ -224,17 +234,28 @@ class RiskOfficerAgent(LLMAgentBase):
                 pass
 
         # 3. Tail event ve stress test referansı VAR mı?
-        tail_keywords = ("stress", "tail", "worst-month", "worst_month", "fat-tail",
-                         "fat_tail", "black swan", "2022-05", "2022-11",
-                         "flash crash", "luna", "ftx")
+        tail_keywords = (
+            "stress",
+            "tail",
+            "worst-month",
+            "worst_month",
+            "fat-tail",
+            "fat_tail",
+            "black swan",
+            "2022-05",
+            "2022-11",
+            "flash crash",
+            "luna",
+            "ftx",
+        )
         has_tail_analysis = any(kw in body_lower for kw in tail_keywords)
 
         # 4. Status başka birinin onayını isteyip istemediği
         review_required = bool(fm.get("requested_review_from"))
 
         return {
-            "info_flags": info_flags,       # bilgi — alarm değil
-            "risk_flags": risk_flags,       # somut numerical aşım
+            "info_flags": info_flags,  # bilgi — alarm değil
+            "risk_flags": risk_flags,  # somut numerical aşım
             "has_tail_analysis": has_tail_analysis,
             "review_required": review_required,
             "doc_type": fm.get("doc_type"),
@@ -343,7 +364,12 @@ class RiskOfficerAgent(LLMAgentBase):
 
     def _build_auto_critique(self, original_doc_id: str, gate: dict[str, Any]) -> str:
         """Deterministik fail durumunda hızlı critique body."""
-        flags_md = "\n".join(f"- `{f}`" for f in gate["flags"])
+        # FIX 2026-07-07 (denetim CRIT): gate dict'inde "flags" anahtarı YOK —
+        # H1 fix'i info_flags/risk_flags'e böldü ama burası güncellenmedi →
+        # her deterministik vetoda KeyError: critique yazılmıyor, mesaj
+        # ack'lenmeyip sonsuza dek yeniden deneniyordu. Veto yolu fiilen ölüydü.
+        flags = gate.get("risk_flags") or gate.get("flags") or []
+        flags_md = "\n".join(f"- `{f}`" for f in flags)
         return (
             f"## Claim\n"
             f"Original doc {original_doc_id} risk-relevant parametre içeriyor.\n\n"

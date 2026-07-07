@@ -141,6 +141,10 @@ ignore = ["E501", "RUF001", "RUF002", "RUF003"]
 "scripts/futures_daemon.py" = ["E402", "E731", "N806", "N811", "N814", "SIM105", "SIM118"]
 "scripts/truth_report.py" = ["RUF005"]
 "tests/audit/test_audit_findings.py" = ["F841", "N812"]
+# Batch-3 (2026-07-07): ilk-lint pre-existing ihlaller (davranış-nötr muaf).
+"src/price_action/agents/adversary_engineer.py" = ["N806", "SIM102", "SIM105"]
+"src/price_action/agents/lab_scientist.py" = ["N806"]
+"src/price_action/execution/post_only_router.py" = ["SIM105"]
 
 [tool.mypy]
 python_version = "3.11"
