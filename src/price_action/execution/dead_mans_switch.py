@@ -23,14 +23,16 @@ Flatten tetiklenince:
   3. kill_switch.json yaz {halted: true, reason: "dead_mans_switch"}
   4. Log + Telegram alarm
 """
+
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +40,9 @@ import duckdb
 
 from price_action.execution.heartbeat_watchdog import HeartbeatWatchdog
 
-ROOT = Path(__file__).resolve().parents[3]  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
+ROOT = (
+    Path(__file__).resolve().parents[3]
+)  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
 DEFAULT_DB = ROOT / "data" / "idempotency.duckdb"
 KILL_SWITCH_PATH = ROOT / "logs" / "kill_switch.json"
 
@@ -46,16 +50,20 @@ HEARTBEAT_INTERVAL_SEC = 60
 WATCHDOG_INTERVAL_SEC = 30
 DEAD_MAN_TIMEOUT_SEC = 300  # 5 dakika (1d default)
 
+# FIX 2026-07-08 (W1-HIGH, dalga-3): flatten tek-atış değil — başarısızsa
+# sonraki watchdog tick'lerinde tekrar denenir; sonsuz emir spam'ine karşı tavan.
+FLATTEN_MAX_ATTEMPTS = 3
+
 # TF-spesifik heartbeat ve timeout ayarlari (master plan §4.5)
 # heartbeat_sec: ne siklıkla DB'ye heartbeat yazilir
 # timeout_sec: bu kadar susarsa flatten tetiklenir
 TF_DMS_PARAMS: dict[str, dict[str, int]] = {
-    "1d":  {"heartbeat_sec": 60,   "timeout_sec": 300,   "watchdog_sec": 30},
-    "4h":  {"heartbeat_sec": 60,   "timeout_sec": 300,   "watchdog_sec": 30},
-    "1h":  {"heartbeat_sec": 30,   "timeout_sec": 180,   "watchdog_sec": 15},
-    "15m": {"heartbeat_sec": 20,   "timeout_sec": 1800,  "watchdog_sec": 10},
-    "5m":  {"heartbeat_sec": 10,   "timeout_sec": 600,   "watchdog_sec": 5},
-    "1m":  {"heartbeat_sec": 5,    "timeout_sec": 120,   "watchdog_sec": 3},
+    "1d": {"heartbeat_sec": 60, "timeout_sec": 300, "watchdog_sec": 30},
+    "4h": {"heartbeat_sec": 60, "timeout_sec": 300, "watchdog_sec": 30},
+    "1h": {"heartbeat_sec": 30, "timeout_sec": 180, "watchdog_sec": 15},
+    "15m": {"heartbeat_sec": 20, "timeout_sec": 1800, "watchdog_sec": 10},
+    "5m": {"heartbeat_sec": 10, "timeout_sec": 600, "watchdog_sec": 5},
+    "1m": {"heartbeat_sec": 5, "timeout_sec": 120, "watchdog_sec": 3},
 }
 
 
@@ -102,6 +110,7 @@ class DeadMansSwitch:
         self._watchdog_thread: threading.Thread | None = None
         self._last_heartbeat_ts: float = time.time()
         self._flatten_done = False
+        self._flatten_attempts = 0
 
         # Initialize lockless file-based watchdog (primary) + DB fallback
         self._watchdog = HeartbeatWatchdog(
@@ -218,23 +227,57 @@ class DeadMansSwitch:
                 self._log(f"HEARTBEAT_ERROR: {e}")
             self._stop.wait(self.heartbeat_sec)
 
+    def _watchdog_check(self) -> None:
+        """Tek watchdog tick kararı (test edilebilir; loop bunu çağırır).
+
+        FIX 2026-07-08 (W1-HIGH, dalga-3): flatten TEK-ATIŞ değil. Eskiden
+        _flatten_done koşulsuz True yapılırdı — ilk deneme kısmen/komple
+        başarısızsa (ağ, -2022) pozisyonlar açık kalır ve bir daha ASLA
+        denenmezdi. Artık yalnız doğrulanmış başarıda done; başarısızlıkta
+        FLATTEN_MAX_ATTEMPTS'e kadar sonraki tick'lerde retry.
+        """
+        elapsed = self.seconds_since_heartbeat
+        if elapsed > self.timeout_sec and not self._flatten_done:
+            self._log(
+                f"DEAD_MANS_SWITCH TRIGGERED [{self.tf}]: heartbeat {elapsed:.0f}s ago "
+                f"(timeout={self.timeout_sec}s, attempt="
+                f"{self._flatten_attempts + 1}/{FLATTEN_MAX_ATTEMPTS})"
+            )
+            ok = self._emergency_flatten()
+            self._flatten_attempts += 1
+            if ok:
+                self._flatten_done = True
+            elif self._flatten_attempts >= FLATTEN_MAX_ATTEMPTS:
+                self._flatten_done = True
+                self._log(
+                    f"FLATTEN_GIVEUP [CRIT]: {FLATTEN_MAX_ATTEMPTS} deneme sonrası "
+                    f"pozisyonlar hâlâ doğrulanamadı — HUMAN REQUIRED"
+                )
+                self._send_alarm(
+                    "DEAD_MANS_SWITCH CRIT: flatten "
+                    f"{FLATTEN_MAX_ATTEMPTS} denemede DOĞRULANAMADI — manuel kontrol ŞART"
+                )
+
     def _watchdog_loop(self) -> None:
         while not self._stop.is_set():
-            elapsed = self.seconds_since_heartbeat
-            if elapsed > self.timeout_sec and not self._flatten_done:
-                self._log(
-                    f"DEAD_MANS_SWITCH TRIGGERED [{self.tf}]: heartbeat {elapsed:.0f}s ago "
-                    f"(timeout={self.timeout_sec}s)"
-                )
-                self._emergency_flatten()
-                self._flatten_done = True
+            self._watchdog_check()
             self._stop.wait(self._watchdog_interval)
 
     # ----- core actions -----
 
-    def _emergency_flatten(self) -> None:
-        """Tüm pozisyonları market ile kapat + algo emirleri iptal."""
+    def _emergency_flatten(self) -> bool:
+        """Tüm pozisyonları market ile kapat + algo emirleri iptal.
+
+        Döner: True = borsa doğrulamasıyla FLAT (veya exchange yok);
+        False = en az bir pozisyon açık kalmış olabilir → watchdog retry eder.
+
+        FIX 2026-07-08 (W1-HIGH, dalga-3): reduceOnly market reddi (testnet
+        -2022 "ReduceOnly rejected" sınıfı) artık pozisyonu çıplak bırakmaz —
+        TAZE qty ile reduceOnly'siz plain-market'e düşülür (watchdog
+        naked-defense'teki 2026-06-04 AVAX reçetesinin kopyası).
+        """
         self._log("EMERGENCY_FLATTEN: başlıyor...")
+        all_flat = True
 
         if self.exchange is not None:
             # 1) Pozisyonları kapat
@@ -255,8 +298,34 @@ class DeadMansSwitch:
                         )
                         self._log(f"FLATTEN_OK: {sym} {close_side} {contracts}")
                     except Exception as e:
-                        self._log(f"FLATTEN_FAIL: {sym} {e}")
+                        # reduceOnly reddedildi (-2022 vb.) → TAZE qty ile
+                        # plain-market fallback (stale qty ters pozisyon açmasın)
+                        try:
+                            fresh_amt = 0.0
+                            for fp in self.exchange.fetch_positions():
+                                if fp.get("symbol") == sym:
+                                    fresh_amt = abs(float(fp.get("contracts", 0) or 0))
+                                    break
+                            if fresh_amt > 0.0001:
+                                self.exchange.create_market_order(
+                                    symbol=sym,
+                                    side=close_side,
+                                    amount=fresh_amt,
+                                )
+                                self._log(
+                                    f"FLATTEN_FALLBACK_OK: {sym} reduceOnly reddedildi "
+                                    f"({str(e)[:60]}) → plain-market {close_side} {fresh_amt}"
+                                )
+                            else:
+                                self._log(
+                                    f"FLATTEN_SKIP: {sym} zaten kapanmış "
+                                    f"(reduceOnly reddi: {str(e)[:60]})"
+                                )
+                        except Exception as e2:
+                            all_flat = False
+                            self._log(f"FLATTEN_FAIL: {sym} reduceOnly={e} fallback={e2}")
             except Exception as e:
+                all_flat = False
                 self._log(f"FLATTEN_FETCH_POS_ERROR: {e}")
 
             # 2) Algo emirleri iptal
@@ -277,13 +346,32 @@ class DeadMansSwitch:
             except Exception as e:
                 self._log(f"ALGO_CANCEL_FETCH_ERROR: {e}")
 
-        # 3) Kill switch dosyasına yaz
+            # 3) Borsa doğrulaması: gerçekten flat mıyız? (retry kararının kanıtı)
+            try:
+                remaining = [
+                    p
+                    for p in self.exchange.fetch_positions()
+                    if abs(float(p.get("contracts", 0) or 0)) > 0.0001
+                ]
+                if remaining:
+                    all_flat = False
+                    self._log(
+                        f"FLATTEN_VERIFY: {len(remaining)} pozisyon HÂLÂ açık: "
+                        f"{[p.get('symbol', '?') for p in remaining]}"
+                    )
+            except Exception as e:
+                all_flat = False  # doğrulanamıyor → başarı SAYMA (retry)
+                self._log(f"FLATTEN_VERIFY_ERROR: {e}")
+
+        # 4) Kill switch dosyasına yaz
         self._write_kill_switch()
 
-        # 4) Telegram alarm
-        self._send_alarm("DEAD_MANS_SWITCH: emergency flatten tamamlandı — HUMAN REQUIRED")
+        # 5) Telegram alarm
+        _durum = "tamamlandı (borsa flat)" if all_flat else "EKSİK — retry edilecek"
+        self._send_alarm(f"DEAD_MANS_SWITCH: emergency flatten {_durum} — HUMAN REQUIRED")
 
-        self._log("EMERGENCY_FLATTEN: tamamlandı")
+        self._log(f"EMERGENCY_FLATTEN: {_durum}")
+        return all_flat
 
     def _fetch_state(self) -> dict:
         """Exchange'den kısa hesap özeti."""
@@ -309,7 +397,7 @@ class DeadMansSwitch:
                 [
                     uuid.uuid4().hex[:16],
                     self.service_name,
-                    datetime.now(timezone.utc),
+                    datetime.now(UTC),
                     equity_usdt,
                     n_open_positions,
                     status,
@@ -327,7 +415,7 @@ class DeadMansSwitch:
                 "halted": True,
                 "reason": "dead_mans_switch",
                 "service": self.service_name,
-                "triggered_at": datetime.now(timezone.utc).isoformat(),
+                "triggered_at": datetime.now(UTC).isoformat(),
             }
             with open(KILL_SWITCH_PATH, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
@@ -338,6 +426,7 @@ class DeadMansSwitch:
         """Telegram alarm (fail-safe — hata olsa da flatten tamamlanmış olacak)."""
         try:
             from price_action.ops import get_telegram_throttle
+
             throttle = get_telegram_throttle()
             throttle.send_throttled(
                 "dms_emergency_flatten",
@@ -348,12 +437,10 @@ class DeadMansSwitch:
             pass
 
     def _log(self, msg: str) -> None:
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        ts = datetime.now(UTC).strftime("%H:%M:%S")
         line = f"[{ts}][DMS:{self.service_name}] {msg}"
-        try:
+        with contextlib.suppress(Exception):
             print(line, file=sys.stderr)
-        except Exception:
-            pass
         # Log dosyasına da yaz
         try:
             log_file = ROOT / "logs" / f"{self.service_name}_dms.log"

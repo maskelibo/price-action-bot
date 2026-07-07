@@ -122,8 +122,13 @@ _ORPHAN_SUSPECT_TICKS: dict[str, int] = {}
 ORPHAN_CONFIRM_TICKS = 3
 
 # FIX 2026-06-12 (INC5 devamı): journal self-heal sayacı — 'filled' kalmış
-# kayıt, borsada pozisyon+SL yokken 2 ardışık tick görülürse 'closed' yapılır.
+# kayıt, borsada pozisyon+SL yokken HEAL_CONFIRM_TICKS ardışık tick görülürse
+# 'closed' yapılır.
+# FIX 2026-07-08 (W1-CRIT, dalga-3): eşik 2→3 + adlandırılmış sabit. 2 bayat
+# tick'te false-close → gerçek kapanış idempotency'ye takılır + SL orphan-iptal
+# → çıplak kaskad. Orphan-cancel'daki 3-tick disipliniyle hizalandı.
 _JOURNAL_HEAL_TICKS: dict[str, int] = {}
+HEAL_CONFIRM_TICKS = 3
 
 
 def _pyramid_enabled_15m() -> bool:
@@ -696,6 +701,78 @@ _RUNNER_MAX_BARS = 30  # ts30 validated value; do not change without re-running 
 _RUNNER_BAR_SECONDS = 15 * 60  # 15m timeframe → seconds per bar
 
 
+def _update_journal_sl_order_id(sym_ccxt: str, side: str, new_sl_id) -> None:
+    """Watchdog SL cancel-replace sonrası journal koruma satırını taze algoId'ye çeker.
+
+    FIX 2026-07-08 (W1-CRIT, dalga-3): watchdog SL'i yenileyince (trailing /
+    qty-fix / missing-SL) journal futures_protection_orders.sl_order_id GİRİŞ
+    id'sinde kalıyordu → ilk trail'den sonra tüm "SL duruyor mu" kontrolleri
+    (heal satır ~1110, fill-detection ~1240) iptal-edilmiş ID'ye bakıp
+    "SL yok" sanıyordu (heal false-close'un kök beslemesi).
+    Best-effort: journal hatası watchdog tick'ini ÖLDÜRMEZ (log + devam).
+    """
+    if not new_sl_id:
+        return
+    try:
+        _con = duckdb.connect(str(JOURNAL))
+        _con.execute(
+            "UPDATE futures_protection_orders SET sl_order_id=? "
+            "WHERE symbol=? AND LOWER(side)=LOWER(?) AND status='placed'",
+            [str(new_sl_id), sym_ccxt, side],
+        )
+        _con.commit()
+        _con.close()
+    except Exception as _uje:
+        log(f"  PROT_WATCHDOG_JOURNAL_ERR: {sym_ccxt} sl_order_id güncellenemedi: {str(_uje)[:80]}")
+
+
+def _runner_timestop_anchor_ts(jcon, sym_ccxt: str, side: str):
+    """Runner time-stop çıpası: bu sembol+yönün EN YENİ 'filled' sinyalinin ilk TP1'i.
+
+    FIX 2026-07-08 (W1-HIGH, dalga-3): eski sorgu sembol+yön eşleşen EN ESKİ
+    TP1 partial'ı seçiyordu — journal'da zombi kalmış eski bir 'filled' sinyalin
+    TP1'i, aynı sembol+yöndeki YENİ pozisyona çıpa oluyordu → taze +1R kazanan
+    30-bar dolmuş sayılıp anında market-kapatılıyordu. Çıpa artık trade-scoped:
+    yalnız en güncel filled sinyalin kendi partial'ı sayılır.
+    """
+    row = jcon.execute(
+        """
+        SELECT pc.ts_close
+        FROM futures_partial_closes pc
+        JOIN futures_signals fs
+          ON pc.trade_id = fs.signal_id
+        WHERE fs.symbol = ?
+          AND LOWER(fs.side) = LOWER(?)
+          AND fs.status = 'filled'
+          AND LOWER(pc.close_reason) IN ('tp1', 'tp')
+          AND fs.signal_id NOT IN (
+              SELECT trade_id FROM futures_trades_closed
+          )
+          AND fs.signal_id = (
+              SELECT signal_id FROM futures_signals
+              WHERE symbol = ? AND LOWER(side) = LOWER(?) AND status = 'filled'
+              ORDER BY ts DESC
+              LIMIT 1
+          )
+        ORDER BY pc.ts_close ASC
+        LIMIT 1
+        """,
+        [sym_ccxt, side, sym_ccxt, side],
+    ).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def _should_retire_protection(any_terminal: bool, exchange_qty_now: float) -> bool:
+    """Koruma satırı yalnız borsada pozisyon FLAT iken emekli edilir.
+
+    FIX 2026-07-08 (W1-HIGH, dalga-3): eski kod ilk terminal algo olayında
+    (TP1 partial dahil!) satırı 'filled' yapıyordu → TP2/SL fill'leri
+    fill-detection'a görünmez oluyor, final kapanışı daemon değil heal
+    yazıyordu (close_reason=reconcile_orphan, exit fiyatı entry kopyası).
+    """
+    return bool(any_terminal) and exchange_qty_now <= 1e-6
+
+
 def _desired_sl_price(
     side: str,
     entry: float,
@@ -1065,8 +1142,9 @@ def position_check():
         # geçtiyse bir daha denenmiyor) → journal kaydı sonsuza dek 'filled'
         # kalır, artık emirler orphan-skip'e takılır. Yarışları tek tek kovalamak
         # yerine catch-all: journal'da 'filled' görünen sembolün borsada NE
-        # pozisyonu NE SL algo emri varsa (çift kanıt + ardışık 2 tick teyit)
-        # kaydı 'closed' yap (PnL ölçümü zaten income API — journal sadece durum).
+        # pozisyonu NE SL algo emri varsa (çift kanıt + HEAL_CONFIRM_TICKS
+        # ardışık tick teyit) kaydı 'closed' yap (PnL ölçümü zaten income API —
+        # journal sadece durum).
         try:
             _heal_con = duckdb.connect(str(JOURNAL))
             # FIX 2026-06-12b (deadlock): önceki şart "sembolde HİÇ algo emri
@@ -1110,7 +1188,11 @@ def position_check():
                 _seen_heal.add(_sid)
                 _streak = _JOURNAL_HEAL_TICKS.get(_sid, 0) + 1
                 _JOURNAL_HEAL_TICKS[_sid] = _streak
-                if _streak < 2:
+                if _streak < HEAL_CONFIRM_TICKS:
+                    log(
+                        f"JOURNAL_HEAL_PENDING: {_ssym} signal={_sid} — "
+                        f"{_streak}/{HEAL_CONFIRM_TICKS} ardışık tick; heal bekletildi"
+                    )
                     continue
                 # CT-EXE-02 (2026-06-15): heal'de GERÇEK borsa realized PnL'i yazılmalı —
                 # eskiden heal yalnız status='closed' yapardı → kayıplar gizlenirdi
@@ -1130,7 +1212,8 @@ def position_check():
                 _JOURNAL_HEAL_TICKS.pop(_sid, None)
                 log(
                     f"JOURNAL_HEAL: {_ssym} signal={_sid} — borsada pozisyon+SL yok "
-                    f"(2 ardışık tick) → journal 'closed' yapıldı (kaçan kapanış telafisi)"
+                    f"({HEAL_CONFIRM_TICKS} ardışık tick) → journal 'closed' yapıldı "
+                    f"(kaçan kapanış telafisi)"
                 )
             for _stale in [k for k in _JOURNAL_HEAL_TICKS if k not in _seen_heal]:
                 _JOURNAL_HEAL_TICKS.pop(_stale, None)
@@ -1296,7 +1379,12 @@ def position_check():
                             in ("TRIGGERED", "CANCELED", "FINISHED", "EXPIRED")
                             for o in (tp_order, sl_order)
                         )
-                        if any_terminal:
+                        # FIX 2026-07-08 (W1-HIGH, dalga-3): satır TEK-ATIŞ değil.
+                        # Eski kod ilk terminal olayda (TP1 partial dahil) emekli
+                        # ediyordu → runner'ın final kapanışını daemon göremiyor,
+                        # heal yazıyordu. Artık yalnız borsa qty≈0 iken emekli.
+                        _prot_qty_now = _exchange_pos_qty_j.get(sym, 0.0)
+                        if _should_retire_protection(any_terminal, _prot_qty_now):
                             con.execute(
                                 """UPDATE futures_protection_orders SET status='filled' WHERE prot_id=?""",
                                 [prot_id],
@@ -1620,7 +1708,8 @@ def position_check():
                                 log(
                                     f"  TRADE_CLOSED_LOOKUP_FAIL prot_id={prot_id}: {str(je)[:120]}"
                                 )
-                        elif any_terminal:
+                        elif _should_retire_protection(any_terminal, _prot_qty_now):
+                            # trigger yok ama terminal + pozisyon flat → satır emekli edildi
                             log(f"PROT_CANCEL: {sym} cancelled (stale/manual — no trigger)")
                     except Exception as e:
                         log(f"  algo hist err {sym_id}: {str(e)[:80]}")
@@ -1803,31 +1892,17 @@ def position_check():
                         )
                     )
                     if _in_runner:
-                        # Look up the first TP1 partial-close timestamp for this symbol/side.
+                        # İlk TP1 partial ts'i — TRADE-scoped (W1 fix 2026-07-08):
+                        # yalnız bu sembol+yönün EN YENİ 'filled' sinyalinin kendi
+                        # partial'ı çıpa olur (zombi sinyal çıpası yeni kazananı
+                        # kapattıramaz). Sorgu: _runner_timestop_anchor_ts().
                         _runner_anchor_ts: datetime | None = None
                         try:
                             _jcon_ts = duckdb.connect(str(JOURNAL), read_only=True)
                             try:
-                                _ts_row = _jcon_ts.execute(
-                                    """
-                                    SELECT pc.ts_close
-                                    FROM futures_partial_closes pc
-                                    JOIN futures_signals fs
-                                      ON pc.trade_id = fs.signal_id
-                                    WHERE fs.symbol = ?
-                                      AND LOWER(fs.side) = LOWER(?)
-                                      AND fs.status = 'filled'
-                                      AND LOWER(pc.close_reason) IN ('tp1', 'tp')
-                                      AND fs.signal_id NOT IN (
-                                          SELECT trade_id FROM futures_trades_closed
-                                      )
-                                    ORDER BY pc.ts_close ASC
-                                    LIMIT 1
-                                    """,
-                                    [_sym_ccxt, _side],
-                                ).fetchone()
-                                if _ts_row and _ts_row[0]:
-                                    _runner_anchor_ts = _ts_row[0]
+                                _anchor_raw = _runner_timestop_anchor_ts(_jcon_ts, _sym_ccxt, _side)
+                                if _anchor_raw is not None:
+                                    _runner_anchor_ts = _anchor_raw
                                     if (
                                         hasattr(_runner_anchor_ts, "tzinfo")
                                         and _runner_anchor_ts.tzinfo is None
@@ -1933,7 +2008,7 @@ def position_check():
                                     )
                         else:
                             _sl_str = ex.price_to_precision(_sym_ccxt, _sl_price)
-                            ex.create_order(
+                            _new_sl_ord = ex.create_order(
                                 symbol=_sym_ccxt,
                                 type="STOP_MARKET",
                                 side=_close_side,
@@ -1943,6 +2018,10 @@ def position_check():
                                     "reduceOnly": True,
                                     "workingType": "MARK_PRICE",
                                 },
+                            )
+                            # W1 fix 2026-07-08: journal sl_order_id senkronu
+                            _update_journal_sl_order_id(
+                                _sym_ccxt, _side, (_new_sl_ord or {}).get("id")
                             )
                             log(
                                 f"  PROT_WATCHDOG: {_sym_algo} SL eksikti → "
@@ -1956,7 +2035,7 @@ def position_check():
                         # Önce tam qty yeni SL, sonra eski kısmi SL iptal.
                         if _cur_sl_qty > 0 and _cur_sl_qty < _contracts * 0.99:
                             _sl_str = ex.price_to_precision(_sym_ccxt, _cur_sl)
-                            ex.create_order(
+                            _new_sl_ord = ex.create_order(
                                 symbol=_sym_ccxt,
                                 type="STOP_MARKET",
                                 side=_close_side,
@@ -1966,6 +2045,10 @@ def position_check():
                                     "reduceOnly": True,
                                     "workingType": "MARK_PRICE",
                                 },
+                            )
+                            # W1 fix 2026-07-08: journal sl_order_id senkronu
+                            _update_journal_sl_order_id(
+                                _sym_ccxt, _side, (_new_sl_ord or {}).get("id")
                             )
                             try:
                                 ex.fapiPrivateDeleteAlgoOrder(
@@ -1994,7 +2077,7 @@ def position_check():
                             continue
                         _sl_str = ex.price_to_precision(_sym_ccxt, _sl_price)
                         # Önce yeni koy, sonra eskiyi iptal (asla çıplak kalmaz)
-                        ex.create_order(
+                        _new_sl_ord = ex.create_order(
                             symbol=_sym_ccxt,
                             type="STOP_MARKET",
                             side=_close_side,
@@ -2005,6 +2088,10 @@ def position_check():
                                 "workingType": "MARK_PRICE",
                             },
                         )
+                        # W1 fix 2026-07-08: journal sl_order_id senkronu — bundan
+                        # sonra heal/fill-detection taze ID'ye bakar (bayat-ID
+                        # false-close kaskadının kök beslemesi kapandı)
+                        _update_journal_sl_order_id(_sym_ccxt, _side, (_new_sl_ord or {}).get("id"))
                         try:
                             ex.fapiPrivateDeleteAlgoOrder({"symbol": _sym_algo, "algoId": _cur_aid})
                         except Exception as _cx:
