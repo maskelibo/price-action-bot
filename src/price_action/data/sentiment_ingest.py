@@ -18,13 +18,15 @@ Savunma:
     - Duplicate rows → upsert (DELETE + INSERT)
     - Schema mismatch → clear table on start
 """
+
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import duckdb
 import pandas as pd
@@ -67,7 +69,7 @@ def reset_fng_pool() -> None:
     """Test fixture'larında bağlantı havuzunu temizler."""
     with _POOL_GUARD:
         for con in list(_CONN_POOL.values()):
-            try:
+            try:  # noqa: SIM105
                 con.close()
             except Exception:
                 pass
@@ -79,9 +81,12 @@ def reset_fng_pool() -> None:
 # FngStore — DuckDB persistence katmanı
 # ---------------------------------------------------------------------------
 
+
 def _default_db_path() -> Path:
     """Proje kökünden data/sentiment.duckdb yolunu döner."""
-    root = Path(__file__).resolve().parents[4]  # src/price_action/data/ → root
+    root = (
+        Path(__file__).resolve().parents[3]
+    )  # G24-fix 2026-07-07: parents[4] repo DIŞINA yazıyordu (~/data/)
     return root / "data" / "sentiment.duckdb"
 
 
@@ -203,7 +208,7 @@ class FngStore:
             return None
         ts = row[0]
         if isinstance(ts, datetime) and ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
+            ts = ts.replace(tzinfo=UTC)
         return ts
 
     def count(self) -> int:
@@ -215,6 +220,7 @@ class FngStore:
 # ---------------------------------------------------------------------------
 # API Fetch
 # ---------------------------------------------------------------------------
+
 
 def fetch_fear_greed_history(limit: int = _DEFAULT_LIMIT) -> pd.DataFrame:
     """Alternative.me F&G API'sinden tarihsel veri çeker.
@@ -259,12 +265,14 @@ def fetch_fear_greed_history(limit: int = _DEFAULT_LIMIT) -> pd.DataFrame:
             ts_unix = int(item.get("timestamp", 0))
             value = int(item.get("value", 0))
             classification = str(item.get("value_classification", "Unknown"))
-            ts_dt = datetime.fromtimestamp(ts_unix, tz=timezone.utc)
+            ts_dt = datetime.fromtimestamp(ts_unix, tz=UTC)
             # Normalize to midnight UTC (daily data)
             ts_day = ts_dt.replace(hour=0, minute=0, second=0, microsecond=0)
             rows.append({"ts": ts_day, "value": value, "classification": classification})
         except Exception as exc:
-            log.warning("fng.fetch.row_parse_error", extra={"item": str(item)[:100], "err": str(exc)})
+            log.warning(
+                "fng.fetch.row_parse_error", extra={"item": str(item)[:100], "err": str(exc)}
+            )
             continue
 
     if not rows:
@@ -302,6 +310,7 @@ def fetch_and_store(
 
 if __name__ == "__main__":  # pragma: no cover
     import sys
+
     limit_arg = int(sys.argv[1]) if len(sys.argv) > 1 else _DEFAULT_LIMIT
     written = fetch_and_store(limit=limit_arg)
     print(f"Written {written} rows to sentiment.duckdb")

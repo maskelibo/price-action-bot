@@ -25,14 +25,16 @@ Savunma:
     - Rate limit: 30 req/min free tier → sleep between multi-window calls
     - Non-stationarity warning: 3y data = 1 bull cycle
 """
+
 from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import duckdb
 import pandas as pd
@@ -81,7 +83,7 @@ def reset_dominance_pool() -> None:
     """Test fixture'larında bağlantı havuzunu temizler."""
     with _POOL_GUARD:
         for con in list(_CONN_POOL.values()):
-            try:
+            try:  # noqa: SIM105
                 con.close()
             except Exception:
                 pass
@@ -93,8 +95,11 @@ def reset_dominance_pool() -> None:
 # DominanceStore — DuckDB persistence
 # ---------------------------------------------------------------------------
 
+
 def _default_db_path() -> Path:
-    root = Path(__file__).resolve().parents[4]  # src/price_action/data/ → root
+    root = (
+        Path(__file__).resolve().parents[3]
+    )  # G24-fix 2026-07-07: parents[4] repo DIŞINA yazıyordu (~/data/)
     return root / "data" / "dominance.duckdb"
 
 
@@ -201,10 +206,7 @@ class DominanceStore:
             clauses.append("ts <= ?")
             params.append(end)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-        sql = (
-            f"SELECT ts, btc_dominance FROM btc_dominance_daily"
-            f"{where} ORDER BY ts ASC"
-        )
+        sql = f"SELECT ts, btc_dominance FROM btc_dominance_daily" f"{where} ORDER BY ts ASC"
         with self._conn() as con:
             df = con.execute(sql, params).fetchdf()
         if df.empty:
@@ -219,9 +221,7 @@ class DominanceStore:
         """Tablodaki en güncel tarih."""
         try:
             with self._conn() as con:
-                row = con.execute(
-                    "SELECT MAX(ts) FROM btc_dominance_daily"
-                ).fetchone()
+                row = con.execute("SELECT MAX(ts) FROM btc_dominance_daily").fetchone()
         except Exception as exc:
             logger.warning("dominance_store.last_ts_error", extra={"err": str(exc)[:200]})
             return None
@@ -229,20 +229,19 @@ class DominanceStore:
             return None
         ts = row[0]
         if isinstance(ts, datetime) and ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
+            ts = ts.replace(tzinfo=UTC)
         return ts
 
     def count(self) -> int:
         with self._conn() as con:
-            row = con.execute(
-                "SELECT COUNT(*) FROM btc_dominance_daily"
-            ).fetchone()
+            row = con.execute("SELECT COUNT(*) FROM btc_dominance_daily").fetchone()
         return int(row[0]) if row else 0
 
 
 # ---------------------------------------------------------------------------
 # Current snapshot fetch
 # ---------------------------------------------------------------------------
+
 
 def fetch_current_btc_dominance() -> float | None:
     """CoinGecko /global'dan anlık BTC dominance yüzdesini çeker.
@@ -273,6 +272,7 @@ def fetch_current_btc_dominance() -> float | None:
 # ---------------------------------------------------------------------------
 # Historical fetch — multi-window approach
 # ---------------------------------------------------------------------------
+
 
 def fetch_btc_dominance_history(
     days: int = _DEFAULT_DAYS,
@@ -329,7 +329,7 @@ def fetch_btc_dominance_history(
         logger.warning("dominance.fetch.no_current_dom — using mock fallback")
         return _mock_dominance(days)
 
-    end_dt = datetime.now(timezone.utc)
+    end_dt = datetime.now(UTC)
     start_dt = end_dt - timedelta(days=days)
 
     all_rows: list[dict] = []
@@ -352,8 +352,10 @@ def fetch_btc_dominance_history(
         )
 
         if verbose:
-            print(f"  Fetching window {window_count+1}: "
-                  f"{cursor.date()} → {window_end.date()} ({window_days_actual}d)")
+            print(
+                f"  Fetching window {window_count+1}: "
+                f"{cursor.date()} → {window_end.date()} ({window_days_actual}d)"
+            )
 
         try:
             resp = requests.get(url, timeout=_REQUEST_TIMEOUT)
@@ -438,6 +440,7 @@ def fetch_btc_dominance_history(
 # Mock fallback (offline / test)
 # ---------------------------------------------------------------------------
 
+
 def _mock_dominance(days: int = _DEFAULT_DAYS) -> pd.DataFrame:
     """Deterministik mock BTC dominance verisi üretir (test / offline amaçlı).
 
@@ -447,19 +450,18 @@ def _mock_dominance(days: int = _DEFAULT_DAYS) -> pd.DataFrame:
     2025-2026: ~52-58% (stabilization)
     """
     import numpy as np
+
     rng = np.random.default_rng(777)
 
-    end_dt = datetime.now(timezone.utc).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
+    end_dt = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     dates = [end_dt - timedelta(days=i) for i in range(days, -1, -1)]
     n = len(dates)
     t = np.arange(n)
 
     # Simulate BTC.D: starts ~42%, peaks at ~65% (2024 halving), settles ~58%
     trend = 42.0 + 20.0 * (t / n)  # gentle upward trend
-    seasonal = 8.0 * np.sin(2 * np.pi * t / 365)   # annual cycle
-    medium = 5.0 * np.sin(2 * np.pi * t / 120)     # quarterly cycle
+    seasonal = 8.0 * np.sin(2 * np.pi * t / 365)  # annual cycle
+    medium = 5.0 * np.sin(2 * np.pi * t / 120)  # quarterly cycle
     noise = rng.normal(0, 1.5, n)
 
     # 2024 halving spike (around t = n * 0.4)
@@ -468,10 +470,12 @@ def _mock_dominance(days: int = _DEFAULT_DAYS) -> pd.DataFrame:
 
     dom = np.clip(trend + seasonal + medium + noise + spike, 30.0, 72.0)
 
-    df = pd.DataFrame({
-        "ts": pd.to_datetime(dates, utc=True),
-        "btc_dominance": dom.round(2),
-    })
+    df = pd.DataFrame(
+        {
+            "ts": pd.to_datetime(dates, utc=True),
+            "btc_dominance": dom.round(2),
+        }
+    )
     df = df.sort_values("ts").reset_index(drop=True)
     logger.bind(rows=len(df), mock=True).info("dominance.mock.generated")
     return df
@@ -480,6 +484,7 @@ def _mock_dominance(days: int = _DEFAULT_DAYS) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Fetch + Store pipeline
 # ---------------------------------------------------------------------------
+
 
 def fetch_and_store(
     days: int = _DEFAULT_DAYS,
@@ -529,6 +534,7 @@ def fetch_and_store(
 
 if __name__ == "__main__":  # pragma: no cover
     import sys
+
     verbose_flag = "--verbose" in sys.argv or "-v" in sys.argv
     mock_flag = "--mock" in sys.argv
 

@@ -23,20 +23,21 @@ Lookahead note:
     market_cap data is published at UTC midnight (daily).
     Callers MUST apply shift(1) before using in signal filters.
 """
+
 from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import duckdb
 import pandas as pd
 
 from price_action.logging_config import logger
-
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -85,7 +86,7 @@ def reset_stable_pool() -> None:
     """Test fixture'larında bağlantı havuzunu temizler."""
     with _POOL_GUARD:
         for con in list(_CONN_POOL.values()):
-            try:
+            try:  # noqa: SIM105
                 con.close()
             except Exception:
                 pass
@@ -97,8 +98,11 @@ def reset_stable_pool() -> None:
 # StablecoinStore — DuckDB persistence layer
 # ---------------------------------------------------------------------------
 
+
 def _default_db_path() -> Path:
-    root = Path(__file__).resolve().parents[4]  # src/price_action/data/ → root
+    root = (
+        Path(__file__).resolve().parents[3]
+    )  # G24-fix 2026-07-07: parents[4] repo DIŞINA yazıyordu (~/data/)
     return root / "data" / "stablecoin.duckdb"
 
 
@@ -233,6 +237,7 @@ class StablecoinStore:
 # CoinGecko API fetch
 # ---------------------------------------------------------------------------
 
+
 def fetch_stable_supply(
     coin_id: str,
     symbol: str,
@@ -283,7 +288,7 @@ def fetch_stable_supply(
             resp = requests.get(url, params=params, headers=headers, timeout=30)
             if resp.status_code == 429:
                 # Rate limit: back off regardless of retry count
-                delay = base_backoff * (2 ** attempt)
+                delay = base_backoff * (2**attempt)
                 log.warning("stablecoin.fetch.rate_limit", extra={"delay": delay})
                 time.sleep(delay)
                 attempt += 1
@@ -315,7 +320,7 @@ def fetch_stable_supply(
         try:
             ts_ms = int(entry[0])
             cap_usd = float(entry[1])
-            ts_dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
+            ts_dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC)
             # Normalize to UTC midnight (daily grain)
             ts_day = ts_dt.replace(hour=0, minute=0, second=0, microsecond=0)
             rows.append({"ts": ts_day, "symbol": symbol, "market_cap_usd": cap_usd})
@@ -427,6 +432,7 @@ def build_combined_supply_series(df: pd.DataFrame) -> pd.DataFrame:
 # Fetch + Store pipeline
 # ---------------------------------------------------------------------------
 
+
 def fetch_and_store_stable(
     days: int = _DEFAULT_DAYS,
     store: StablecoinStore | None = None,
@@ -453,6 +459,7 @@ def fetch_and_store_stable(
 
 if __name__ == "__main__":  # pragma: no cover
     import sys
+
     days_arg = int(sys.argv[1]) if len(sys.argv) > 1 else _DEFAULT_DAYS
     written = fetch_and_store_stable(days=days_arg)
     print(f"Written {written} rows to stablecoin.duckdb")

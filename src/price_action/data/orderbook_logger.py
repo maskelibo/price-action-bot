@@ -29,12 +29,13 @@ CLI sorgu:
     print(l.query_recent(limit=10))
     "
 """
+
 from __future__ import annotations
 
 import json
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -52,21 +53,21 @@ try:
         model_config = ConfigDict(frozen=True)
 
         snapshot_id: str
-        ts: datetime                     # snapshot çekildiği zaman (UTC)
-        signal_ts: datetime | None       # engulfing bar kapanış ts'i
+        ts: datetime  # snapshot çekildiği zaman (UTC)
+        signal_ts: datetime | None  # engulfing bar kapanış ts'i
         venue: str
         symbol: str
-        direction: str | None            # sinyal yönü: 'long' | 'short'
-        top_n: int                       # kaç seviye kullanıldı
-        bid_volume: float                # top_n seviyenin toplam bid hacmi
-        ask_volume: float                # top_n seviyenin toplam ask hacmi
-        imbalance: float                 # (bid - ask) / (bid + ask), [-1, +1]
-        raw_bids: list[list[float]]      # [[price, size], ...]
+        direction: str | None  # sinyal yönü: 'long' | 'short'
+        top_n: int  # kaç seviye kullanıldı
+        bid_volume: float  # top_n seviyenin toplam bid hacmi
+        ask_volume: float  # top_n seviyenin toplam ask hacmi
+        imbalance: float  # (bid - ask) / (bid + ask), [-1, +1]
+        raw_bids: list[list[float]]  # [[price, size], ...]
         raw_asks: list[list[float]]
-        signal_id: str | None            # paper trade fingerprint
+        signal_id: str | None  # paper trade fingerprint
         pattern_id: str | None
         confidence: float | None
-        fetch_latency_ms: float          # REST round-trip ms
+        fetch_latency_ms: float  # REST round-trip ms
 
     _PYDANTIC_AVAILABLE = True
 
@@ -78,6 +79,7 @@ except ImportError:  # pragma: no cover
 # ---------------------------------------------------------------------------
 # Pure computation — no I/O, testable without exchange
 # ---------------------------------------------------------------------------
+
 
 def compute_imbalance(
     bids: list[list[float]],
@@ -143,6 +145,7 @@ def is_imbalance_aligned(imbalance: float, direction: str, threshold: float = 0.
 # Fetch — live REST, defensive
 # ---------------------------------------------------------------------------
 
+
 def fetch_orderbook_snapshot(
     symbol: str,
     venue: str = "binance",
@@ -167,6 +170,7 @@ def fetch_orderbook_snapshot(
     if ex is None:
         try:
             import ccxt  # type: ignore
+
             kls = getattr(ccxt, venue, None)
             if kls is None:
                 _log.warning("orderbook_logger.venue_not_found")
@@ -240,7 +244,9 @@ class OrderbookLogger:
         top_n_default: int = 5,
     ) -> None:
         if db_path is None:
-            _root = Path(__file__).resolve().parents[4]
+            _root = (
+                Path(__file__).resolve().parents[3]
+            )  # G24-fix 2026-07-07: parents[4] repo dışıydı
             db_path = _root / "data" / "orderbook_snapshots.duckdb"
         self.db_path = db_path
         self.top_n_default = top_n_default
@@ -253,6 +259,7 @@ class OrderbookLogger:
         """DuckDB bağlantısı — her çağrıda yeni bağlantı (Windows DuckDB safety)."""
         try:
             import duckdb  # type: ignore
+
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             return duckdb.connect(str(self.db_path))
         except ImportError:
@@ -312,6 +319,7 @@ class OrderbookLogger:
             try:
                 if isinstance(bar_ts_raw, str):
                     from datetime import datetime
+
                     signal_ts = datetime.fromisoformat(bar_ts_raw.replace("Z", "+00:00"))
                 elif isinstance(bar_ts_raw, datetime):
                     signal_ts = bar_ts_raw
@@ -339,10 +347,12 @@ class OrderbookLogger:
         bid_vol = sum(float(lvl[1]) for lvl in bids[:top_n] if len(lvl) >= 2)
         ask_vol = sum(float(lvl[1]) for lvl in asks[:top_n] if len(lvl) >= 2)
         imbalance = compute_imbalance(bids, asks, top_n=top_n)
-        aligned = is_imbalance_aligned(imbalance, direction or "", threshold=0.6) if direction else False
+        aligned = (
+            is_imbalance_aligned(imbalance, direction or "", threshold=0.6) if direction else False
+        )
 
         snapshot_id = uuid.uuid4().hex[:20]
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
 
         self._log.bind(
             symbol=symbol,
@@ -429,11 +439,18 @@ class OrderbookLogger:
             ).fetchall()
             conn.close()
             cols = [
-                "snapshot_id", "ts", "symbol", "direction", "imbalance",
-                "bid_volume", "ask_volume", "confidence", "pattern_id",
+                "snapshot_id",
+                "ts",
+                "symbol",
+                "direction",
+                "imbalance",
+                "bid_volume",
+                "ask_volume",
+                "confidence",
+                "pattern_id",
                 "fetch_latency_ms",
             ]
-            return [dict(zip(cols, row)) for row in rows]
+            return [dict(zip(cols, row, strict=False)) for row in rows]
         except Exception as exc:
             self._log.bind(err=str(exc)).warning("orderbook_logger.query_fail")
             return []
