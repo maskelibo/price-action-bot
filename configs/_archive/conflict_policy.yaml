@@ -1,0 +1,54 @@
+# ⚠️ ARŞİV (2026-07-07 denetim E10): BU DOSYA HİÇBİR KOD TARAFINDAN OKUNMUYOR.
+# Başlıktaki 'X okur' iddiaları GEÇERSİZ — loader yok. Yürürlükte sanılmasın diye arşivlendi.
+# Conflict resolution policy — Faz 4.3.
+#
+# CEO._check_conflicts() bu yaml'ı okuyup arbitrate çağrısı yapar.
+# Timeout sonrası fallback (insan Principal'a CRIT push).
+
+conflicts:
+  # Risk Officer critique vs Lab/Researcher endorse
+  promotion_vs_risk:
+    description: "Tournament terfi önerisi vs Risk Officer veto"
+    arbitrator: ceo
+    fallback: human_principal
+    timeout_hours: 24
+    decision_history_dir: memory/shared/decisions/conflicts/
+    escalation:
+      - level: WARN
+        delay_hours: 12
+        action: telegram_warn
+      - level: CRIT
+        delay_hours: 24
+        action: telegram_crit_principal
+
+  # Analyst whatif suggests filter loose vs Risk Officer wants tighter
+  whatif_vs_risk:
+    description: "What-if alpha vs Risk Officer tail-risk concerns"
+    arbitrator: ceo
+    fallback: human_principal
+    timeout_hours: 24
+    decision_history_dir: memory/shared/decisions/conflicts/
+    escalation:
+      - level: WARN
+        delay_hours: 24
+        action: telegram_warn
+
+  # Researcher hipotezi vs Lab pre-existing strategy
+  research_vs_champion:
+    description: "Researcher yeni stratejisi vs Lab champion tutma direnci"
+    arbitrator: ceo
+    fallback: human_principal
+    timeout_hours: 48  # daha esnek (yeni vs eski)
+    decision_history_dir: memory/shared/decisions/conflicts/
+    escalation:
+      - level: WARN
+        delay_hours: 24
+        action: telegram_warn
+
+# Genel kurallar
+defaults:
+  arbitrator: ceo
+  fallback: human_principal
+  timeout_hours: 24
+  conservative_bias: true  # şüphedeyken Risk/Lab tarafına yaslan
+  max_arbitrate_per_brief: 3  # Daily brief'te max 3 arbitrate
