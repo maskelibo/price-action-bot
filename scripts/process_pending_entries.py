@@ -17,13 +17,14 @@ Akış:
 
 Single-shot mode: bir kez çalış, çık. Re-entry scheduler ile.
 """
+
 from __future__ import annotations
 
 import json
 import os
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +38,7 @@ _MISSED_PATH = Path("data/missed_signals.jsonl")
 
 
 def _log(msg: str) -> None:
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
     print(f"[{ts}] {msg}", flush=True)
 
 
@@ -47,13 +48,14 @@ def _push_missed(entry: dict[str, Any], reason: str) -> None:
         _MISSED_PATH.parent.mkdir(parents=True, exist_ok=True)
         missed = dict(entry)
         missed["dropped_reason"] = reason
-        missed["dropped_at"] = datetime.now(timezone.utc).isoformat()
+        missed["dropped_at"] = datetime.now(UTC).isoformat()
         with open(_MISSED_PATH, "a", encoding="utf-8") as f:
             f.write(json.dumps(missed, default=str) + "\n")
     except Exception as exc:
         _log(f"missed_audit_fail: {exc}")
     try:
         from price_action.orchestrator.notifications import push_critical
+
         push_critical(
             f"15m ENTRY MISSED (queue): {entry.get('symbol')} {entry.get('side')} "
             f"{entry.get('strategy','')} — {reason} "
@@ -67,14 +69,18 @@ def _push_missed(entry: dict[str, Any], reason: str) -> None:
 def _atomic_rewrite(path: Path, lines: list[str]) -> None:
     """Atomic file rewrite to avoid corruption on crash."""
     if not lines:
-        try:
+        try:  # noqa: SIM105
             path.unlink(missing_ok=True)
         except Exception:
             pass
         return
     tmp = tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", delete=False,
-        dir=str(path.parent), prefix=".tmp_pending_", suffix=".jsonl",
+        mode="w",
+        encoding="utf-8",
+        delete=False,
+        dir=str(path.parent),
+        prefix=".tmp_pending_",
+        suffix=".jsonl",
     )
     try:
         tmp.write("".join(lines))
@@ -83,7 +89,7 @@ def _atomic_rewrite(path: Path, lines: list[str]) -> None:
         tmp.close()
         os.replace(tmp.name, str(path))
     except Exception as exc:
-        try:
+        try:  # noqa: SIM105
             os.unlink(tmp.name)
         except Exception:
             pass
@@ -100,16 +106,23 @@ def _try_retry(entry: dict[str, Any]) -> tuple[bool, dict[str, Any] | None, str]
     # Exchange instance — paper/testnet için PA_RUN_MODE'a göre seç
     try:
         from price_action.settings import get_settings
+
         s = get_settings()
         # Paper modda spot/testnet'e gitmeyiz, gerçek futures market'i kullan
         # (testnet hesaba zaten paper trades)
-        ex_class = ccxt.binance({
-            "enableRateLimit": True,
-            "options": {"defaultType": "future"},
-            "apiKey": os.environ.get("PA_BINANCE_API_KEY", ""),
-            "secret": os.environ.get("PA_BINANCE_SECRET", ""),
-        })
-        if s.pa_run_mode == "paper":
+        ex_class = ccxt.binance(
+            {
+                "enableRateLimit": True,
+                "options": {"defaultType": "future"},
+                "apiKey": os.environ.get("PA_BINANCE_API_KEY", ""),
+                "secret": os.environ.get("PA_BINANCE_SECRET", ""),
+            }
+        )
+        # GÜVENLİK FIX 2026-07-07: fail-direction ters çevrildi. Eski hali
+        # sadece pa_run_mode=="paper" ise sandbox açıyordu → env unset
+        # (default "backtest") MAINNET'e işaret ediyordu. Doğrusu: açıkça
+        # live değilse HER ZAMAN sandbox (testnet).
+        if s.pa_run_mode != "live":
             ex_class.set_sandbox_mode(True)
     except Exception as exc:
         return False, None, f"exchange_init_fail: {exc}"
@@ -155,7 +168,7 @@ def process_pending() -> dict[str, int]:
         _log(f"queue_read_fail: {exc}")
         return stats
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     keep_lines: list[str] = []
 
     for raw in raw_lines:
@@ -202,9 +215,11 @@ def process_pending() -> dict[str, int]:
             try:
                 _MISSED_PATH.parent.mkdir(parents=True, exist_ok=True)
                 audit = dict(entry)
-                audit["retry_resolved_at"] = datetime.now(timezone.utc).isoformat()
+                audit["retry_resolved_at"] = datetime.now(UTC).isoformat()
                 audit["resolved_order_id"] = str(order.get("id", ""))
-                audit["resolved_fill_price"] = float(order.get("average") or order.get("price") or 0.0)
+                audit["resolved_fill_price"] = float(
+                    order.get("average") or order.get("price") or 0.0
+                )
                 audit["status"] = "RESOLVED_BY_RETRY"
                 # Aynı dosya — 'RESOLVED' status'lü kayıtlar successful retry'ları gösterir
                 with open(_MISSED_PATH, "a", encoding="utf-8") as f:
@@ -213,6 +228,7 @@ def process_pending() -> dict[str, int]:
                 pass
             try:
                 from price_action.orchestrator.notifications import push_critical
+
                 push_critical(
                     f"15m ENTRY RESOLVED via retry: {entry['symbol']} {entry['side']} "
                     f"order_id={order.get('id','?')} (orig timeout, retry başarılı)",

@@ -18,6 +18,7 @@ TELEGRAM_BOT_TOKEN   — BotFather'dan alınan bot token
 TELEGRAM_CHAT_ID     — Mesaj gönderilecek chat/channel ID
 PA_LLM_DRY_RUN       — "true" ise no-op (test/CI modu)
 """
+
 from __future__ import annotations
 
 import os
@@ -158,9 +159,13 @@ def send_telegram(
             )
             return False
     except Exception as exc:
+        # GÜVENLİK FIX 2026-07-07: requests exception metni tam URL'i (yani
+        # bot TOKEN'ını) içerir — 21 Haz ağ kesintisinde token log'a sızdı.
+        # Token'ı maskele; asla ham exception'ı loglama.
+        err_text = str(exc)[:300].replace(token, "***TOKEN***")
         logger.warning(
             "telegram.send_fail",
-            extra={"err": str(exc)[:200]},
+            extra={"err": err_text[:200]},
         )
         return False
 

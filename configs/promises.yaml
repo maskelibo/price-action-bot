@@ -31,8 +31,13 @@ components:
         comment: "Gece 02:30 5-batch + gün içi pulse → min 1 yeni hipotez/gün"
       - kind: log_pattern
         log: "logs/launchd/ceo.stdout.log"
-        regex: "scheduler.researcher_5batch_done"
+        regex: "scheduler.researcher_pulse_done"
         min_per_24h: 1
+        comment: "FIX 2026-07-07: researcher_5batch OTONOMI-1'de durduruldu (spin-loop) — eski researcher_5batch_done pattern'ı yalancı CRIT üretirdi; pulse 2×/gün koşuyor"
+      - kind: file_pattern
+        pattern: "memory/researcher/sweep_candidates.jsonl"
+        max_age_hours: 26
+        comment: "OTONOMI-1 feature_sweep gece 04:10 TR — kanıt fabrikası izlemesiz kalmasın"
 
   lab_scientist:
     description: "Param sweep + drift detect + tournament"
@@ -46,7 +51,8 @@ components:
       - kind: log_pattern
         log: "logs/launchd/ceo.stdout.log"
         regex: "scheduler.lab_quick_scan_done"
-        min_per_24h: 6
+        min_per_24h: 3
+        comment: "FIX 2026-07-06: cadence 2 Tem'de 12×→4×/gün düşürüldü (token disiplini); min 6 her gün yalancı alarm üretirdi"
 
   bot_monitor:
     description: "Saatlik bot health snapshot + günlük cards"
@@ -102,23 +108,26 @@ components:
   # ─────────────────────────────────────────────────────────────
 
   futures15m_daemon:
-    description: "15m signal scan + position monitor"
+    description: "15m signal scan + position monitor (v15p2)"
     enabled: true
     severity: crit
     checks:
+      # FIX 2026-07-06: eski path logs/launchd/futures15m.stderr.log 15 Haz'da
+      # emekli olan botun DONMUŞ loguydu — mtime-gate'siz tüm-dosya sayımıyla
+      # sonsuza dek PASS ediyordu (v15p2 ölse alarm gelmezdi, kör nokta).
       - kind: log_pattern
-        log: "logs/launchd/futures15m.stderr.log"
+        log: "logs/futures_daemon_v15p2.log"
         regex: "15M_SCAN: \\d+ sinyal"
         min_per_24h: 60
         comment: "Her 15dk tarama → 96/gün, tolerance ile 60"
       - kind: log_pattern
-        log: "logs/launchd/futures15m.stderr.log"
+        log: "logs/futures_daemon_v15p2.log"
         regex: "POS_CHECK"
         min_per_24h: 60
 
   futures5m_daemon:
-    description: "5m signal scan + position monitor"
-    enabled: true
+    description: "5m signal scan + position monitor — BOT EMEKLİ (30 Haz 2026)"
+    enabled: false  # FIX 2026-07-06: 5m daemon 30 Haz'da kalıcı emekli (0 fill); donmuş log yalancı PASS veriyordu
     severity: crit
     checks:
       - kind: log_pattern
