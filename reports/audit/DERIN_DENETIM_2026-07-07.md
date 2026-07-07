@@ -251,3 +251,92 @@ Detektör matematiği lookahead-temiz (grimes fractal ufku, VSA pencereleri doğ
 2. **E2 vol_target**: canlı sizing'e eklensin mi, yoksa v15p2 beklenti bandı vol_target'sız yeniden mi doğrulansın? (İkisi de meşru; mevcut durum tutarsız.)
 3. **F9 dd_throttle state**: v15p2'ye kendi peak dosyası (risk artar yönde düzeltme — o yüzden sana soruyorum).
 4. **V9 disk temizliği**: 20260706 yedeği + market.duckdb.bak + pool pkl'leri (~8G) silinsin mi? Disk %97.
+
+---
+---
+
+# DALGA-3 EKİ (aynı gece, Principal talebi: "detaylı bir tur daha")
+
+**Yöntem:** 8 YENİ ajan, dalga-2'nin BAKMADIĞI yüzeyler: daemon god-file'ın tamamı (3.890 satır), execution modülleri, lab/istatistik motoru matematiği, 64 raf detektörü lookahead taraması, ajan Python kodları, API/dashboard/RAG/bildirim, repo/branch/bağımlılık, sessiz-hata deseni (~116 saha). **+~110 yeni bulgu → toplam ≈250.** ✅ = bu gece düzeltildi-canlıda.
+
+## W1. DAEMON GOD-FILE (17 bulgu — pozisyon yaşam döngüsü)
+
+| Sev | Bulgu | Durum |
+|---|---|---|
+| CRIT | Watchdog SL yenileyince journal `sl_order_id` GÜNCELLENMİYOR → ilk trail'den sonra tüm "SL duruyor mu" kontrolleri iptal-edilmiş ID'ye bakıyor (heal/orphan mantığı bayat kanıtla karar veriyor) | 🔴 yarın-1 |
+| CRIT | Heal 2 bayat tick'te false-close → gerçek kapanış idempotency'ye takılır + SL orphan-iptal → çıplak kaskad (orphan yolundaki 3-tick teyidi burada YOK) | 🔴 yarın-1 |
+| CRIT | Pyramid OFF iken bayat stub'lar pop edilmiyordu → eski trade'in SL'i yeni pozisyonu zehirliyor | ✅ 51cf44f |
+| HIGH | Runner time-stop çıpası trade-scoped değil (zombi 'filled' sinyalin TP1'i yeni kazananı +1R'de kapattırabilir) · tek-okuma full-close tespiti · koruma satırı ilk partial'da ölüyor (heal fiilen ANA kapanış yazarı) · deferred-retry başarısı korumasız+journal'sız pozisyon · DMS flatten tek-atış + -2022 fallback'siz | 🔴×5 |
+| MED | Heal income penceresi uçsuz (PnL çift sayım) · timestop -2022'siz + ratchet skip · dict-shape algo yanıtı "emir yok" sayılıyor · kill-switch fail-open → ✅ fail-closed yapıldı · `_remaining_qty` fail-open · journal INSERT fail = görünmez pozisyon | 1✅/5🔴 |
+| LOW | v14 banner yalanı · CWD-relative kuyruk yolları · Telegram kapanış PnL'i journal'la çelişiyor (fee'siz) | ⚪×3 |
+
+## W2. EXECUTION KATMANI (18 bulgu)
+
+| Sev | Bulgu | Durum |
+|---|---|---|
+| CRIT | Post-only KISMİ dolum → full-qty market fallback = OVERFILL (canlı giriş yolu!) | ✅ 51cf44f |
+| HIGH | DMS heartbeat kendi kendini besliyor (asıl loop assa da taze) — yapısal false-negative · reconciler 2+ açık trade/sembol varsayımıyla yanlış trade'i heal eder · orphan exit fiyatı BAŞKA fill'den gelebilir (side/zaman filtresi yok) · ccxt_live post-fill None/crash + cancel-race (gerçek-canlı yolu, latent) · market-fallback slippage kapısı average=None'da self-baypas → ✅ | 1✅/4🔴 |
+| MED | Phase-1 create hatası sessizce taker'a düşüyor · slippage ters-kapat -2022 fallback'siz · pyramid fill normalizasyonu/idempotency-sırası/kapalı-pozisyonu-yeniden-açma (pyramid OFF latent) · OrderManager canlı koruma no-op · slippage outlier karantinası ölü kod (NameError yutulmuş) | 🟡×6 |
+| LOW | UTC/TR gün-sınırı kayması · çift-prefix client-id · rejected-sonsuza-dek-seen · DMS stop false CRIT | ⚪×4 |
+
+## W3. LAB/İSTATİSTİK MOTORU (18 bulgu — terfi kapılarının matematiği)
+
+| Sev | Bulgu | Durum |
+|---|---|---|
+| CRIT | Replay equity'si açık pozisyonların marjinini DÜŞÜRÜYOR (lab.py:783) → MaxDD abartılı, DD breaker'ları sahte tetik, sizing tabanı yanlış — TÜM replay sonuçları etkilenir | 🔴 yarın-1 |
+| CRIT | Walk-forward p-değerleri ~19× şişik (annualized SR × sqrt(n_gün)) → FDR her şeyi "anlamlı" onaylıyor | 🔴 |
+| HIGH | Turnuva "OOS" metrikleri aslında IN-SAMPLE (aynı metrikle seçilmiş) · kapı istatistikleri fee-ÖNCESİ R'lerle · n_trials fix'i BACKTESTED_FROM_HYP yolunu atlamıştı → ✅ · WF pencereleri %50 örtüşük + purge yok · tp_r reblend iyimser (TP1/TP2 yastığı kalıyor) | 1✅/4🔴 |
+| MED | engine DSR n_trials=1 sabit (ölü gösterge) · etki kapısı sıfır-baseline'da vakum · şampiyon el-ayarı sabit 1.5 · Welch paired-olmalıyken unpaired · monthly_on_curve ay-bölmeli ayrı sim · splice'tan sahte equity eğrisi · mark-to-market yok (tüm eğriler realized-only) · realistic_backtest "OOS"u tuning havuzunun kuyruğu · iki uyumsuz oos_sharpe tanımı → ✅ köprü tarafı | 1✅/8🟡 |
+| **Ajan hükmü** | *"Kapılar iddia ettikleri matematikle değil, kalibrasyon tesadüfüyle çalışıyor (el-konmuş 1.5 barı + fee filtresi taşıyor)"* | — |
+
+## W4. 64 DETEKTÖR RAFI (lookahead) — beklenenden TEMİZ
+
+- **HIGH:** `pin_bar_htf_sr` haftalık fraktal, MEVCUT tamamlanmamış haftayla teyit ediyor (gerçek future-leak; FAZ-2 köprüsünden sahte-GO basabilir). 🔴 köprü-karantina listesine alındı.
+- **MED:** `wyckoff_phase_d` kendi WYK-001 bileti kapanmamış (closed-bar tüketimde güvenli — köprü closed-bar ✓) · `volume_zscore_filter` optimal eşiği in-sample kendinden-onaylıyor.
+- **LOW:** vsa_buying_climax open-çıpalı R · brooks manifest 60-vs-96 drift · three_push param semantiği · ts=open-time konvansiyonu (köprü doğru kullanıyor ✓).
+- 42 modül derin/hedefli okumayla TEMİZ doğrulandı; fraktal/HTF/dış-veri disiplini (shift(1), merge_asof backward, teyit gecikmesi) tutarlı uygulanmış. **sl==entry div-zero hiçbir yolda yok.**
+
+## W5. AJAN PYTHON KODLARI (18 bulgu)
+
+| Sev | Bulgu | Durum |
+|---|---|---|
+| CRIT | Risk subayının deterministik veto yolu HER tetikte KeyError'la ölüyordu (gate["flags"]) — veto yazılmıyor, zehirli mesaj sonsuz retry | ✅ 51cf44f |
+| HIGH | Adversary DD kapısı ~100× birim hatası → ✅ · kill-probe parse-edemediğini ENDORSE ediyordu → ✅ fail-closed · throttle çok-parça raporun 2+ parçasını İMHA ediyor (flush_digest hiç çağrılmıyor; CRIT bile kaybolabilir) · PAUSE hook list/str → ✅ · token hard-cap CRIT'leri çakışıp kayboluyor | 3✅/2🔴 |
+| MED | PAUSE önerisi her koşuda yeniden · inbox ack kayıplı tam-dosya yeniden-yazımı · ack'lenemeyen mesajlar kuyruk açlığı · haftalık red-team yapısal gürültü (pool'suz → herkes CRIT) · doc_id 1-sn çözünürlük çarpışması · token muhasebesi boşlukları (fail'ler sayılmıyor, audit ajanları bütçesiz) · async içinde bloklayan ccxt/DuckDB (misfire kaskadı) · turnuva etki kapısı placeholder-şampiyonda dejenere · curator "3 hafta ardışık"ı tek haftadan sentezliyor | 🟡×9 |
+| LOW | log window_hours yok-sayılıyor · canary task GC-edilebilir · _to_utc şimdiye düşüyor | ⚪×3 |
+
+## W6. API/DASHBOARD/RAG/BİLDİRİM (15 bulgu)
+
+| Sev | Bulgu | Durum |
+|---|---|---|
+| HIGH | Dashboard EMEKLİ daemon'ları izliyor (v14+5m; v15p2 çökse görünmez, şimdi kalıcı "down" yalanı) · çok-parça Telegram raporları 1. parçadan sonrası kayıp (Daily Truth Report dahil!) · /admin/halt kill-switch'i canlı botun OKUMADIĞI dosyaya yazıyor (acil-durdurma zinciri kağıt üstünde) | 🔴×3 |
+| MED | API 0.0.0.0:8000 auth'suz endpoint'ler (latent) · RAG dış içerik sanitize'sız → researcher prompt'una ham enjeksiyon · dashboard anchor'ları v14-çağı · INSURANCE_CLEAR income tipi atlanıyor + daily_pnl TÜM tipleri sayıyor (transfer=sahte spike) · chroma $gte string hatası → "recent additions" hep boş · copytruncate rotasyon satır kaybı · canlı DB'nin torn-copy yedeği | 🟡×7 |
+| LOW | chunk orta-sayıdan bölme · aynı-ms pagination kaçağı · fill-bazlı işlem sayımı · NOT IN NULL tuzağı | ⚪×4 |
+
+## W7. REPO/BRANCH/BAĞIMLILIK (14 bulgu)
+
+| Sev | Bulgu | Durum |
+|---|---|---|
+| CRIT | GitHub 5-7 hafta bayat: **53 push'lanmamış commit** — v14+v15p2 deploy tarihinin TEK kopyası bu Mac'in diski (yedekler de aynı diskte, disk %97) | 🔴 **push kararı SENDE** |
+| CRIT | Canlı daemon HİÇBİR commit'te olmayan kodla koşuyordu (CT-OPS-05 çökme fix'i 19 gün working-tree'de) | ✅ a4858de |
+| HIGH | truth_report/check_promises/audit-test gerçek işleri commit'siz → ✅ · dashboard kodu tamamen git DIŞI + 3 plist repo'suz · lockfile bozuk (numpy 2.4.4 pini numba ile çelişiyor — lock'tan kurulum KIRIK env üretir) · 263 araştırma pre-registration dosyası 15 Haz'dan beri commit'siz (tamper-evidence yok) | 1✅/3🔴 |
+| MED | .python-version gitignore'da · runtime-mutasyonlu tracked dosyalar status kirliliği · RESUME'ler tutarsız · DR envanteri: git+.env'den yeniden kurulum BAŞARISIZ olur | 🟡×4 |
+| LOW | .gitignore boşlukları · README uv sync lock'suz · 3 merged branch silinebilir | ⚪×3 |
+
+## W8. SESSİZ-HATA DESENİ (~116 saha tarandı, ~20 tehlikeli)
+
+| Sev | Bulgu | Durum |
+|---|---|---|
+| CRIT | ccxt_live cancel-yutma → çift pozisyon (post_only_router'da düzeltilen bug'ın kardeş kopyası, gerçek-canlı yolu) · beklenen değerler gerçek fill diye kaydediliyor (average/filled None fallback'leri) | 🔴×2 latent |
+| HIGH | kill-switch zinciri fail-open → ✅ fail-closed · breaker state bozuksa sıfırlanıyor (tripped halt restart'ta kayboluyor) · DD-throttle bozuk state'te sessizce devre dışı (logsuz TEK saha) · `_ORIG_INTENDED_SL` bellekte — restart'ta XRP donmuş-trailing sınıfı hortluyor · exchange okumaları başarı-şekilli boş dönüyor ([]/{}) · capitulation vetosu takvim hatasında sessiz kapalı | 1✅/5🔴 |
+| MED | breaker_monitor 'active' vs daemon 'halted' şema uyumsuzluğu · set_leverage tam yutma · scan hatası "0 sinyal" gibi · DMS init-fail'de switch'siz devam · SL-fazlalık iptali sessiz · bybit-fallback yazıyor kimse okumuyor · canary/event task'ları GC-edilebilir | 🟡×7 |
+| — | Pozitif: bare-except 0; journal/gates/allocator/quality TEMİZ; doğru desenler (tmp+rename, fail-loud ingest) kanıtlanmış — sorun kardeş-yollara kopyalanmamış olmaları | — |
+
+## DALGA-3 SONRASI GÜNCEL ÖNCELİK (yarının listesi)
+
+1. **Daemon yaşam-döngüsü paketi** (W1-CRIT×2 + HIGH'lar birlikte — aynı dokuda, test-first tek cerrahi): sl_order_id güncelle, heal N-tick teyit, koruma satırı çok-atış, timestop trade-scope, DMS -2022 fallback+retry.
+2. **Lab istatistik paketi** (W3-CRIT×2 + IS/OOS etiketi + fee'li kapı): terfi kapılarının matematiğini gerçeğe bağla.
+3. **Bildirim paketi**: flush_digest zamanla + CRIT asla buffer'a düşmesin + push_critical chunk'lama (kayıp alarm sınıfı ölür).
+4. **Dashboard v15p2 + kill-switch zinciri** (W6-HIGH×3, küçük diff'ler).
+5. **GitHub push + dashboard/plist'leri repoya al + lock yenile (uv lock)** — DR riskinin ~%80'i bir saatte ölür. **Push onayı SENDE.**
+6. pin_bar_htf_sr haftalık cutoff fix'i (köprü karantinadan çıksın) + ccxt_live kardeş-bug'ları (gerçek-canlı öncesi ŞART sınıfı).
