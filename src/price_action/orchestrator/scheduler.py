@@ -20,6 +20,7 @@ Job listesi:
 from __future__ import annotations
 
 import math
+import os
 from datetime import UTC
 from pathlib import Path
 from typing import Any
@@ -435,6 +436,37 @@ async def _job_weekly_tournament() -> None:
         import asyncio
 
         from price_action.agents import LabScientistAgent
+
+        # OTONOMI-1 (2026-07-07, PROGRAM_V2 4b): challenger-yoksa-skip ön-kontrolü.
+        # Yeni challenger materyali yokken Opus'la turnuva koşmak boş törendi
+        # (lab 443 çağrıyla 2. en büyük token kalemi). Deterministik kontrol:
+        # son 24h'te yeni sweep chunk VEYA status=OK backtest sonucu var mı?
+        # PA_TOURNAMENT_FORCE=1 ile bypass (haftalık tam tur / manuel).
+        if os.environ.get("PA_TOURNAMENT_FORCE", "0") != "1":
+            import json as _json
+            import time as _time
+            from pathlib import Path as _Path
+
+            cutoff = _time.time() - 24 * 3600
+            fresh = any(
+                p.stat().st_mtime > cutoff
+                for p in _Path("reports/param_sweep/chunks").glob("*.jsonl")
+            )
+            if not fresh:
+                for p in _Path("memory/researcher/backtest_results").glob("*.json"):
+                    if p.stat().st_mtime > cutoff:
+                        try:
+                            if _json.loads(p.read_text()).get("result", {}).get("status") == "OK":
+                                fresh = True
+                                break
+                        except Exception:
+                            continue
+            if not fresh:
+                logger.info(
+                    "scheduler.tournament_skipped_no_challenger",
+                    extra={"reason": "son 24h'te yeni chunk/OK-backtest yok"},
+                )
+                return
 
         champion = await asyncio.to_thread(_champion_live_oos)
         if champion is None:
@@ -2098,6 +2130,40 @@ async def _job_researcher_5batch() -> None:
         logger.warning("scheduler.researcher_5batch_fail", extra={"err": str(exc)[:200]})
 
 
+async def _job_feature_sweep() -> None:
+    """OTONOMI-1 (2026-07-07): feature × forward-return korelasyon taraması.
+
+    scripts/feature_sweep.py subprocess olarak koşar (deterministik, LLM yok).
+    Spearman IC + BH-FDR + OOS onayı; adaylar sweep_candidates.jsonl'e.
+    """
+    try:
+        import asyncio
+        import subprocess
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[3]
+        result = await asyncio.to_thread(
+            subprocess.run,
+            [str(repo_root / ".venv" / "bin" / "python"), "scripts/feature_sweep.py"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=1800,
+        )
+        tail = (result.stdout or "").strip().splitlines()[-1:] or [""]
+        logger.info(
+            "scheduler.feature_sweep_done",
+            extra={"rc": result.returncode, "tail": tail[0][:200]},
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "scheduler.feature_sweep_fail",
+                extra={"stderr": (result.stderr or "")[-300:]},
+            )
+    except Exception as exc:
+        logger.warning("scheduler.feature_sweep_fail", extra={"err": str(exc)[:200]})
+
+
 async def _job_researcher_improvement_pulse() -> None:
     """FIX 2026-05-26: Gün içi Researcher pulse'ları.
 
@@ -2117,11 +2183,52 @@ async def _job_researcher_improvement_pulse() -> None:
         from price_action.agents import ResearcherAgent
 
         hour = _dt.now(UTC).hour
+        # OTONOMI-1 (2026-07-07, PROGRAM_V2): temalar kanıt-temelli ailelere
+        # bağlandı. Eski temalar bayattı (emekli futures5m'i refere ediyordu)
+        # ve kanıtsızdı — 195 abort'luk seed-spin bunun sonucuydu. Tema-0 artık
+        # feature_sweep'in İSTATİSTİKSEL adaylarını (FDR+OOS onaylı) hammadde
+        # olarak prompt'a gömer: önce piyasayı ölç, sonra hipotez yaz.
+        sweep_context = ""
+        try:
+            import json as _json
+            from pathlib import Path as _Path
+
+            cand_path = _Path("memory/researcher/sweep_candidates.jsonl")
+            if cand_path.exists():
+                cands = [
+                    _json.loads(ln)
+                    for ln in cand_path.read_text().splitlines()[-200:]
+                    if ln.strip()
+                ]
+                cands.sort(key=lambda c: -abs(c.get("ic_oos", 0)))
+                top = cands[:12]
+                if top:
+                    rows = "\n".join(
+                        f"- {c['symbol']} | {c['feature']} -> {c['target']} | "
+                        f"IC_is={c['ic_is']:+.3f} IC_oos={c['ic_oos']:+.3f}"
+                        for c in top
+                    )
+                    sweep_context = (
+                        "\n\nFEATURE-SWEEP ADAYLARI (FDR+OOS onaylı, feature_sweep.py):\n"
+                        + rows
+                        + "\nBu istatistiksel ilişkilerden EKONOMİK RASYONELİ olan birini "
+                        "seç ve test edilebilir hipoteze dönüştür (pre-registration)."
+                    )
+        except Exception:  # pragma: no cover — sweep yoksa tema yine çalışır
+            pass
         themes = [
-            "futures15m wide-stop bot: bugünkü gözlemlerden yola çıkarak bir iyileştirme önerisi (SL/TP/regime filter/vol_z tier).",
-            "futures5m P1c bot: bugünkü reject pattern'larından yola çıkarak bir iyileştirme önerisi (widestop threshold/strateji ekleme).",
-            "Cross-strategy edge keşfi: aktif vsa_climax_test ile düşük korelasyonlu ek bir strateji (raftaki 66'dan adaylar).",
-            "Portföy çeşitlilik: mevcut tek-strateji riski azaltacak bir TF/strateji kombinasyonu.",
+            "AILE-SWEEP: Feature-sweep adaylarından TEK hipotez üret."
+            + (
+                sweep_context
+                or " (Aday dosyası boş — mevcut 4 detektörün en zayıf rejimine odaklan.)"
+            ),
+            "AILE-TF: Mevcut 4 base stratejinin (vsa_climax/brooks_fb/avwap/engulfing) "
+            "1h veya 4h TF varyantı — 15m parametrelerini TF'ye ölçekleyerek TEK somut, "
+            "hypothesis_runner'ın KOŞABİLECEĞİ (base_strategy + param sweep) hipotez yaz.",
+            "AILE-FUNDING: funding-ekstrem + OI-rejim koşullu mevcut detektör sinyali "
+            "(PROGRAM_V2 AİLE-2; frontier'ın RED ettiği 2 hücreye prior-art atıfı ZORUNLU).",
+            "AILE-MIKRO: likidite süpürme (swing high/low sweep) + likidasyon-proxy "
+            "teyidi (PROGRAM_V2 AİLE-3; SMC-RED prior-art atıfı ZORUNLU).",
         ]
         theme = themes[hour % len(themes)]
         r = ResearcherAgent()
@@ -2550,7 +2657,15 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("scan_drift_alerts", "cron", "45 * * * *", _job_scan_drift_alerts),  # Faz 3.1 :45
     # Günlük
     ("daily_research", "cron", "0 2 * * *", _job_daily_research),
-    ("researcher_5batch", "cron", "30 2 * * *", _job_researcher_5batch),  # Faz 12
+    # OTONOMI-1 (2026-07-07, PROGRAM_V2 4b): researcher_5batch DURAKLATILDI —
+    # 41 günde 195 abort / 0 terfi, 35 seed'lik spin-loop kanıtı (seed_abort_log).
+    # Yerine feature_sweep (deterministik kanıt üretimi) + kanıt-temelli pulse
+    # temaları geldi. Geri açma: satırı aç + PROGRAM_V2 aile-hedefli prompt şart.
+    # ("researcher_5batch", "cron", "30 2 * * *", _job_researcher_5batch),  # Faz 12
+    # OTONOMI-1: feature × forward-return sweep (deterministik, LLM YOK).
+    # FDR+OOS onaylı adaylar memory/researcher/sweep_candidates.jsonl'e düşer;
+    # researcher_pulse tema-0 bunları hipoteze çevirir. Günlük 01:10 UTC.
+    ("feature_sweep", "cron", "10 1 * * *", _job_feature_sweep),
     # FIX 2026-07-02 (fabrika yeniden-açılış, token disiplini): pulse 5×→2×/gün,
     # quick_scan 12×→4×/gün. Gerekçe: researcher 7 günde 27.7M token yaktı
     # (çağrı başı ~733K input) ve çıktı 0 terfiydi; kalite kapıları düzeldi,

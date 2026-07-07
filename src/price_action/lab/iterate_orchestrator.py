@@ -449,9 +449,14 @@ def run_variant_for_strategy(
         tp_r = variant_spec.get("tp_r", 1.5)
         side_only = variant_spec.get("side_only")
 
+        # OTONOMI-1 (2026-07-07): TF artık variant_spec'ten geliyor —
+        # "15m" hardcode'u otonom TF keşfini kilitliyordu (engine zaten
+        # TF-parametrik; market.duckdb'de 1h/4h/1d hazır). Default 15m =
+        # mevcut davranış birebir korunur.
+        tf = variant_spec.get("timeframe", "15m")
         all_trades = []
         for sym in SYMBOLS:
-            df = _load_ohlcv(sym, "15m")
+            df = _load_ohlcv(sym, tf)
             if df.empty:
                 continue
             try:
@@ -566,6 +571,10 @@ STRATEGY_REGISTRY = {
     "vol-d4-weis-wave": ("weis_wave_divergence", "WeisWaveDivergenceStrategy"),
     "vol-z-spike-fade": ("cvd_spike_fade", "CVDSpikeFadeStrategy"),
     "volatility-compression-nr7": ("nr7_breakout_v2", "NR7BreakoutV2Strategy"),
+    # OTONOMI-1 (2026-07-07): PROGRAM_V2 AİLE-1 — NOT_EXECUTABLE rafında bekleyen
+    # substantive hipotezlerin detektörleri kayda alındı (kod strategies/ altında
+    # zaten mevcuttu; kilit yalnızca bu dict'ti).
+    "donchian-channel-breakout": ("donchian_breakout", "DonchianBreakoutStrategy"),
 }
 
 

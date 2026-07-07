@@ -127,6 +127,10 @@ ignore = ["E501", "RUF001", "RUF002", "RUF003"]
 # motorunda import yeniden düzeni (E402) ve R adlandırması (N806, trading
 # konvansiyonu) davranış riski taşır; dosya bazlı muaf.
 "src/price_action/risk/sizing.py" = ["E402", "N806"]
+# OTONOMI-1 (2026-07-07): legacy büyük dosyalar ilk kez lint'e girdi —
+# pre-existing yapısal ihlaller davranış riski olmadan düzeltilemez; muaf.
+"src/price_action/lab/iterate_orchestrator.py" = ["E402", "N806", "SIM102"]
+"src/price_action/orchestrator/scheduler.py" = ["N806", "F841", "SIM105", "SIM115", "N814", "F401"]
 
 [tool.mypy]
 python_version = "3.11"
