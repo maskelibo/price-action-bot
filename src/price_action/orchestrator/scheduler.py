@@ -363,9 +363,12 @@ def _champion_live_oos() -> dict[str, Any] | None:
         from scripts.futures_trade_daily import get_futures_exchange  # type: ignore
 
         ex = get_futures_exchange()
-        clean_ms = int(_dt(2026, 6, 14, 21, 53, tzinfo=UTC).timestamp() * 1000)
+        # FIX 2026-07-07 (denetim D4): baseline v14'te kalmıştı — cutoff 14 Haz
+        # + risk_usd 37.5 → post-2Tem R'ler ~%32 şişik ve seri v14/v15p2 karışık.
+        # v15p2 deploy anı (2 Tem 13:07 UTC) + temiz anchor $4963 × risk %1.
+        clean_ms = int(_dt(2026, 7, 2, 13, 7, tzinfo=UTC).timestamp() * 1000)
         now_ms = int(_dt.now(UTC).timestamp() * 1000)
-        risk_usd = 5000.0 * 0.0075  # v14p3 risk_per_trade — R normalizasyonu
+        risk_usd = 4963.0 * 0.01  # v15p2 risk_per_trade — R normalizasyonu
 
         rows: list[dict[str, Any]] = []
         cur = clean_ms
@@ -406,7 +409,7 @@ def _champion_live_oos() -> dict[str, Any] | None:
         # Canlı R-serisi Welch dağılım testinde kullanılır (P0-3'ün asıl amacı);
         # ham canlı-annualized diagnostik olarak raporda taşınır.
         return {
-            "id": "live_v14_champion_income",
+            "id": "live_v15p2_champion_income",
             "oos_returns": rr,
             "oos_sharpe": 1.5,  # backtest-bazlı bar (birim paritesi)
             "oos_maxdd": 0.193,  # backtest 5y compound DD (birim paritesi)
@@ -549,7 +552,18 @@ async def _job_weekly_rag_refresh() -> None:
         logger.warning("scheduler.rag_refresh_fail", extra={"err": str(exc)[:200]})
 
 
+def _is_last_day_of_month() -> bool:
+    """FIX 2026-07-07 (denetim D12): '28-31' cron'u ayda 2-4 kez ateşliyordu —
+    aylık job'lar sadece ayın SON günü koşmalı (yarın ayın 1'i ise bugün son gün)."""
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+
+    return (_dt.now(UTC) + _td(days=1)).day == 1
+
+
 async def _job_monthly_review() -> None:
+    if not _is_last_day_of_month():
+        return
     try:
         from price_action.agents import CEOAgent
 
@@ -1950,11 +1964,13 @@ async def _job_adversary_daily_stress() -> None:
         from price_action.agents import AdversaryEngineerAgent
 
         ae = AdversaryEngineerAgent()
-        bots = ["futures15m", "futures5m"]
-        # FIX 2026-05-27: bot → pool dosyası mapping + risk_pct (canlı config'den)
+        # FIX 2026-07-07 (denetim D5): futures5m 30 Haz'da kalıcı emekli —
+        # ölü botun günlük stres raporu promise'ı yapay geçiriyordu, çıkarıldı.
+        # NOT: vsa2 pool'u canlı v15p2'nin vsa koluna en yakın vekil; gerçek
+        # v15p2 pool'u üretilene dek (açık iş P10) proxy olarak kalır.
+        bots = ["futures15m"]
         BOT_POOL_MAP = {
             "futures15m": ("data/sec53_15m_pool_v11_vsa2_top4.pkl", 0.005),
-            "futures5m": ("data/sec53_5m_pool_v11_vm20.pkl", 0.005),
         }
 
         def _load_pool_for_adversary(pool_path: str, risk_pct: float) -> list[dict]:
@@ -2043,7 +2059,8 @@ async def _job_adversary_weekly_red_team() -> None:
         from price_action.agents import AdversaryEngineerAgent
 
         ae = AdversaryEngineerAgent()
-        path = await ae.weekly_red_team_report(["futures15m", "futures5m"])
+        # FIX 2026-07-07 (denetim D5): emekli futures5m listeden çıkarıldı.
+        path = await ae.weekly_red_team_report(["futures15m"])
         _push_report_safe(path, level="INFO", caption="Weekly Red Team Report")
     except Exception as exc:
         logger.warning("scheduler.adversary_weekly_fail", extra={"err": str(exc)[:200]})
@@ -2162,6 +2179,42 @@ async def _job_feature_sweep() -> None:
             )
     except Exception as exc:
         logger.warning("scheduler.feature_sweep_fail", extra={"err": str(exc)[:200]})
+
+
+async def _job_funding_refresh() -> None:
+    """FIX 2026-07-07 (denetim V2): funding.duckdb 35 gün bayattı — hiçbir job
+    yenilemiyordu; XS-carry (kalan tek araştırma kaldıracı) + AILE-2 girdisi
+    donuktu. scripts/backfill_funding_rates.py idempotent upsert (funding + OI
+    snapshot), günlük koşum güvenli.
+    """
+    try:
+        import asyncio
+        import subprocess
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[3]
+        result = await asyncio.to_thread(
+            subprocess.run,
+            [
+                str(repo_root / ".venv" / "bin" / "python"),
+                "scripts/backfill_funding_rates.py",
+            ],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=1800,
+        )
+        logger.info(
+            "scheduler.funding_refresh_done",
+            extra={"rc": result.returncode},
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "scheduler.funding_refresh_fail",
+                extra={"stderr": (result.stderr or "")[-300:]},
+            )
+    except Exception as exc:
+        logger.warning("scheduler.funding_refresh_fail", extra={"err": str(exc)[:200]})
 
 
 async def _job_researcher_improvement_pulse() -> None:
@@ -2320,7 +2373,9 @@ async def _job_weekly_principal_queue() -> None:
 
 
 async def _job_monthly_strategy_portfolio_review() -> None:
-    """Faz 12: Aybaşı 09:00 — Curator + CEO monthly portfolio review."""
+    """Faz 12: Ay sonu 09:00 — Curator + CEO monthly portfolio review."""
+    if not _is_last_day_of_month():
+        return
     try:
         from price_action.agents import CEOAgent, StrategyCuratorAgent
 
@@ -2663,6 +2718,8 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     # FDR+OOS onaylı adaylar memory/researcher/sweep_candidates.jsonl'e düşer;
     # researcher_pulse tema-0 bunları hipoteze çevirir. Günlük 01:10 UTC.
     ("feature_sweep", "cron", "10 1 * * *", _job_feature_sweep),
+    # FIX 2026-07-07 (V2): funding günlük tazeleme (35 gün bayattı, job yoktu)
+    ("funding_refresh", "cron", "40 2 * * *", _job_funding_refresh),
     # FIX 2026-07-02 (fabrika yeniden-açılış, token disiplini): pulse 5×→2×/gün,
     # quick_scan 12×→4×/gün. Gerekçe: researcher 7 günde 27.7M token yaktı
     # (çağrı başı ~733K input) ve çıktı 0 terfiydi; kalite kapıları düzeldi,
@@ -2672,8 +2729,12 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("lab_quick_scan", "cron", "25 0,6,12,18 * * *", _job_lab_quick_scan),
     ("adversary_daily_stress", "cron", "0 4 * * *", _job_adversary_daily_stress),  # Faz 9
     ("tf_exploration_chunk", "cron", "30 4 * * *", _job_tf_exploration_chunk),  # Faz 10
-    ("signal_scan", "cron", "5 0 * * *", _job_signal_scan),
-    ("execute_orders", "cron", "10 0 * * *", _job_execute_orders),
+    # FIX 2026-07-07 (denetim D8/D9): signal_scan doğuştan ölüydü (hedef
+    # run_daily_scan hiç var olmadı, sessiz no-op); execute_orders emekli 1d
+    # pipeline zombisiydi (tüketicisiz dry-run, her gece). İkisi de kayıttan
+    # çıkarıldı — script'ler manuel kullanım için duruyor.
+    # ("signal_scan", "cron", "5 0 * * *", _job_signal_scan),
+    # ("execute_orders", "cron", "10 0 * * *", _job_execute_orders),
     ("curator_daily_correlation", "cron", "0 19 * * *", _job_curator_daily_correlation),  # Faz 8
     ("bot_daily_cards", "cron", "0 22 * * *", _job_bot_daily_cards),  # Faz 6
     ("daily_kpi", "cron", "0 23 * * *", _job_daily_kpi),
@@ -2703,7 +2764,9 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("weekly_token_report", "cron", "0 5 * * sun", _job_weekly_token_report),  # Faz 4.2
     ("weekly_consolidation", "cron", "30 5 * * sun", _job_weekly_consolidation),  # Faz 4.4
     ("curator_weekly_lifecycle", "cron", "30 6 * * sun", _job_curator_weekly_lifecycle),  # Faz 8
-    ("weekly_bot_attribution", "cron", "30 7 * * sun", _job_weekly_bot_attribution),  # Faz 12
+    # FIX 2026-07-07 (denetim D21): bot_daily_cards duplikasıydı (aynı fonksiyon,
+    # farklı başlıkla ikinci Telegram push; Analyst sentezi hiç yazılmadı) — kapatıldı.
+    # ("weekly_bot_attribution", "cron", "30 7 * * sun", _job_weekly_bot_attribution),
     ("weekly_principal_queue", "cron", "30 8 * * sun", _job_weekly_principal_queue),  # Faz 12
     # Aylık
     ("monthly_market_scout", "cron", "0 8 5 * *", _job_monthly_market_scout),  # Faz 11

@@ -91,8 +91,8 @@ components:
     checks:
       - kind: file_pattern
         pattern: "reports/adversary/*stress*.md"
-        min_per_24h: 2
-        comment: "2 bot × 1/gün = 2 test/gün"
+        min_per_24h: 1
+        comment: "FIX 2026-07-07: futures5m emekli, stres listesinden çıktı → 1 bot × 1/gün (eski min 2, ölü botun raporuyla yapay geçiyordu)"
 
   strategy_curator:
     description: "Günlük correlation update"
