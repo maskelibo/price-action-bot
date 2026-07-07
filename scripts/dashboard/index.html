@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Price Action · Komuta Merkezi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#090b10; --sidebar:#0b0e14; --surface:#11151e; --surface2:#161b26; --surface3:#1b2230;
+    --border:#1e2530; --border-lt:#2a3340;
+    --text:#eef2f8; --dim:#9aa6b8; --mute:#5e6878;
+    --accent:#5b8cff; --accent2:#2dd4bf;
+    --green:#34d399; --green-bg:#0e3027; --red:#f87171; --red-bg:#33161b;
+    --amber:#fbbf24; --amber-bg:#332811;
+    --shadow:0 1px 2px rgba(0,0,0,.5); --shadow-lg:0 12px 32px rgba(0,0,0,.38);
+    --r:16px; --r-sm:11px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#222b39;border-radius:8px;border:2px solid var(--bg)}
+  ::-webkit-scrollbar-thumb:hover{background:#2d3850}
+  body{
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+    background:var(--bg); color:var(--text); font-size:14px; line-height:1.5;
+    -webkit-font-smoothing:antialiased; letter-spacing:-.01em;
+  }
+  .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+  .pos{color:var(--green)} .neg{color:var(--red)} .muted{color:var(--mute)} .dim{color:var(--dim)}
+
+  .app{display:flex;min-height:100vh}
+
+  /* ── Sidebar ── */
+  .sidebar{width:250px;flex:none;background:var(--sidebar);border-right:1px solid var(--border);
+    display:flex;flex-direction:column;position:sticky;top:0;height:100vh;padding:20px 14px}
+  .s-brand{display:flex;align-items:center;gap:12px;padding:6px 8px 20px}
+  .s-logo{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent2));
+    display:grid;place-items:center;font-size:20px;box-shadow:0 4px 14px #5b8cff44}
+  .s-brand h1{font-size:15px;font-weight:800;letter-spacing:-.02em}
+  .s-brand .st{font-size:10.5px;color:var(--mute);font-weight:600;letter-spacing:.12em;text-transform:uppercase}
+  .s-nav{display:flex;flex-direction:column;gap:3px;margin-top:6px}
+  .s-sec{font-size:10px;color:var(--mute);font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:14px 12px 7px}
+  .nav-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--r-sm);
+    color:var(--dim);font-weight:550;font-size:13.5px;cursor:pointer;transition:background .15s,color .15s;position:relative}
+  .nav-item:hover{background:#141a26;color:var(--text)}
+  .nav-item.active{background:linear-gradient(90deg,#172238,#131925);color:#fff;font-weight:600}
+  .nav-item.active::before{content:"";position:absolute;left:0;top:7px;bottom:7px;width:3px;border-radius:3px;background:var(--accent)}
+  .nav-item .ni-ic{font-size:15px;width:20px;text-align:center;opacity:.92}
+  .nav-item .ni-badge{margin-left:auto;font-size:10.5px;font-weight:700;min-width:20px;text-align:center;
+    padding:1px 7px;border-radius:20px;background:#1c2434;color:var(--dim)}
+  .nav-item.active .ni-badge{background:#23406b;color:#bcd6ff}
+  .nav-item .ni-badge.alert{background:var(--red-bg);color:#ff9aa6}
+  .s-foot{margin-top:auto;padding:12px;border-radius:var(--r-sm);background:var(--surface);border:1px solid var(--border)}
+  .s-foot .sf-row{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--dim)}
+  .s-foot .sf-sub{font-size:10.5px;color:var(--mute);margin-top:7px;padding-top:8px;border-top:1px solid var(--border);line-height:1.7}
+
+  /* ── Main ── */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{position:sticky;top:0;z-index:20;background:rgba(9,11,16,.82);backdrop-filter:blur(16px);
+    border-bottom:1px solid var(--border);padding:16px 28px;display:flex;align-items:center;gap:16px}
+  .topbar .tb-title{font-size:19px;font-weight:760;letter-spacing:-.02em}
+  .topbar .tb-sub{font-size:12px;color:var(--mute);margin-top:1px}
+  .spacer{flex:1}
+  .pill{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:30px;font-size:12.5px;
+    font-weight:600;border:1px solid var(--border-lt);background:var(--surface)}
+  .clock{font-size:13px;color:var(--dim);font-variant-numeric:tabular-nums;font-weight:500}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+  .dot.ok{background:var(--green);box-shadow:0 0 0 3px #34d39922}
+  .dot.warn{background:var(--amber);box-shadow:0 0 0 3px #fbbf2422}
+  .dot.down{background:var(--red);box-shadow:0 0 0 3px #f8717133;animation:pulse 1.4s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  button.refresh{background:var(--surface2);color:var(--text);border:1px solid var(--border-lt);
+    padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;display:flex;gap:8px;align-items:center;font-family:inherit;transition:.15s}
+  button.refresh:hover{background:var(--surface3);border-color:#36425a}
+  button.refresh:active{transform:scale(.97)}
+  .spin{animation:spin 1s linear infinite;display:inline-block}@keyframes spin{to{transform:rotate(360deg)}}
+
+  .content{padding:24px 28px 60px;max-width:1560px;width:100%}
+  .view{animation:fade .3s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
+
+  /* ── Sermaye akışı ── */
+  .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:center;gap:18px;
+    background:linear-gradient(135deg,var(--surface2),var(--surface));border:1px solid var(--border);
+    border-radius:20px;padding:26px 30px;margin-bottom:18px;box-shadow:var(--shadow)}
+  .flow .fstep .fl{font-size:11.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;font-weight:600;display:flex;align-items:center;gap:7px}
+  .flow .fstep .fv{font-size:34px;font-weight:800;letter-spacing:-.03em;margin-top:9px}
+  .flow .fstep .fs{font-size:12.5px;color:var(--mute);margin-top:5px}
+  .flow .arr{font-size:22px;color:var(--border-lt)}
+  @media(max-width:860px){.flow{grid-template-columns:1fr}.flow .arr{transform:rotate(90deg);justify-self:center}}
+
+  /* ── KPI ── */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin-bottom:18px}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px;
+    transition:transform .18s,border-color .18s,box-shadow .18s;position:relative;overflow:hidden}
+  .kpi::after{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,var(--accent),var(--accent2));opacity:.55}
+  .kpi:hover{transform:translateY(-3px);border-color:var(--border-lt);box-shadow:var(--shadow-lg)}
+  .kpi .k-label{font-size:11.5px;color:var(--mute);text-transform:uppercase;letter-spacing:.07em;font-weight:600}
+  .kpi .k-val{font-size:29px;font-weight:780;margin-top:10px;letter-spacing:-.025em;line-height:1.05}
+  .kpi .k-sub{font-size:12.5px;color:var(--dim);margin-top:7px}
+  @media(max-width:1000px){.kpis{grid-template-columns:repeat(2,1fr)}}
+
+  /* ── Panels / grid ── */
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:15px}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;
+    display:flex;flex-direction:column;box-shadow:var(--shadow)}
+  .panel h2{font-size:13.5px;font-weight:700;padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:9px;letter-spacing:-.01em}
+  .panel h2 .tag{margin-left:auto;font-size:11px;font-weight:600;color:var(--dim);background:var(--surface2);border:1px solid var(--border);padding:3px 10px;border-radius:8px}
+  .panel .body{padding:15px 18px;overflow:auto}
+  .col-12{grid-column:span 12}.col-8{grid-column:span 8}.col-7{grid-column:span 7}
+  .col-6{grid-column:span 6}.col-5{grid-column:span 5}.col-4{grid-column:span 4}
+  @media(max-width:1000px){[class^=col-]{grid-column:span 12 !important}}
+
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th{text-align:right;font-size:10.5px;color:var(--mute);text-transform:uppercase;letter-spacing:.05em;
+    padding:9px 11px;font-weight:700;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:1}
+  th:first-child,td:first-child{text-align:left}
+  td{padding:11px 11px;border-bottom:1px solid #181e29;font-size:13px}
+  tr:last-child td{border-bottom:none}
+  tbody tr{transition:background .12s}
+  tbody tr:hover td{background:#161d29}
+  .sym{font-weight:700;letter-spacing:-.01em}
+  .badge{display:inline-block;padding:3px 9px;border-radius:7px;font-size:11px;font-weight:700;letter-spacing:.02em}
+  .badge.long{background:var(--green-bg);color:var(--green)} .badge.short{background:var(--red-bg);color:var(--red)}
+  .chip{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700}
+  .chip.clean{background:var(--green-bg);color:#5fe3b4} .chip.contam{background:#2c2530;color:#c79ab8}
+  .sev{padding:3px 9px;border-radius:7px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;flex:none}
+  .sev.critical{background:#3d1018;color:#ff7385} .sev.high{background:#3d2410;color:#ffac5c}
+  .sev.med{background:#3a330e;color:#ffe066} .sev.low{background:#222a38;color:#a3b3c9}
+
+  .att-row{display:flex;align-items:center;gap:12px;padding:6px 0}
+  .att-row .name{width:64px;font-weight:600;font-size:12.5px}
+  .att-bar{flex:1;height:20px;background:#161d29;border-radius:6px;position:relative;overflow:hidden}
+  .att-bar span{position:absolute;top:0;bottom:0;border-radius:6px;transition:width .5s ease}
+  .att-val{width:104px;text-align:right;font-size:12.5px;font-weight:700}
+
+  .dlist{display:flex;flex-direction:column;gap:10px}
+  .drow{display:flex;align-items:center;gap:12px;padding:11px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;transition:.15s}
+  .drow:hover{border-color:var(--border-lt);background:var(--surface3)}
+  .drow .meta{flex:1;min-width:0} .drow .dl-title{font-weight:600;font-size:13.5px}
+  .drow .dl-sub{font-size:11.5px;color:var(--mute);margin-top:2px} .drow .dl-right{text-align:right;font-size:12.5px;white-space:nowrap;font-weight:600}
+
+  .commit{display:flex;gap:13px;padding:9px 0;border-bottom:1px solid #181e29;align-items:baseline}
+  .commit:last-child{border:none}
+  .commit .h{font-family:'SF Mono',ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--accent2);min-width:60px;font-weight:600}
+  .commit .m{flex:1;font-size:12.5px} .commit .w{font-size:11px;color:var(--mute);white-space:nowrap}
+
+  .stat-grid{display:grid;gap:12px}
+  .stat{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px 15px}
+  .stat .s-val{font-size:23px;font-weight:780;letter-spacing:-.02em}
+  .stat .s-label{font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:.05em;margin-top:4px;font-weight:600}
+  .posbox{background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:11px 13px;
+    font-family:'SF Mono',ui-monospace,Menlo,monospace;font-size:11px;color:var(--dim);margin-top:13px;line-height:1.8;word-break:break-word}
+  .empty{color:var(--mute);font-size:13px;padding:22px;text-align:center}
+  .loading{text-align:center;padding:120px;color:var(--dim);font-size:14px}
+  .err{background:var(--red-bg);border:1px solid #5a2530;color:#ffb3bd;padding:12px 16px;border-radius:12px;font-size:13px;margin-bottom:15px}
+  .footer{text-align:center;color:var(--mute);font-size:11px;margin-top:26px;letter-spacing:.02em}
+  .scroll{max-height:560px;overflow:auto;margin:-2px}
+
+  /* ── Org chart ── */
+  .org-top{display:flex;flex-direction:column;align-items:center;gap:0;margin-bottom:8px}
+  .org-node{background:linear-gradient(180deg,var(--surface3),var(--surface2));border:1px solid var(--border-lt);
+    border-radius:14px;padding:13px 26px;text-align:center;min-width:230px;box-shadow:var(--shadow)}
+  .org-node.boss{border-color:#4d4326;background:linear-gradient(180deg,#2a2515,#1c1a12)}
+  .org-node .on-name{font-weight:800;font-size:15.5px;letter-spacing:-.01em}
+  .org-node .on-sub{font-size:11px;color:var(--dim);margin-top:3px}
+  .org-link{width:2px;height:20px;background:linear-gradient(var(--border-lt),var(--border))}
+  .lines{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin-top:10px}
+  @media(max-width:900px){.lines{grid-template-columns:1fr}}
+  .lcol{background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:14px}
+  .lcol h3{font-size:11.5px;font-weight:800;text-align:center;padding-bottom:11px;margin-bottom:11px;border-bottom:1px solid var(--border);letter-spacing:.02em}
+  .lcol.l1 h3{color:var(--accent)} .lcol.l2 h3{color:var(--amber)} .lcol.l3 h3{color:var(--green)}
+  .ag-mini{display:flex;align-items:center;gap:10px;padding:9px 10px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;transition:.15s}
+  .ag-mini:hover{border-color:var(--border-lt)}
+  .ag-mini .ae{font-size:17px} .ag-mini .an{font-weight:600;font-size:13px} .ag-mini .at{font-size:10.5px;color:var(--mute);margin-top:1px}
+
+  /* ── Task flow ── */
+  .flowline{margin-bottom:18px} .flowline:last-child{margin-bottom:0}
+  .flowline .fn{font-size:13px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .fsteps{display:flex;align-items:center;flex-wrap:wrap;gap:9px 0}
+  .fstep2{background:var(--surface2);border:1px solid var(--border-lt);border-radius:10px;padding:9px 14px;font-size:12.5px;font-weight:600;white-space:nowrap}
+  .fsep{display:flex;align-items:center;color:var(--mute);padding:0 9px;font-size:15px}
+
+  /* ── Identity cards ── */
+  .id-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+  .idcard{background:var(--surface2);border:1px solid var(--border);border-radius:15px;padding:16px;position:relative;transition:.18s}
+  .idcard:hover{border-color:var(--border-lt);transform:translateY(-2px);box-shadow:var(--shadow-lg)}
+  .idcard .ic-head{display:flex;align-items:center;gap:12px}
+  .idcard .ic-av{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;font-size:24px;background:var(--surface3);border:1px solid var(--border-lt);flex:none}
+  .idcard .ic-name{font-weight:800;font-size:15px;letter-spacing:-.01em}
+  .idcard .ic-title{font-size:11.5px;color:var(--dim);margin-top:2px}
+  .idcard .ic-line{position:absolute;top:15px;right:15px;font-size:9.5px;font-weight:800;padding:3px 9px;border-radius:7px;text-transform:uppercase;letter-spacing:.05em}
+  .ln0{background:#2e2a15;color:#e6cd7e} .ln1{background:#14253e;color:#84b8ff}
+  .ln2{background:#332a12;color:#ffcf7a} .ln3{background:#0f322a;color:#65dcab}
+  .idcard .ic-resp{font-size:12.5px;color:var(--text);margin-top:13px;line-height:1.6;opacity:.92}
+  .idcard .ic-foot{display:flex;gap:9px;margin-top:13px;flex-wrap:wrap}
+  .idcard .ic-tag{font-size:10.5px;color:var(--dim);background:var(--surface);border:1px solid var(--border);padding:3px 10px;border-radius:8px;font-weight:500}
+  .idcard .ic-dot{position:absolute;bottom:16px;right:16px}
+
+  @media(max-width:780px){
+    .app{flex-direction:column}
+    .sidebar{width:100%;height:auto;position:static;flex-direction:row;overflow-x:auto;padding:10px;gap:6px}
+    .s-brand,.s-sec,.s-foot{display:none} .s-nav{flex-direction:row} .nav-item{white-space:nowrap}
+    .content{padding:18px}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="s-brand">
+      <div class="s-logo">◆</div>
+      <div><h1>Price Action</h1><div class="st">Komuta Merkezi</div></div>
+    </div>
+    <div class="s-sec">Genel</div>
+    <nav class="s-nav" id="nav"></nav>
+    <div class="s-foot">
+      <div class="sf-row" id="sfHealth"><span class="dot ok"></span><span>—</span></div>
+      <div class="sf-sub" id="sfSub">başlatılıyor…</div>
+    </div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div><div class="tb-title" id="tbTitle">Genel Bakış</div><div class="tb-sub" id="tbSub">borsa-truth · canlı</div></div>
+      <div class="spacer"></div>
+      <span class="clock" id="clock">—</span>
+      <button class="refresh" onclick="manualRefresh()"><span id="refIcon">⟳</span> Yenile</button>
+    </div>
+    <div class="content"><div id="root"><div class="loading">İlk veri toplanıyor… (borsa income API ~15-20 sn)</div></div></div>
+  </div>
+</div>
+
+<script>
+const $=(s)=>document.querySelector(s);
+let DATA=null, lastErr=null;
+let activeTab=(location.hash.slice(1)||'overview');
+const TABS=[
+  {id:'overview', label:'Genel Bakış',        icon:'📊', sub:'borsa-truth · canlı özet'},
+  {id:'open',     label:'Açık Pozisyonlar',   icon:'📈', sub:'anlık pozisyonlar'},
+  {id:'history',  label:'Geçmiş Pozisyonlar',  icon:'🗂️', sub:'kapanan işlemler & istatistik'},
+  {id:'audit',    label:'İç Denetim',          icon:'🛡️', sub:'3. savunma hattı · SLA'},
+  {id:'org',      label:'Organizasyon',        icon:'🏛️', sub:'şema · akış · agent kimlikleri'},
+  {id:'system',   label:'Sistem',              icon:'⚙️', sub:'daemon · bot · yapılan işler'},
+];
+
+function money(v,dec=2){if(v==null||isNaN(v))return '—';return (v>=0?'+':'')+Number(v).toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec});}
+function plain(v,dec=2){if(v==null||isNaN(v))return '—';return Number(v).toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec});}
+function cls(v){return v>0?'pos':(v<0?'neg':'muted');}
+function esc(s){return (s||'').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));}
+function clock(){const d=new Date(Date.now()+new Date().getTimezoneOffset()*60000+3*3600000);$('#clock').textContent=d.toLocaleTimeString('tr-TR',{hour12:false})+' · TR';}
+setInterval(clock,1000);clock();
+async function manualRefresh(){$('#refIcon').classList.add('spin');try{await fetch('/api/refresh');}catch(e){}setTimeout(load,1800);setTimeout(()=>$('#refIcon').classList.remove('spin'),4200);}
+
+function panel(title,tag,col,bodyHtml){return `<div class="panel ${col}"><h2>${title}${tag?`<span class="tag">${tag}</span>`:''}</h2><div class="body">${bodyHtml}</div></div>`;}
+function kpi(label,val,sub,c){return `<div class="kpi"><div class="k-label">${label}</div><div class="k-val num ${c||''}">${val}</div><div class="k-sub">${sub||''}</div></div>`;}
+
+function renderNav(){
+  const a=DATA?DATA.audit||{open:0}:{open:0}, p=DATA?DATA.pnl||{}:{};
+  $('#nav').innerHTML=TABS.map(t=>{
+    let b='';
+    if(t.id==='open'&&p.ok) b=`<span class="ni-badge">${p.n_pos}</span>`;
+    if(t.id==='history'&&p.ok&&p.closed_stats) b=`<span class="ni-badge">${p.closed_stats.n}</span>`;
+    if(t.id==='audit') b=`<span class="ni-badge ${a.overdue>0?'alert':''}">${a.open}</span>`;
+    return `<div class="nav-item ${t.id===activeTab?'active':''}" onclick="switchTab('${t.id}')"><span class="ni-ic">${t.icon}</span><span>${t.label}</span>${b}</div>`;
+  }).join('');
+  const t=TABS.find(x=>x.id===activeTab)||TABS[0];
+  $('#tbTitle').textContent=t.label; $('#tbSub').textContent=t.sub;
+}
+function switchTab(id){activeTab=id;try{history.replaceState(null,'','#'+id);}catch(e){}renderNav();renderView();}
+window.addEventListener('hashchange',()=>{const t=location.hash.slice(1);if(t&&t!==activeTab){activeTab=t;renderNav();renderView();}});
+
+// ───────── TAB: Genel Bakış ─────────
+function viewOverview(){
+  const p=DATA.pnl; let h='';
+  if(!p.ok) return `<div class="err">PnL alınamadı: ${esc(p.error||'?')}</div>`;
+  h+=`<div class="flow">
+    <div class="fstep"><div class="fl">💰 Yatırılan Sermaye</div><div class="fv num">$${plain(p.start_equity,0)}</div><div class="fs">v14 başlangıç · ${p.anchor_tr}</div></div>
+    <div class="arr">→</div>
+    <div class="fstep"><div class="fl">📊 Güncel Equity</div><div class="fv num">$${plain(p.wallet+p.unrealized,2)}</div><div class="fs">cüzdan $${plain(p.wallet,1)} + açık ${money(p.unrealized)}</div></div>
+    <div class="arr">→</div>
+    <div class="fstep"><div class="fl">${p.total_pnl>=0?'📈':'📉'} Net Kâr / Zarar</div><div class="fv num ${cls(p.total_pnl)}">$${money(p.total_pnl)}</div><div class="fs ${cls(p.total_pnl)}">${money(p.total_pnl_pct)}% · ${p.total_pnl>=0?'kârda':'zararda'}</div></div>
+  </div>`;
+  h+='<div class="kpis">';
+  h+=kpi('NET Realized (TÜM)','$'+money(p.net_realized),`${p.n_closes} kapanış · fee dahil`,cls(p.net_realized));
+  h+=kpi('TEMİZ Edge','$'+money(p.clean_net),`${p.clean_n} kapanış · champion sonrası`,cls(p.clean_net));
+  h+=kpi('Açık Kâr/Zarar','$'+money(p.unrealized),`${p.n_pos} pozisyon · ${p.n_pos_green} yeşil`,cls(p.unrealized));
+  h+=kpi('Komisyon + Funding','$'+money(p.commission+p.funding),`maliyet · fee $${money(p.commission)}`,'');
+  h+='</div>';
+  const bs=DATA.botstats||{},a=DATA.audit||{},sy=DATA.system||{};
+  const quick=`<div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
+    <div class="stat"><div class="s-val">${p.n_pos}</div><div class="s-label">Açık pozisyon</div></div>
+    <div class="stat"><div class="s-val ${a.overdue>0?'neg':''}">${a.open}</div><div class="s-label">Audit açık bulgu</div></div>
+    <div class="stat"><div class="s-val">${bs.scans||0}</div><div class="s-label">15m tarama</div></div>
+    <div class="stat"><div class="s-val">${sy.disk_free||'—'}</div><div class="s-label">Disk boş</div></div></div>`;
+  let dly='';
+  const dp=p.daily_pnl||[];
+  if(dp.length){const mx=Math.max(...dp.map(x=>Math.abs(x.net)),1);
+    for(const x of dp){const w=Math.abs(x.net)/mx*100,col=x.net>=0?'linear-gradient(90deg,#1f8f63,#34d399)':'linear-gradient(90deg,#b13a45,#f87171)';
+      dly+=`<div class="att-row"><div class="name" style="width:54px">${x.date}</div>
+        <div class="att-bar"><span style="width:${w}%;background:${col};${x.net<0?'right:0':'left:0'}"></span></div>
+        <div class="att-val ${cls(x.net)}">$${money(x.net)} <span class="dim">·${x.n}</span></div></div>`;}
+  } else dly='<div class="empty">veri yok</div>';
+  h+='<div class="grid">';
+  h+=panel('📅 Günlük Performans','income/gün · net','col-7',dly);
+  h+=panel('⚡ Hızlı Bakış','','col-5',quick);
+  h+='</div>';
+  return h;
+}
+
+// ───────── TAB: Açık Pozisyonlar ─────────
+function viewOpen(){
+  const p=DATA.pnl;
+  if(!p.ok) return `<div class="err">PnL alınamadı: ${esc(p.error||'?')}</div>`;
+  let body;
+  if(!p.positions.length) body=`<div class="empty">açık pozisyon yok</div>`;
+  else{
+    body=`<table><thead><tr><th>Sembol</th><th>Yön</th><th>Tutar ($)</th><th>Giriş</th><th>Son Fiyat</th><th>Miktar</th><th>Açık K/Z</th><th>%</th></tr></thead><tbody>`;
+    for(const x of p.positions)
+      body+=`<tr><td class="sym">${x.symbol}</td><td><span class="badge ${x.side.toLowerCase()}">${x.side}</span></td>
+        <td class="num"><b>$${plain(x.notional,0)}</b></td>
+        <td class="num muted">${x.entry}</td><td class="num">${x.last}</td><td class="num muted">${x.qty}</td>
+        <td class="num ${cls(x.upnl)}">$${money(x.upnl)}</td><td class="num ${cls(x.upnl)}">${money(x.upnl_pct,1)}%</td></tr>`;
+    body+='</tbody></table>';
+    if(DATA.botstats&&DATA.botstats.pos_check) body+=`<div class="posbox">⏱ canlı bot: ${esc(DATA.botstats.pos_check)}</div>`;
+  }
+  const expo=p.pos_notional_total||0, expoPct=p.wallet?(expo/p.wallet*100):0;
+  let h='<div class="kpis" style="grid-template-columns:repeat(4,1fr)">';
+  h+=kpi('Açık Pozisyon',p.n_pos,`${p.n_pos_green} yeşil · ${p.n_pos-p.n_pos_green} kırmızı`,'');
+  h+=kpi('Yatırılan Tutar','$'+plain(expo,0),`cüzdanın %${plain(expoPct,0)} kadarı`,'');
+  h+=kpi('Toplam Açık K/Z','$'+money(p.unrealized),'LAST fiyattan',cls(p.unrealized));
+  h+=kpi('Kullanılan Margin','$'+plain(p.pos_margin_total,0),`boşta $${plain(p.available,0)}`,'');
+  h+='</div>';
+  h+=`<div class="grid">${panel('🟢 Açık Pozisyonlar','borsa-truth','col-12',body)}</div>`;
+  return h;
+}
+
+// ───────── TAB: Geçmiş Pozisyonlar ─────────
+function viewHistory(){
+  const p=DATA.pnl;
+  if(!p.ok) return `<div class="err">PnL alınamadı: ${esc(p.error||'?')}</div>`;
+  const s=p.closed_stats||{};
+  const realizedGross=(s.gross_win||0)+(s.gross_loss||0);
+  const fee=s.total_commission||0;
+  let h='<div class="kpis" style="grid-template-columns:repeat(3,1fr)">';
+  h+=kpi('Toplam İşlem',s.n||0,`${s.wins||0} kazanan · ${s.losses||0} kaybeden`,'');
+  h+=kpi('Başarı Oranı',(s.win_rate||0)+'%','win rate',(s.win_rate>=50?'pos':'neg'));
+  h+=kpi('Profit Factor',s.profit_factor!=null?s.profit_factor:'—',`ort kazanç $${money(s.avg_win)} / kayıp $${money(s.avg_loss)}`,(s.profit_factor>=1?'pos':'neg'));
+  h+=kpi('En İyi / En Kötü','$'+money(s.best),`en kötü $${money(s.worst)}`,'');
+  h+=kpi('Realized (fee hariç)','$'+money(realizedGross),`brüt +$${plain(s.gross_win)} / $${plain(s.gross_loss)}`,cls(realizedGross));
+  h+=kpi('💸 Ödenen Komisyon','$'+money(fee),`net (fee sonrası) $${money(realizedGross+fee)}`,'neg');
+  h+='</div>';
+  let att='';
+  const aa=p.all_attribution||[];
+  if(aa.length){const mx=Math.max(...aa.map(s=>Math.abs(s.net)),1);
+    for(const x of aa){const w=Math.abs(x.net)/mx*100,col=x.net>=0?'linear-gradient(90deg,#1f8f63,#34d399)':'linear-gradient(90deg,#b13a45,#f87171)';
+      att+=`<div class="att-row"><div class="name">${x.symbol}</div>
+        <div class="att-bar"><span style="width:${w}%;background:${col};${x.net<0?'right:0':'left:0'}"></span></div>
+        <div class="att-val ${cls(x.net)}">$${money(x.net)} <span class="dim" title="ödenen komisyon">·fee ${money(x.comm,1)}</span></div></div>`;}
+  } else att='<div class="empty">veri yok</div>';
+  let tbl;
+  const ct=p.closed_trades||[];
+  if(!ct.length) tbl='<div class="empty">kapanış yok</div>';
+  else{tbl='<div class="scroll"><table><thead><tr><th>Zaman (TR)</th><th>Sembol</th><th>Dönem</th><th>Realized</th><th>Komisyon</th><th>Net</th></tr></thead><tbody>';
+    for(const c of ct) tbl+=`<tr><td class="muted">${c.tr}</td><td class="sym">${c.symbol}</td>
+      <td><span class="chip ${c.clean?'clean':'contam'}">${c.clean?'temiz':'eski'}</span></td>
+      <td class="num ${cls(c.pnl)}">$${money(c.pnl)}</td>
+      <td class="num neg">${money(c.comm,3)}</td>
+      <td class="num ${cls(c.net)}">$${money(c.net)}</td></tr>`;
+    tbl+='</tbody></table></div>';}
+  h+=`<div class="grid">
+    ${panel('📊 Sembol Bazlı Katkı (tüm dönem)','','col-5',att)}
+    ${panel('🗂️ İşlem Geçmişi','son '+ct.length,'col-7',tbl)}
+  </div>`;
+  return h;
+}
+
+// ───────── TAB: İç Denetim ─────────
+function viewAudit(){
+  const a=DATA.audit||{open:0,findings:[]};
+  let h='<div class="kpis" style="grid-template-columns:repeat(3,1fr)">';
+  h+=kpi('Açık Bulgu',a.open,'1-gün SLA',a.open>0?'':'pos');
+  h+=kpi('Gecikmiş',a.overdue,'SLA aşıldı',a.overdue>0?'neg':'pos');
+  h+=kpi('Kapatılmış',a.closed,'çözülmüş','pos');
+  h+='</div>';
+  let body;
+  if(!a.findings.length) body='<div class="empty">açık bulgu yok ✓ — tüm sistemler temiz</div>';
+  else{body='<div class="dlist">';
+    for(const f of a.findings){
+      const sla=f.hrs_left==null?'—':(f.overdue?`<span class="neg">⏰ GECİKTİ ${Math.abs(Math.round(f.hrs_left))}s</span>`:`${Math.round(f.hrs_left)}s kaldı`);
+      body+=`<div class="drow"><span class="sev ${f.severity}">${f.severity}</span>
+        <div class="meta"><div class="dl-title">${esc(f.title)}</div>
+        <div class="dl-sub">${f.control} → sorumlu: <b>${f.owner}</b>${f.recurrence>0?' · tekrar ×'+f.recurrence:''}</div></div>
+        <div class="dl-right">${sla}</div></div>`;}
+    body+='</div>';}
+  h+=`<div class="grid">${panel('🛡️ Açık Denetim Bulguları','her sabah 06:00 TR','col-12',body)}</div>`;
+  return h;
+}
+
+// ───────── TAB: Organizasyon ─────────
+function agStatus(key){
+  const ceo=(DATA.daemons||[]).find(x=>x.key==='ceo');
+  const schedOk=ceo&&ceo.status!=='down';
+  const a=DATA.audit||{}, r=DATA.research||{};
+  if(key==='ceo') return schedOk?'ok':'down';
+  if(key==='researcher') return (r.n_promoted===0)?'warn':'ok';
+  if(key.indexOf('audit')===0) return a.overdue>0?'warn':'ok';
+  if(key==='risk_officer') return 'ok';
+  return schedOk?'ok':'down';
+}
+function viewOrg(){
+  const org=DATA.org||{agents:[],flows:[]}, r=DATA.research||{};
+  const byLine=(n)=>org.agents.filter(a=>a.line===n);
+  let chart=`<div class="org-top">
+    <div class="org-node boss"><div class="on-name">👑 Principal — YK Başkanı</div><div class="on-sub">Nihai karar · sermaye sahibi · son onay mercii</div></div>
+    <div class="org-link"></div>
+    <div class="org-node"><div class="on-name">🎩 CEO</div><div class="on-sub">Sentez · günlük brief · sermaye tahsisi</div></div>
+  </div>`;
+  const lineNames={1:'1. HAT — İcra (Operasyon)',2:'2. HAT — Gözetim',3:'3. HAT — Bağımsız Denetim'};
+  chart+='<div class="lines">';
+  for(const ln of [1,2,3]){
+    chart+=`<div class="lcol l${ln}"><h3>${lineNames[ln]}</h3>`;
+    for(const a of byLine(ln))
+      chart+=`<div class="ag-mini"><span class="dot ${agStatus(a.key)}"></span><span class="ae">${a.emoji}</span>
+        <div><div class="an">${a.name}</div><div class="at">${esc(a.title)}</div></div></div>`;
+    chart+='</div>';
+  }
+  chart+='</div>';
+  let flows='';
+  for(const f of org.flows){
+    flows+=`<div class="flowline"><div class="fn" style="color:${f.color}">${f.icon||''} ${esc(f.name)}</div><div class="fsteps">`;
+    f.steps.forEach((st,i)=>{flows+=`<div class="fstep2">${esc(st)}</div>`+(i<f.steps.length-1?'<div class="fsep">›</div>':'');});
+    flows+='</div></div>';
+  }
+  const lnLabel={0:'Yönetim',1:'1. Hat',2:'2. Hat',3:'3. Hat'};
+  let ids='<div class="id-grid">';
+  for(const a of org.agents)
+    ids+=`<div class="idcard"><span class="ic-line ln${a.line}">${lnLabel[a.line]}</span>
+      <div class="ic-head"><div class="ic-av">${a.emoji}</div>
+      <div><div class="ic-name">${esc(a.name)}</div><div class="ic-title">${esc(a.title)}</div></div></div>
+      <div class="ic-resp">${esc(a.resp)}</div>
+      <div class="ic-foot"><span class="ic-tag">🔧 ${esc(a.tools)}</span><span class="ic-tag">📤 ${esc(a.produces)}</span></div>
+      <span class="ic-dot dot ${agStatus(a.key)}"></span></div>`;
+  ids+='</div>';
+  return `<div class="grid">
+    ${panel('🏛️ Organizasyon Şeması','3 savunma hattı','col-12',chart)}
+    ${panel('🔀 Görev Akışları','iş süreçleri','col-12',flows)}
+    ${panel('🪪 Agent Kimlikleri',(org.agents.length)+' agent','col-12',ids)}
+  </div>`;
+}
+
+// ───────── TAB: Sistem ─────────
+function viewSystem(){
+  const bs=DATA.botstats||{},sy=DATA.system||{};
+  let dm='<div class="dlist">';
+  for(const d of (DATA.daemons||[]))
+    dm+=`<div class="drow"><span class="dot ${d.status}"></span>
+      <div class="meta"><div class="dl-title">${d.desc}</div>
+      <div class="dl-sub">${d.pid?('PID '+d.pid+(d.uptime?' · '+d.uptime.trim():'')):'çalışmıyor'}</div></div>
+      <div class="dl-right muted">${d.log_age_min!=null?(d.log_age_min+'dk önce'):''}</div></div>`;
+  dm+='</div>';
+  const botAct=`<div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
+    <div class="stat"><div class="s-val">${bs.scans||0}</div><div class="s-label">15m tarama</div></div>
+    <div class="stat"><div class="s-val ${(bs.entries||0)>0?'pos':''}">${bs.entries||0}</div><div class="s-label">Entry</div></div>
+    <div class="stat"><div class="s-val muted">${bs.widestop_rej||0}</div><div class="s-label">Widestop red</div></div>
+    <div class="stat"><div class="s-val muted">${bs.risk_rej||0}</div><div class="s-label">Risk red</div></div></div>`;
+  let commits='';
+  const w=DATA.worklog||[];
+  if(!w.length)commits='<div class="empty">git geçmişi yok</div>';
+  else for(const c of w) commits+=`<div class="commit"><span class="h">${c.hash}</span><span class="m">${esc(c.msg)}</span><span class="w">${esc(c.when)}</span></div>`;
+  return `<div class="grid">
+    ${panel('⚙️ Daemon Sağlığı',sy.disk_free?('disk '+sy.disk_free+' boş'):'','col-6',dm)}
+    ${panel('🤖 Bot Aktivite (v14)',bs.last_scan_tr?('son '+bs.last_scan_tr+' UTC'):'','col-6',botAct)}
+    ${panel('📋 Yapılan İşler (son commitler)','','col-12',commits)}
+  </div>`;
+}
+
+const VIEWS={overview:viewOverview,open:viewOpen,history:viewHistory,audit:viewAudit,org:viewOrg,system:viewSystem};
+
+function renderView(){
+  let h='<div class="view">';
+  if(lastErr) h+=`<div class="err">⚠ ${esc(lastErr)}</div>`;
+  h+=(VIEWS[activeTab]||viewOverview)();
+  h+=`<div class="footer">borsa-truth · TR saat · son toplama: ${esc(DATA.generated_tr||'')} · otomatik yenileme 25 sn</div></div>`;
+  $('#root').innerHTML=h;
+}
+
+function render(d){
+  DATA=d;
+  const hh=d.health||'ok';
+  const htxt=hh==='ok'?'Tüm sistemler normal':(hh==='warn'?'Dikkat gerektiriyor':'Sorun var');
+  $('#sfHealth').innerHTML=`<span class="dot ${hh}"></span><span>${htxt}</span>`;
+  const sy=d.system||{}, n=(d.daemons||[]).filter(x=>x.pid).length;
+  $('#sfSub').innerHTML=`${n} servis aktif · disk ${sy.disk_free||'—'}<br>güncellendi ${esc((d.generated_tr||'').slice(0,-3))}`;
+  renderNav();renderView();
+}
+
+async function load(){
+  try{const res=await fetch('/api/snapshot',{cache:'no-store'});const d=await res.json();lastErr=null;
+    if(d.loading)return;render(d);
+  }catch(e){lastErr='sunucuya ulaşılamadı: '+e.message;if(DATA)renderView();}
+}
+renderNav();load();setInterval(load,25000);
+</script>
+</body>
+</html>
