@@ -1,0 +1,70 @@
+{
+  "hypothesis_id": "2026-06-29-kaufman-rsi-divergence-chan-halflife-filter-4h",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-29-kaufman-rsi-divergence-chan-halflife-filter-4h.md",
+  "extracted_at": "2026-07-07T16:43:25.411493+00:00",
+  "bridge_version": 1,
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "4h",
+    "param_grid": {
+      "rsi_period": [
+        9,
+        14,
+        21
+      ],
+      "divergence_lookback": [
+        20,
+        30,
+        40
+      ],
+      "zigzag_swing_window": [
+        3,
+        5,
+        7
+      ],
+      "sl_offset_atr": [
+        0.2,
+        0.3,
+        0.4
+      ],
+      "tp_R": [
+        1.5,
+        2.0,
+        2.5
+      ],
+      "halflife_band_low": [
+        8,
+        10,
+        12,
+        16
+      ],
+      "halflife_band_high": [
+        72,
+        80,
+        96,
+        120
+      ]
+    },
+    "accept_gates": [
+      "mean_R_net > +0.08",
+      "annual_return_net > 0.12",
+      "max_dd_equity < 0.22",
+      "n_trades >= 200",
+      "p_gross_shuffle < 0.05",
+      "dsr > 0.6",
+      "filter_value_ratio >= 1.4",
+      "placebo_sharpe < 0.3",
+      "is_oos_sharpe_ratio <= 1.5"
+    ],
+    "executable": false,
+    "reason_if_not": "detector yok: RSI(14) bullish/bearish divergence (ZigZag swing-point) + Chan half-life sembol filtresi + engulfing/hammer confirmation candle kombinasyonu rafta yok"
+  },
+  "result": {
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: RSI(14) bullish/bearish divergence (ZigZag swing-point) + Chan half-life sembol filtresi + engulfing/hammer confirmation candle kombinasyonu rafta yok",
+    "shelf_size": 64
+  }
+}

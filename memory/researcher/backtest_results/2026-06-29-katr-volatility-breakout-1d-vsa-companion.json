@@ -1,0 +1,50 @@
+{
+  "hypothesis_id": "2026-06-29-katr-volatility-breakout-1d-vsa-companion",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-29-katr-volatility-breakout-1d-vsa-companion.md",
+  "extracted_at": "2026-07-07T16:43:15.827796+00:00",
+  "bridge_version": 1,
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
+    "param_grid": {
+      "k_atr_entry": [
+        0.5,
+        0.75,
+        1.0
+      ],
+      "atr_stop_mult": [
+        1.5,
+        2.0
+      ],
+      "target_atr_mult": [
+        1.5,
+        2.0,
+        2.5
+      ]
+    },
+    "accept_gates": [
+      "oos_sharpe_annualized >= 0.8",
+      "oos_net_annual_return_pct >= 20",
+      "oos_max_drawdown_pct <= 25",
+      "pearson_corr_with_vsa_climax_daily_returns <= 0.20",
+      "combined_portfolio_sharpe >= max(standalone) * 1.15",
+      "oos_profit_factor >= 1.3",
+      "oos_trades_total >= 150",
+      "oos_win_rate >= 45",
+      "dsr >= 0.5",
+      "pbo <= 0.5",
+      "is_sharpe / oos_sharpe <= 3.0",
+      "params_over_N <= 1/30"
+    ],
+    "executable": false,
+    "reason_if_not": "detector yok: Kaufman k\u00d7ATR volatility breakout (Open \u00b1 k\u00d7ATR(14) stop-entry, 1.5\u00d7ATR SL, 2\u00d7ATR target veya bar-close time-stop) rafta mevcut de\u011fil"
+  },
+  "result": {
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: Kaufman k\u00d7ATR volatility breakout (Open \u00b1 k\u00d7ATR(14) stop-entry, 1.5\u00d7ATR SL, 2\u00d7ATR target veya bar-close time-stop) rafta mevcut de\u011fil",
+    "shelf_size": 64
+  }
+}

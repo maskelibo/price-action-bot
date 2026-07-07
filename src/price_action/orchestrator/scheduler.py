@@ -2169,11 +2169,8 @@ async def _job_researcher_improvement_pulse() -> None:
 
     Önceden Researcher sadece gece 02:00 (deep) + 02:30 (5-batch) çalışıyordu.
     Principal "gün içinde de üretsin, mevcut botu iyileştirsin" istedi.
-    Bu job 4 saatte 1 çalışır, dönüşümlü temalar:
-      0: futures15m bot iyileştirme
-      1: futures5m bot iyileştirme
-      2: yeni edge / çapraz strateji
-      3: portföy çeşitlilik
+    OTONOMI-1 (2026-07-07): temalar kanıt-temelli AILE-* rotasyonuna bağlandı
+    (aşağıdaki `themes` listesi); eski futures5m/bayat tema listesi öldü.
 
     Her çağrı ~30-50K Opus token (kalan günlük 500K bütçe karşılar).
     """

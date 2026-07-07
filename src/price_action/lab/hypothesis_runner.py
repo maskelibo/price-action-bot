@@ -10,13 +10,21 @@ Bu modül o eksik halkayı kapatır:
                                        │
                                        ├─ type=param_sweep    ──▶ apply_cell sweep
                                        ├─ type=analysis       ──▶ correlation runner
-                                       ├─ type=new_strategy   ──▶ DEFERRED
+                                       ├─ type=new_strategy   ──▶ raf-köprüsü (FAZ-2)
                                        └─ type=unknown        ──▶ NOT_AUTOMATED
+
+FAZ-2 (2026-07-07): new_strategy artık DEFERRED değil. strategies/ rafındaki
+~75 hazır Strategy sınıfı statik taranır, LLM extract hipotezin çekirdek
+mantığını uygulayan modülü seçer (strategy_module), iterate altyapısıyla
+(scripts/iterate_rsi2_variants) hipotezin TF'inde koşulur. Rafta örtüşen
+detektör yoksa dürüst NO_DETECTOR (detector-request) yazılır — sahte eşleşme
+yasak.
 
 Sonuçlar `memory/researcher/backtest_results/<hyp_id>.json` altında
 tournament-friendly formatta yazılır (oos_returns sample, oos_sharpe
 annualized, monthly_roi_pct_mean, max_dd_pct).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -24,7 +32,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,10 +49,42 @@ DEFAULT_POOL_MAP = {
     "engulfing_continuation": ("data/sec53_15m_pool_v11.pkl", 0.005, 0.025),
 }
 
+STRATEGIES_DIR = REPO_ROOT / "src" / "price_action" / "strategies"
+_SHELF_SKIP = {"base", "manifest_loader", "__init__"}
+_BRIDGE_TFS = ("5m", "15m", "1h", "4h", "1d")
+# param_sweep_runner.FEE_RT_PCT ile AYNI fee modeli (taker RT 15bps).
+_FEE_RT_PCT = 0.0015
+
+
+def discover_strategy_shelf() -> dict[str, tuple[str, str]]:
+    """strategies/ rafını statik tara (import YOK) → {module: (Class, açıklama)}.
+
+    FAZ-2 (2026-07-07): new_strategy köprüsünün raf envanteri. Regex ile
+    ``class X(...Strategy...)`` yakalar; modül import edilmediği için yan
+    etki/maliyet yok. Açıklama = modül docstring'inin ilk satırı (LLM'in
+    doğru eşleştirme yapabilmesi için).
+    """
+    shelf: dict[str, tuple[str, str]] = {}
+    for py in sorted(STRATEGIES_DIR.glob("*.py")):
+        if py.stem in _SHELF_SKIP:
+            continue
+        try:
+            src = py.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        m = re.search(r"^class\s+(\w+)\([^)]*\bStrategy\b[^)]*\):", src, re.MULTILINE)
+        if not m:
+            continue
+        doc = re.search(r'^(?:r?)"""(.+)', src, re.MULTILINE)
+        desc = doc.group(1).strip().rstrip('"') if doc else ""
+        shelf[py.stem] = (m.group(1), desc[:110])
+    return shelf
+
 
 @dataclass
 class HypothesisSpec:
     """LLM tarafından extract edilen yapılandırılmış hipotez."""
+
     hypothesis_id: str
     source_path: str
     hypothesis_type: str  # "param_sweep" | "analysis" | "new_strategy" | "unknown"
@@ -53,6 +93,9 @@ class HypothesisSpec:
     accept_gates: list[str]
     executable: bool
     reason_if_not: str
+    # FAZ-2: new_strategy köprüsü — rafta örtüşen detektör modülü + hedef TF.
+    strategy_module: str | None = None
+    timeframe: str = "15m"
     raw_llm_response: str = ""
 
 
@@ -63,6 +106,8 @@ SADECE JSON döndür, açıklama yazma. Format:
   "hypothesis_id": "<dosya adı .md uzantısız>",
   "hypothesis_type": "param_sweep" | "analysis" | "new_strategy" | "unknown",
   "base_strategy": "<vsa_climax_test|brooks_failed_breakout|anchored_vwap_reversal|engulfing_continuation> veya null",
+  "strategy_module": "<new_strategy ise: aşağıdaki DETEKTÖR RAFI listesinden modül adı> veya null",
+  "timeframe": "5m" | "15m" | "1h" | "4h" | "1d",
   "param_grid": {
     "<param_adı>": [<değer1>, <değer2>, ...],
     ...
@@ -92,10 +137,24 @@ param_grid extract: hipotez metinindeki "## Bağımsız değişkenler" benzeri b
 Param adlarını TAM hipotez metnindeki ŞEKİLDE bırak (örn sl_pct, risk_pct, tp_r, vol_target_atr_pct).
 Listelerdeki sayıları float'a parse et.
 
+new_strategy KÖPRÜ KURALLARI (FAZ-2):
+- Hipotezin ÇEKİRDEK sinyal mantığını aşağıdaki DETEKTÖR RAFI'ndaki bir modül
+  GERÇEKTEN uyguluyorsa: strategy_module = o modül adı, executable = true.
+- Kısmi/uzak benzerlik YETERLİ DEĞİL — pattern mekaniği örtüşmeli (örn "falling
+  three methods" → three_methods modülü ✓; "kaufman ATR breakout" → rafta yoksa null ✗).
+- Hiçbir modül örtüşmüyorsa: strategy_module = null, executable = false,
+  reason_if_not = "detector yok: <hipotezin istediği mekanik, 1 cümle>".
+
+timeframe: hipotezin hedef zaman dilimi (başlık/metinde 1d, 4h, 1h geçebilir).
+Belirtilmemişse "15m".
+
 executable=false durumları:
-- new_strategy: backtest motorumuz henüz hipotezi koşturamaz (DEFERRED)
+- new_strategy ve rafta örtüşen modül yok (detector request)
 - unknown: yapı çıkarılamadı
 - analysis ama veri yok: skip
+
+DETEKTÖR RAFI (strategy_module için geçerli değerler):
+__SHELF_LIST__
 
 HİPOTEZ:
 ---
@@ -128,8 +187,13 @@ class HypothesisRunner:
 
         # Lab Scientist agent'ı kullan (CLI subscription auth zaten ayarlı)
         from price_action.agents import LabScientistAgent
+
         lab = LabScientistAgent()
-        prompt = _EXTRACT_PROMPT + f"\n{text_trunc}\n---\n\nSADECE JSON döndür."
+        # FAZ-2: detektör rafını prompt'a enjekte et (modül + 1-satır açıklama)
+        shelf = discover_strategy_shelf()
+        shelf_list = "\n".join(f"- {mod}: {desc}" for mod, (_cls, desc) in sorted(shelf.items()))
+        prompt_base = _EXTRACT_PROMPT.replace("__SHELF_LIST__", shelf_list)
+        prompt = prompt_base + f"\n{text_trunc}\n---\n\nSADECE JSON döndür."
         try:
             response = await lab.run(prompt)
         except Exception as exc:
@@ -176,6 +240,18 @@ class HypothesisRunner:
                 raw_llm_response=response[:500],
             )
 
+        # FAZ-2: strategy_module halüsinasyon koruması — rafta yoksa null'a düş
+        raw_module = data.get("strategy_module")
+        if raw_module is not None and raw_module not in shelf:
+            logger.warning(
+                "hyp_runner.shelf_module_hallucinated",
+                extra={"hyp": hyp_path.name, "module": str(raw_module)[:60]},
+            )
+            raw_module = None
+        tf = str(data.get("timeframe") or "15m")
+        if tf not in _BRIDGE_TFS:
+            tf = "15m"
+
         return HypothesisSpec(
             hypothesis_id=data.get("hypothesis_id", hyp_path.stem),
             source_path=str(hyp_path),
@@ -185,6 +261,8 @@ class HypothesisRunner:
             accept_gates=list(data.get("accept_gates", [])),
             executable=bool(data.get("executable", False)),
             reason_if_not=str(data.get("reason_if_not", "")),
+            strategy_module=raw_module,
+            timeframe=tf,
             raw_llm_response=response[:500],
         )
 
@@ -239,8 +317,8 @@ class HypothesisRunner:
 
         # Sweep'i koş — sadece ilk N=20 cell (test için, full grid yorucu)
         import itertools
-        import pickle
         import sys
+
         scripts_dir = REPO_ROOT / "scripts"
         if str(scripts_dir) not in sys.path:
             sys.path.insert(0, str(scripts_dir))
@@ -284,8 +362,12 @@ class HypothesisRunner:
                 break
             try:
                 metric = apply_cell(
-                    df, sl_multiplier=sl, tp_r=tp, risk_pct=rk,
-                    sl_pct_base=sl_pct_base, regime_series=None,
+                    df,
+                    sl_multiplier=sl,
+                    tp_r=tp,
+                    risk_pct=rk,
+                    sl_pct_base=sl_pct_base,
+                    regime_series=None,
                 )
                 row = metric.to_row()
                 row["strategy"] = spec.base_strategy
@@ -311,9 +393,7 @@ class HypothesisRunner:
             "type": "param_sweep",
             "n_cells_evaluated": len(cells),
             "best_cell": best,
-            "all_cells_top5": sorted(
-                cells, key=lambda c: c["mean_R_after_fees"], reverse=True
-            )[:5],
+            "all_cells_top5": sorted(cells, key=lambda c: c["mean_R_after_fees"], reverse=True)[:5],
         }
 
     def run_correlation_analysis(self, spec: HypothesisSpec) -> dict[str, Any]:
@@ -324,6 +404,7 @@ class HypothesisRunner:
         """
         try:
             import numpy as np
+
             from price_action.lab.sweep_aggregator import top_cells_as_challengers
         except ImportError as exc:
             return {"status": "ERROR", "reason": f"import fail: {exc}"}
@@ -355,11 +436,13 @@ class HypothesisRunner:
             for j in range(i + 1, n):
                 rho = float(corr[i][j])
                 if abs(rho) < 0.20:
-                    low_corr_pairs.append({
-                        "a": names[i],
-                        "b": names[j],
-                        "rho": round(rho, 4),
-                    })
+                    low_corr_pairs.append(
+                        {
+                            "a": names[i],
+                            "b": names[j],
+                            "rho": round(rho, 4),
+                        }
+                    )
         return {
             "status": "OK",
             "type": "analysis",
@@ -371,6 +454,186 @@ class HypothesisRunner:
             },
             "low_correlation_pairs": low_corr_pairs,
             "n_low_corr_pairs": len(low_corr_pairs),
+        }
+
+    def run_new_strategy(self, spec: HypothesisSpec) -> dict[str, Any]:
+        """FAZ-2 köprüsü: raf detektörü → iterate motoru → tournament-format sonuç.
+
+        DEFERRED/NOT_EXECUTABLE sınıfını öldürür: hipotezin çekirdek mantığını
+        uygulayan hazır Strategy sınıfı (extract'te strategy_module seçilir),
+        mevcut iterate altyapısıyla (scripts/iterate_rsi2_variants) hipotezin
+        TF'inde koşulur. Fee modeli param_sweep_runner ile aynı: taker RT 15bps
+        → fee_R = 0.0015 / sl_pct. Rafta detektör yoksa NO_DETECTOR döner
+        (dürüst detector-request; sahte eşleşme yasak).
+        """
+        shelf = discover_strategy_shelf()
+        module = spec.strategy_module
+        if module is not None and module not in shelf:
+            module = None
+        if module is None:
+            # Fuzzy fallback: hyp_id içinde iterate registry anahtarı ara
+            # (LLM'in kaçırdığı ama registry'de takma adı olan detektörler için)
+            try:
+                from price_action.lab.iterate_orchestrator import resolve_strategy
+
+                resolved = resolve_strategy(spec.hypothesis_id)
+            except Exception:
+                resolved = None
+            if resolved is not None and resolved[0] in shelf:
+                module = resolved[0]
+        if module is None:
+            return {
+                "status": "NO_DETECTOR",
+                "type": "new_strategy",
+                "reason": (
+                    "rafta örtüşen detektör yok — detector request: "
+                    + (spec.reason_if_not or spec.hypothesis_id)[:200]
+                ),
+                "shelf_size": len(shelf),
+            }
+        class_name = shelf[module][0]
+
+        import sys
+
+        scripts_dir = REPO_ROOT / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        try:
+            import pandas as pd
+            from iterate_rsi2_v4 import _equity_with_loss_pause
+            from iterate_rsi2_variants import (
+                SYMBOLS,
+                _compute_metrics,
+                _exit_with_be,
+                _load_ohlcv,
+            )
+
+            from price_action.lab.iterate_orchestrator import classify_tier
+            from price_action.strategies.base import StrategyManifest
+
+            mod = __import__(f"price_action.strategies.{module}", fromlist=[class_name])
+            StrategyClass = getattr(mod, class_name)  # noqa: N806
+        except Exception as exc:
+            return {"status": "ERROR", "reason": f"bridge import fail: {str(exc)[:150]}"}
+
+        strategy = StrategyClass(StrategyManifest(name=module, version="hyp-bridge"))
+        grid = spec.param_grid or {}
+        tp_grid = grid.get("tp_r")
+        tp_r = (
+            float(tp_grid[0])
+            if isinstance(tp_grid, list) and tp_grid
+            else 2.0  # yeni-strateji default (raf docstring'leri 2-2.5R hedefler)
+        )
+        tf = spec.timeframe if spec.timeframe in _BRIDGE_TFS else "15m"
+
+        trades: list[dict[str, Any]] = []
+        n_syms_with_data = 0
+        for sym in SYMBOLS:
+            try:
+                df = _load_ohlcv(sym, tf)
+            except Exception:
+                continue
+            if df.empty:
+                continue
+            n_syms_with_data += 1
+            try:
+                df_feats = strategy.prepare_features(df)
+                signals = strategy.generate_signals(df_feats)
+            except Exception as exc:
+                logger.warning(
+                    "hyp_runner.bridge_signal_fail",
+                    extra={"sym": sym, "module": module, "err": str(exc)[:150]},
+                )
+                continue
+            df_feats = df_feats.reset_index(drop=True)
+            for sig in signals:
+                sig_idx = df_feats.index[df_feats["ts"] == sig.ts]
+                if len(sig_idx) == 0:
+                    continue
+                i0 = int(sig_idx[0])
+                if i0 >= len(df_feats) - 1:
+                    continue
+                entry = float(df_feats["close"].iloc[i0])
+                sl_pct = abs(entry - float(sig.sl_price)) / max(entry, 1e-9)
+                if sl_pct <= 0:
+                    continue
+                R, _exit_price, exit_offset = _exit_with_be(  # noqa: N806
+                    df_feats,
+                    i0,
+                    entry,
+                    sig.sl_price,
+                    tp_r=tp_r,
+                    direction=sig.direction,
+                    be_protect=False,
+                    trail_pct=None,
+                )
+                r_net = float(R) - _FEE_RT_PCT / max(sl_pct, 1e-6)
+                exit_i = min(i0 + exit_offset, len(df_feats) - 1)
+                trades.append(
+                    {
+                        "entry_ts": sig.ts,
+                        "exit_ts": df_feats["ts"].iloc[exit_i],
+                        "R": r_net,
+                        "symbol": sym,
+                        "side": sig.direction,
+                    }
+                )
+
+        if not trades:
+            return {
+                "status": "NO_TRADES",
+                "type": "new_strategy",
+                "strategy_module": module,
+                "strategy_class": class_name,
+                "timeframe": tf,
+                "n_symbols_with_data": n_syms_with_data,
+            }
+
+        trades_df = pd.DataFrame(trades)
+        eq_series, _final_eq, n_taken = _equity_with_loss_pause(
+            trades_df, risk_pct=0.005, max_concurrent=6, consecutive_loss_pause=3
+        )
+        m = _compute_metrics(eq_series, 10_000.0)
+        tier = classify_tier(m)
+
+        r_arr = trades_df["R"].astype(float)
+        mean_r = float(r_arr.mean())
+        span_sec = (
+            pd.Timestamp(trades_df["exit_ts"].max()) - pd.Timestamp(trades_df["entry_ts"].min())
+        ).total_seconds()
+        years = max(span_sec / (365.25 * 86400), 1e-9)
+        trades_per_year = len(r_arr) / years
+        r_std = float(r_arr.std(ddof=1)) if len(r_arr) > 1 else 0.0
+        sharpe_ann = mean_r / r_std * math.sqrt(trades_per_year) if r_std > 0 else 0.0
+        verdict = "GO" if tier != "REJECT" and mean_r > 0 else "RED"
+
+        return {
+            "status": "OK",
+            "type": "new_strategy",
+            "verdict": verdict,
+            "tier": tier,
+            "strategy_module": module,
+            "strategy_class": class_name,
+            "timeframe": tf,
+            "tp_r": tp_r,
+            "n_trades_raw": int(len(trades_df)),
+            "n_taken": int(n_taken),
+            "n_symbols_with_data": n_syms_with_data,
+            "mean_R_after_fees": round(mean_r, 4),
+            "monthly_roi": m["monthly_roi"],
+            "max_dd": m["max_dd"],
+            "neg_count": m["neg_count"],
+            "total_months": m["total_months"],
+            "annualized": m["annualized"],
+            "oos_sharpe": round(float(sharpe_ann), 4),
+            "oos_returns": [round(float(x), 4) for x in r_arr.tail(500)],
+            "trades_per_year": round(trades_per_year, 1),
+            "fee_model": "taker RT 15bps (fee_R=0.0015/sl_pct)",
+            "equity_spec": {
+                "risk_pct": 0.005,
+                "max_concurrent": 6,
+                "consecutive_loss_pause": 3,
+            },
         }
 
     # ------------------------------------------------------------------
@@ -413,18 +676,27 @@ class HypothesisRunner:
                     f"PARTIAL — sadece unconditional Pearson hesaplandı. "
                     f"Hipotez tam koşum için ekstra pipeline ister: {spec.reason_if_not}"
                 )
+        elif spec.hypothesis_type == "new_strategy":
+            # FAZ-2: executable=false olsa bile köprü dener (fuzzy fallback
+            # LLM'in kaçırdığı raf eşleşmesini yakalayabilir); rafta detektör
+            # yoksa köprü NO_DETECTOR yazar — DEFERRED sınıfı öldü.
+            run_result = await asyncio.to_thread(self.run_new_strategy, spec)
         elif not spec.executable:
             run_result = {
                 "status": "NOT_EXECUTABLE",
                 "reason": spec.reason_if_not or "executable=false",
             }
         elif spec.hypothesis_type == "param_sweep":
-            run_result = await asyncio.to_thread(self.run_param_sweep, spec)
-        elif spec.hypothesis_type == "new_strategy":
-            run_result = {
-                "status": "DEFERRED",
-                "reason": "new_strategy runner henüz yok — manuel pa-backtest gerek",
-            }
+            # FAZ-2 yönlendirme: pool-sweep base_strategy ister. LLM, grid
+            # görünce param_sweep sınıflar ama strateji pool'da yoksa sweep
+            # koşulamaz — rafta detektör eşleşmişse (strategy_module) köprüden
+            # koş (grid'in tp_r'ı köprüde kullanılır; tam grid FAZ-3 işi).
+            if spec.base_strategy in DEFAULT_POOL_MAP:
+                run_result = await asyncio.to_thread(self.run_param_sweep, spec)
+            elif spec.strategy_module:
+                run_result = await asyncio.to_thread(self.run_new_strategy, spec)
+            else:
+                run_result = await asyncio.to_thread(self.run_param_sweep, spec)
         else:
             run_result = {
                 "status": "NOT_AUTOMATED",
@@ -434,10 +706,16 @@ class HypothesisRunner:
         out = {
             "hypothesis_id": spec.hypothesis_id,
             "source_path": spec.source_path,
-            "extracted_at": datetime.now(timezone.utc).isoformat(),
+            "extracted_at": datetime.now(UTC).isoformat(),
+            # FAZ-2 damgası: bu anahtar varsa sonuç köprü-sonrası dünyadan —
+            # run_all_pending eski DEFERRED/NOT_EXECUTABLE'ları bununla ayırt
+            # edip bir kez yeniden dener (NO_DETECTOR dahil yenileri terminal).
+            "bridge_version": 1,
             "spec": {
                 "type": spec.hypothesis_type,
                 "base_strategy": spec.base_strategy,
+                "strategy_module": spec.strategy_module,
+                "timeframe": spec.timeframe,
                 "param_grid": spec.param_grid,
                 "accept_gates": spec.accept_gates,
                 "executable": spec.executable,
@@ -462,7 +740,7 @@ class HypothesisRunner:
         max_runs: token tüketimini kontrol için cap (LLM extract her hipotez
         için ~5K token).
         """
-        cutoff_dt = datetime.now(timezone.utc).timestamp() - since_days * 86400
+        cutoff_dt = datetime.now(UTC).timestamp() - since_days * 86400
         pending: list[Path] = []
         for hyp_path in sorted(self.hyp_dir.glob("*.md"), reverse=True):
             # Skip README/TEMPLATE
@@ -475,7 +753,25 @@ class HypothesisRunner:
                 continue
             result_path = self.results_dir / f"{hyp_path.stem}.json"
             if result_path.exists():
-                continue
+                # FAZ-2 göç kuralı: köprü-öncesi (bridge_version'sız) DEFERRED
+                # ve new_strategy-NOT_EXECUTABLE sonuçları BİR KEZ yeniden
+                # koşulur — köprü artık bunları çalıştırabiliyor. Yeni yazılan
+                # her sonuç bridge_version taşır (NO_DETECTOR dahil), yani
+                # ikinci tur retry olmaz; sonsuz döngü yapısal olarak imkânsız.
+                try:
+                    existing = json.loads(result_path.read_text())
+                except (json.JSONDecodeError, OSError):
+                    existing = None
+                if existing is not None:
+                    if existing.get("bridge_version"):
+                        continue
+                    st = (existing.get("result") or {}).get("status")
+                    typ = (existing.get("spec") or {}).get("type")
+                    retry_eligible = st == "DEFERRED" or (
+                        st == "NOT_EXECUTABLE" and typ == "new_strategy"
+                    )
+                    if not retry_eligible:
+                        continue
             pending.append(hyp_path)
             if len(pending) >= max_runs:
                 break
@@ -486,7 +782,10 @@ class HypothesisRunner:
         results = []
         for hyp_path in pending:
             try:
-                r = await self.run(hyp_path)
+                # skip_if_exists=False: pending listesi zaten "sonucu yok VEYA
+                # köprü-göçü retry" filtresinden geçti; run() içindeki skip
+                # retry'ları geri döndürürdü.
+                r = await self.run(hyp_path, skip_if_exists=False)
                 results.append(r)
             except Exception as exc:
                 logger.warning(
@@ -499,6 +798,7 @@ class HypothesisRunner:
 
 if __name__ == "__main__":
     import sys
+
     runner = HypothesisRunner()
     if len(sys.argv) > 1:
         # Tek hipotez
