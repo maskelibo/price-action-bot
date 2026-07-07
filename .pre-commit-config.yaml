@@ -36,7 +36,7 @@ repos:
         args: [--config, .typos.toml, --no-check-filenames, --force-exclude]
         # FIX 2026-07-06: TR gövdeli kök md'ler eklendi (pre-commit dosyaları
         # explicit geçirdiği için config exclude'u --force-exclude ile uygulanır)
-        exclude: ^(memory/|reports/|data/|logs/|src/|scripts/|tests/|configs/|README\.md|PROJE_RAPORU\.md|RESUME_|RUNBOOK\.md)
+        exclude: ^(memory/|reports/|data/|logs/|src/|scripts/|tests/|configs/|README\.md|PROJE_RAPORU\.md|RESUME_|RUNBOOK\.md|OTONOMI_PLANI\.md)
 
   # FIX 2026-05-28 (Faz 14.27 C7): secret scanning beyond detect-private-key
   - repo: https://github.com/gitleaks/gitleaks
