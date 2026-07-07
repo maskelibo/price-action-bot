@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-21-daily-scan-pa-edge-signals-seed-abort-v4",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-21-daily-scan-pa-edge-signals-seed-abort-v4.md",
+  "extracted_at": "2026-06-21T02:30:09.307966+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "REJECTED_PRE_TEST audit-trail stub \u2014 hypothesis body NONE (Persona Hard-Limit #72 absorption); no parameter grid, no testable signal, premise self-falsified (RAG/knowledge corpus unchanged 23-31d), 0/6 reset gates closed, family-wise N=121 with L\u00f3pez-Prado free-params/N persistent breach"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED_PRE_TEST audit-trail stub \u2014 hypothesis body NONE (Persona Hard-Limit #72 absorption); no parameter grid, no testable signal, premise self-falsified (RAG/knowledge corpus unchanged 23-31d), 0/6 reset gates closed, family-wise N=121 with L\u00f3pez-Prado free-params/N persistent breach"
+  }
+}

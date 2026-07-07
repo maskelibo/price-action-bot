@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-20-engulfing-continuation-confluence-threshold-sweep-seed-abort-v12",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-20-engulfing-continuation-confluence-threshold-sweep-seed-abort-v12.md",
+  "extracted_at": "2026-06-20T03:30:21.881540+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "engulfing_continuation",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "REJECTED_PRE_TEST seed-abort v12: hypothesis body not written (NO_V12_HYPOTHESIS_BODY persona hard-limit), 8/8 reset gates closed, prior-art v3 still DRAFT at day 16, family-wise N inflated to 322, RAG envelope 8th consecutive byte-identical, no param grid specified"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED_PRE_TEST seed-abort v12: hypothesis body not written (NO_V12_HYPOTHESIS_BODY persona hard-limit), 8/8 reset gates closed, prior-art v3 still DRAFT at day 16, family-wise N inflated to 322, RAG envelope 8th consecutive byte-identical, no param grid specified"
+  }
+}

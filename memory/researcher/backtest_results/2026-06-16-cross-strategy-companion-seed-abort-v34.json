@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-16-cross-strategy-companion-seed-abort-v34",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-16-cross-strategy-companion-seed-abort-v34.md",
+  "extracted_at": "2026-06-16T14:30:22.558115+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort doc (status=REJECTED); pre-registration reset gate 0/6, Bonferroni-debt N=81, no param grid or testable spec \u2014 audit-trail only, not executable."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort doc (status=REJECTED); pre-registration reset gate 0/6, Bonferroni-debt N=81, no param grid or testable spec \u2014 audit-trail only, not executable."
+  }
+}

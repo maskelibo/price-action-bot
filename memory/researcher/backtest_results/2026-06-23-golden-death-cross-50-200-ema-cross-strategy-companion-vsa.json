@@ -1,0 +1,33 @@
+{
+  "hypothesis_id": "2026-06-23-golden-death-cross-50-200-ema-cross-strategy-companion-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-23-golden-death-cross-50-200-ema-cross-strategy-companion-vsa.md",
+  "extracted_at": "2026-07-07T18:00:25.372722+00:00",
+  "bridge_version": 1,
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
+    "param_grid": null,
+    "accept_gates": [
+      "net_annualized_return >= 0.18",
+      "oos_sharpe >= 0.70",
+      "oos_sharpe_positive_slices >= 8/12",
+      "max_dd <= 0.22",
+      "profit_factor >= 1.25",
+      "win_rate in [0.30, 0.45]",
+      "n_trades >= 80",
+      "spearman_corr_vs_vsa_climax_test abs <= 0.20",
+      "rolling_90d_spearman_max_abs <= 0.35",
+      "oos_p < 4.20e-4 (Holm N=121)"
+    ],
+    "executable": false,
+    "reason_if_not": "detector yok: 50/200 EMA golden/death crossover long-horizon trend-following stratejisi rafta mevcut de\u011fil"
+  },
+  "result": {
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: 50/200 EMA golden/death crossover long-horizon trend-following stratejisi rafta mevcut de\u011fil",
+    "shelf_size": 64
+  }
+}

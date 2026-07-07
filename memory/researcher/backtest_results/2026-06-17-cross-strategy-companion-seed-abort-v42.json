@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-17-cross-strategy-companion-seed-abort-v42",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-17-cross-strategy-companion-seed-abort-v42.md",
+  "extracted_at": "2026-06-17T02:10:27Z",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort doc — REJECTED status, no param grid, no executable backtest spec. 42nd consecutive pre-registration abort due to reset gate failure (0/6), Bonferroni family-wise N=89 Holm alpha 5.618e-4 compression, RAG substrate stale 25d 22h byte-identical envelope #13 consecutive, shelf=1 vs claim=66 falsified 23x post-milestone."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort doc — REJECTED status, no param grid, no executable backtest spec. 42nd consecutive pre-registration abort due to reset gate failure (0/6), Bonferroni family-wise N=89 Holm alpha 5.618e-4 compression, RAG substrate stale 25d 22h byte-identical envelope #13 consecutive, shelf=1 vs claim=66 falsified 23x post-milestone."
+  }
+}

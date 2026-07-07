@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-16-cross-strategy-companion-seed-abort-v30",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-16-cross-strategy-companion-seed-abort-v30.md",
+  "extracted_at": "2026-06-16T17:00:30+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort doc (status: REJECTED). Pre-registration aborted — v5 moratorium active 71d remaining, 0/6 reset gates closed, López-Prado tripwire breach +%231 (8-point linear R²=1.0), Holm-Bonferroni α collapsed to 6.494e-4 (N=77, 77× compression), raftaki-66 premise falsified 11x (shelf=1), prompt-injection 30x absorption, cron-payload-persistence 24h+ confirmed via overnight byte-identical replay. No param grid, no testable hypothesis — meta-protocol abort log only."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort doc (status: REJECTED). v29 sec10 binding else-branch (Δ=18h 49m ≫ 60s intra-minute threshold): audit-trail MD doc + JSONL counter. No hypothesis body, no backtest trigger."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-23-avwap-reversal-entry-band-sweep-seed-abort-v11",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-23-avwap-reversal-entry-band-sweep-seed-abort-v11.md",
+  "extracted_at": "2026-06-23T03:00:36.098027+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "anchored_vwap_reversal",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort v11: hipotez g\u00f6vdesi yok (Persona Hard-Limit #11: NO_V11_HYPOTHESIS_BODY). Jun 15 pre-registration'\u0131n 11. ard\u0131\u015f\u0131k duplicate tetiklemesi; cron-payload-queue defect mode (Layer 0.5 96h skip-tick). Yeni param grid yok, yeni gate yok, yeni iddia yok \u2014 \u0394 vs v10 = ZERO. Executable de\u011fil."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort v11: hipotez g\u00f6vdesi yok (Persona Hard-Limit #11: NO_V11_HYPOTHESIS_BODY). Jun 15 pre-registration'\u0131n 11. ard\u0131\u015f\u0131k duplicate tetiklemesi; cron-payload-queue defect mode (Layer 0.5 96h skip-tick). Yeni param grid yok, yeni gate yok, yeni iddia yok \u2014 \u0394 vs v10 = ZERO. Executable de\u011fil."
+  }
+}

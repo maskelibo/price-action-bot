@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-29-vsa-climax-widestop-slpct-sweep-seed-abort-v12",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-29-vsa-climax-widestop-slpct-sweep-seed-abort-v12.md",
+  "extracted_at": "2026-06-29T03:00:14.782471+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED-ABORT v12: pre-registration body \u00fcretilmedi, param grid yok; MEMORY hard-block (sl_pct_min d\u00fc\u015f\u00fcrmek BLOCKED, fee-kan\u0131t\u0131 gate'i yok) + 0/5 reset gate a\u00e7\u0131k + R3 60g OOS window 45g kald\u0131"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED-ABORT v12: pre-registration body \u00fcretilmedi, param grid yok; MEMORY hard-block (sl_pct_min d\u00fc\u015f\u00fcrmek BLOCKED, fee-kan\u0131t\u0131 gate'i yok) + 0/5 reset gate a\u00e7\u0131k + R3 60g OOS window 45g kald\u0131"
+  }
+}

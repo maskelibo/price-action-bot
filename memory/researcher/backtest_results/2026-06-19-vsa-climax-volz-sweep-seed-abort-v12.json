@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-19-vsa-climax-volz-sweep-seed-abort-v12",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-19-vsa-climax-volz-sweep-seed-abort-v12.md",
+  "extracted_at": "2026-06-19T03:00:24.237736+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "REJECTED_PRE_TEST seed-abort audit-trail doc; hypothesis body intentionally not written per v6 sec3 self-throttle protocol; no param grid, no accept gates extractable"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED_PRE_TEST seed-abort audit-trail doc; hypothesis body intentionally not written per v6 sec3 self-throttle protocol; no param grid, no accept gates extractable"
+  }
+}

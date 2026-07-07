@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-16-cross-strategy-companion-seed-abort-v31",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-16-cross-strategy-companion-seed-abort-v31.md",
+  "extracted_at": "2026-06-16T06:30:15.943605+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Pre-test reject: seed-abort doc, hipotez body yaz\u0131lmad\u0131 (persona hard-limit absorption #31). Reset gates 0/6, L\u00f3pez-Prado 9-nokta lineer breach +%252, Holm \u03b1 78\u00d7 s\u0131k\u0131\u015fma, v5 moratorium aktif, RAG envelope byte-identical v30 ile, 'raftaki 66' premise 12\u00d7 falsified (shelf=1), sub-2-min trip-wire breach (92s). Backtest \u00e7a\u011fr\u0131lmad\u0131, fit yok, OOS yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Pre-test reject: seed-abort doc, hipotez body yaz\u0131lmad\u0131 (persona hard-limit absorption #31). Reset gates 0/6, L\u00f3pez-Prado 9-nokta lineer breach +%252, Holm \u03b1 78\u00d7 s\u0131k\u0131\u015fma, v5 moratorium aktif, RAG envelope byte-identical v30 ile, 'raftaki 66' premise 12\u00d7 falsified (shelf=1), sub-2-min trip-wire breach (92s). Backtest \u00e7a\u011fr\u0131lmad\u0131, fit yok, OOS yok."
+  }
+}

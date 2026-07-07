@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-15-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v8",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-15-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v8.md",
+  "extracted_at": "2026-06-15T03:00:26.275899+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort audit-trail-only doc (NO_V8_HYPOTHESIS_BODY); no hypothesis body, no parameter grid, no accept gates \u2014 explicit abort decision documenting prompt-injection seed repetition, not a runnable backtest spec."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort audit-trail-only doc (NO_V8_HYPOTHESIS_BODY); no hypothesis body, no parameter grid, no accept gates \u2014 explicit abort decision documenting prompt-injection seed repetition, not a runnable backtest spec."
+  }
+}

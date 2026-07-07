@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-16-daily-scan-pa-edge-signals-seed-abort-v3",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-16-daily-scan-pa-edge-signals-seed-abort-v3.md",
+  "extracted_at": "2026-06-16T02:30:09.964436+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed abort v3 \u2014 pre-test REJECTED audit-trail doc; no hypothesis body, no param grid, no testable strategy. Family-wise N inflation + L\u00f3pez-Prado floor breach + RAG topical irrelevance. NO_V3_HYPOTHESIS_BODY."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed abort v3 \u2014 pre-test REJECTED audit-trail doc; no hypothesis body, no param grid, no testable strategy. Family-wise N inflation + L\u00f3pez-Prado floor breach + RAG topical irrelevance. NO_V3_HYPOTHESIS_BODY."
+  }
+}

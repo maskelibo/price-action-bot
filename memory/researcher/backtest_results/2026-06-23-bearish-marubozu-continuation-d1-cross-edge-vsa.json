@@ -1,0 +1,47 @@
+{
+  "hypothesis_id": "2026-06-23-bear-maru-cont-d1-cross-edge-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-23-bearish-marubozu-continuation-d1-cross-edge-vsa.md",
+  "extracted_at": "2026-06-23T06:30:16.108482+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": null,
+    "param_grid": {
+      "body_to_range_min": [
+        0.85,
+        0.9,
+        0.95
+      ],
+      "atr_window": [
+        14,
+        20
+      ],
+      "sl_atr_mult": [
+        1.5,
+        2.0,
+        2.5
+      ],
+      "tp_r_multiple": [
+        1.5,
+        2.0,
+        2.5
+      ]
+    },
+    "accept_gates": [
+      "net_annual_return_oos >= 0.12",
+      "sharpe_oos >= 0.6",
+      "maxdd_oos <= 0.18",
+      "profit_factor_oos >= 1.30",
+      "corr_to_vsa_climax_90d_mean <= 0.30",
+      "corr_to_vsa_climax_90d_max <= 0.50",
+      "continuation_winrate_raw > 0.55",
+      "oos_in_sample_sharpe_ratio <= 3.0",
+      "single_symbol_pnl_share_max <= 0.30"
+    ],
+    "executable": false,
+    "reason_if_not": "Bearish marubozu yeni bir single-bar pattern detector; mevcut 4 strateji (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) i\u00e7inde marubozu detector yok. Backtest motoru bu pattern'i ko\u015fturamaz \u2014 new_strategy DEFERRED. base_strategy se\u00e7ilemedi\u011fi i\u00e7in param_sweep runner'\u0131 da ko\u015famaz."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Bearish marubozu yeni bir single-bar pattern detector; mevcut 4 strateji (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) i\u00e7inde marubozu detector yok. Backtest motoru bu pattern'i ko\u015fturamaz \u2014 new_strategy DEFERRED. base_strategy se\u00e7ilemedi\u011fi i\u00e7in param_sweep runner'\u0131 da ko\u015famaz."
+  }
+}

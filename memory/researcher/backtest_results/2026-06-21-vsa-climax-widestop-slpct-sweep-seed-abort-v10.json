@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-21-vsa-climax-widestop-slpct-sweep-seed-abort-v10",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-21-vsa-climax-widestop-slpct-sweep-seed-abort-v10.md",
+  "extracted_at": "2026-06-21T03:00:15.653442+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED-ABORT v10: MEMORY hard-block (sl_pct_min d\u00fc\u015f\u00fcrmek BLOCKED, fee-kan\u0131t\u0131 gate'i yok); 0/5 reset gate a\u00e7\u0131k (R2 ADR 6g onays\u0131z + R5 ops SLA 18g breach worsening); RAG envelope 4. ard\u0131\u015f\u0131k byte-identical (corpus 30g stale); family-wise N=24 vsa-only Holm \u03b1=2.083e-3, cross-seed N=122 \u03b1=4.098e-4 \u2014 cumulative \u03b1 budget exhausted; DSR @ N=24 prior <%0.13; NO_V10_HYPOTHESIS_BODY"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED-ABORT v10: MEMORY hard-block (sl_pct_min d\u00fc\u015f\u00fcrmek BLOCKED, fee-kan\u0131t\u0131 gate'i yok); 0/5 reset gate a\u00e7\u0131k (R2 ADR 6g onays\u0131z + R5 ops SLA 18g breach worsening); RAG envelope 4. ard\u0131\u015f\u0131k byte-identical (corpus 30g stale); family-wise N=24 vsa-only Holm \u03b1=2.083e-3, cross-seed N=122 \u03b1=4.098e-4 \u2014 cumulative \u03b1 budget exhausted; DSR @ N=24 prior <%0.13; NO_V10_HYPOTHESIS_BODY"
+  }
+}

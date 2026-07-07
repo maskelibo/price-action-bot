@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-15-cross-strategy-companion-seed-abort-v23",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-15-cross-strategy-companion-seed-abort-v23.md",
+  "extracted_at": "2026-06-15T14:30:11.559564+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Pre-test reject / seed-abort doc (status: REJECTED). Reset gates 0/6, freeze v5 aktif, 'raftaki 66' premise 4. kez falsified, family-wise N=70 Holm-\u03b1=7.143e-4 collapse. Hipotez g\u00f6vdesi yaz\u0131lmad\u0131, param grid yok, backtest \u00e7al\u0131\u015ft\u0131r\u0131lmad\u0131."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Pre-test reject / seed-abort doc (status: REJECTED). Reset gates 0/6, freeze v5 aktif, 'raftaki 66' premise 4. kez falsified, family-wise N=70 Holm-\u03b1=7.143e-4 collapse. Hipotez g\u00f6vdesi yaz\u0131lmad\u0131, param grid yok, backtest \u00e7al\u0131\u015ft\u0131r\u0131lmad\u0131."
+  }
+}

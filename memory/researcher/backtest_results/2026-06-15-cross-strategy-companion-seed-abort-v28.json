@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-15-cross-strategy-companion-seed-abort-v28",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-15-cross-strategy-companion-seed-abort-v28.md",
+  "extracted_at": "2026-06-15T22:30:16.943502+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort meta-doc (status: REJECTED). Reset gates 0/6, L\u00f3pez-Prado breach, Bonferroni debt. No backtest grid \u2014 pre-test rejection only."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort meta-doc (status: REJECTED). Reset gates 0/6, L\u00f3pez-Prado breach, Bonferroni debt. No backtest grid \u2014 pre-test rejection only."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-16-pinbar-sr-rejection-seed-abort-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-16-pinbar-sr-rejection-seed-abort-v2.md",
+  "extracted_at": "2026-06-16T03:00:24.011015+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed abort v2 doc \u2014 REJECTED pre-test, NO V2 HYPOTHESIS BODY. State-delta s\u0131f\u0131r, 0/4 reset gate a\u00e7\u0131k, audit trail only."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed abort v2 doc \u2014 REJECTED pre-test, NO V2 HYPOTHESIS BODY. State-delta s\u0131f\u0131r, 0/4 reset gate a\u00e7\u0131k, audit trail only."
+  }
+}

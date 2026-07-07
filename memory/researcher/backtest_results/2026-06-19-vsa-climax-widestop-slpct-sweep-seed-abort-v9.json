@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-19-vsa-climax-widestop-slpct-sweep-seed-abort-v9",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-19-vsa-climax-widestop-slpct-sweep-seed-abort-v9.md",
+  "extracted_at": "2026-06-19T03:00:14.891524+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED-ABORT v9: hipotez body \u00fcretilmedi, backtest \u00e7al\u0131\u015fm\u0131yor; MEMORY hard-block sl_pct_min d\u00fc\u015f\u00fcrmeyi BLOCKED yap\u0131yor (fee-erozyon kan\u0131t\u0131 gate'i yok); 0/5 reset gate a\u00e7\u0131k, family-wise N=23 ile \u03b1 budget t\u00fckenmi\u015f, RAG envelope 3. kez byte-identical; parametre grid'i tan\u0131mlanmam\u0131\u015f"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED-ABORT v9: hipotez body \u00fcretilmedi, backtest \u00e7al\u0131\u015fm\u0131yor; MEMORY hard-block sl_pct_min d\u00fc\u015f\u00fcrmeyi BLOCKED yap\u0131yor (fee-erozyon kan\u0131t\u0131 gate'i yok); 0/5 reset gate a\u00e7\u0131k, family-wise N=23 ile \u03b1 budget t\u00fckenmi\u015f, RAG envelope 3. kez byte-identical; parametre grid'i tan\u0131mlanmam\u0131\u015f"
+  }
+}

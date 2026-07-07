@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-29-vsa-climax-widestop-slpct-sweep-seed-abort-v11",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-29-vsa-climax-widestop-slpct-sweep-seed-abort-v11.md",
+  "extracted_at": "2026-06-29T03:00:26.103895+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED-ABORT v11: hypothesis body not generated. 0/5 reset gates open, MEMORY hard-block on sl_pct_min reduction active, RAG envelope byte-identical for 5th consecutive iteration, substrate frozen 38.13 days. No param grid or accept gates defined."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED-ABORT v11: hypothesis body not generated. 0/5 reset gates open, MEMORY hard-block on sl_pct_min reduction active, RAG envelope byte-identical for 5th consecutive iteration, substrate frozen 38.13 days. No param grid or accept gates defined."
+  }
+}

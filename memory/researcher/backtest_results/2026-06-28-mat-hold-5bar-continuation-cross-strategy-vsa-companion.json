@@ -1,0 +1,58 @@
+{
+  "hypothesis_id": "HYP-2026-06-28-mat-hold-5bar-continuation-cross-strategy-vsa-companion",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-28-mat-hold-5bar-continuation-cross-strategy-vsa-companion.md",
+  "extracted_at": "2026-07-07T17:30:22.355495+00:00",
+  "bridge_version": 1,
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
+    "param_grid": {
+      "bar1_body_atr_mult": [
+        0.75,
+        1.0,
+        1.25
+      ],
+      "inside_tolerance_pct": [
+        100,
+        110,
+        120
+      ],
+      "sl_atr_mult": [
+        0.3,
+        0.5,
+        0.7
+      ],
+      "tp_r": [
+        1.5,
+        2.0,
+        2.5
+      ],
+      "max_hold_bars": [
+        7,
+        10,
+        14
+      ]
+    },
+    "accept_gates": [
+      "net_annual_return>18%",
+      "oos_sharpe>0.8",
+      "maxdd<22%",
+      "profit_factor>1.35",
+      "trade_count>=80",
+      "realized_continuation_rate>=58%",
+      "abs_corr_vs_vsa_climax_test<0.20",
+      "shuffle_p<0.05",
+      "bonferroni_p<0.000758"
+    ],
+    "executable": false,
+    "reason_if_not": "detector yok: Mat Hold 5-bar bullish continuation kal\u0131b\u0131 (Bar1 b\u00fcy\u00fck bullish + Bar2-4 inside konsolidasyon + Bar5 breakout) rafta yok; en yak\u0131n three_methods farkl\u0131 geometri (3-bar inside vs 5-bar Mat Hold)"
+  },
+  "result": {
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: Mat Hold 5-bar bullish continuation kal\u0131b\u0131 (Bar1 b\u00fcy\u00fck bullish + Bar2-4 inside konsolidasyon + Bar5 breakout) rafta yok; en yak\u0131n three_methods farkl\u0131 geometri (3-bar inside vs 5-bar Mat",
+    "shelf_size": 64
+  }
+}

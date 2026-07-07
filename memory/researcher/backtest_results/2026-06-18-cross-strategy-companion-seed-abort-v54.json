@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-18-cross-strategy-companion-seed-abort-v54",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-18-cross-strategy-companion-seed-abort-v54.md",
+  "extracted_at": "2026-06-18T06:30:17.209532+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "REJECTED_PRE_TEST \u2014 Persona Hard-Limit #54, no hypothesis body. 6/6 abort reasons: shelf falsified 35\u00d7, RAG envelope 25\u00d7 byte-identical, L\u00f3pez-Prado linear streak 23\u00d7, Holm-\u03b1 4.950e-4 (101\u00d7 compression), moratorium 69.16d remaining, reset gates 0/6. No backtest, no config write."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED_PRE_TEST \u2014 Persona Hard-Limit #54, no hypothesis body. 6/6 abort reasons: shelf falsified 35\u00d7, RAG envelope 25\u00d7 byte-identical, L\u00f3pez-Prado linear streak 23\u00d7, Holm-\u03b1 4.950e-4 (101\u00d7 compression), moratorium 69.16d remaining, reset gates 0/6. No backtest, no config write."
+  }
+}

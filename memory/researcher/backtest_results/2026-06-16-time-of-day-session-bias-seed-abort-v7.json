@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-16-time-of-day-session-bias-seed-abort-v7",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-16-time-of-day-session-bias-seed-abort-v7.md",
+  "extracted_at": "2026-06-16T03:00:17.720915+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED ABORT v7 \u2014 hipotez g\u00f6vdesi yaz\u0131lmad\u0131 (audit-trail-only). REJECTED PRE-TEST: prior open pre-reg block (v4 DRAFT 12d), RAG topical zero, prompt injection absorption, family-wise N inflation. Backtest motoru i\u00e7in yap\u0131land\u0131r\u0131labilir spec yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED ABORT v7 \u2014 hipotez g\u00f6vdesi yaz\u0131lmad\u0131 (audit-trail-only). REJECTED PRE-TEST: prior open pre-reg block (v4 DRAFT 12d), RAG topical zero, prompt injection absorption, family-wise N inflation. Backtest motoru i\u00e7in yap\u0131land\u0131r\u0131labilir spec yok."
+  }
+}

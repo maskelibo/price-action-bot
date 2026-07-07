@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-16-cross-strategy-companion-seed-abort-v32",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-16-cross-strategy-companion-seed-abort-v32.md",
+  "extracted_at": "2026-06-16T06:30:09.386453+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Pre-test reject (seed-abort v32): hypothesis body yok, reset gates 0/6, L\u00f3pez-Prado tripwire breach (10-nokta lineer +%273), Holm \u03b1 79\u00d7 s\u0131k\u0131\u015fma, 'raftaki 66' premise 13\u00d7 falsified (population=1). Companion-pair-selection metodolojisi tan\u0131ms\u0131z, param grid yok, backtest \u00e7a\u011fr\u0131lamaz."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Pre-test reject (seed-abort v32): hypothesis body yok, reset gates 0/6, L\u00f3pez-Prado tripwire breach (10-nokta lineer +%273), Holm \u03b1 79\u00d7 s\u0131k\u0131\u015fma, 'raftaki 66' premise 13\u00d7 falsified (population=1). Companion-pair-selection metodolojisi tan\u0131ms\u0131z, param grid yok, backtest \u00e7a\u011fr\u0131lamaz."
+  }
+}

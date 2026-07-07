@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-21-brooks-failed-breakout-atr-stop-sweep-seed-abort-v3",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-21-brooks-failed-breakout-atr-stop-sweep-seed-abort-v3.md",
+  "extracted_at": "2026-06-21T03:00:36.430793+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "NO_V3_HYPOTHESIS_BODY \u2014 audit-trail only seed-abort doc; v1 canonical pre-reg DRAFT'ta donmu\u015f, v3 g\u00f6vdesi yaz\u0131lmad\u0131 (triplicate duplicate, defective artifact, family-wise N inflation, persona Hard-Limit #75 absorption gerek\u00e7eleriyle reddedildi)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "NO_V3_HYPOTHESIS_BODY \u2014 audit-trail only seed-abort doc; v1 canonical pre-reg DRAFT'ta donmu\u015f, v3 g\u00f6vdesi yaz\u0131lmad\u0131 (triplicate duplicate, defective artifact, family-wise N inflation, persona Hard-Limit #75 absorption gerek\u00e7eleriyle reddedildi)"
+  }
+}

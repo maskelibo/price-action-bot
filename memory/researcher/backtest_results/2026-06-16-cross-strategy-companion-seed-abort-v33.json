@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-16-cross-strategy-companion-seed-abort-v33",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-16-cross-strategy-companion-seed-abort-v33.md",
+  "extracted_at": "2026-06-16T10:30:06.438457+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort doc: status REJECTED, reset gate 0/6, moratorium active, pre-test reject \u2014 yap\u0131land\u0131r\u0131labilir hipotez i\u00e7ermiyor."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort doc: status REJECTED, reset gate 0/6, moratorium active, pre-test reject \u2014 yap\u0131land\u0131r\u0131labilir hipotez i\u00e7ermiyor."
+  }
+}

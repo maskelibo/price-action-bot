@@ -443,3 +443,17 @@ Tekrar eden episode (x3): [claude-opus-4-7] prompt=SOP-2 Haftalık Executive Sum
 Tekrar eden episode (x6): [claude-opus-4-7] prompt=SOP-1 Günlük Morning Brief üret. Önce dünkü Analytics r
 
 ---
+
+### 2026-06-21 — recurring-20260621-053000 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Günlük Morning Brief üret. Önce dünkü Analytics r
+
+---
+
+### 2026-06-28 — recurring-20260628-053000 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=SOP-1 Günlük Morning Brief üret. Önce dünkü Analytics r
+
+---

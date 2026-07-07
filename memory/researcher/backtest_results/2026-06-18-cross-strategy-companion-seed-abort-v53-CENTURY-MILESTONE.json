@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-18-cross-strategy-companion-seed-abort-v53-century-milestone",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-18-cross-strategy-companion-seed-abort-v53-CENTURY-MILESTONE.md",
+  "extracted_at": "2026-06-18T06:30:26.929740+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "REJECTED at pre-registration \u2014 seed abort v53 (CENTURY MILESTONE family-wise N=100); no hypothesis body, no backtestable claim, substrate-fix ownership non-researcher (ops_engineer G2 cron-sanitizer SLA breach 16+ days)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED at pre-registration \u2014 seed abort v53 (CENTURY MILESTONE family-wise N=100); no hypothesis body, no backtestable claim, substrate-fix ownership non-researcher (ops_engineer G2 cron-sanitizer SLA breach 16+ days)"
+  }
+}

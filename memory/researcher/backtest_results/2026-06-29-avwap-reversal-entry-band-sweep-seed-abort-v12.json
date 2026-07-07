@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-29-avwap-reversal-entry-band-sweep-seed-abort-v12",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-29-avwap-reversal-entry-band-sweep-seed-abort-v12.md",
+  "extracted_at": "2026-06-29T04:00:21.815302+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "anchored_vwap_reversal",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort v12 \u2014 no hypothesis body (Persona Hard-Limit #12: NO_V12_HYPOTHESIS_BODY). Redundant fire of Jun 15 pre-registration; no measurable claims, no param grid, no accept gates in this doc."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort v12 \u2014 no hypothesis body (Persona Hard-Limit #12: NO_V12_HYPOTHESIS_BODY). Redundant fire of Jun 15 pre-registration; no measurable claims, no param grid, no accept gates in this doc."
+  }
+}

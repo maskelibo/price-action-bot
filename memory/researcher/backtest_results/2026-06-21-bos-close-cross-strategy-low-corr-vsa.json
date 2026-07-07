@@ -1,0 +1,58 @@
+{
+  "hypothesis_id": "2026-06-21-bos-close-cross-strategy-low-corr-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-21-bos-close-cross-strategy-low-corr-vsa.md",
+  "extracted_at": "2026-07-07T19:30:32.618450+00:00",
+  "bridge_version": 1,
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
+    "param_grid": {
+      "BOS_n": [
+        2,
+        3,
+        4
+      ],
+      "ATR_SL_mult": [
+        1.0,
+        1.5,
+        2.0,
+        2.5
+      ],
+      "ATR_TP_mult": [
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0
+      ],
+      "vol_filter": [
+        0.8,
+        1.0,
+        1.2,
+        1.5
+      ]
+    },
+    "accept_gates": [
+      "net_annualized_return > 0.25",
+      "oos_sharpe > 1.0",
+      "max_dd < 0.30",
+      "profit_factor > 1.40",
+      "oos_trades >= 200",
+      "corr_vs_vsa_climax < 0.30",
+      "dsr > 0.5",
+      "pbo < 0.5",
+      "is_oos_sharpe_ratio < 2.0",
+      "shuffle_baseline_p < 0.05"
+    ],
+    "executable": false,
+    "reason_if_not": "detector yok: close-based n=3 BOS (Break of Structure) \u2014 t-2..t close'lar\u0131 yap\u0131sal swing high'\u0131 ge\u00e7meli, ATR vol filtresiyle trend-continuation giri\u015fi"
+  },
+  "result": {
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: close-based n=3 BOS (Break of Structure) \u2014 t-2..t close'lar\u0131 yap\u0131sal swing high'\u0131 ge\u00e7meli, ATR vol filtresiyle trend-continuation giri\u015fi",
+    "shelf_size": 64
+  }
+}

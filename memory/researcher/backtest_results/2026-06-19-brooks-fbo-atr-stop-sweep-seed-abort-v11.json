@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-19-brooks-fbo-atr-stop-sweep-seed-abort-v11",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-19-brooks-fbo-atr-stop-sweep-seed-abort-v11.md",
+  "extracted_at": "2026-06-19T03:30:09.201441+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "REJECTED \u2014 pre_test_reject per v10 next_fire_policy; 0/5 reset gates open, no substantive hypothesis body, no param grid specified, audit-trail MD twin only"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED \u2014 pre_test_reject per v10 next_fire_policy; 0/5 reset gates open, no substantive hypothesis body, no param grid specified, audit-trail MD twin only"
+  }
+}

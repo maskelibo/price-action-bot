@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-15-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v7",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-15-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v7.md",
+  "extracted_at": "2026-06-15T03:30:09.130955+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort audit-trail-only dok\u00fcman; NO_V7_HYPOTHESIS_BODY karar\u0131 verilmi\u015f, parametre grid'i veya accept gates tan\u0131mlanmam\u0131\u015f. Reset gate'leri kapal\u0131, 90d-freeze deadline hit, iterate-budget a\u015f\u0131m\u0131 (v7 = policy ceil +2). Post-hoc pre-registration ihlali + family-wise N inflation (47 cousin, Holm-\u03b1 1.064e-3) nedeniyle ko\u015fturulamaz."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort audit-trail-only dok\u00fcman; NO_V7_HYPOTHESIS_BODY karar\u0131 verilmi\u015f, parametre grid'i veya accept gates tan\u0131mlanmam\u0131\u015f. Reset gate'leri kapal\u0131, 90d-freeze deadline hit, iterate-budget a\u015f\u0131m\u0131 (v7 = policy ceil +2). Post-hoc pre-registration ihlali + family-wise N inflation (47 cousin, Holm-\u03b1 1.064e-3) nedeniyle ko\u015fturulamaz."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "researcher-20260629T023104-brooks-failed-breakout-atr-stop-sweep-seed-abort-v4",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-29-brooks-failed-breakout-atr-stop-sweep-seed-abort-v4.md",
+  "extracted_at": "2026-06-29T03:30:31.328611+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort audit-trail doc \u2014 NO_V4_HYPOTHESIS_BODY. Substrate frozen 8 days (0/8 reset gates open), v1 canonical pre-reg still DRAFT 14d with 0/3 ACK + defective n_cells=1/9 artifact, RAG topical relevance 0/10 for ATR optimal sweep, persona Hard-Limit #76 cross-family. No hypothesis body, no param grid, no gates \u2014 explicit refusal to write 4th duplicate ATR-stop family pre-reg."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort audit-trail doc \u2014 NO_V4_HYPOTHESIS_BODY. Substrate frozen 8 days (0/8 reset gates open), v1 canonical pre-reg still DRAFT 14d with 0/3 ACK + defective n_cells=1/9 artifact, RAG topical relevance 0/10 for ATR optimal sweep, persona Hard-Limit #76 cross-family. No hypothesis body, no param grid, no gates \u2014 explicit refusal to write 4th duplicate ATR-stop family pre-reg."
+  }
+}

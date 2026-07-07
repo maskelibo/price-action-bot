@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "researcher-20260619T180042-cross-strategy-companion-seed-abort-v66",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-19-cross-strategy-companion-seed-abort-v66.md",
+  "extracted_at": "2026-06-19T18:30:09.592646+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Pre-test REJECTED stub per NO-DOSSIER policy (avwap-v11 extended to cross-strategy at v63). No hypothesis body, no candidate set, no selection rule, no null defined. All 6 reset gates CLOSED (shelf=1 not 66, RAG envelope 37th byte-identical, ops G2 SLA breach 17.40d, no principal override, no CEO rotation, no backtest infra). Not executable until at least one reset gate opens."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Pre-test REJECTED stub per NO-DOSSIER policy (avwap-v11 extended to cross-strategy at v63). No hypothesis body, no candidate set, no selection rule, no null defined. All 6 reset gates CLOSED (shelf=1 not 66, RAG envelope 37th byte-identical, ops G2 SLA breach 17.40d, no principal override, no CEO rotation, no backtest infra). Not executable until at least one reset gate opens."
+  }
+}

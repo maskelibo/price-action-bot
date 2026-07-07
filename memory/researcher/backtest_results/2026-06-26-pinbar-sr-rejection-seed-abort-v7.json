@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-26-pinbar-sr-rejection-seed-abort-v7",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-26-pinbar-sr-rejection-seed-abort-v7.md",
+  "extracted_at": "2026-06-26T03:00:14.273801+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "REJECTED_PRE_TEST seed-abort audit-trail document. No hypothesis body, no backtest design, no parameter sweep authored. Reset-gates 0/6 open (threshold \u22652) and payload Hard-Limit #6 re-trigger (curve-fit pre-test manufacture rejected). Substrate frozen pending H-001 engine restore or Principal reopen."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED_PRE_TEST seed-abort audit-trail document. No hypothesis body, no backtest design, no parameter sweep authored. Reset-gates 0/6 open (threshold \u22652) and payload Hard-Limit #6 re-trigger (curve-fit pre-test manufacture rejected). Substrate frozen pending H-001 engine restore or Principal reopen."
+  }
+}

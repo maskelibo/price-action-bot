@@ -1,0 +1,71 @@
+{
+  "hypothesis_id": "2026-06-23-halflife-rank-bb-fade",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-23-chan-halflife-rank-bollinger-fade-basket-1d.md",
+  "extracted_at": "2026-07-07T18:30:11.053553+00:00",
+  "bridge_version": 1,
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "strategy_module": "bollinger_fade_mr",
+    "timeframe": "1d",
+    "param_grid": null,
+    "accept_gates": [
+      "net_monthly_median_pct > 1.8",
+      "oos_sharpe_annualized > 0.80",
+      "oos_dsr > 0.60",
+      "max_drawdown_pct < 22",
+      "profit_factor > 1.30",
+      "win_rate in [0.40, 0.58]",
+      "trade_count_total >= 250",
+      "halflife_filter_pass_rate >= 0.20",
+      "abs(corr_with_vsa_climax_test_daily) < 0.25",
+      "jaccard_overlap_vs_vsa < 0.15"
+    ],
+    "executable": true,
+    "reason_if_not": ""
+  },
+  "result": {
+    "status": "OK",
+    "type": "new_strategy",
+    "verdict": "RED",
+    "tier": "REJECT",
+    "strategy_module": "bollinger_fade_mr",
+    "strategy_class": "BollingerFadeMRStrategy",
+    "timeframe": "1d",
+    "tp_r": 2.0,
+    "n_trades_raw": 15,
+    "n_taken": 13,
+    "n_symbols_with_data": 10,
+    "mean_R_after_fees": -0.753,
+    "monthly_roi": -0.757407004241778,
+    "max_dd": -4.0254480021460495,
+    "neg_count": 2,
+    "total_months": 2,
+    "annualized": -1.0052277083246852,
+    "oos_sharpe": -19.2181,
+    "oos_returns": [
+      -1.0077,
+      -1.0767,
+      -1.0128,
+      -1.0218,
+      -1.0286,
+      -1.0172,
+      -1.0249,
+      -1.0173,
+      -1.0255,
+      -0.2719,
+      -1.0762,
+      -1.0155,
+      -0.6676,
+      -1.0098,
+      1.9777
+    ],
+    "trades_per_year": 3.2,
+    "fee_model": "taker RT 15bps (fee_R=0.0015/sl_pct)",
+    "equity_spec": {
+      "risk_pct": 0.005,
+      "max_concurrent": 6,
+      "consecutive_loss_pause": 3
+    }
+  }
+}

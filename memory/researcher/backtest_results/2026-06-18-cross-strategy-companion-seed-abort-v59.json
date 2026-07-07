@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-18-cross-strategy-companion-seed-abort-v59",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-18-cross-strategy-companion-seed-abort-v59.md",
+  "extracted_at": "2026-06-18T22:30:13.740451+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Persona Hard-Limit #59 abort \u2014 no hypothesis body. Pre-registered moratorium active (68.49 days remaining). Raftaki-66 structurally falsified (40th consecutive), RAG envelope byte-identical (30th consecutive), Holm-\u03b1 4.717e-4 family-wise correction. Reset gates 0/6. No executable test specification."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Persona Hard-Limit #59 abort \u2014 no hypothesis body. Pre-registered moratorium active (68.49 days remaining). Raftaki-66 structurally falsified (40th consecutive), RAG envelope byte-identical (30th consecutive), Holm-\u03b1 4.717e-4 family-wise correction. Reset gates 0/6. No executable test specification."
+  }
+}

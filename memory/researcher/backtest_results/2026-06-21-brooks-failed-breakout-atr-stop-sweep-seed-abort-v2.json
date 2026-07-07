@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-21-brooks-failed-breakout-atr-stop-sweep-seed-abort-v2",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-21-brooks-failed-breakout-atr-stop-sweep-seed-abort-v2.md",
+  "extracted_at": "2026-06-21T03:30:07.813242+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort doc \u2014 NO_V2_HYPOTHESIS_BODY. Duplicate of 6-day-old DRAFT pre-reg (researcher-20260615T120000-brooks-fbr-atr-stop-sweep) with defective artifact (n_cells=1/9, sharpe_like=38.7 extractor bug signature). Re-running = post-hoc pre-registration violation + p-hacking via extractor retry. Audit-trail-only, no executable hypothesis body."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort doc \u2014 NO_V2_HYPOTHESIS_BODY. Duplicate of 6-day-old DRAFT pre-reg (researcher-20260615T120000-brooks-fbr-atr-stop-sweep) with defective artifact (n_cells=1/9, sharpe_like=38.7 extractor bug signature). Re-running = post-hoc pre-registration violation + p-hacking via extractor retry. Audit-trail-only, no executable hypothesis body."
+  }
+}

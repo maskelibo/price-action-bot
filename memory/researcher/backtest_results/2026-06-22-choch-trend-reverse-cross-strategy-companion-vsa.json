@@ -1,0 +1,51 @@
+{
+  "hypothesis_id": "2026-06-22-choch-trend-reverse-cross-strategy-companion-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-22-choch-trend-reverse-cross-strategy-companion-vsa.md",
+  "extracted_at": "2026-07-07T19:00:34.176327+00:00",
+  "bridge_version": 1,
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
+    "param_grid": {
+      "swing_n": [
+        2,
+        3,
+        5
+      ],
+      "sl_atr_pad": [
+        0.1,
+        0.25,
+        0.5
+      ],
+      "rr_target": [
+        1.5,
+        2.0,
+        2.5
+      ],
+      "htf_filter": [
+        0,
+        1
+      ]
+    },
+    "accept_gates": [
+      "annualized_return_oos > 0.25",
+      "sharpe_oos > 1.0",
+      "maxdd_oos < 0.30",
+      "profit_factor_oos > 1.4",
+      "n_trades_oos >= 100",
+      "abs(corr_with_vsa_climax_returns) < 0.30",
+      "bonferroni_adjusted_p < 0.05",
+      "walk_forward_positive_slice_count >= 7"
+    ],
+    "executable": false,
+    "reason_if_not": "detector yok: close-based CHoCH (trend-state flip via last_bos_direction, 3-bar swing) rafta mevcut de\u011fil"
+  },
+  "result": {
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: close-based CHoCH (trend-state flip via last_bos_direction, 3-bar swing) rafta mevcut de\u011fil",
+    "shelf_size": 64
+  }
+}

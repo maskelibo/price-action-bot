@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-17-cross-strategy-companion-seed-abort-v47",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-17-cross-strategy-companion-seed-abort-v47.md",
+  "extracted_at": "2026-06-17T18:30:29.985554+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "REJECTED_PRE_TEST \u2014 persona Hard-Limit #47 absorption, no hypothesis body, no backtest, audit-only abort document"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED_PRE_TEST \u2014 persona Hard-Limit #47 absorption, no hypothesis body, no backtest, audit-only abort document"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-15-cross-strategy-companion-seed-abort-v29",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-15-cross-strategy-companion-seed-abort-v29.md",
+  "extracted_at": "2026-06-15T22:30:10.070959+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort doc (status: REJECTED). Pre-registration aborted \u2014 moratorium active, 0/6 reset gates closed, L\u00f3pez-Prado tripwire breach +%212, Holm-Bonferroni \u03b1 collapsed to 6.579e-4 (N=76). No param grid, no testable hypothesis \u2014 meta-protocol abort log only."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort doc (status: REJECTED). Pre-registration aborted \u2014 moratorium active, 0/6 reset gates closed, L\u00f3pez-Prado tripwire breach +%212, Holm-Bonferroni \u03b1 collapsed to 6.579e-4 (N=76). No param grid, no testable hypothesis \u2014 meta-protocol abort log only."
+  }
+}

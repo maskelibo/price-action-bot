@@ -1,0 +1,53 @@
+{
+  "hypothesis_id": "HYP-2026-07-07-xs-carry-funding-dispersion-weekly",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-07-07-xs-carry-funding-dispersion-weekly-dedicated-book.md",
+  "extracted_at": "2026-07-07T17:30:12.925793+00:00",
+  "bridge_version": 1,
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
+    "param_grid": {
+      "k": [
+        2,
+        3,
+        5
+      ],
+      "rebalance_freq": [
+        "3d",
+        "7d",
+        "14d"
+      ],
+      "funding_score_lookback": [
+        "3d",
+        "7d",
+        "14d"
+      ],
+      "min_liquidity_usd": [
+        20000000,
+        50000000,
+        100000000
+      ]
+    },
+    "accept_gates": [
+      "net_annualized_return_pct > 12",
+      "net_sharpe_calendar_day > 1.0",
+      "nw_tstat_weekly > 2.0",
+      "maxdd_equity_base_pct < 15",
+      "abs(rho_weekly_to_BTC) < 0.15",
+      "oos_sharpe_2024_2026 > 0.7",
+      "shuffle_baseline_pvalue < 0.05",
+      "symbol_leave_one_out_min_sharpe > 0.4",
+      "borrow_stress_25apr_net_return > 6"
+    ],
+    "executable": false,
+    "reason_if_not": "detector yok: cross-sectional funding-rate dispersion weekly rebalanced dollar-neutral perp-short/spot-long carry harvest book \u2014 rafta kar\u015f\u0131l\u0131\u011f\u0131 yok (funding_mean_reversion time-series MR, XS-carry de\u011fil)"
+  },
+  "result": {
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: cross-sectional funding-rate dispersion weekly rebalanced dollar-neutral perp-short/spot-long carry harvest book \u2014 rafta kar\u015f\u0131l\u0131\u011f\u0131 yok (funding_mean_reversion time-series MR, XS-carry de",
+    "shelf_size": 64
+  }
+}

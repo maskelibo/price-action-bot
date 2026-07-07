@@ -1,0 +1,57 @@
+{
+  "hypothesis_id": "2026-06-21-vol-breakout-cross-corr-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-21-volatility-breakout-atr-cross-strategy-companion-vsa.md",
+  "extracted_at": "2026-07-07T19:30:15.250152+00:00",
+  "bridge_version": 1,
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
+    "param_grid": {
+      "k": [
+        0.5,
+        0.75,
+        1.0
+      ],
+      "atr_window": [
+        14
+      ],
+      "sl_atr_mult": [
+        1.5
+      ],
+      "tp_atr_mult": [
+        2.0
+      ],
+      "exit_mode": [
+        "fixed_R",
+        "eod_close"
+      ],
+      "direction": [
+        "long_only",
+        "both"
+      ]
+    },
+    "accept_gates": [
+      "OOS net Sharpe >= 1.0",
+      "OOS MaxDD <= 25%",
+      "OOS profit factor >= 1.30",
+      "OOS trade count >= 200",
+      "|rho| vs vsa_climax_test <= 0.30",
+      "IS/OOS Sharpe ratio <= 2.0",
+      "DSR >= 0.5",
+      "PBO < 0.5",
+      "Walk-forward positive slice ratio >= 60%",
+      "Shuffle baseline p < 0.05",
+      "Bonferroni p < 0.00417"
+    ],
+    "executable": false,
+    "reason_if_not": "detector yok: Kaufman Open \u00b1 k\u00b7ATR intraday stop-emirli volatility/opening-range breakout mekani\u011fi detekt\u00f6r raf\u0131nda mevcut de\u011fil (session_orb 00:00 UTC ORB'a en yak\u0131n ama ATR-orant\u0131l\u0131 k-tampon ve stop-emirli tetik mekani\u011fi farkl\u0131)."
+  },
+  "result": {
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: Kaufman Open \u00b1 k\u00b7ATR intraday stop-emirli volatility/opening-range breakout mekani\u011fi detekt\u00f6r raf\u0131nda mevcut de\u011fil (session_orb 00:00 UTC ORB'a en yak\u0131n ama ATR-orant\u0131l\u0131 k-tampon ve stop",
+    "shelf_size": 64
+  }
+}

@@ -245,3 +245,31 @@ Tekrar eden episode (x59): [claude-opus-4-7] prompt=Aşağıdaki hipotez doküma
 Tekrar eden episode (x8): [claude-opus-4-7] prompt=Tournament Report — sayısal sonuçlar verildi. CEO için
 
 ---
+
+### 2026-06-21 — recurring-20260621-053000 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x84): [claude-opus-4-7] prompt=Aşağıdaki hipotez dokümanını oku ve JSON formatında yap
+
+---
+
+### 2026-06-21 — recurring-20260621-053000 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x7): [claude-opus-4-7] prompt=Tournament Report — sayısal sonuçlar verildi. CEO için
+
+---
+
+### 2026-06-28 — recurring-20260628-053000 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x27): [claude-opus-4-7] prompt=Aşağıdaki hipotez dokümanını oku ve JSON formatında yap
+
+---
+
+### 2026-06-28 — recurring-20260628-053000 (med)
+- tags: consolidation, recurring
+
+Tekrar eden episode (x8): [claude-opus-4-7] prompt=Tournament Report — sayısal sonuçlar verildi. CEO için
+
+---

@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-21-vsaclimax-volz-threshold-sweep-seed-abort-v13",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-21-vsa-climax-volz-sweep-seed-abort-v13.md",
+  "extracted_at": "2026-06-21T03:00:26.576233+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed abort v13 \u2014 pre-test reject. T\u00fcm 7 SOP-1 reset gate kapal\u0131 (R1-R7), 12. ard\u0131\u015f\u0131k byte-identical RAG envelope, 27. prompt-injection absorption (bu seed), persona Hard-Limit #13 binding: NO HYPOTHESIS BODY. Yeni numeric prediction yok, family-wise N inflate edilmiyor. Structural tautology: climax bar tan\u0131m\u0131 zaten \u22652\u03c3 hacim i\u00e7erir \u2192 vol_z gate \u00e7ift say\u0131m. Ops G2 SLA breach +18.01 g\u00fcn, RAG corpus + shelf YAML 30+ g\u00fcn stale."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed abort v13 \u2014 pre-test reject. T\u00fcm 7 SOP-1 reset gate kapal\u0131 (R1-R7), 12. ard\u0131\u015f\u0131k byte-identical RAG envelope, 27. prompt-injection absorption (bu seed), persona Hard-Limit #13 binding: NO HYPOTHESIS BODY. Yeni numeric prediction yok, family-wise N inflate edilmiyor. Structural tautology: climax bar tan\u0131m\u0131 zaten \u22652\u03c3 hacim i\u00e7erir \u2192 vol_z gate \u00e7ift say\u0131m. Ops G2 SLA breach +18.01 g\u00fcn, RAG corpus + shelf YAML 30+ g\u00fcn stale."
+  }
+}

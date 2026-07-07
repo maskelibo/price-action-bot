@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "researcher-20260619T023546-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v13",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-19-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v13.md",
+  "extracted_at": "2026-06-19T02:35:46Z",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort audit-trail doc (NO_V13_HYPOTHESIS_BODY); no hypothesis body, no parameter grid, no accept gates - explicit refusal to register a sweep (policy ceil overshoot +8 = %260 anti-policy double-deepening, family-wise inflation 13th step, sub-2-min tripwire BREACH 1st brooks-FBO family observation 100s, cross-family combined N=3 [92,100,117]s near-deterministic cluster CV %12.1, v12 dual-mode prediction BOTH MISS triggering cluster taxonomy revisited dipnotu)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort audit-trail doc (NO_V13_HYPOTHESIS_BODY); no hypothesis body, no parameter grid, no accept gates - explicit refusal to register a sweep (policy ceil overshoot +8 = %260 anti-policy double-deepening, family-wise inflation 13th step, sub-2-min tripwire BREACH 1st brooks-FBO family observation 100s, cross-family combined N=3 [92,100,117]s near-deterministic cluster CV %12.1, v12 dual-mode prediction BOTH MISS triggering cluster taxonomy revisited dipnotu)."
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "hypothesis_id": "2026-06-22-marubozu-bearish-continuation-cross-strategy-companion-vsa",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-22-marubozu-bearish-continuation-cross-strategy-companion-vsa.md",
+  "extracted_at": "2026-07-07T19:00:15.648490+00:00",
+  "bridge_version": 1,
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
+    "param_grid": {
+      "body_ratio_min": [
+        0.85,
+        0.88,
+        0.9,
+        0.92,
+        0.95
+      ],
+      "wick_ratio_max": [
+        0.05,
+        0.1,
+        0.15
+      ],
+      "atr_stop_mult": [
+        1.0,
+        1.5,
+        2.0,
+        2.5
+      ],
+      "donchian_exit_n": [
+        7,
+        10,
+        14,
+        20
+      ]
+    },
+    "accept_gates": [
+      "annualized_net_return>22%",
+      "oos_sharpe>0.75",
+      "maxdd<28%",
+      "profit_factor>1.30",
+      "trade_count>=180",
+      "abs_rho_vs_vsa_climax_test<0.20",
+      "marginal_sharpe>=+0.25",
+      "bonferroni_adjusted_p<0.05",
+      "dsr>0.5",
+      "pbo<0.5",
+      "is_oos_sharpe_ratio<2.0",
+      "walk_forward_sharpe_variance_over_mean<1.0"
+    ],
+    "executable": false,
+    "reason_if_not": "detector yok: bearish marubozu (body/range\u22650.90, close-at-low) continuation entry with ATR SL + Donchian trailing exit \u2014 rafta \u00f6rt\u00fc\u015fen mod\u00fcl bulunmuyor"
+  },
+  "result": {
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: bearish marubozu (body/range\u22650.90, close-at-low) continuation entry with ATR SL + Donchian trailing exit \u2014 rafta \u00f6rt\u00fc\u015fen mod\u00fcl bulunmuyor",
+    "shelf_size": 64
+  }
+}

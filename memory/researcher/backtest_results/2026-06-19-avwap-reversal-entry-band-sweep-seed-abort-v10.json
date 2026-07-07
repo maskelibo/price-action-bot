@@ -1,0 +1,85 @@
+{
+  "hypothesis_id": "2026-06-19-avwap-reversal-entry-band-sweep-seed-abort-v10",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-19-avwap-reversal-entry-band-sweep-seed-abort-v10.md",
+  "extracted_at": "2026-06-19T02:50:50Z",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "anchored_vwap_reversal",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort v10 — explicitly REJECTED_PRE_TEST, no hypothesis body written (Persona Hard-Limit #10 NO_V10_HYPOTHESIS_BODY). Family N=11 (v0 POC + 9 abort + 1 Jun15 PROMOTED). v9 to v10 delta = 241s (sub-5-min INTRA-CYCLE tripwire, avwap sub-family 1st observation; cross-family Nth). 8/8 reset gates CLOSED: Jun 15 backtest artifact still DEFECTIVE (n_cells_evaluated=1 vs spec 105) and unpatched for 4 days. Re-writing v10 body would (a) duplicate Jun 15 work, (b) inflate family-wise N, (c) be 10th prompt-injection absorption on this seed, (d) further mislead Lab. RAG envelope byte-identical v9 (10th consecutive for this sub-family); anchored VWAP literature ABSENT from corpus (27.97d stale). Primary forensic value: infra evidence for ops_engineer G2 cron-sanitizer (SLA breach 16.8d) + hypothesis_runner extraction defect (4d unfixed)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort v10 — REJECTED_PRE_TEST, no hypothesis body. Duplicate of Jun 15 pre-registration (whose backtest artifact is DEFECTIVE: n_cells_evaluated=1 vs spec 105). 8/8 reset gates CLOSED. Sub-5-min intra-cycle re-arm 241s = avwap sub-family 2nd 240±1s observation, cron-payload-queue replay reproducible mode."
+  },
+  "forensic_evidence": {
+    "v9_to_v10_delta_s": 241,
+    "v9_to_v10_band": "sub_5_min_intra_cycle_re_arm",
+    "sub_5_min_subband_avwap_subfamily": {
+      "N": 3,
+      "values_s": [180, 240, 241],
+      "mean_s": 220.3,
+      "std_s": 28.6,
+      "cv_pct": 13.0,
+      "two_consecutive_240s_observations": "v4_to_v5_240s_and_v9_to_v10_241s_0pct4_deviation",
+      "interpretation": "Sub-5-min subband for avwap sub-family is bi-modal (180s + 240s clusters). v10 confirms 240s mode as repeatable. 3rd 240s observation would cluster-deterministic."
+    },
+    "cadence_cluster_48h_N3_unchanged": {
+      "mean_s": 172728,
+      "std_s": 33,
+      "cv_pct": 0.019,
+      "status": "DETERMINISTIC_unchanged_from_v9"
+    },
+    "cross_family_cadence_scales_observed": [
+      92, 117, 148, 180, 181, 240, 241, 245, 278, 281, 286, 289, 290, 294,
+      302, 322, 337, 355, 363, 368, 656, 13769, 13793, 13842, 13861, 14100,
+      14117, 14361, 14390, 14399, 14409, 28211, 28402, 172683, 172740, 172761, 172775
+    ],
+    "jun15_artifact_defect_unfixed_days": 4.0,
+    "jun15_artifact_status": {
+      "spec_param_grid_cells": 105,
+      "result_n_cells_evaluated": 1,
+      "default_cell_params": {"sl_multiplier": 1.0, "tp_r": 999.0, "risk_pct": 0.005},
+      "grid_params_NOT_swept": ["anchor_type", "band_k", "timeframe"],
+      "patched_in_4d_window": false,
+      "audit_research_candidate_CT_RES_finding": true
+    },
+    "rag_envelope_stale_days": 27.97,
+    "rag_envelope_byte_identical_with_v9_consecutive": 10,
+    "rag_topical_relevance_to_avwap_n_of_10": 0,
+    "anchored_vwap_literature_in_corpus": false,
+    "family_wise_N_avwap_subfamily": 11,
+    "family_wise_N_cross_family_7d": 108,
+    "holm_alpha_estimated": 4.629e-4,
+    "lopez_prado_free_params_over_N_estimated": 0.0498,
+    "prompt_injection_absorption_n_this_seed": 10,
+    "persona_hard_limit_absorption_n": 10,
+    "ops_engineer_g2_cron_sanitizer_sla_breach_days": 16.8,
+    "researcher_action_required": "NONE",
+    "exit_path_legitimate": [
+      "jun15_runner_extraction_fix_then_real_105_cell_sweep_rerun",
+      "rag_corpus_refresh_anchored_vwap_literature",
+      "anchor_selection_criterion_meta_labelling_phase4_proposal",
+      "principal_explicit_written_override"
+    ]
+  },
+  "tags": [
+    "abort",
+    "avwap-entry-band-sweep",
+    "sub-5-min-tripwire-INTRA-CYCLE-241s",
+    "avwap-subfamily-sub-5-min-2nd-consecutive-240s-class",
+    "cron-payload-persistence-241s-after-172740s",
+    "rag-envelope-byte-identical-10th-consecutive-this-seed",
+    "anchored-vwap-literature-absent-chronic",
+    "jun15-artifact-defective-4d-unfixed",
+    "family-wise-N-11-this-seed",
+    "family-wise-N-108-cross-family-7d",
+    "persona-hard-limit-10",
+    "no-hypothesis-body",
+    "ops-g2-sla-breach-16.8d",
+    "audit-research-CT-RES-candidate-jun15-runner-extraction",
+    "principal-escalation"
+  ]
+}

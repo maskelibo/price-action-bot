@@ -1,10 +1,13 @@
 {
   "hypothesis_id": "2026-06-14-volman-iii-htf-aligned-breakout-4h-vsa-diversifier",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-14-volman-iii-htf-aligned-breakout-4h-vsa-diversifier.md",
-  "extracted_at": "2026-06-14T10:30:15.895051+00:00",
+  "extracted_at": "2026-07-07T20:00:15.052721+00:00",
+  "bridge_version": 1,
   "spec": {
     "type": "new_strategy",
     "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "4h",
     "param_grid": null,
     "accept_gates": [
       "net_annual_return_pct >= 18",
@@ -18,13 +21,15 @@
       "is_oos_sharpe_ratio >= 0.5",
       "shuffle_p_empirical < 0.000231",
       "dsr_bailey_lopez > 0.5",
-      "best_param_not_at_edge"
+      "best_param_not_at_boundary"
     ],
     "executable": false,
-    "reason_if_not": "New strategy (Volman iii triple-inside HTF-aligned breakout) \u2014 backtest engine has no existing detector for this pattern; DEFERRED pending signal_chief implementation."
+    "reason_if_not": "detector yok: Volman iii (\u00fc\u00e7 ard\u0131\u015f\u0131k inside bar) HTF-aligned breakout kal\u0131b\u0131 \u2014 rafta ii_breakout var ama triple-inside compression varyant\u0131 yok"
   },
   "result": {
-    "status": "NOT_EXECUTABLE",
-    "reason": "New strategy (Volman iii triple-inside HTF-aligned breakout) \u2014 backtest engine has no existing detector for this pattern; DEFERRED pending signal_chief implementation."
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: Volman iii (\u00fc\u00e7 ard\u0131\u015f\u0131k inside bar) HTF-aligned breakout kal\u0131b\u0131 \u2014 rafta ii_breakout var ama triple-inside compression varyant\u0131 yok",
+    "shelf_size": 64
   }
 }

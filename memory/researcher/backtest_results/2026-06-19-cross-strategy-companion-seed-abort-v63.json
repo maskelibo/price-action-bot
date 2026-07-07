@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-19-cross-strategy-companion-seed-abort-v63",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-19-cross-strategy-companion-seed-abort-v63.md",
+  "extracted_at": "2026-06-19T06:30:16.188946+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Abort/REJECTED dossier stub \u2014 substrate-failure log only (NO_DOSSIER policy per avwap-v11 extension); no testable hypothesis, no param grid, no executable spec."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Abort/REJECTED dossier stub \u2014 substrate-failure log only (NO_DOSSIER policy per avwap-v11 extension); no testable hypothesis, no param grid, no executable spec."
+  }
+}

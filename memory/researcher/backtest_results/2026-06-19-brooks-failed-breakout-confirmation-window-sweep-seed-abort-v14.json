@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-19-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v14",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-19-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v14.md",
+  "extracted_at": "2026-06-19T03:30:15.900946+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "NO_V14_HYPOTHESIS_BODY \u2014 seed-abort audit-trail-only doc, no parameter grid or testable hypothesis body; family-wise N inflation 14th deepening, post-hoc pre-registration violation, requires Principal escalation for ops_engineer cron-sanitizer SLA breach"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "NO_V14_HYPOTHESIS_BODY \u2014 seed-abort audit-trail-only doc, no parameter grid or testable hypothesis body; family-wise N inflation 14th deepening, post-hoc pre-registration violation, requires Principal escalation for ops_engineer cron-sanitizer SLA breach"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "hypothesis_id": "2026-06-28-hmm-regime-gated-tsmom-cross-strategy-vsa-companion",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-28-hmm-regime-gated-tsmom-cross-strategy-vsa-companion.md",
+  "extracted_at": "2026-07-07T17:30:30.621424+00:00",
+  "bridge_version": 1,
+  "spec": {
+    "type": "new_strategy",
+    "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
+    "param_grid": null,
+    "accept_gates": [
+      "OOS net annualized return >= 25%",
+      "OOS Sharpe >= 0.9",
+      "OOS MaxDD <= 35%",
+      "OOS Profit Factor >= 1.4",
+      "OOS Trade count >= 80",
+      "abs(corr(daily PnL, vsa_climax_test)) <= 0.20",
+      "Trade-arrival overlap rate vs vsa_climax <= 15%",
+      "Paired bootstrap p (HMM-TSMOM vs sade TSMOM) < 0.005 (Benjamini-Hochberg)"
+    ],
+    "executable": false,
+    "reason_if_not": "detector yok: 2-state Gaussian HMM regime-gated TSMOM (63-bar sign lookback) + realized-vol floor gate mekani\u011fi detekt\u00f6r raf\u0131nda mevcut de\u011fil"
+  },
+  "result": {
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: 2-state Gaussian HMM regime-gated TSMOM (63-bar sign lookback) + realized-vol floor gate mekani\u011fi detekt\u00f6r raf\u0131nda mevcut de\u011fil",
+    "shelf_size": 64
+  }
+}

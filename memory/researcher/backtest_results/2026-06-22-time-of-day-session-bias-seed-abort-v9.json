@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-22-time-of-day-session-bias-seed-abort-v9",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-22-time-of-day-session-bias-seed-abort-v9.md",
+  "extracted_at": "2026-06-22T03:00:15.179544+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED ABORT v9 \u2014 hipotez g\u00f6vdesi yaz\u0131lmad\u0131 (audit-trail-only). REJECTED PRE-TEST: 4/4 SOP-1 gate kapal\u0131 (RAG topical 0/10, v4 DRAFT 18g prior-open, prompt-injection signature present, state delta vs v8 zero). Backtest motorunda ko\u015fturulacak yap\u0131 yok."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED ABORT v9 \u2014 hipotez g\u00f6vdesi yaz\u0131lmad\u0131 (audit-trail-only). REJECTED PRE-TEST: 4/4 SOP-1 gate kapal\u0131 (RAG topical 0/10, v4 DRAFT 18g prior-open, prompt-injection signature present, state delta vs v8 zero). Backtest motorunda ko\u015fturulacak yap\u0131 yok."
+  }
+}

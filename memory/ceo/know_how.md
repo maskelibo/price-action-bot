@@ -171,3 +171,17 @@ Haftalık episodic tag dağılımı: llm_call:11, brief:7, daily:7
 Haftalık episodic tag dağılımı: llm_call:7, brief:6, daily:6
 
 ---
+
+### 2026-06-21 — weekly-tag-snapshot-20260621 (med)
+- tags: consolidation
+
+Haftalık episodic tag dağılımı: llm_call:8, brief:7, daily:7
+
+---
+
+### 2026-06-28 — weekly-tag-snapshot-20260628 (med)
+- tags: consolidation
+
+Haftalık episodic tag dağılımı: llm_call:7, brief:7, daily:7
+
+---

@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-15-cross-strategy-companion-seed-abort-v27",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-15-cross-strategy-companion-seed-abort-v27.md",
+  "extracted_at": "2026-06-15T22:30:24.240868+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort doc (status: REJECTED) \u2014 27. ard\u0131\u015f\u0131k pre-registration abort, reset gates 0/6, L\u00f3pez-Prado kriter #5 breach (free-params/N 0.0347 > 1/30), Holm-\u03b1 collapse (N_family=74). Hipotez i\u00e7eri\u011fi yok, sadece moratorium audit-trail; backtest spec \u00e7\u0131kar\u0131lamaz."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort doc (status: REJECTED) \u2014 27. ard\u0131\u015f\u0131k pre-registration abort, reset gates 0/6, L\u00f3pez-Prado kriter #5 breach (free-params/N 0.0347 > 1/30), Holm-\u03b1 collapse (N_family=74). Hipotez i\u00e7eri\u011fi yok, sadece moratorium audit-trail; backtest spec \u00e7\u0131kar\u0131lamaz."
+  }
+}

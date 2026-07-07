@@ -1,0 +1,20 @@
+{
+  "doc_id": "researcher-20260615T100000-cross-strategy-companion-seed-abort-v21",
+  "kind": "seed_abort_counter",
+  "executed": false,
+  "reason": "pre_test_reject_v11_policy_threshold_0_of_6_reset_gates",
+  "trigger_n": 21,
+  "seed": "cross-strategy-companion-low-corr-to-vsa",
+  "v20_to_v21_delta_hours": 3.833,
+  "acceleration_factor_vs_v19_to_v20": 4.19,
+  "intra_day_2nd_trigger": true,
+  "tripwire_armed_v22_lt_2h": true,
+  "family_wise_N_post": 68,
+  "holm_alpha_post": 7.353e-4,
+  "lopez_prado_freeparams_over_N": 0.0321,
+  "shelf_actual_count": 1,
+  "shelf_claimed_count": 66,
+  "persona_hard_limit_absorption": "NO_V21_HYPOTHESIS_BODY",
+  "linked_doc": "memory/researcher/hypotheses/2026-06-15-cross-strategy-companion-seed-abort-v21.md",
+  "linked_jsonl": "memory/researcher/seed_abort_log.jsonl"
+}

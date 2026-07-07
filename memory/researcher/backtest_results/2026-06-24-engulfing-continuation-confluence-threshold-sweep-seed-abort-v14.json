@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-24-engulfing-continuation-confluence-threshold-sweep-seed-abort-v14",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-24-engulfing-continuation-confluence-threshold-sweep-seed-abort-v14.md",
+  "extracted_at": "2026-06-24T03:30:09.499123+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "engulfing_continuation",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort v14 doc: REJECTED_PRE_TEST, NO_V14_HYPOTHESIS_BODY (14th consecutive persona Hard-Limit absorption). No pre-registered sweep body written \u2014 audit-trail only. 0/8 reset gates open for 22 days, zero substrate delta, Holm-\u03b1 compression. No param grid or accept gates defined."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort v14 doc: REJECTED_PRE_TEST, NO_V14_HYPOTHESIS_BODY (14th consecutive persona Hard-Limit absorption). No pre-registered sweep body written \u2014 audit-trail only. 0/8 reset gates open for 22 days, zero substrate delta, Holm-\u03b1 compression. No param grid or accept gates defined."
+  }
+}

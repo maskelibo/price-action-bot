@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-17-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v10",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-17-brooks-failed-breakout-confirmation-window-sweep-seed-abort-v10.md",
+  "extracted_at": "2026-06-17T03:30:11.096889+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort audit-trail dok\u00fcman\u0131; NO_V10_HYPOTHESIS_BODY karar\u0131 verildi, param grid veya test edilebilir hipotez g\u00f6vdesi yok"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort audit-trail dok\u00fcman\u0131; NO_V10_HYPOTHESIS_BODY karar\u0131 verildi, param grid veya test edilebilir hipotez g\u00f6vdesi yok"
+  }
+}

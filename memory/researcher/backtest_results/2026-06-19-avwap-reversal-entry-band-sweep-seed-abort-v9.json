@@ -1,0 +1,42 @@
+{
+  "hypothesis_id": "2026-06-19-avwap-reversal-entry-band-sweep-seed-abort-v9",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-19-avwap-reversal-entry-band-sweep-seed-abort-v9.md",
+  "extracted_at": "2026-06-19T02:46:49Z",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "anchored_vwap_reversal",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort v9 doc — explicitly REJECTED_PRE_TEST, no hypothesis body written (Persona Hard-Limit #9 NO_V9_HYPOTHESIS_BODY). Family N=10 (v0 POC + 8 abort + 1 Jun15 PROMOTED). 8/8 reset gates CLOSED, including Gate A which is WORSE than v8: Jun 15 artifact is DEFECTIVE (n_cells_evaluated=1 vs spec 105), runner wrote default cell (tp_r=999, sl_multiplier=1.0), not grid sweep. Re-writing v9 body would (a) duplicate Jun 15 work, (b) inflate family-wise N, (c) be 9th prompt-injection absorption on this seed, (d) mislead Lab into seeing 'two approved results'. 48h cron-only re-fill cadence cluster N=3 confirmed deterministic (mean 172,728s, std 33s, CV 0.019%) — primary forensic value is infra evidence for ops_engineer G2 cron-sanitizer, NOT new research."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort v9 doc — explicitly REJECTED_PRE_TEST, no hypothesis body written (Persona Hard-Limit #9 NO_V9_HYPOTHESIS_BODY). Duplicate of Jun 15 pre-registration (which itself produced a DEFECTIVE artifact: n_cells_evaluated=1 vs spec 105). 8/8 reset gates CLOSED. Cadence cluster CV 0.019% — cron-payload persistence."
+  },
+  "forensic_evidence": {
+    "cadence_cluster_48h_N3": {
+      "pairs": [
+        {"from": "v7", "to": "Jun15-promotion", "delta_s": 172683},
+        {"from": "Jun15-promotion", "to": "v8", "delta_s": 172761},
+        {"from": "v8", "to": "v9", "delta_s": 172740}
+      ],
+      "mean_s": 172728,
+      "std_s": 33,
+      "cv_pct": 0.019,
+      "interpretation": "Deterministic ~48h cron-only re-fill cadence confirmed. Same defect mode as cross-strategy-companion 14,100s 4h cluster N=10 (CV 1.82%), at 12x scale-up."
+    },
+    "jun15_artifact_defect": {
+      "spec_param_grid_cells": 105,
+      "result_n_cells_evaluated": 1,
+      "default_cell_params": {"sl_multiplier": 1.0, "tp_r": 999.0, "risk_pct": 0.005},
+      "grid_params_NOT_swept": ["anchor_type", "band_k", "timeframe"],
+      "metric_reported": {"sharpe_annualized": 3.0746, "sharpe_like": 19.6929, "n_trades": 10477, "mean_R_after_fees": 0.3669, "max_drawdown_R": 94.93},
+      "interpretation": "Runner did not iterate grid; wrote default-cell metrics with result.status=OK. Lab tournament risk: misread as 'approved sweep result'. Flag to ops_engineer + data_engineer."
+    },
+    "rag_envelope_stale_days": 27.97,
+    "anchored_vwap_literature_in_corpus": false,
+    "family_wise_N_cross_family_7d": 97,
+    "ops_engineer_g2_cron_sanitizer_sla_breach_days": 16.8
+  }
+}

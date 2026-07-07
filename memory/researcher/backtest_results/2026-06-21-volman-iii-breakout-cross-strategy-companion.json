@@ -1,0 +1,49 @@
+{
+  "hypothesis_id": "2026-06-21-volman-iii-breakout-cross-strategy-companion",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-21-volman-iii-breakout-cross-strategy-companion.md",
+  "extracted_at": "2026-06-21T18:30:10.041480+00:00",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": null,
+    "param_grid": {
+      "inside_bar_count": [
+        2,
+        3,
+        4
+      ],
+      "breakout_atr_mult": [
+        0.5,
+        1.0,
+        1.5
+      ],
+      "atr_window": [
+        14
+      ],
+      "tp_atr_mult": [
+        2.0,
+        3.0
+      ],
+      "sl_atr_mult": [
+        1.0,
+        1.5
+      ]
+    },
+    "accept_gates": [
+      "net_annualized_return > 25%",
+      "sharpe_oos > 0.8",
+      "max_dd < 25%",
+      "|corr_with_vsa_climax_test| <= 0.20",
+      "profit_factor > 1.4",
+      "n_trades >= 200",
+      "dsr > 0.5",
+      "pbo < 0.5",
+      "shuffle_baseline_p < 0.05"
+    ],
+    "executable": false,
+    "reason_if_not": "new_strategy: Volman iii multiple-inside-bar breakout pattern detector is not one of the 4 existing base strategies (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation); backtest engine cannot execute without new signal logic implementation (DEFERRED)"
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "new_strategy: Volman iii multiple-inside-bar breakout pattern detector is not one of the 4 existing base strategies (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation); backtest engine cannot execute without new signal logic implementation (DEFERRED)"
+  }
+}

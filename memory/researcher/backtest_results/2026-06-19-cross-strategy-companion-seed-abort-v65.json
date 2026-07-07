@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-19-cross-strategy-companion-seed-abort-v65",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-19-cross-strategy-companion-seed-abort-v65.md",
+  "extracted_at": "2026-06-19T10:30:08.915987+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "REJECTED abort stub per NO_DOSSIER policy (avwap-v11 extended to cross-strategy at v63). No hypothesis body, no candidate set, no selection rule, no null defined. Six reset gates closed; seed cannot produce a measurable claim."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED abort stub per NO_DOSSIER policy (avwap-v11 extended to cross-strategy at v63). No hypothesis body, no candidate set, no selection rule, no null defined. Six reset gates closed; seed cannot produce a measurable claim."
+  }
+}

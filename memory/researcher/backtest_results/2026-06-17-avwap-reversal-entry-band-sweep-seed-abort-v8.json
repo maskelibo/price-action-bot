@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-17-avwap-reversal-entry-band-sweep-seed-abort-v8",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-17-avwap-reversal-entry-band-sweep-seed-abort-v8.md",
+  "extracted_at": "2026-06-17T03:30:18.047413+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "anchored_vwap_reversal",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed-abort v8 doc \u2014 explicitly REJECTED_PRE_TEST, no hypothesis body written (Persona Hard-Limit #8 NO_V8_HYPOTHESIS_BODY). Duplicate of Jun 15 pre-registration which already has full spec + backtest result. 8/8 reset gates CLOSED."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed-abort v8 doc \u2014 explicitly REJECTED_PRE_TEST, no hypothesis body written (Persona Hard-Limit #8 NO_V8_HYPOTHESIS_BODY). Duplicate of Jun 15 pre-registration which already has full spec + backtest result. 8/8 reset gates CLOSED."
+  }
+}

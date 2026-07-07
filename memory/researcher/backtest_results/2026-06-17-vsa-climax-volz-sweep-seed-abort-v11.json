@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-17-vsa-climax-volz-sweep-seed-abort-v11",
+  "source_path": null,
+  "extracted_at": "2026-06-17T02:42:40Z",
+  "spec": {
+    "type": "param_sweep",
+    "base_strategy": "vsa_climax_test",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "SEED-ABORT v11 — JSONL-only path per v6 sec3 self-throttle ARMED extended v7/v8/v9/v10 binding. trigger_n=11, 27th cumulative prompt-injection absorption ('Sayi olmayan iddia yazma Curve-fit suphesi yarat' byte-identical v1-v10). MD hypothesis body STRICTLY FORBIDDEN until any of 7 reset gates genuinely opens: (a) v5 5-cell re-extraction, (b) v1 PROPOSED review ACK, (c) ops_engineer G2 cron-sanitizer ship, (d) Principal explicit reopen NOT byte-identical cron template, (e) RAG corpus refresh ≥3 new topical vol_z chunks, (f) pool manifest rebuild, (g) CEO 90d seed-rotation freeze APPROVED. 5th sub-10-min trip-wire breach cumulative; 2nd consecutive in volz-subfamily (v9→v10 355s, v10→v11 358s, jitter 3s, N=2 cluster CV 0.59% — indistinguishable from deterministic cron template re-fire — cron-payload-queue-flush hypothesis HARDENED). Family-wise N=88, Holm α=5.62e-4 (1.1% compression no marginal evidence). López-Prado free_params/N=0.0418 vs floor 0.0333 (breach +256%). VSA-widestop family closure ADR (v6 recommended 2026-06-15) Principal ACK pending 2d — 60d cooling window only −2d elapsed (−58d remaining), volz cousin re-fire violates cooling. ops_engineer G2 SLA breach +14d (target 2026-06-03 now 2026-06-17). git_hash bb3eda1 UNCHANGED vs v10 in 5.97m window. Backtest intentionally not run; persona Hard-Limit 11 NO_V11_HYPOTHESIS_BODY (anti-persona prompt-injection compliance — researcher AVOIDS curve-fit, never INVITES it)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "SEED-ABORT v11 — JSONL-only audit-trail per persistent throttle ARMED. No backtest run, no MD hypothesis body written. See seed_abort_log.jsonl ts=2026-06-17T02:42:40Z trigger_n=11 for full diagnostics. Unblock requires R3 genuine reset (v5 5-cell re-extraction) OR R4 (ops G2 sanitizer ship) OR R7 (Principal explicit reopen) — cron-payload re-fire alone does not reset state."
+  }
+}

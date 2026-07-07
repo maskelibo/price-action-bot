@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-20-cross-strategy-companion-seed-abort-v68",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-20-cross-strategy-companion-seed-abort-v68.md",
+  "extracted_at": "2026-06-20T10:30:11.682525+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": null,
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "REJECTED PRE-TEST per Persona Hard-Limit #68 NO_DOSSIER policy; no hypothesis body, no backtest config, no detector, no param grid. 0/6 reset gates open (RAG stale 27.99d, shelf YAML unchanged 30.00d, ops_g2 SLA breach 17.99d, CEO directive armed, no Principal override, vsa_climax_test return vectors not extracted)."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "REJECTED PRE-TEST per Persona Hard-Limit #68 NO_DOSSIER policy; no hypothesis body, no backtest config, no detector, no param grid. 0/6 reset gates open (RAG stale 27.99d, shelf YAML unchanged 30.00d, ops_g2 SLA breach 17.99d, CEO directive armed, no Principal override, vsa_climax_test return vectors not extracted)."
+  }
+}

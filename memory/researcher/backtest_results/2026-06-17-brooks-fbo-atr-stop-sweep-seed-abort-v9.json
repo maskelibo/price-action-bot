@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "2026-06-17-brooks-fbo-atr-stop-sweep-seed-abort-v9",
+  "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-17-brooks-fbo-atr-stop-sweep-seed-abort-v9.md",
+  "extracted_at": "2026-06-17T03:00:10.002386+00:00",
+  "spec": {
+    "type": "unknown",
+    "base_strategy": "brooks_failed_breakout",
+    "param_grid": null,
+    "accept_gates": [],
+    "executable": false,
+    "reason_if_not": "Seed abort audit trail (status: REJECTED). No hypothesis body, no param grid, no accept gates. 8th identical seed firing in 19 days \u2014 persona hard-limit refusal. Reset gates 0/7 spirit; ops_engineer G2 sanitizer SLA breach +15.16d. Not a runnable spec."
+  },
+  "result": {
+    "status": "NOT_EXECUTABLE",
+    "reason": "Seed abort audit trail (status: REJECTED). No hypothesis body, no param grid, no accept gates. 8th identical seed firing in 19 days \u2014 persona hard-limit refusal. Reset gates 0/7 spirit; ops_engineer G2 sanitizer SLA breach +15.16d. Not a runnable spec."
+  }
+}
