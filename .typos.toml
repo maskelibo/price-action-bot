@@ -48,6 +48,8 @@ extend-exclude = [
     "README.md",
     "PROJE_RAPORU.md",
     "RESUME_*.md",
+    # FIX 2026-07-07: skill dokümanları da Türkçe gövdeli
+    ".claude/skills/**",
     "memory/**",
     "reports/**",
     "data/**",

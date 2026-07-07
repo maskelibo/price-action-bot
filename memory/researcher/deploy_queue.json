@@ -5,7 +5,7 @@
     {
       "id": "v63-rsi2-rescue",
       "added_at": "2026-05-27T13:16:03.625948+00:00",
-      "status": "READY_FOR_DEPLOY",
+      "status": "SUPERSEDED",
       "priority": "P1",
       "doc": "memory/researcher/deploy_candidates/v63-rsi2-rescue.md",
       "config_proposed": "configs/proposed/risk_phoenix_scalp_15m_rsi2_v63.yaml",
@@ -51,15 +51,15 @@
         {
           "label": "Combo 70/30 live+v63",
           "risk_pct": 0.005,
-          "expected_combo_sharpe_boost": "yes (\u03c1<0.3 ise)"
+          "expected_combo_sharpe_boost": "yes (ρ<0.3 ise)"
         }
       ],
-      "notes": "7-round iterate champion. Live'\u0131 yenen tek SUPER_ELITE \u015fu ana kadar."
+      "notes": "7-round iterate champion. Live'ı yenen tek SUPER_ELITE şu ana kadar."
     },
     {
       "id": "session-vwap-v11-range-mr",
       "added_at": "2026-05-27T14:10:33.480954+00:00",
-      "status": "READY_FOR_DEPLOY",
+      "status": "SUPERSEDED",
       "priority": "P2",
       "doc": "memory/researcher/deploy_candidates/session-vwap-v3-range-mr.md",
       "performance": {
@@ -74,7 +74,7 @@
         "monthly_roi_diff": -0.9,
         "max_dd_diff": 0.12,
         "annualized_multiplier": 0.86,
-        "note": "DD live'dan 0.12pp DAHA AZ \u2014 pure improvement risk taraf\u0131nda"
+        "note": "DD live'dan 0.12pp DAHA AZ — pure improvement risk tarafında"
       },
       "deploy_options": [
         {
@@ -83,7 +83,7 @@
           "pause": 2,
           "roi": 12.08,
           "dd": -15.36,
-          "note": "Live ile ayn\u0131 risk profili"
+          "note": "Live ile aynı risk profili"
         },
         {
           "label": "v17 ultra-safe",
@@ -102,7 +102,7 @@
           "dd": -13.72
         }
       ],
-      "notes": "D\u00fc\u015f\u00fck-vol bot aray\u0131\u015f\u0131 s\u0131ras\u0131nda ke\u015ffedildi \u2014 asl\u0131nda range MR. 3-bot combo (live+v63+v3) aday\u0131.",
+      "notes": "Düşük-vol bot arayışı sırasında keşfedildi — aslında range MR. 3-bot combo (live+v63+v3) adayı.",
       "updated_at": "2026-05-27T15:23:29.593548+00:00",
       "spec": {
         "strategy": "session_vwap_mean_reversion",
@@ -113,9 +113,11 @@
       },
       "upgrade_history": [
         "v3 (DD -21.87%)",
-        "v11 (DD -15.36% \u2014 pause 3\u21922 sihir)"
+        "v11 (DD -15.36% — pause 3→2 sihir)"
       ]
     }
   ],
-  "principal_note": "v63 deploy queue'ya al\u0131nd\u0131 2026-05-27. Her an deploy edebiliriz dedi user."
+  "principal_note": "v63 deploy queue'ya alındı 2026-05-27. Her an deploy edebiliriz dedi user.",
+  "status": "SUPERSEDED",
+  "superseded_note": "2026-07-07 denetim B8: 27 May kaydı, compounding-şişkin annualized (yasaklı sınıf); v15p2 dünyasında geçersiz. Hiçbir ajan bunu açık deploy emri olarak OKUMAMALI."
 }

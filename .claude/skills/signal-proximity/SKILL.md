@@ -23,7 +23,7 @@ Timestamp UTC. Sembol "WIDESTOP: " sonrası, sl_pct = sonraki sayı.
 
 ```bash
 cd ~/price-action-bot && \
-grep "15M_REJECT_WIDESTOP" logs/futures_daemon.log | \
+grep "15M_REJECT_WIDESTOP" logs/futures_daemon_v15p2.log | \
   sed -E 's/\[([^]]+)\].*WIDESTOP: ([^ ]+) sl_pct=([0-9.]+).*/\3 \2 \1/' | \
   sort -rn | head -N
 ```
@@ -39,7 +39,7 @@ Log timestamp'leri UTC. TR saatinden N saat geri = UTC saatinden N saat geri.
 
 ```bash
 awk '/^\[(14|15|16|17):[0-9][0-9]:[0-9][0-9]\]/ && /15M_REJECT_WIDESTOP/' \
-  ~/price-action-bot/logs/futures_daemon.log | \
+  ~/price-action-bot/logs/futures_daemon_v15p2.log | \
   sed -E 's/\[([^]]+)\].*WIDESTOP: ([^ ]+) sl_pct=([0-9.]+).*/\3 \2 \1/' | \
   sort -rn | head -N
 ```
@@ -49,7 +49,7 @@ Saat aralığı string'ini dinamik üret (UTC mevcut saatten geriye N adım), ba
 ## Sembol bazlı dağılım
 
 ```bash
-grep "15M_REJECT_WIDESTOP" ~/price-action-bot/logs/futures_daemon.log | \
+grep "15M_REJECT_WIDESTOP" ~/price-action-bot/logs/futures_daemon_v15p2.log | \
   sed -E 's/.*WIDESTOP: ([^ ]+).*/\1/' | \
   sort | uniq -c | sort -rn
 ```

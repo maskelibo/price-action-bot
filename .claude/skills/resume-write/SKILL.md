@@ -66,7 +66,7 @@ git branch --show-current
 cat data/state/positions.json 2>/dev/null || echo "no state file"
 
 # 5. Son log özeti (ENTRY var mı?)
-grep -cE "ENTRY|ACCEPT|FILL" logs/futures_daemon.log
+grep -cE "ENTRY|ACCEPT|FILL" logs/futures_daemon_v15p2.log
 
 # 6. Diff istatistik
 git diff --stat
