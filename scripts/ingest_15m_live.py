@@ -166,6 +166,22 @@ def ingest_symbol_15m(
     for col in ("open", "high", "low", "close", "volume"):
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
+    # FIX 2026-07-07 (F1 audit): ccxt'in son satırı HENÜZ KAPANMAMIŞ
+    # (oluşmakta olan) mumdur — DB'ye yazılınca saatlik snapshot kesik
+    # barı donduruyor ve tarama onu "kapanmış" sanıyordu (7 Tem kanıt:
+    # hacim 9.5 vs 2450). Sadece kapanmış barlar yazılır: bar kapanışı
+    # (ts + 15dk) şimdiden sonra ise satır atılır; bar kapandıktan
+    # sonraki ilk 5dk'lık ingest turunda zaten gelir — veri kaybı yok.
+    now_utc = pd.Timestamp.now(tz="UTC")
+    bar_close = df["ts"] + pd.Timedelta(minutes=15)
+    closed_mask = bar_close <= now_utc
+    n_forming = int((~closed_mask).sum())
+    if n_forming:
+        df = df[closed_mask]
+        logger.bind(venue=venue, symbol=symbol, dropped_forming=n_forming).debug(
+            "ingest15m.forming_bar_dropped"
+        )
+
     written = store.upsert(df)
     logger.bind(venue=venue, symbol=symbol, tf=TF, written=written).info("ingest15m.done")
     return written

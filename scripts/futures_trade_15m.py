@@ -420,8 +420,14 @@ def _scan_symbol(sym: str, target_bar_close: pd.Timestamp) -> list[dict]:
         else:
             logger.bind(symbol=sym).error("scan15m.auto_refresh_fail_no_data")
 
-    # Causal: sadece target_bar_close'a kadar olan barlar
-    df_filtered = df[df["ts"] <= target_bar_close]
+    # Causal: sadece target_bar_close'dan ÖNCE AÇILAN barlar.
+    # FIX 2026-07-07 (F1 audit): ts = bar AÇILIŞ zamanı; `<=` filtresi
+    # open==target_bar_close olan barı (yani HENÜZ OLUŞMAKTA olan mumu)
+    # karar barı yapabiliyordu — auto-refresh sonrası ccxt'in son satırı
+    # forming candle'dır. 7 Tem ampirik kanıt: karar barı hacmi 9.5 vs
+    # gerçek kapanış 2450 (260×). Kesin kural: karar barının açılışı
+    # target_bar_close - 15dk'dır, forming bar asla geçemez → strict `<`.
+    df_filtered = df[df["ts"] < target_bar_close]
     if df_filtered.empty:
         return sym_signals
 
@@ -687,10 +693,7 @@ def run_15m(dry_run: bool = False) -> None:
     _pos_ok = state.get("positions_ok", True)
     _init_margin = float(state.get("total_initial_margin", 0))
     _pos_list = state.get("positions", [])
-    _stale_positions = (
-        not _pos_ok
-        or (len(_pos_list) == 0 and _init_margin > 0)
-    )
+    _stale_positions = not _pos_ok or (len(_pos_list) == 0 and _init_margin > 0)
     if _stale_positions:
         print(
             f"[ENTRY_SKIP_STALE_POS] pozisyon verisi güvenilmez "

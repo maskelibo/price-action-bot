@@ -131,6 +131,9 @@ ignore = ["E501", "RUF001", "RUF002", "RUF003"]
 # pre-existing yapısal ihlaller davranış riski olmadan düzeltilemez; muaf.
 "src/price_action/lab/iterate_orchestrator.py" = ["E402", "N806", "SIM102"]
 "src/price_action/orchestrator/scheduler.py" = ["N806", "F841", "SIM105", "SIM115", "N814", "F401"]
+# F1-fix (2026-07-07): canlı scan dosyası ilk kez lint'e girdi — E402 import
+# sırası (sys.path/env kurulumu importlardan önce ŞART) + trading konvansiyonu.
+"scripts/futures_trade_15m.py" = ["E402", "N806", "N814", "SIM105"]
 
 [tool.mypy]
 python_version = "3.11"
