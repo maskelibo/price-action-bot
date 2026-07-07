@@ -136,6 +136,11 @@ ignore = ["E501", "RUF001", "RUF002", "RUF003"]
 "scripts/futures_trade_15m.py" = ["E402", "N806", "N814", "SIM105"]
 # Kill-kriteri fix (2026-07-07): bot_monitor ilk kez lint'e girdi — pre-existing.
 "src/price_action/agents/bot_monitor.py" = ["B007", "RUF005", "SIM105"]
+# Emanet-commit (2026-07-07): canlı god-file + rapor script'leri ilk lint —
+# pre-existing yapısal ihlaller; canlı dosyada davranış riski alınmaz.
+"scripts/futures_daemon.py" = ["E402", "E731", "N806", "N811", "N814", "SIM105", "SIM118"]
+"scripts/truth_report.py" = ["RUF005"]
+"tests/audit/test_audit_findings.py" = ["F841", "N812"]
 
 [tool.mypy]
 python_version = "3.11"

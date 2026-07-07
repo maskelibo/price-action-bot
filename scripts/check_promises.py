@@ -5,12 +5,13 @@ configs/promises.yaml'daki SLA beyanlarını saatlik kontrol eder.
 
 Cron: scheduler her saat çağırır (`_job_check_promises`).
 """
+
 from __future__ import annotations
 
 import json
 import re
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -26,17 +27,17 @@ _REPORT_DIR = _REPO / "reports" / "promises"
 
 
 def _log(msg: str) -> None:
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
     print(f"[{ts}] {msg}", flush=True)
 
 
 def _count_files_in_window(pattern: str, hours: int = 24) -> int:
     """Pattern'e uyan ve son N saat içinde değiştirilmiş dosyaları say."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
     count = 0
     for p in _REPO.glob(pattern):
         try:
-            mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
+            mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=UTC)
             if mtime >= cutoff:
                 count += 1
         except Exception:
@@ -56,7 +57,7 @@ def _file_max_age_hours(pattern: str) -> float | None:
             continue
     if newest_mtime == 0.0:
         return None
-    return (datetime.now(timezone.utc).timestamp() - newest_mtime) / 3600.0
+    return (datetime.now(UTC).timestamp() - newest_mtime) / 3600.0
 
 
 def _count_log_matches(log_path: str, regex: str, hours: int = 24) -> int:
@@ -68,7 +69,16 @@ def _count_log_matches(log_path: str, regex: str, hours: int = 24) -> int:
     p = _REPO / log_path
     if not p.exists():
         return 0
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+    # Dosya cutoff'tan beri hiç yazılmadıysa pencerede 0 match vardır.
+    # Bu gate olmadan plain-log (satırda tarih yok) dosyalar tüm-dosya
+    # sayımıyla donmuş/emekli olsalar bile sonsuza dek PASS eder (kör nokta).
+    try:
+        mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=UTC)
+        if mtime < cutoff:
+            return 0
+    except Exception:
+        pass
     pattern = re.compile(regex)
     count = 0
     try:
@@ -84,7 +94,7 @@ def _count_log_matches(log_path: str, regex: str, hours: int = 24) -> int:
                     if ts_str:
                         ts = datetime.fromisoformat(ts_str)
                         if ts.tzinfo is None:
-                            ts = ts.replace(tzinfo=timezone.utc)
+                            ts = ts.replace(tzinfo=UTC)
                         if ts >= cutoff:
                             count += 1
                         continue
@@ -116,55 +126,63 @@ def check_promises(promises: dict[str, Any]) -> list[dict[str, Any]]:
                 if min_per_24h is not None:
                     actual = _count_files_in_window(pattern, hours=24)
                     if actual < int(min_per_24h):
-                        violations.append({
-                            "component": comp_name,
-                            "severity": severity,
-                            "kind": kind,
-                            "promise": f"min {min_per_24h} files matching {pattern}/24h",
-                            "actual": f"{actual} files",
-                            "comment": check.get("comment", ""),
-                        })
+                        violations.append(
+                            {
+                                "component": comp_name,
+                                "severity": severity,
+                                "kind": kind,
+                                "promise": f"min {min_per_24h} files matching {pattern}/24h",
+                                "actual": f"{actual} files",
+                                "comment": check.get("comment", ""),
+                            }
+                        )
                 elif max_age_hours is not None:
                     age = _file_max_age_hours(pattern)
                     if age is None:
-                        violations.append({
-                            "component": comp_name,
-                            "severity": severity,
-                            "kind": kind,
-                            "promise": f"file matching {pattern} exists",
-                            "actual": "NO FILE",
-                            "comment": check.get("comment", ""),
-                        })
+                        violations.append(
+                            {
+                                "component": comp_name,
+                                "severity": severity,
+                                "kind": kind,
+                                "promise": f"file matching {pattern} exists",
+                                "actual": "NO FILE",
+                                "comment": check.get("comment", ""),
+                            }
+                        )
                     elif age > float(max_age_hours):
-                        violations.append({
-                            "component": comp_name,
-                            "severity": severity,
-                            "kind": kind,
-                            "promise": f"file age <= {max_age_hours}h",
-                            "actual": f"{age:.1f}h old",
-                            "comment": check.get("comment", ""),
-                        })
+                        violations.append(
+                            {
+                                "component": comp_name,
+                                "severity": severity,
+                                "kind": kind,
+                                "promise": f"file age <= {max_age_hours}h",
+                                "actual": f"{age:.1f}h old",
+                                "comment": check.get("comment", ""),
+                            }
+                        )
             elif kind == "log_pattern":
                 log_path = check.get("log", "")
                 regex = check.get("regex", "")
                 min_per_24h = check.get("min_per_24h", 0)
                 actual = _count_log_matches(log_path, regex, hours=24)
                 if actual < int(min_per_24h):
-                    violations.append({
-                        "component": comp_name,
-                        "severity": severity,
-                        "kind": kind,
-                        "promise": f"min {min_per_24h} log matches for /{regex}/ in {log_path} /24h",
-                        "actual": f"{actual} matches",
-                        "comment": check.get("comment", ""),
-                    })
+                    violations.append(
+                        {
+                            "component": comp_name,
+                            "severity": severity,
+                            "kind": kind,
+                            "promise": f"min {min_per_24h} log matches for /{regex}/ in {log_path} /24h",
+                            "actual": f"{actual} matches",
+                            "comment": check.get("comment", ""),
+                        }
+                    )
     return violations
 
 
 def write_report(violations: list[dict[str, Any]]) -> Path:
     """Markdown rapor yaz."""
     _REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     report_path = _REPORT_DIR / f"promises-{now.strftime('%Y-%m-%d-%H')}.md"
     lines = [
         f"# Promise/Reality Check — {now.strftime('%Y-%m-%d %H:%M UTC')}",
@@ -194,6 +212,7 @@ def push_violations(violations: list[dict[str, Any]]) -> None:
         return
     try:
         from price_action.orchestrator.notifications import push_critical
+
         msg_lines = [
             f"PROMISE VIOLATION ({len(crit_violations)} CRIT):",
         ]

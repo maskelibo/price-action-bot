@@ -767,8 +767,7 @@ def _remaining_qty_on_con(con, trade_id: str, fill_qty: float) -> float:
         ).fetchone():
             return 0.0
         row = con.execute(
-            "SELECT COALESCE(SUM(qty_closed),0.0) FROM futures_partial_closes "
-            "WHERE trade_id=?",
+            "SELECT COALESCE(SUM(qty_closed),0.0) FROM futures_partial_closes " "WHERE trade_id=?",
             [trade_id],
         ).fetchone()
         partial_sum = float(row[0]) if row and row[0] is not None else 0.0
@@ -795,11 +794,14 @@ def position_check():
             pos_summary = []
             for p in positions:
                 sym = p.get("symbol", "?")
-                contracts = float(p.get("contracts", 0))
+                # FIX 2026-06-18 (CT-OPS-05): None-safe — ccxt testnet bazen
+                # markPrice/unrealizedPnl'i None döndürüyor; float(None) tüm tick
+                # korumasını (SL ratchet/orphan reconcile) atlatıyordu.
+                contracts = float(p.get("contracts") or 0)
                 side = p.get("side", "?")
-                entry = float(p.get("entryPrice", 0))
-                mark = float(p.get("markPrice", 0))
-                pnl = float(p.get("unrealizedPnl", 0))
+                entry = float(p.get("entryPrice") or 0)
+                mark = float(p.get("markPrice") or 0)
+                pnl = float(p.get("unrealizedPnl") or 0)
                 # FIX 2026-05-26 (Faz 14.9): 4-digit fiyat format (Principal isteği).
                 # Düşük-fiyatlı coinler (DOGE, AVAX) $.2f'te aynı görünüyordu —
                 # gerçek hareket gizleniyordu. $.4f ile $0.1014 vs $0.1023 ayırt edilir.
@@ -853,8 +855,10 @@ def position_check():
                     _dedup_changed = False
                     for _p in positions:
                         _psym = _p.get("symbol", "?")
-                        _pcontracts = abs(float(_p.get("contracts", 0)))
-                        _pmark = float(_p.get("markPrice", 0))
+                        _pcontracts = abs(
+                            float(_p.get("contracts") or 0)
+                        )  # FIX CT-OPS-05 None-safe
+                        _pmark = float(_p.get("markPrice") or 0)
                         _pnotional = _pcontracts * _pmark
                         _ppct = _pnotional / _watchdog_equity
                         if _ppct > _max_per_sym_pct:
@@ -927,7 +931,7 @@ def position_check():
         try:
             active_pos_syms = set()
             for p in positions:
-                qty = abs(float(p.get("contracts", 0)))
+                qty = abs(float(p.get("contracts") or 0))  # FIX CT-OPS-05 None-safe
                 if qty > 0.0001:
                     sym_raw = p.get("symbol", "")
                     # "BTC/USDT:USDT" → "BTCUSDT" (algo endpoint sym format)
@@ -1083,8 +1087,15 @@ def position_check():
             _seen_heal: set[str] = set()
             _heal_pnl_todo: list = []  # CT-EXE-02 PnL yazımı _heal_con kapandıktan SONRA
             for (
-                _sid, _ssym, _sl_oid,
-                _h_ts, _h_side, _h_strat, _h_entry, _h_qty, _h_sl,
+                _sid,
+                _ssym,
+                _sl_oid,
+                _h_ts,
+                _h_side,
+                _h_strat,
+                _h_entry,
+                _h_qty,
+                _h_sl,
             ) in _open_sigs:
                 _sym_raw = str(_ssym).replace("/", "").replace(":USDT", "")
                 _sl_still_open = bool(_sl_oid) and str(_sl_oid) in _algo_ids_now
@@ -1124,7 +1135,14 @@ def position_check():
             # bağlantı çakışması yok. Her sinyal kendi try'ında: income oku → record_close.
             # Best-effort: income yok → MISS (PnL satırı yazılmaz), hata → ERR (heal bozulmaz).
             for (
-                _sid, _ssym, _h_ts, _h_side, _h_strat, _h_entry, _h_qty, _h_sl,
+                _sid,
+                _ssym,
+                _h_ts,
+                _h_side,
+                _h_strat,
+                _h_entry,
+                _h_qty,
+                _h_sl,
             ) in _heal_pnl_todo:
                 try:
                     from datetime import UTC as _UTC
@@ -1217,9 +1235,7 @@ def position_check():
                 # kapanış sayılır; kalan TP'leri journal kapanınca orphan-temizlik
                 # N-tick teyidiyle süpürür.
                 _sl_gone_pos_flat = (
-                    sl_oid
-                    and not sl_open
-                    and _exchange_pos_qty_j.get(sym, 0.0) <= 1e-6
+                    sl_oid and not sl_open and _exchange_pos_qty_j.get(sym, 0.0) <= 1e-6
                 )
                 if (not tp_open and not sl_open) or _sl_gone_pos_flat:
                     # TP1 ve SL ikisi de algo_open_ids'de yok.
@@ -1487,9 +1503,10 @@ def position_check():
                                             )
 
                                             _ts_op = ts_open
-                                            if _ts_op is not None and getattr(
-                                                _ts_op, "tzinfo", None
-                                            ) is None:
+                                            if (
+                                                _ts_op is not None
+                                                and getattr(_ts_op, "tzinfo", None) is None
+                                            ):
                                                 _ts_op = _ts_op.replace(tzinfo=_UTCp)
                                             _p_start_ms = (
                                                 int(_ts_op.timestamp() * 1000) if _ts_op else None
@@ -1506,11 +1523,15 @@ def position_check():
                                                     [str(sig_id)],
                                                 ).fetchone()
                                                 _p_partial = (
-                                                    float(_ppr[0]) if _ppr and _ppr[0] is not None else 0.0
+                                                    float(_ppr[0])
+                                                    if _ppr and _ppr[0] is not None
+                                                    else 0.0
                                                 )
                                                 _prot_pnl_override = _p_income - _p_partial
                                         except Exception as _pio_err:
-                                            log(f"  PROT_INCOME_ERR sig={sig_id}: {str(_pio_err)[:80]}")
+                                            log(
+                                                f"  PROT_INCOME_ERR sig={sig_id}: {str(_pio_err)[:80]}"
+                                            )
                                         # Canonical writer (SEC26.B-4) — idempotent.
                                         try:
                                             inserted = tj.record_close(
@@ -2952,7 +2973,9 @@ def run_15m_mode(once: bool = False) -> None:
                                         for o in (_v_ords or [])
                                     )
                                     if not _has_sl:
-                                        _v_side = "SELL" if str(sig["side"]).lower() == "long" else "BUY"
+                                        _v_side = (
+                                            "SELL" if str(sig["side"]).lower() == "long" else "BUY"
+                                        )
                                         _v_sl_str = _ex_submit.price_to_precision(
                                             sig["symbol"], float(sig["sl_price"])
                                         )

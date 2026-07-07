@@ -22,7 +22,11 @@ import pytest
 from price_action.agents.audit_chief import coverage_gap
 from price_action.agents.audit_data import ct_dat_01_universe, ct_dat_04_duckdb_lock
 from price_action.agents.audit_execution import ct_exe_01_journal_drift, ct_exe_02_pnl_recon
-from price_action.agents.audit_ops import ct_ops_01_mute_drift, ct_ops_02_silent_cron
+from price_action.agents.audit_ops import (
+    ct_ops_01_mute_drift,
+    ct_ops_02_silent_cron,
+    ct_ops_log_error_pattern,
+)
 from price_action.agents.audit_research import ct_res_01_sharpe
 from price_action.agents.audit_risk import ct_rsk_01_maxdd_base
 
@@ -44,14 +48,24 @@ def test_audit_execution_catches_journal_drift():
 
 def test_audit_execution_catches_pnl_inflation():
     # Bu seansın gerçeği: journal +57.73 vs borsa -11.58; DOT işaret-ters (+28.73 vs -3.52)
-    journal = {"DOT/USDT": 28.73, "AVAX/USDT": 15.25, "ADA/USDT": 17.14,
-               "XLM/USDT": -23.24, "XRP/USDT": 3.93}
-    exchange = {"DOT/USDT": -3.52, "AVAX/USDT": -1.92, "ADA/USDT": -0.31,
-                "XLM/USDT": -23.24, "XRP/USDT": 0.88}
+    journal = {
+        "DOT/USDT": 28.73,
+        "AVAX/USDT": 15.25,
+        "ADA/USDT": 17.14,
+        "XLM/USDT": -23.24,
+        "XRP/USDT": 3.93,
+    }
+    exchange = {
+        "DOT/USDT": -3.52,
+        "AVAX/USDT": -1.92,
+        "ADA/USDT": -0.31,
+        "XLM/USDT": -23.24,
+        "XRP/USDT": 0.88,
+    }
     f = ct_exe_02_pnl_recon(journal, exchange)
     assert f is not None
     assert f.control_id == "CT-EXE-02"
-    assert f.severity == "critical"   # toplam fark > 5×tol → critical
+    assert f.severity == "critical"  # toplam fark > 5×tol → critical
     assert "DOT" in f.evidence["offenders"]
     assert "İŞARET TERS" in f.evidence["offenders"]
 
@@ -165,8 +179,7 @@ def test_chief_coverage_gap_map():
 def test_chief_empty_controls_is_not_a_gap():
     # Faz 3: sahip+denetçi var ama controls boş → bulgu DEĞİL (backlog metriği)
     universe = {
-        "data.snapshot": {"owner_agent": "data_engineer", "auditor": "audit_data",
-                          "controls": []},
+        "data.snapshot": {"owner_agent": "data_engineer", "auditor": "audit_data", "controls": []},
     }
     assert coverage_gap(universe) == []
 
@@ -213,6 +226,58 @@ def test_audit_ops_catches_silent_cron():
     )
     assert f is not None and f.control_id == "CT-OPS-02"
     assert "ingest_data" in f.evidence["stale_jobs"]
+
+
+# CT-OPS-03..07 — tekrar eden daemon hata-log paterni (Principal şartı 2026-06-18).
+# Bu seansın "audit körlüğü" bug'ı: audit her sabah koşuyordu ama daemon ERROR
+# loglarını taramıyordu → ro+rw / float(None) / ingest-fail sessizce birikti.
+def test_audit_ops_log_pattern_emits_above_threshold():
+    f = ct_ops_log_error_pattern(
+        control_id="CT-OPS-05",
+        owner="execution_chief",
+        severity="high",
+        title="pozisyon-koruma döngüsü unhandled exception",
+        count=8,
+        threshold=2,
+        window_desc="~son 24s",
+        samples=["[08:00:21Z] POS_CHECK ERROR: float() argument must be ... not 'NoneType'"],
+        hint="None-safe olmayan float()",
+    )
+    assert f is not None and f.control_id == "CT-OPS-05"
+    assert f.owner == "execution_chief" and f.severity == "high"
+    assert f.evidence["count"] == 8
+
+
+def test_audit_ops_log_pattern_clean_below_threshold():
+    # Eşik altı → None (auto-verify açık bulguyu kapatır; düzeltme sonrası temiz).
+    f = ct_ops_log_error_pattern(
+        control_id="CT-OPS-03",
+        owner="execution_chief",
+        severity="med",
+        title="ro+rw çakışması",
+        count=1,
+        threshold=3,
+        window_desc="~son 24s",
+        samples=[],
+        hint="x",
+    )
+    assert f is None
+
+
+def test_audit_ops_log_pattern_routes_to_correct_owner():
+    # Veri-katmanı hatası data_engineer'a route edilmeli (execution değil).
+    f = ct_ops_log_error_pattern(
+        control_id="CT-OPS-04",
+        owner="data_engineer",
+        severity="high",
+        title="DuckDB ingest invalidation",
+        count=114,
+        threshold=5,
+        window_desc="~son 24s",
+        samples=["has been invalidated ... ARTOperator::Insert"],
+        hint="ART-index bozulması",
+    )
+    assert f is not None and f.owner == "data_engineer"
 
 
 # ---------------------------------------------------------------------------
