@@ -42,6 +42,13 @@
   <dict>
     <key>PA_DUCKDB_READ_ONLY</key>
     <string>true</string>
+    <!-- SENKRON 2026-07-08 (dalga-4 T2-01): canlı plist ile hizala. Bu env
+         OLMADAN scheduler.register_jobs() yüksek-frekans araştırma job'larını
+         (feature_sweep/pulse/quick_scan/tf_exploration) KAYIT ETMEZ (_RESEARCH_
+         AUTOPILOT_JOBS skip). 2 Tem "yeniden açıldı" kararı repo-restore'da
+         sessizce geri alınırdı → araştırma fabrikasının lobotomisi. -->
+    <key>PA_RESEARCH_AUTOPILOT</key>
+    <string>1</string>
   </dict>
 
   <!-- Boot anında ve load anında çalıştır -->
