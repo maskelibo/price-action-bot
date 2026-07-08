@@ -19,15 +19,13 @@ Kural ozeti (mekanik):
 
 Manifest yoksa dahili default kullanilir.
 """
-from __future__ import annotations
 
-from typing import Any
+from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
 from price_action.contracts import Signal
-from price_action.logging_config import logger
 from price_action.strategies.base import Strategy, StrategyManifest
 
 # Shared helpers
@@ -39,10 +37,10 @@ from price_action.strategies.classic_pa import (
     _rolling_sharpe,
 )
 
-
 # =====================================================================
 # Pin bar helpers (vektorel, lookahead-free)
 # =====================================================================
+
 
 def _pin_bar_components(df: pd.DataFrame) -> pd.DataFrame:
     """Her bar icin fitil/govde bilesenleri.
@@ -129,6 +127,7 @@ def _bearish_pin_bar(
 # HTF S/R tespit (1W swing high/low)
 # =====================================================================
 
+
 def _weekly_swing_sr_levels(
     df_weekly: pd.DataFrame,
     lookback_weeks: int = 52,
@@ -153,7 +152,15 @@ def _weekly_swing_sr_levels(
     out: list[list[float]] = []
     for i in range(len(df_w)):
         start_i = max(0, i - lookback_weeks)
-        window = df_w.iloc[start_i:i]  # lookahead-free: i dahil degil
+        # FIX 2026-07-08 (dalga-4 W4 HIGH): fraktal teyit gecikmesi.
+        # _fractal_swings docstring: swing "sadece bar t-n için kullanilabilir"
+        # (sağ taraf bilgisi). Hafta j'nin swing'i j+fractal_n haftası KAPANANA
+        # kadar kesinleşmez. Eski üst sınır `i` (i-1'e kadar) → hafta i, i+1'de
+        # kesinleşecek swing'i kullanıyordu = fractal_n haftalık LOOKAHEAD.
+        # Doğru üst sınır i-fractal_n: en son dahil edilen hafta i-fractal_n-1,
+        # swing'i i-1'de kesinleşir → hafta i'de gerçekten bilinir.
+        end_i = max(start_i, i - fractal_n)
+        window = df_w.iloc[start_i:end_i]
         levels: list[float] = []
         for _, row in window.iterrows():
             if row["_sh"]:
@@ -212,15 +219,11 @@ def _map_weekly_levels_to_daily(
 
     # sr_series index'ini UTC'ye normalize et
     sr_idx = pd.DatetimeIndex(sr_series.index)
-    if sr_idx.tz is None:
-        sr_idx = sr_idx.tz_localize("UTC")
-    else:
-        sr_idx = sr_idx.tz_convert("UTC")
+    sr_idx = sr_idx.tz_localize("UTC") if sr_idx.tz is None else sr_idx.tz_convert("UTC")
 
     # sr_series'i yeniden indeksle (tz-normalized)
     sr_values = list(sr_series.values)
-    sr_ts_sorted = sorted(sr_idx)
-    sr_dict = {ts: vals for ts, vals in zip(sr_idx, sr_values)}
+    sr_dict = {ts: vals for ts, vals in zip(sr_idx, sr_values, strict=False)}
 
     mapped: list[list[float]] = []
     for _, row in df_d.iterrows():
@@ -250,6 +253,7 @@ def _map_weekly_levels_to_daily(
 # =====================================================================
 # Default manifest
 # =====================================================================
+
 
 def _default_manifest() -> StrategyManifest:
     raw = {
@@ -290,7 +294,7 @@ def _default_manifest() -> StrategyManifest:
             "structure": {
                 "swing": {"fractal_n": 2},
                 "support_resistance": {
-                    "lookback_bars": 52,       # 52 hafta = 1 yil HTF lookback
+                    "lookback_bars": 52,  # 52 hafta = 1 yil HTF lookback
                     "cluster_atr_multiplier": 0.5,
                     "min_touches": 1,
                     "max_age_bars": 52,
@@ -298,12 +302,12 @@ def _default_manifest() -> StrategyManifest:
                 "require_proximity_to_sr_atr": 0.5,  # 0.5 ATR(1d) yakinlik
             },
             "filters": {
-                "atr_min_pct": 0.005,          # bar range minimum %0.5
+                "atr_min_pct": 0.005,  # bar range minimum %0.5
                 "volume_zscore_min": 0.0,
                 "kaufman_er_period": 14,
-                "kaufman_er_min": 0.0,         # chop filter yok (S/R reversal)
-                "htf_lookback_weeks": 52,      # 52 haftalik S/R tarama
-                "htf_min_sr_levels": 1,        # en az 1 HTF level olmali
+                "kaufman_er_min": 0.0,  # chop filter yok (S/R reversal)
+                "htf_lookback_weeks": 52,  # 52 haftalik S/R tarama
+                "htf_min_sr_levels": 1,  # en az 1 HTF level olmali
                 "sr_proximity_atr_factor": 0.5,
             },
             "confluence": {
@@ -314,14 +318,14 @@ def _default_manifest() -> StrategyManifest:
         },
         "risk": {
             "stop_loss": {
-                "method": "pin_wick",          # pin fitil ucuna stop
-                "wick_buffer_atr": 0.10,       # 0.1 ATR tampon
+                "method": "pin_wick",  # pin fitil ucuna stop
+                "wick_buffer_atr": 0.10,  # 0.1 ATR tampon
             },
             "take_profit": {"method": "r_multiple", "primary_R": 2.0},
             "position_sizing": {"method": "fixed_fractional", "risk_per_trade": 0.01},
         },
         "backtest": {
-            "warmup_bars": 300,                # 52 hafta + 300 gun warmup
+            "warmup_bars": 300,  # 52 hafta + 300 gun warmup
             "fees": {"taker": 0.00075, "maker": -0.00010},
             "slippage_bps": 5.0,
             "initial_capital_usdt": 10_000.0,
@@ -333,6 +337,7 @@ def _default_manifest() -> StrategyManifest:
 # =====================================================================
 # Strategy implementation
 # =====================================================================
+
 
 class PinBarHTFSRStrategy(Strategy):
     """Pin Bar at HTF S/R — Volman/Grimes single-bar reversal.
@@ -441,9 +446,7 @@ class PinBarHTFSRStrategy(Strategy):
         df["htf_sr_levels"] = mapped_levels  # list of floats per row
 
         # Pin bar'in wick ucu ile en yakin HTF S/R arasindaki mesafe (ATR biriminde)
-        sr_proximity_atr = float(
-            getattr(filters_cfg, "sr_proximity_atr_factor", 0.5) or 0.5
-        )
+        sr_proximity_atr = float(getattr(filters_cfg, "sr_proximity_atr_factor", 0.5) or 0.5)
         atr_vals = df["atr14"].fillna(0.0).to_numpy()
         lows = df["low"].to_numpy()
         highs = df["high"].to_numpy()
@@ -466,13 +469,17 @@ class PinBarHTFSRStrategy(Strategy):
             for lvl in levels:
                 if abs(lows[i] - lvl) <= tol:
                     bull_near_sr[i] = True
-                    if np.isnan(closest_bull_sr[i]) or abs(lows[i] - lvl) < abs(lows[i] - closest_bull_sr[i]):
+                    if np.isnan(closest_bull_sr[i]) or abs(lows[i] - lvl) < abs(
+                        lows[i] - closest_bull_sr[i]
+                    ):
                         closest_bull_sr[i] = lvl
             # Bearish pin: upper wick ucu (high) S/R'a yakın mı?
             for lvl in levels:
                 if abs(highs[i] - lvl) <= tol:
                     bear_near_sr[i] = True
-                    if np.isnan(closest_bear_sr[i]) or abs(highs[i] - lvl) < abs(highs[i] - closest_bear_sr[i]):
+                    if np.isnan(closest_bear_sr[i]) or abs(highs[i] - lvl) < abs(
+                        highs[i] - closest_bear_sr[i]
+                    ):
                         closest_bear_sr[i] = lvl
 
         df["bull_near_htf_sr"] = bull_near_sr
@@ -494,9 +501,7 @@ class PinBarHTFSRStrategy(Strategy):
         filters = signals_cfg.filters
         confluence = signals_cfg.confluence
 
-        primary_R = float(
-            self.manifest.risk.get("take_profit", {}).get("primary_R", 2.0)
-        )
+        primary_r = float(self.manifest.risk.get("take_profit", {}).get("primary_R", 2.0))
         wick_buffer_atr = float(
             self.manifest.risk.get("stop_loss", {}).get("wick_buffer_atr", 0.10)
         )
@@ -556,7 +561,7 @@ class PinBarHTFSRStrategy(Strategy):
                     if risk <= 0:
                         risk = 0.5 * atr
                         sl_price = close - risk
-                    tp_price = close + primary_R * risk
+                    tp_price = close + primary_r * risk
 
                     ts = pd.Timestamp(row["ts"]).to_pydatetime()
                     sig = self.emit_signal(
@@ -596,7 +601,7 @@ class PinBarHTFSRStrategy(Strategy):
                     if risk <= 0:
                         risk = 0.5 * atr
                         sl_price = close + risk
-                    tp_price = close - primary_R * risk
+                    tp_price = close - primary_r * risk
 
                     ts = pd.Timestamp(row["ts"]).to_pydatetime()
                     sig = self.emit_signal(
