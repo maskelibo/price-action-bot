@@ -396,11 +396,27 @@ class HypothesisRunner:
             "all_cells_top5": sorted(cells, key=lambda c: c["mean_R_after_fees"], reverse=True)[:5],
         }
 
-    def run_correlation_analysis(self, spec: HypothesisSpec) -> dict[str, Any]:
-        """Cross-strategy correlation analizi.
+    # F3 FIX 2026-07-08 (dalga-4 T7 CRIT): aynı-strateji varyant çiftleri
+    # trade-indeksi hizalamasının GEÇERLİ olması için bu eşiğin üstünde
+    # korele olmalı (aynı sinyal havuzu → yalnız SL/TP R'leri ölçekler).
+    _CORR_SANITY_MIN_RHO = 0.50
 
-        Sweep cells'in returns_R_sample'larını al, pairwise Pearson ρ matrix
-        hesap, hipotez kabul kriterine göre değerlendir.
+    def run_correlation_analysis(self, spec: HypothesisSpec) -> dict[str, Any]:
+        """Cross-strategy correlation analizi — KENDİNİ-DOĞRULAYAN.
+
+        F3 FIX 2026-07-08 (dalga-4 T7 CRIT): eski kod challenger'ların
+        oos_returns'unu (=returns_R_sample: timestamp'siz + first250+last250
+        SPLICE) TRADE-İNDEKSİ üzerinden np.corrcoef'e sokuyordu. A'nın i'inci
+        trade'i ile B'nin i'inci trade'i FARKLI zamanlarda → korelasyon
+        matematiksel olarak anlamsız. Kanıt: aynı stratejinin 2 SL-varyantı
+        (aynı havuz, aynı sinyaller) ρ≈0.05 ölçülüyordu (gerçek ~0.9+).
+        Bu sahte "low-corr diversifier" onaylarını hipotez fabrikasına besliyordu.
+
+        Sanity gate: aynı `strategy`'den ≥2 varyant çifti REFERANS — bunlar
+        yüksek korele olmalı. Medyan ρ < _CORR_SANITY_MIN_RHO ise hizalama
+        KANITLI bozuk → INVALID_METHOD, low_correlation_pairs ÜRETİLMEZ.
+        Sanity çifti yoksa UNVERIFIABLE (güvenli taraf). Timestamp-hizalı veri
+        gelince (sanity geçince) otomatik OK — kod veri-durumuna adaptif.
         """
         try:
             import numpy as np
@@ -426,32 +442,76 @@ class HypothesisRunner:
             }
         # Eşit boyuta truncate
         names = [c["id"] for c in challengers]
+        strategies = [c.get("strategy", "unknown") for c in challengers]
         arr = np.array([c["oos_returns"][:min_len] for c in challengers], dtype=float)
-        # Pearson correlation matrix
+        # Pearson correlation matrix (tanı için — karar için değil, gate'e bağlı)
         corr = np.corrcoef(arr)
-        # Pairs with abs(ρ) < 0.20 (low correlation companions)
         n = len(names)
+
+        # ── SANITY GATE: aynı-strateji varyant çiftleri hizalama kanıtı ──
+        same_strat_rhos: list[float] = []
+        for i in range(n):
+            for j in range(i + 1, n):
+                if strategies[i] == strategies[j] and strategies[i] != "unknown":
+                    rho_ss = float(corr[i][j])
+                    if not np.isnan(rho_ss):
+                        same_strat_rhos.append(abs(rho_ss))
+
+        corr_matrix_out = {
+            names[i]: {names[j]: round(float(corr[i][j]), 4) for j in range(n)} for i in range(n)
+        }
+
+        if not same_strat_rhos:
+            # Aynı-strateji çifti yok → hizalama doğrulanamıyor → pair ÜRETME
+            return {
+                "status": "UNVERIFIABLE",
+                "type": "analysis",
+                "reason": (
+                    "aynı-strateji varyant çifti yok → trade-indeksi hizalaması "
+                    "doğrulanamıyor (timestamp-hizalı seri gerekli); low-corr üretilmedi"
+                ),
+                "n_strategies_compared": n,
+                "min_sample_size": min_len,
+                "correlation_matrix": corr_matrix_out,
+                "n_low_corr_pairs": 0,
+            }
+
+        median_ss_rho = float(np.median(same_strat_rhos))
+        if median_ss_rho < self._CORR_SANITY_MIN_RHO:
+            # Aynı havuz varyantları düşük korele → trade-indeksi hizalaması BOZUK
+            return {
+                "status": "INVALID_METHOD",
+                "type": "analysis",
+                "sanity_failed": True,
+                "reason": (
+                    f"trade-indeksi hizalaması geçersiz: aynı-strateji varyant medyan "
+                    f"|ρ|={median_ss_rho:.3f} < {self._CORR_SANITY_MIN_RHO} "
+                    f"(aynı sinyal havuzu ~1 olmalıydı — oos_returns timestamp'siz + "
+                    f"splice). Zaman-hizalı agregat R serisi olmadan korelasyon "
+                    f"anlamsız; low-corr diversifier onayı ÜRETİLMEDİ."
+                ),
+                "same_strategy_median_rho": round(median_ss_rho, 4),
+                "n_strategies_compared": n,
+                "min_sample_size": min_len,
+                "correlation_matrix": corr_matrix_out,
+                "n_low_corr_pairs": 0,
+            }
+
+        # Sanity geçti (hizalama makul) → low-corr çiftleri güvenilir
         low_corr_pairs: list[dict[str, Any]] = []
         for i in range(n):
             for j in range(i + 1, n):
                 rho = float(corr[i][j])
                 if abs(rho) < 0.20:
-                    low_corr_pairs.append(
-                        {
-                            "a": names[i],
-                            "b": names[j],
-                            "rho": round(rho, 4),
-                        }
-                    )
+                    low_corr_pairs.append({"a": names[i], "b": names[j], "rho": round(rho, 4)})
         return {
             "status": "OK",
             "type": "analysis",
+            "sanity_passed": True,
+            "same_strategy_median_rho": round(median_ss_rho, 4),
             "n_strategies_compared": n,
             "min_sample_size": min_len,
-            "correlation_matrix": {
-                names[i]: {names[j]: round(float(corr[i][j]), 4) for j in range(n)}
-                for i in range(n)
-            },
+            "correlation_matrix": corr_matrix_out,
             "low_correlation_pairs": low_corr_pairs,
             "n_low_corr_pairs": len(low_corr_pairs),
         }
