@@ -29,21 +29,23 @@ from dotenv import load_dotenv
 
 load_dotenv(ROOT / ".env", override=False)
 
-# v14 borsa-truth anchor'ları (status-report memory'sinden)
-ANCHOR_MS = int(datetime(2026, 6, 10, 22, 4, 44, tzinfo=UTC).timestamp() * 1000)  # v14 $5000 start
-CLEAN_MS = int(datetime(2026, 6, 14, 21, 53, 0, tzinfo=UTC).timestamp() * 1000)  # champion emekli
-START_EQUITY = 5000.0
+# v15p2 borsa-truth anchor'ları (DASHBOARD-FIX 2026-07-08: v14-çağı → canlı v15p2).
+# ANCHOR = v15p2 canlı deploy (2 Tem 16:07 TR); income-truth başlangıç cüzdanı 4963.
+# CLEAN = F1 forming-bar fix sonrası GERÇEK temiz pencere (7 Tem 19:55 TR); öncesi
+# kirli-veri dönemi (tarama oluşmakta-olan mumlarla karar veriyordu).
+ANCHOR_MS = int(datetime(2026, 7, 2, 13, 7, 0, tzinfo=UTC).timestamp() * 1000)  # v15p2 canlı
+CLEAN_MS = int(datetime(2026, 7, 7, 16, 55, 0, tzinfo=UTC).timestamp() * 1000)  # F1-fix sonrası
+START_EQUITY = 4963.0
 
 DAEMONS = [
     (
-        "futures_v14",
-        "com.priceaction.futures_v14",
-        "Trading (15m v14)",
-        "logs/futures_daemon_v14.log",
+        "futures_v15p2",
+        "com.priceaction.futures_v15p2",
+        "Trading (15m v15p2)",
+        "logs/futures_daemon_v15p2.log",
     ),
     ("ceo", "com.priceaction.ceo", "CEO / Scheduler", "logs/launchd/ceo.stdout.log"),
     ("ingest15m", "com.priceaction.ingest15m", "Veri Ingest", "logs/launchd/ingest15m.stdout.log"),
-    ("futures5m", "com.priceaction.futures5m", "Trading (5m, idle)", "logs/futures_daemon_5m.log"),
     ("dbbackup", "com.priceaction.dbbackup", "DB Yedek", "logs/launchd/dbbackup.stdout.log"),
 ]
 
@@ -682,7 +684,7 @@ def collect_worklog() -> list:
 
 # ──────────────────────────────────────────────────────────────────────────
 def collect_botstats() -> dict:
-    log = ROOT / "logs" / "futures_daemon_v14.log"
+    log = ROOT / "logs" / "futures_daemon_v15p2.log"
     out = {
         "scans": 0,
         "entries": 0,
