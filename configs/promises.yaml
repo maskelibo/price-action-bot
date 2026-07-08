@@ -159,3 +159,41 @@ components:
         pattern: "data/llm_calls.jsonl"
         max_age_hours: 6
         comment: "LLM çağrı var mı, audit yazılıyor mu"
+
+  # ─────────────────────────────────────────────────────────────
+  # HAFTALIK GÜVENCE KATMANI (B-1 fix 2026-07-08, dalga-4 T4-HIGH)
+  # ─────────────────────────────────────────────────────────────
+  # Bulgu: 5 Tem 44h kesinti Pazar'ın TÜM haftalık cron pencerelerini yuttu;
+  # APScheduler misfire_grace_time=3600 (1h) + coalesce=True → 44h misfire
+  # sessizce ÇÖPE atıldı. weekly_token_report / adversary_weekly_red_team /
+  # weekly_consolidation (+inbox arşivi) 2 HAFTA (28 Haz→12 Tem) sessizce
+  # kör kaldı, hiçbir alarm çalmadı. promises.yaml'da haftalık job'lar için
+  # TEK check yoktu. Eşik 216h (9 gün): normal koşum max 7 gün → alarm yok;
+  # bir Pazar penceresi kaçarsa 9. günde WARN. severity=warn (para-riski değil,
+  # güvence katmanı görünürlüğü). Grace_time'a DOKUNULMADI (restart-fırtınası
+  # + B-7 çakışma riski — bkz T4).
+  weekly_assurance:
+    description: "Haftalık güvence job'ları (Pazar cron'ları) kaçmasın"
+    enabled: true
+    severity: warn
+    checks:
+      - kind: file_pattern
+        pattern: "reports/ops/*token-report*.md"
+        max_age_hours: 216
+        comment: "weekly_token_report — Pazar 05:00 UTC"
+      - kind: file_pattern
+        pattern: "reports/adversary/*weekly-*.md"
+        max_age_hours: 216
+        comment: "adversary_weekly_red_team — Pazar 04:30 UTC"
+      - kind: file_pattern
+        pattern: "memory/protocol/archive/*.jsonl"
+        max_age_hours: 216
+        comment: "weekly_consolidation inbox arşivi — Pazar 05:30 UTC"
+      - kind: file_pattern
+        pattern: "reports/curator/*lifecycle*.md"
+        max_age_hours: 216
+        comment: "curator_weekly_lifecycle — Pazar 06:30 UTC"
+      - kind: file_pattern
+        pattern: "reports/ceo/*weekly*.md"
+        max_age_hours: 216
+        comment: "weekly_principal_queue — Pazar 08:30 UTC"
