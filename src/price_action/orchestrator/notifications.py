@@ -61,9 +61,7 @@ def should_push(env_var: str = "PA_CEO_PUSH_TELEGRAM") -> bool:
         return False
     if not os.environ.get("TELEGRAM_BOT_TOKEN", "").strip():
         return False
-    if not os.environ.get("TELEGRAM_CHAT_ID", "").strip():
-        return False
-    return True
+    return bool(os.environ.get("TELEGRAM_CHAT_ID", "").strip())
 
 
 def _chunk_text(text: str, max_chars: int) -> list[str]:
@@ -97,7 +95,7 @@ def _chunk_text(text: str, max_chars: int) -> list[str]:
         # cut'a yakın geçerli char boundary'sini bul.
         try:
             # encode/decode round-trip ile char safety
-            test = remaining[:cut].encode("utf-8", errors="strict")
+            remaining[:cut].encode("utf-8", errors="strict")
             # Eğer encode başarılı, cut güvenli. Sorun yok.
         except UnicodeError:
             # Geriye doğru git, geçerli boundary bul
@@ -195,12 +193,16 @@ def push_report(
 
     effective_alert = alert_type or (caption or Path(path).stem)[:40]
 
-    for chunk in chunks:
-        if throttle:
-            ok = throttle.send_throttled(effective_alert, chunk, level=level)
-        else:
+    # FIX 2026-07-08 (bildirim paketi N1): throttle kararı RAPOR-bazlı, chunk-bazlı
+    # DEĞİL. Eski kod her chunk'ı aynı alert_type ile send_throttled'a sokuyordu →
+    # 1. chunk pencereyi başlatır, 2+ chunk buffer'a düşüp imha edilirdi (Daily
+    # Truth Report'un gövdesi dahil). send_report: izin varsa TÜM parçalar gider.
+    if throttle:
+        sent_any = throttle.send_report(effective_alert, chunks, level=level)
+    else:
+        for chunk in chunks:
             ok = send_telegram(chunk, level=level, parse_mode=parse_mode)
-        sent_any = sent_any or ok
+            sent_any = sent_any or ok
     logger.info(
         "notifications.push_done",
         extra={
@@ -282,10 +284,7 @@ def notify_position_close(
 ) -> bool:
     """Pozisyon kapandı bildirimi — PnL + yüzde + R + süre."""
     # PnL %
-    if notional_usdt > 0:
-        pnl_pct = realized_pnl_usdt / notional_usdt * 100
-    else:
-        pnl_pct = 0.0
+    pnl_pct = realized_pnl_usdt / notional_usdt * 100 if notional_usdt > 0 else 0.0
     is_win = realized_pnl_usdt > 0
     emoji = "🎉" if is_win else "❌"
     label = "KAR" if is_win else "ZARAR"

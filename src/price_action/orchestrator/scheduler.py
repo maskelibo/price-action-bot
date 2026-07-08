@@ -2654,6 +2654,25 @@ async def _job_audit_chief_monthly() -> None:
         logger.warning("scheduler.audit_chief_monthly_fail", extra={"err": str(exc)[:200]})
 
 
+async def _job_telegram_digest_flush() -> None:
+    """Saatlik: throttle buffer'ındaki alarmları digest olarak boşalt.
+
+    FIX 2026-07-08 (bildirim paketi N4, DERIN_DENETIM W5-HIGH): flush_digest()
+    tasarımda "cron'dan çağrılmalı" yazıyordu ama HİÇBİR job çağırmıyordu —
+    buffer'lanan her alarm süreç ömrüyle sınırlı bellekte ölüyordu. N2 drain
+    fix'i ana kaybı kapatır; bu job scheduler sürecinin kendi buffer'ı için
+    kemer-askı (tipine bir daha alarm gelmezse bile en geç 1 saatte teslim).
+    """
+    try:
+        from price_action.ops.telegram_throttle import get_telegram_throttle
+
+        n = get_telegram_throttle().flush_digest()
+        if n:
+            logger.info("scheduler.telegram_digest_flush", extra={"digests": n})
+    except Exception as exc:
+        logger.warning("scheduler.telegram_digest_flush_fail", extra={"err": str(exc)[:200]})
+
+
 # ----------------------------------------------------------------------
 # Kayıt
 # ----------------------------------------------------------------------
@@ -2686,6 +2705,8 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("freshness_watchdog", "cron", "12 * * * *", _job_freshness_watchdog),
     # FIX 2026-05-26 (Faz 14.2): Promise/Reality check (saatlik :55)
     ("check_promises", "cron", "55 * * * *", _job_check_promises),
+    # FIX 2026-07-08 (bildirim paketi N4): throttle buffer'ını saatlik boşalt (:58)
+    ("telegram_digest_flush", "cron", "58 * * * *", _job_telegram_digest_flush),
     # FIX 2026-05-28 (Faz 14.27): stuck inbox doc detector — 6h+ ack timeout → CRIT push
     ("stuck_doc_check", "cron", "50 * * * *", _job_stuck_doc_check),
     # FIX 2026-05-28 (Faz 14.27 — B1): DataEngineer günlük health

@@ -32,6 +32,7 @@ from __future__ import annotations
 import os
 import threading
 from datetime import UTC, datetime
+from typing import ClassVar
 
 from price_action.logging_config import logger
 from price_action.notifications.telegram import send_critical, send_telegram
@@ -51,7 +52,7 @@ class TelegramThrottle:
     _MUTED_ALERT_PREFIXES: tuple[str, ...] = ()
 
     # TF → throttle window (seconds)
-    TF_WINDOW_MAP = {
+    TF_WINDOW_MAP: ClassVar[dict[str, int]] = {
         "1d": 3600,  # 1 hour — avoid SL spam on volatile days
         "1h": 1800,  # 30 min
         "15m": 600,  # 10 min — scalp standard (SEC54 ME-02 audit)
@@ -88,6 +89,10 @@ class TelegramThrottle:
 
         self.last_sent: dict[str, datetime] = {}
         self.digest_buffer: dict[str, list[str]] = {}
+        # FIX 2026-07-08 (bildirim paketi, N3): CRIT pencere tabanı — CRIT
+        # seviyeli alarm normal pencereye (600-3600s) TAKILMAZ, en fazla bu
+        # kadar gecikir. Fırtına koruması korunur (floor içi tekrar → buffer).
+        self.crit_floor_seconds = 120
         self._lock = threading.Lock()
         self._log = logger.bind(
             component="telegram_throttle",
@@ -139,8 +144,10 @@ class TelegramThrottle:
         with self._lock:
             last = self.last_sent.get(alert_type)
 
-            # Check if within window
-            within_window = last is not None and (now - last).total_seconds() < self.window_seconds
+            # FIX 2026-07-08 (N3): CRIT pencere tabanı — CRIT normal pencereye
+            # takılıp saatlerce buffer'da KAYBOLMAZ.
+            eff_window = self._effective_window(level)
+            within_window = last is not None and (now - last).total_seconds() < eff_window
 
             if within_window:
                 # Buffer the message
@@ -153,15 +160,76 @@ class TelegramThrottle:
 
             # Outside window OR first send — send immediately
             self.last_sent[alert_type] = now
-            # Clear buffered messages for this type if any
-            if alert_type in self.digest_buffer:
-                del self.digest_buffer[alert_type]
+            # FIX 2026-07-08 (N2): buffer SİLİNMEZ, drain edilir — pencere içinde
+            # buffer'lananlar giden mesaja mini-digest olarak eklenir (eski kod
+            # burada del ile GÖNDERMEDEN imha ediyordu; flush_digest cron'u da
+            # olmadığından her buffer'lanan alarm kanıtsız ölüyordu).
+            _pending = self.digest_buffer.pop(alert_type, [])
+
+        if _pending:
+            message = message + self._drain_suffix(_pending)
 
         # Send outside lock to avoid blocking
         sent = self._send_impl(message, level)
         if sent:
             self._log.bind(alert_type=alert_type, level=level).info("telegram_throttle.sent")
         return sent
+
+    def _effective_window(self, level: str) -> float:
+        """Level'e göre etkin pencere: CRIT → min(pencere, crit_floor)."""
+        if (level or "INFO").upper() in ("CRIT", "CRITICAL"):
+            return min(self.window_seconds, self.crit_floor_seconds)
+        return self.window_seconds
+
+    @staticmethod
+    def _drain_suffix(pending: list[str]) -> str:
+        """Buffer'lanan mesajları giden mesaja eklenecek mini-digest'e çevir."""
+        lines = [f"\n\n📦 pencere içinde {len(pending)} alarm buffer'lanmıştı:"]
+        for m in pending[:3]:
+            lines.append(f"  • {m[:80]}")
+        if len(pending) > 3:
+            lines.append(f"  … +{len(pending) - 3} daha")
+        return "\n".join(lines)
+
+    def send_report(self, alert_type: str, chunks: list[str], level: str = "INFO") -> bool:
+        """Çok parçalı raporu TEK throttle kararıyla gönder.
+
+        FIX 2026-07-08 (N1, DERIN_DENETIM W6-HIGH): push_report her chunk'ı
+        aynı alert_type ile send_throttled'a sokuyordu → 1. chunk pencereyi
+        başlatır, 2+ chunk buffer'a düşer ve (N2 bug'ıyla) imha edilirdi —
+        Daily Truth Report dahil tüm çok parçalı raporların gövdesi kayboluyordu.
+        Karar rapor-bazlı: izin varsa TÜM parçalar gider, yoksa hiçbiri
+        (özet buffer'a düşer, sonraki gönderimde drain edilir).
+
+        Returns: en az bir parça gönderildiyse True.
+        """
+        if not chunks:
+            return False
+        now = datetime.now(UTC)
+        with self._lock:
+            last = self.last_sent.get(alert_type)
+            eff_window = self._effective_window(level)
+            if last is not None and (now - last).total_seconds() < eff_window:
+                self.digest_buffer.setdefault(alert_type, []).append(
+                    f"[{len(chunks)} parçalı rapor throttle'landı] {chunks[0][:80]}"
+                )
+                self._log.bind(alert_type=alert_type, chunks=len(chunks)).info(
+                    "telegram_throttle.report_throttled"
+                )
+                return False
+            self.last_sent[alert_type] = now
+            _pending = self.digest_buffer.pop(alert_type, [])
+
+        sent_any = False
+        for i, chunk in enumerate(chunks):
+            if i == 0 and _pending:
+                chunk = chunk + self._drain_suffix(_pending)
+            sent_any = self._send_impl(chunk, level) or sent_any
+        if sent_any:
+            self._log.bind(alert_type=alert_type, chunks=len(chunks), level=level).info(
+                "telegram_throttle.report_sent"
+            )
+        return sent_any
 
     def flush_digest(self) -> int:
         """Send buffered alarms as digests, once per hour (call from cron).
@@ -253,6 +321,10 @@ class TelegramThrottle:
 
         now = datetime.now(UTC)
 
+        # FIX 2026-07-08 (N3): CRIT floor burada da geçerli
+        if (level or "INFO").upper() in ("CRIT", "CRITICAL"):
+            window_sec = min(window_sec, self.crit_floor_seconds)
+
         with self._lock:
             last = self.last_sent.get(composite_key)
             within_window = last is not None and (now - last).total_seconds() < window_sec
@@ -270,8 +342,11 @@ class TelegramThrottle:
 
             # Send immediately
             self.last_sent[composite_key] = now
-            if composite_key in self.digest_buffer:
-                del self.digest_buffer[composite_key]
+            # FIX 2026-07-08 (N2): drain, silme değil
+            _pending = self.digest_buffer.pop(composite_key, [])
+
+        if _pending:
+            message = message + self._drain_suffix(_pending)
 
         # Send outside lock
         sent = self._send_impl(message, level)

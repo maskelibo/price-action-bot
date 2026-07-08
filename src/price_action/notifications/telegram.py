@@ -133,41 +133,57 @@ def send_telegram(
         return False
 
     url = _TELEGRAM_API_BASE.format(token=token)
-    payload: dict[str, Any] = {
-        "chat_id": chat_id,
-        "text": full_message,
-        "disable_web_page_preview": disable_web_page_preview,
-    }
-    if parse_mode:
-        payload["parse_mode"] = parse_mode
 
-    try:
-        response = requests.post(url, json=payload, timeout=10)
-        if response.status_code == 200:
-            logger.info(
-                "telegram.sent",
-                extra={"level": level_upper, "chat_id": chat_id},
-            )
-            return True
-        else:
+    # FIX 2026-07-08 (bildirim paketi N5): Telegram hard limit 4096 karakter.
+    # Eski kod bölmüyordu → uzun mesaj (uzun CRIT dahil) 400 Bad Request ile
+    # KOMPLE kaybolurdu. Satır sınırından bölerek sırayla gönder.
+    tg_limit = 4096
+    parts: list[str] = []
+    remaining = full_message
+    while len(remaining) > tg_limit:
+        cut = remaining.rfind("\n", 1, tg_limit)
+        if cut < 1:
+            cut = tg_limit
+        parts.append(remaining[:cut])
+        remaining = remaining[cut:].lstrip("\n")
+    parts.append(remaining)
+
+    any_sent = False
+    for part in parts:
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "text": part,
+            "disable_web_page_preview": disable_web_page_preview,
+        }
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+
+        try:
+            response = requests.post(url, json=payload, timeout=10)
+            if response.status_code == 200:
+                logger.info(
+                    "telegram.sent",
+                    extra={"level": level_upper, "chat_id": chat_id},
+                )
+                any_sent = True
+            else:
+                logger.warning(
+                    "telegram.api_error",
+                    extra={
+                        "status_code": response.status_code,
+                        "body": response.text[:300],
+                    },
+                )
+        except Exception as exc:
+            # GÜVENLİK FIX 2026-07-07: requests exception metni tam URL'i (yani
+            # bot TOKEN'ını) içerir — 21 Haz ağ kesintisinde token log'a sızdı.
+            # Token'ı maskele; asla ham exception'ı loglama.
+            err_text = str(exc)[:300].replace(token, "***TOKEN***")
             logger.warning(
-                "telegram.api_error",
-                extra={
-                    "status_code": response.status_code,
-                    "body": response.text[:300],
-                },
+                "telegram.send_fail",
+                extra={"err": err_text[:200]},
             )
-            return False
-    except Exception as exc:
-        # GÜVENLİK FIX 2026-07-07: requests exception metni tam URL'i (yani
-        # bot TOKEN'ını) içerir — 21 Haz ağ kesintisinde token log'a sızdı.
-        # Token'ı maskele; asla ham exception'ı loglama.
-        err_text = str(exc)[:300].replace(token, "***TOKEN***")
-        logger.warning(
-            "telegram.send_fail",
-            extra={"err": err_text[:200]},
-        )
-        return False
+    return any_sent
 
 
 def send_critical(message: str, *, parse_mode: str | None = None) -> bool:
