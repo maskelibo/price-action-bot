@@ -762,6 +762,21 @@ def _runner_timestop_anchor_ts(jcon, sym_ccxt: str, side: str):
     return row[0] if row and row[0] else None
 
 
+def _corr_matrix_syms(signals: list, universe: list[str]) -> list[str]:
+    """A1-04 FIX (2026-07-10): korelasyon matrisi = TÜM evren ∪ sinyal sembolleri.
+
+    Eski kod matrisi YALNIZ o barda sinyal üreten sembollerle kuruyordu → açık
+    pozisyon sembolü matriste yoksa correlation_gate (True, 1.0) dönüyordu =
+    yeni sinyal mevcut pozisyonlarla korelasyonu HİÇ ölçülmeden geçiyordu
+    (daemon-özel körlük; script yolu zaten tüm-evrenle çalışıyor). Evrenin
+    tamamı dahil → açık pozisyonlar (evren üyesi) matriste kalır. sorted() →
+    build_returns_df TTL-cache anahtarı barlar arası stabil (cache hit korunur).
+    """
+    if not signals:
+        return []
+    return sorted(set(universe) | {s["symbol"] for s in signals})
+
+
 def _should_check_protection_fills(
     tp_oid, sl_oid, tp_open: bool, sl_open: bool, qty_now: float
 ) -> bool:
@@ -2531,9 +2546,12 @@ def run_15m_mode(once: bool = False) -> None:
                 # Eski kod her sinyal için build_returns_df() çağırıyordu →
                 # Windows DuckDB exclusive lock conflict (read_only=True vs R/W singleton).
                 # 90 günlük 1d log-return matrix 15 dakikada değişmez → bar başına 1 çekiş yeterli.
+                # A1-04 FIX: matris tüm evrenle kurulur (yalnız sinyal sembolleri
+                # DEĞİL) — açık pozisyon sembolleri matriste kalsın, gate kör olmasın.
+                from scripts.futures_trade_15m import SYMBOLS as _universe_15m
                 from scripts.lib.risk_integration import build_returns_df as _build_returns_df
 
-                _all_scan_syms = list({s["symbol"] for s in signals}) if signals else []
+                _all_scan_syms = _corr_matrix_syms(signals, _universe_15m)
                 try:
                     _shared_returns_df = _build_returns_df(
                         _all_scan_syms,
@@ -2541,7 +2559,10 @@ def run_15m_mode(once: bool = False) -> None:
                         market_db=ROOT / "data" / "market.duckdb",
                     )
                 except Exception as _rdf_err:
-                    log(f"15M_RETURNS_DF_WARN: {_rdf_err} — correlation gate konservatif")
+                    # A1-04: dürüst log — boş DF'te gate KONSERVATIF değil KÖRDÜR
+                    log(
+                        f"15M_RETURNS_DF_WARN: {_rdf_err} — correlation gate KÖR (fail-open) bu bar"
+                    )
                     import pandas as _pd_rdf
 
                     _shared_returns_df = _pd_rdf.DataFrame()
@@ -2642,6 +2663,31 @@ def run_15m_mode(once: bool = False) -> None:
                         )
                         # SEC58 CRIT-2: _shared_returns_df loop dışında hazırlandı (no-lock conflict)
                         _returns_df = _shared_returns_df
+                        # A1-04 Parça-B (UNI-cut emsali): evrenden çıkarılmış sembolde
+                        # açık pozisyon kalırsa matris onu kapsamaz → rebuild dene;
+                        # hâlâ yoksa KALICI görünür log (CT-OPS log-pattern yakalar).
+                        _missing_pos_syms = [
+                            p.symbol
+                            for p in _account.open_positions
+                            if p.symbol not in _returns_df.columns
+                        ]
+                        if _missing_pos_syms:
+                            try:
+                                _returns_df = _build_returns_df(
+                                    sorted(set(_all_scan_syms) | set(_missing_pos_syms)),
+                                    days=90,
+                                    market_db=ROOT / "data" / "market.duckdb",
+                                )
+                            except Exception as _rdf_err2:
+                                log(f"  15M_RETURNS_DF_WARN: pos-sym rebuild fail {_rdf_err2}")
+                            _still_blind = [
+                                s for s in _missing_pos_syms if s not in _returns_df.columns
+                            ]
+                            if _still_blind:
+                                log(
+                                    f"  15M_CORR_GATE_BLIND: {_still_blind} 1d return "
+                                    f"matrisinde yok — gate bu pozisyonlara kör"
+                                )
                         _ticker = _ex_submit.fetch_ticker(sig["symbol"])
                         _cur_px = float(_ticker["last"])
                         _signal_obj = build_signal_from_scan(sig, venue="binance", timeframe="15m")
