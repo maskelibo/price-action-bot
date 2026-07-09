@@ -68,26 +68,29 @@ def _fetch_exchange_positions() -> dict[str, dict]:
     """
     out: dict[str, dict] = {}
 
-    # 1) ccxt try
+    # 1) ccxt try — daemon'ın AYNI exchange factory'si (tek-kaynak auth).
+    # FIX 2026-07-08 (dalga-4 T8-DR6): eski kod kendi ccxt.binance'ını kuruyordu
+    # HAYALET env (PA_BINANCE_API_KEY — .env'de YOK; gerçek anahtar
+    # BINANCE_FUTURES_TESTNET_API_KEY) + .env yüklemiyor + deprecated
+    # set_sandbox_mode (testnet URL override yok) → ccxt HER ZAMAN auth-fail →
+    # log-fallback → reconcile 2 Tem'den beri fiilen kör. get_futures_exchange
+    # doğru auth + testnet URL + .env'i (futures_trade_daily import'unda) çözer.
     try:
-        import ccxt
+        from scripts.futures_trade_daily import get_futures_exchange
 
-        ex = ccxt.binance(
-            {
-                "enableRateLimit": True,
-                "options": {"defaultType": "future"},
-                "apiKey": os.environ.get("PA_BINANCE_API_KEY", ""),
-                "secret": os.environ.get("PA_BINANCE_SECRET", ""),
-            }
-        )
-        if os.environ.get("PA_RUN_MODE", "paper") == "paper":
-            ex.set_sandbox_mode(True)
+        ex = get_futures_exchange()
         raw = ex.fetch_positions()
         for r in raw or []:
             qty = float(r.get("contracts") or r.get("amount") or 0.0)
             if qty <= 0:
                 continue
-            sym = r.get("symbol", "")
+            # SEMBOL NORMALİZE (2026-07-08): ccxt unified "NEAR/USDT:USDT" döndürür,
+            # journal "NEAR/USDT" tutar. orphan/phantom eşleştirmesi journal
+            # formatını varsayıyor → ":USDT" suffix strip ŞART. Aksi halde HER
+            # pozisyon hem orphan hem phantom sanılır (9 Tem 19:10 kazası).
+            sym = str(r.get("symbol", "")).split(":")[0]
+            if not sym:
+                continue
             out[sym] = {
                 "symbol": sym,
                 "side": "long" if r.get("side") in ("long", "buy") else "short",
@@ -431,18 +434,12 @@ def reconcile() -> dict:
     for o in orphans:
         exit_px = float(o["fill_price"] or 0.0)  # fallback = entry (PnL=0)
         try:
-            import ccxt
+            # FIX 2026-07-08 (dalga-4 T8-DR6): daemon'ın factory'si (doğru auth+URL).
+            # Eskiden hayalet env + set_sandbox → auth-fail → exit-px hep ticker/entry
+            # fallback (yanlış PnL). Artık gerçek reduceOnly fill'i okuyabilir.
+            from scripts.futures_trade_daily import get_futures_exchange
 
-            ex = ccxt.binance(
-                {
-                    "enableRateLimit": True,
-                    "options": {"defaultType": "future"},
-                    "apiKey": os.environ.get("PA_BINANCE_API_KEY", ""),
-                    "secret": os.environ.get("PA_BINANCE_SECRET", ""),
-                }
-            )
-            if os.environ.get("PA_RUN_MODE", "paper") == "paper":
-                ex.set_sandbox_mode(True)
+            ex = get_futures_exchange()
             _sym_id = (
                 str(o["symbol"])
                 .replace("/USDT:USDT", "USDT")
