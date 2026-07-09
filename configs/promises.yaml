@@ -172,6 +172,16 @@ components:
   # bir Pazar penceresi kaçarsa 9. günde WARN. severity=warn (para-riski değil,
   # güvence katmanı görünürlüğü). Grace_time'a DOKUNULMADI (restart-fırtınası
   # + B-7 çakışma riski — bkz T4).
+  liq_collector:
+    description: "Likidasyon feed collector (bybit) — canlılık (2026-07-10)"
+    enabled: true
+    severity: warn
+    checks:
+      - kind: file_pattern
+        pattern: "logs/state/liq_collector_heartbeat.txt"
+        max_age_hours: 1
+        comment: "Flusher 30s'de bir touch eder; 1h bayat = collector ölü (KeepAlive'a rağmen) → veri kaybı başladı"
+
   weekly_assurance:
     description: "Haftalık güvence job'ları (Pazar cron'ları) kaçmasın"
     enabled: true
