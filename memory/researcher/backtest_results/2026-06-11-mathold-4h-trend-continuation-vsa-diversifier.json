@@ -1,32 +1,35 @@
 {
   "hypothesis_id": "2026-06-11-mathold-4h-trend-continuation-vsa-diversifier",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-11-mathold-4h-trend-continuation-vsa-diversifier.md",
-  "extracted_at": "2026-06-11T22:30:13.870988+00:00",
+  "extracted_at": "2026-07-07T22:30:28.458793+00:00",
+  "bridge_version": 1,
   "spec": {
     "type": "new_strategy",
     "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "4h",
     "param_grid": null,
     "accept_gates": [
       "net_monthly_return > 3.0%",
       "OOS Sharpe > 0.80 (Bonferroni n=15)",
       "ham OOS Sharpe > 1.20",
-      "MaxDD < 22% (account-equity)",
-      "Profit factor > 1.40",
+      "MaxDD < 22%",
+      "profit_factor > 1.40",
       "|rho(mathold, vsa_climax_test)| < 0.20",
-      "Jaccard overlap (gun+sembol) < 0.05",
-      "Trade count N >= 150",
-      "Shuffle baseline p < 0.01",
-      "Bonferroni alpha < 0.0033",
-      "FDR q < 0.10",
+      "Jaccard overlap < 0.05",
+      "trade_count N >= 150",
+      "shuffle p < 0.01",
       "DSR > 0.50",
       "PBO < 0.40",
-      "Lookahead-delay test: edge >= 80% korunmali"
+      "lookahead-delay test edge >= 80% korunmal\u0131"
     ],
     "executable": false,
-    "reason_if_not": "new_strategy: Mat Hold (5-bar Bulkowski continuation pattern) yeni signal logic; mevcut backtest motoru (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) bu pattern detector'u kosturamaz. DEFERRED \u2014 signal_chief tarafindan detector implementasyonu gerekli."
+    "reason_if_not": "detector yok: Bulkowski Mat Hold 5-bar bullish continuation (Bar1 g\u00fc\u00e7l\u00fc bull + Bar2-4 Bar1 range i\u00e7inde consolidation + Bar5 close > Bar1.high breakout) \u2014 rafta \u00f6rt\u00fc\u015fen mod\u00fcl bulunmuyor."
   },
   "result": {
-    "status": "NOT_EXECUTABLE",
-    "reason": "new_strategy: Mat Hold (5-bar Bulkowski continuation pattern) yeni signal logic; mevcut backtest motoru (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) bu pattern detector'u kosturamaz. DEFERRED \u2014 signal_chief tarafindan detector implementasyonu gerekli."
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: Bulkowski Mat Hold 5-bar bullish continuation (Bar1 g\u00fc\u00e7l\u00fc bull + Bar2-4 Bar1 range i\u00e7inde consolidation + Bar5 close > Bar1.high breakout) \u2014 rafta \u00f6rt\u00fc\u015fen mod\u00fcl bulunmuyor.",
+    "shelf_size": 64
   }
 }

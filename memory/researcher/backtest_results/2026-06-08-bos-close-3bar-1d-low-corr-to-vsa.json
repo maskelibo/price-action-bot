@@ -1,31 +1,32 @@
 {
-  "hypothesis_id": "HYP-2026-06-08-bos-close-3bar-1d-low-corr-to-vsa",
+  "hypothesis_id": "2026-06-08-bos-close-3bar-1d-low-corr-to-vsa",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-08-bos-close-3bar-1d-low-corr-to-vsa.md",
-  "extracted_at": "2026-06-08T06:30:08.988889+00:00",
+  "extracted_at": "2026-07-08T01:30:18.943710+00:00",
+  "bridge_version": 1,
   "spec": {
     "type": "new_strategy",
     "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
     "param_grid": null,
     "accept_gates": [
-      "annualized_return > 0.25",
+      "annualized_return > 25%",
       "sharpe_oos_mean > 0.8",
-      "max_dd_equity < 0.30",
+      "max_dd_equity < 30%",
       "profit_factor > 1.4",
       "trade_count >= 200",
-      "abs(rho_daily_vsa_climax_test) < 0.20",
+      "|rho(BOS, vsa_climax_test)| < 0.20",
       "wf_positive_sharpe_folds >= 5/8",
       "DSR >= 0.5",
-      "PBO < 0.5",
-      "shuffle_baseline_p < 0.05",
-      "no_lookahead",
-      "stress_period_loss > -0.15",
-      "IS_Sharpe <= 3x_OOS_Sharpe"
+      "PBO < 0.5"
     ],
     "executable": false,
-    "reason_if_not": "new_strategy: close-based 3-bar BOS (fractal swing break + ATR margin) is a novel signal logic not implemented in current backtest engine; requires new detector + 1D timeframe pipeline. DEFERRED until signal_chief implements BOS detector."
+    "reason_if_not": "detector yok: close-based 3-bar fractal swing break with 0.25*ATR margin (BOS structural break continuation) rafta mevcut de\u011fil"
   },
   "result": {
-    "status": "NOT_EXECUTABLE",
-    "reason": "new_strategy: close-based 3-bar BOS (fractal swing break + ATR margin) is a novel signal logic not implemented in current backtest engine; requires new detector + 1D timeframe pipeline. DEFERRED until signal_chief implements BOS detector."
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: close-based 3-bar fractal swing break with 0.25*ATR margin (BOS structural break continuation) rafta mevcut de\u011fil",
+    "shelf_size": 64
   }
 }

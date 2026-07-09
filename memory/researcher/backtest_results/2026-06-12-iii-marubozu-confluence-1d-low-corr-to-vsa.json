@@ -1,30 +1,36 @@
 {
-  "hypothesis_id": "2026-06-12-iii-marubozu-confluence-1d-low-corr-to-vsa",
+  "hypothesis_id": "researcher-20260612T120000-iii-marubozu-confluence-1d-low-corr-to-vsa",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-12-iii-marubozu-confluence-1d-low-corr-to-vsa.md",
-  "extracted_at": "2026-06-12T06:30:11.432397+00:00",
+  "extracted_at": "2026-07-07T22:00:28.920478+00:00",
+  "bridge_version": 1,
   "spec": {
     "type": "new_strategy",
     "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
     "param_grid": null,
     "accept_gates": [
-      "Net annual return > 25%",
-      "Walk-forward OOS Sharpe > 0.80",
-      "MaxDD < 22%",
-      "Profit factor > 1.40",
-      "Trade count (3y) >= 80",
-      "Spearman corr w/ vsa_climax_test < 0.20",
-      "Combined Sharpe > max(iii_only, marubozu_only) * 1.20",
-      "IS/OOS Sharpe ratio <= 2.0",
-      "Symbol-out CV min OOS Sharpe > 0.3",
-      "Regime split: at least 2 of 3 regimes net positive",
-      "Stress periods: max single-period DD < 15%",
-      "Bonferroni-adjusted shuffle p < 0.001"
+      "net_annual_return > 25%",
+      "walk_forward_oos_sharpe > 0.80",
+      "maxdd < 22%",
+      "profit_factor > 1.40",
+      "trade_count >= 80",
+      "spearman_corr_vsa_climax_test < 0.20",
+      "combined_sharpe > max(iii_only, marubozu_only) * 1.20",
+      "is_oos_sharpe_ratio <= 2.0",
+      "symbol_out_cv_min_oos_sharpe > 0.3",
+      "regime_split_positive_in_>=2_of_3",
+      "stress_period_max_dd < 15%",
+      "bonferroni_adjusted_shuffle_p < 0.001",
+      "dm_test_p < 0.05"
     ],
     "executable": false,
-    "reason_if_not": "new_strategy: iii (3 ard\u0131\u015f\u0131k inside bar) + bullish marubozu konfluans setup'\u0131 mevcut 4 stratejiden hi\u00e7birine kar\u015f\u0131l\u0131k gelmiyor; yeni signal logic gerekiyor, backtest motoru hen\u00fcz bu kombine pattern'i ko\u015fturamaz (DEFERRED)."
+    "reason_if_not": "detector yok: iii (3 ard\u0131\u015f\u0131k inside bar) + bullish marubozu (body/range>=0.90) AND-konfluans + 50-EMA long-only 1d \u2014 rafta bu spesifik iii+marubozu kombinasyonunu uygulayan mod\u00fcl mevcut de\u011fil"
   },
   "result": {
-    "status": "NOT_EXECUTABLE",
-    "reason": "new_strategy: iii (3 ard\u0131\u015f\u0131k inside bar) + bullish marubozu konfluans setup'\u0131 mevcut 4 stratejiden hi\u00e7birine kar\u015f\u0131l\u0131k gelmiyor; yeni signal logic gerekiyor, backtest motoru hen\u00fcz bu kombine pattern'i ko\u015fturamaz (DEFERRED)."
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: iii (3 ard\u0131\u015f\u0131k inside bar) + bullish marubozu (body/range>=0.90) AND-konfluans + 50-EMA long-only 1d \u2014 rafta bu spesifik iii+marubozu kombinasyonunu uygulayan mod\u00fcl mevcut de\u011fil",
+    "shelf_size": 64
   }
 }

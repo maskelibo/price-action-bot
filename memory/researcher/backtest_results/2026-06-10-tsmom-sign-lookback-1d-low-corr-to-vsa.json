@@ -1,10 +1,13 @@
 {
   "hypothesis_id": "2026-06-10-tsmom-sign-lookback-1d-low-corr-to-vsa",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-10-tsmom-sign-lookback-1d-low-corr-to-vsa.md",
-  "extracted_at": "2026-06-10T18:30:09.786634+00:00",
+  "extracted_at": "2026-07-08T00:00:24.675783+00:00",
+  "bridge_version": 1,
   "spec": {
     "type": "new_strategy",
     "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
     "param_grid": {
       "lookback_L": [
         28,
@@ -13,21 +16,22 @@
       ]
     },
     "accept_gates": [
-      "OOS Annualized Net Return > 25%",
-      "OOS Sharpe > 0.9",
-      "OOS MaxDD < 35%",
-      "OOS Profit Factor > 1.4",
+      "OOS Annualized Net Return >= 25%",
+      "OOS Sharpe >= 0.9",
+      "OOS MaxDD <= 35%",
+      "OOS Profit Factor >= 1.4",
       "30d correlation vs vsa_climax_test < 0.25",
-      "Shuffle baseline Bonferroni-corrected p < 0.017 (m=3)",
+      "Shuffle baseline Bonferroni-corrected p < 0.017 in >=2 of 3 L values",
       "IS/OOS Sharpe ratio < 1.7",
-      "Walk-forward positive slices >= 8/12",
-      "At least 2 of 3 L values pass corrected p < 0.017"
+      "Walk-forward positive slices >= 8/12"
     ],
     "executable": false,
-    "reason_if_not": "new_strategy: TSMOM sign filter is a novel strategy definition (return-sign based with vol gate + ATR SL/trail) not implemented in existing backtest engine; requires new signal logic implementation before sweep runner can execute. DEFERRED."
+    "reason_if_not": "detector yok: TSMOM sign filter (sign of close[t]/close[t-L]-1) with vol gate is a return-sign based time-series momentum strategy \u2014 not present in the detector shelf"
   },
   "result": {
-    "status": "NOT_EXECUTABLE",
-    "reason": "new_strategy: TSMOM sign filter is a novel strategy definition (return-sign based with vol gate + ATR SL/trail) not implemented in existing backtest engine; requires new signal logic implementation before sweep runner can execute. DEFERRED."
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: TSMOM sign filter (sign of close[t]/close[t-L]-1) with vol gate is a return-sign based time-series momentum strategy \u2014 not present in the detector shelf",
+    "shelf_size": 64
   }
 }

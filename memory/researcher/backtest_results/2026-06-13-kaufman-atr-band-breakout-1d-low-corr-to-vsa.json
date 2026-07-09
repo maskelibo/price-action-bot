@@ -1,28 +1,33 @@
 {
-  "hypothesis_id": "2026-06-13-kaufman-atr-band-breakout-1d-low-corr-to-vsa",
+  "hypothesis_id": "HYP-2026-06-13-kaufman-atr-band-breakout-1d",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-13-kaufman-atr-band-breakout-1d-low-corr-to-vsa.md",
-  "extracted_at": "2026-06-13T10:30:20.112943+00:00",
+  "extracted_at": "2026-07-07T21:00:13.434675+00:00",
+  "bridge_version": 1,
   "spec": {
     "type": "new_strategy",
     "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
     "param_grid": null,
     "accept_gates": [
       "monthly_net_return > 2.0%",
       "OOS_Sharpe > 1.0",
-      "trade_seq_MC_MaxDD_p95 < 22%",
+      "MC_MaxDD_p95 < 22%",
       "trade_count >= 120",
-      "profit_factor_net > 1.25",
+      "profit_factor > 1.25",
       "trade_jaccard_vs_vsa < 0.12",
-      "monthly_return_pearson_corr_vs_vsa_abs < 0.35",
+      "monthly_return_pearson_vs_vsa < 0.35",
       "shuffle_baseline_p < 0.01",
       "IS_OOS_Sharpe_ratio <= 2.5",
       "lookahead_delay_edge_retention >= 85%"
     ],
     "executable": false,
-    "reason_if_not": "new_strategy: Kaufman ATR-band breakout yeni bir signal logic'i; mevcut 4 strateji (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) detector'lar\u0131ndan ba\u011f\u0131ms\u0131z \u2014 backtest motoru hipotezi ko\u015fturamaz (DEFERRED)"
+    "reason_if_not": "detector yok: Kaufman ATR-band breakout (t-1 close + k\u00d7ATR seviyesinin t bar\u0131nda close-\u00fcst\u00fc a\u015f\u0131lmas\u0131 ile continuation giri\u015fi) rafta mevcut de\u011fil"
   },
   "result": {
-    "status": "NOT_EXECUTABLE",
-    "reason": "new_strategy: Kaufman ATR-band breakout yeni bir signal logic'i; mevcut 4 strateji (vsa_climax_test, brooks_failed_breakout, anchored_vwap_reversal, engulfing_continuation) detector'lar\u0131ndan ba\u011f\u0131ms\u0131z \u2014 backtest motoru hipotezi ko\u015fturamaz (DEFERRED)"
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: Kaufman ATR-band breakout (t-1 close + k\u00d7ATR seviyesinin t bar\u0131nda close-\u00fcst\u00fc a\u015f\u0131lmas\u0131 ile continuation giri\u015fi) rafta mevcut de\u011fil",
+    "shelf_size": 64
   }
 }

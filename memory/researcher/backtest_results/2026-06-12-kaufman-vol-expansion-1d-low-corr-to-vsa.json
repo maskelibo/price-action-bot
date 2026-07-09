@@ -1,29 +1,34 @@
 {
   "hypothesis_id": "2026-06-12-kaufman-vol-expansion-1d-low-corr-to-vsa",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-12-kaufman-vol-expansion-1d-low-corr-to-vsa.md",
-  "extracted_at": "2026-06-12T14:30:11.114322+00:00",
+  "extracted_at": "2026-07-07T22:00:18.868939+00:00",
+  "bridge_version": 1,
   "spec": {
     "type": "new_strategy",
     "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
     "param_grid": null,
     "accept_gates": [
-      "Annualized net return >= 25%",
-      "Sharpe >= 0.8 (OOS walk-forward avg)",
-      "MaxDD <= 30% (account-equity based)",
-      "Profit factor >= 1.3",
-      "Trade count >= 300 (per-symbol >= 10)",
-      "Corr (1D P&L vs vsa_climax 30d rolling) <= 0.25",
-      "DSR > 0.5",
-      "PBO < 0.5",
-      "IS/OOS Sharpe ratio < 3.0",
-      "Shuffle-baseline p < 0.05",
-      "Bonferroni-corrected p < 0.0016 (alpha=0.05/N=31)"
+      "annualized_net_return >= 0.25",
+      "sharpe_oos >= 0.8",
+      "max_dd <= 0.30",
+      "profit_factor >= 1.3",
+      "trade_count >= 300",
+      "corr_vs_vsa_climax <= 0.25",
+      "dsr > 0.5",
+      "pbo < 0.5",
+      "is_oos_sharpe_ratio < 3.0",
+      "shuffle_baseline_p < 0.05",
+      "bonferroni_p < 0.0016"
     ],
     "executable": false,
-    "reason_if_not": "new_strategy: Kaufman volatility-expansion 1D ATR-distance breakout entry yeni bir strateji tan\u0131m\u0131 (mevcut 4 strateji ailesinden hi\u00e7biri de\u011fil); backtest motoru bu hipotezi ko\u015fturamaz (DEFERRED)."
+    "reason_if_not": "detector yok: prevclose + 0.75\u00d7ATR14 stop-order breakout entry (Kaufman volatility expansion) rafta mevcut de\u011fil"
   },
   "result": {
-    "status": "NOT_EXECUTABLE",
-    "reason": "new_strategy: Kaufman volatility-expansion 1D ATR-distance breakout entry yeni bir strateji tan\u0131m\u0131 (mevcut 4 strateji ailesinden hi\u00e7biri de\u011fil); backtest motoru bu hipotezi ko\u015fturamaz (DEFERRED)."
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: prevclose + 0.75\u00d7ATR14 stop-order breakout entry (Kaufman volatility expansion) rafta mevcut de\u011fil",
+    "shelf_size": 64
   }
 }

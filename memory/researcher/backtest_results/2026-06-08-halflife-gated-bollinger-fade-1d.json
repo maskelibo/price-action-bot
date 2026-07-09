@@ -1,10 +1,13 @@
 {
   "hypothesis_id": "2026-06-08-halflife-gated-bollinger-fade-1d",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-08-halflife-gated-bollinger-fade-1d.md",
-  "extracted_at": "2026-06-08T02:30:15.604511+00:00",
+  "extracted_at": "2026-07-08T01:30:11.885124+00:00",
+  "bridge_version": 1,
   "spec": {
     "type": "new_strategy",
     "base_strategy": null,
+    "strategy_module": "bollinger_fade_mr",
+    "timeframe": "1d",
     "param_grid": {
       "halflife_low_days": [
         3,
@@ -44,20 +47,60 @@
       ]
     },
     "accept_gates": [
-      "Filtered Sharpe >= 1.2 * Unfiltered Sharpe",
-      "Filtered MaxDD <= 0.7 * Unfiltered MaxDD",
-      "Filtered net annual return >= 0.85 * Unfiltered net annual return",
-      "Filtered N >= 200 trade",
-      "Welch t-test in_zone vs out_zone p < 0.05",
+      "Filtered Sharpe >= 1.2 x Unfiltered Sharpe",
+      "Filtered MaxDD <= 0.7 x Unfiltered MaxDD",
+      "Filtered net annual return >= 0.85 x Unfiltered net annual return",
+      "Filtered N >= 200 trades",
+      "Welch t-test p < 0.05 (in-zone vs out-of-zone R)",
       "DSR p < 0.05 (trial=972)",
-      "Direction-shuffle baseline p < 0.05",
-      "BH FDR q=0.05 sensitivity"
+      "Shuffle baseline p < 0.05",
+      "BH FDR q=0.05 in sensitivity"
     ],
-    "executable": false,
-    "reason_if_not": "new_strategy: Half-life-gated Bollinger fade 1D timeframe \u2014 mevcut 4 strateji (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) backtest motoru bu sinyal mant\u0131\u011f\u0131n\u0131 (AR(1) half-life regime gate + Bollinger band-close fade) ko\u015fturamaz, DEFERRED"
+    "executable": true,
+    "reason_if_not": ""
   },
   "result": {
-    "status": "NOT_EXECUTABLE",
-    "reason": "new_strategy: Half-life-gated Bollinger fade 1D timeframe \u2014 mevcut 4 strateji (vsa_climax_test/brooks_failed_breakout/anchored_vwap_reversal/engulfing_continuation) backtest motoru bu sinyal mant\u0131\u011f\u0131n\u0131 (AR(1) half-life regime gate + Bollinger band-close fade) ko\u015fturamaz, DEFERRED"
+    "status": "OK",
+    "type": "new_strategy",
+    "verdict": "RED",
+    "tier": "REJECT",
+    "strategy_module": "bollinger_fade_mr",
+    "strategy_class": "BollingerFadeMRStrategy",
+    "timeframe": "1d",
+    "tp_r": 2.0,
+    "n_trades_raw": 15,
+    "n_taken": 13,
+    "n_symbols_with_data": 10,
+    "mean_R_after_fees": -0.753,
+    "monthly_roi": -0.757407004241778,
+    "max_dd": -4.0254480021460495,
+    "neg_count": 2,
+    "total_months": 2,
+    "annualized": -1.0052277083246852,
+    "oos_sharpe": -19.2181,
+    "oos_returns": [
+      -1.0077,
+      -1.0767,
+      -1.0128,
+      -1.0218,
+      -1.0286,
+      -1.0172,
+      -1.0249,
+      -1.0173,
+      -1.0255,
+      -0.2719,
+      -1.0762,
+      -1.0155,
+      -0.6676,
+      -1.0098,
+      1.9777
+    ],
+    "trades_per_year": 3.2,
+    "fee_model": "taker RT 15bps (fee_R=0.0015/sl_pct)",
+    "equity_spec": {
+      "risk_pct": 0.005,
+      "max_concurrent": 6,
+      "consecutive_loss_pause": 3
+    }
   }
 }

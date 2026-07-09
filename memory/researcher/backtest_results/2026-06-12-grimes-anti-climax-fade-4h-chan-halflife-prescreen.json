@@ -1,10 +1,13 @@
 {
-  "hypothesis_id": "2026-06-12-grimes-anti-climax-fade-4h-chan-halflife-prescreen",
+  "hypothesis_id": "2026-06-12-anti-4h-chan",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-12-grimes-anti-climax-fade-4h-chan-halflife-prescreen.md",
-  "extracted_at": "2026-06-12T02:30:11.892846+00:00",
+  "extracted_at": "2026-07-07T22:30:08.675110+00:00",
+  "bridge_version": 1,
   "spec": {
     "type": "new_strategy",
     "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "4h",
     "param_grid": null,
     "accept_gates": [
       "net_monthly_return > 1.5%",
@@ -13,17 +16,17 @@
       "profit_factor > 1.20",
       "win_rate in [38%, 50%]",
       "|rho(anti_4h, vsa_climax_test)| < 0.30",
-      "Jaccard overlap (g\u00fcn+sembol) < 0.10",
-      "half_life pass rate >= 30%",
-      "trade_count N >= 80",
-      "IS/OOS Sharpe gap <= 50%",
-      "DSR >= 0.5"
+      "Jaccard overlap < 0.10",
+      "half-life pass rate >= 30%",
+      "N >= 80"
     ],
     "executable": false,
-    "reason_if_not": "new_strategy: Grimes Anti climax-fade 4H + Chan half-life pre-screen + L\u00f3pez w_i discretization sizing \u2014 mevcut backtest motoru bu kombinasyonu (custom signal logic + portfolio-aware sizing + half-life regime gate) haz\u0131r olarak ko\u015fturamaz. DEFERRED."
+    "reason_if_not": "detector yok: Grimes Anti climax-fade (bar_range/ATR>2 + Bollinger 2\u03c3 d\u0131\u015f\u0131 climax \u2192 1\u03c3 i\u00e7ine reversal bar close'unda kar\u015f\u0131 y\u00f6n fade) + Chan half-life pre-screen + L\u00f3pez w_i discretization sizing mekani\u011fi rafta mevcut de\u011fil"
   },
   "result": {
-    "status": "NOT_EXECUTABLE",
-    "reason": "new_strategy: Grimes Anti climax-fade 4H + Chan half-life pre-screen + L\u00f3pez w_i discretization sizing \u2014 mevcut backtest motoru bu kombinasyonu (custom signal logic + portfolio-aware sizing + half-life regime gate) haz\u0131r olarak ko\u015fturamaz. DEFERRED."
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: Grimes Anti climax-fade (bar_range/ATR>2 + Bollinger 2\u03c3 d\u0131\u015f\u0131 climax \u2192 1\u03c3 i\u00e7ine reversal bar close'unda kar\u015f\u0131 y\u00f6n fade) + Chan half-life pre-screen + L\u00f3pez w_i discretization sizing mekan",
+    "shelf_size": 64
   }
 }

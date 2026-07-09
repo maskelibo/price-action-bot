@@ -1,29 +1,381 @@
 {
-  "hypothesis_id": "2026-06-12-vol-regime-sizing-v1",
+  "hypothesis_id": "researcher-20260612T093000-vol-regime-sizing-v1",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-12-vol-regime-sizing-v1.md",
-  "extracted_at": "2026-06-12T03:00:13.594973+00:00",
+  "extracted_at": "2026-07-07T21:00:34.841667+00:00",
+  "bridge_version": 1,
   "spec": {
-    "type": "new_strategy",
+    "type": "analysis",
     "base_strategy": "vsa_climax_test",
+    "strategy_module": null,
+    "timeframe": "15m",
     "param_grid": null,
     "accept_gates": [
-      "Calmar \u0394 \u2265 +0.15 absolute",
-      "MaxDD \u0394 \u2264 \u22125pp absolute",
+      "Calmar \u0394 \u2265 +0.15 (absolute)",
+      "MaxDD \u0394 \u2264 \u22125pp (absolute azalma)",
       "Sharpe \u0394 \u2265 \u22120.10",
       "Net annual return g\u00f6receli kay\u0131p \u2264 %15",
       "Trade count \u0394 \u2264 \u00b1%3",
-      "Paired bootstrap Bonferroni p < 0.0125 (\u0394Calmar)",
-      "Paired bootstrap Bonferroni p < 0.0125 (\u0394MaxDD)",
-      "Regime split: en az 2 rejimde adapter \u2265 baseline, HIGH'da kesin",
-      "Symbol-out CV: ortalama Calmar de\u011fi\u015fmemeli",
+      "Paired bootstrap \u0394Calmar p < 0.0125 (Bonferroni n=4)",
+      "\u0394MaxDD p < 0.0125",
+      "Sharpe non-degradation p < 0.05",
+      "Regime split: adapter \u2265 baseline en az 2 rejimde, HIGH kesin",
+      "Symbol-out CV: ortalama Calmar korunmal\u0131",
       "Shuffle baseline yenilmeli (p < 0.05)",
-      "Lookahead testi: entry +1 bar geciktir, edge korunmal\u0131"
+      "Lookahead testi: entry +1 bar geciktirince edge korunmal\u0131"
     ],
     "executable": false,
-    "reason_if_not": "Sizing adapter (regime classifier + L\u00f3pez deleveraging backstop) backtest engine'in standart param sweep runner'\u0131 taraf\u0131ndan ko\u015fturulamaz \u2014 yeni sizing logic (vol-regime multiplier + dynamic deleveraging) entegrasyonu gerektirir. DEFERRED: engine'e adapter hook eklenmeli."
+    "reason_if_not": "sizing adapter analizi \u2014 tek setup, sweep yok, pre-registered fixed params; mevcut param_sweep runner'\u0131 bu yap\u0131y\u0131 ko\u015fturamaz (regime classifier + L\u00f3pez backstop custom adapter kodu gerektirir)"
   },
   "result": {
-    "status": "NOT_EXECUTABLE",
-    "reason": "Sizing adapter (regime classifier + L\u00f3pez deleveraging backstop) backtest engine'in standart param sweep runner'\u0131 taraf\u0131ndan ko\u015fturulamaz \u2014 yeni sizing logic (vol-regime multiplier + dynamic deleveraging) entegrasyonu gerektirir. DEFERRED: engine'e adapter hook eklenmeli."
+    "status": "OK",
+    "type": "analysis",
+    "n_strategies_compared": 10,
+    "min_sample_size": 500,
+    "correlation_matrix": {
+      "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 1.0,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 0.0482,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 0.0218,
+        "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030": -0.0442,
+        "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030": -0.0771,
+        "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030": -0.0355,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0407,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.097,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 0.0264,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": 0.0601
+      },
+      "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0482,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 1.0,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.029,
+        "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030": 0.0353,
+        "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030": 0.0269,
+        "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030": 0.0397,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0498,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.1029,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 0.0072,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": 0.0142
+      },
+      "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0218,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": -0.029,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 1.0,
+        "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030": -0.0342,
+        "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030": 0.0057,
+        "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030": -0.0724,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0801,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": 0.0033,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.081,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": 0.0686
+      },
+      "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": -0.0442,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 0.0353,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.0342,
+        "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030": 1.0,
+        "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030": -0.0564,
+        "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030": -0.0105,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": 0.006,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.0121,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.0244,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": -0.045
+      },
+      "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": -0.0771,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 0.0269,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 0.0057,
+        "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030": -0.0564,
+        "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030": 1.0,
+        "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030": 0.7437,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.057,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.0243,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.0048,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": -0.0172
+      },
+      "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": -0.0355,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 0.0397,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.0724,
+        "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030": -0.0105,
+        "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030": 0.7437,
+        "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030": 1.0,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0301,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.0572,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.0107,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": 0.0206
+      },
+      "vsa_climax_test-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": -0.0407,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": -0.0498,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.0801,
+        "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030": 0.006,
+        "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030": -0.057,
+        "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030": -0.0301,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": 1.0,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": 0.0596,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.0613,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": -0.0064
+      },
+      "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": -0.097,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": -0.1029,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 0.0033,
+        "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030": -0.0121,
+        "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030": -0.0243,
+        "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030": -0.0572,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": 0.0596,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": 1.0,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": -0.0102,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": -0.0004
+      },
+      "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0264,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 0.0072,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": -0.081,
+        "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030": -0.0244,
+        "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030": -0.0048,
+        "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030": -0.0107,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0613,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.0102,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 1.0,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": 0.0409
+      },
+      "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": {
+        "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030": 0.0601,
+        "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030": 0.0142,
+        "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030": 0.0686,
+        "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030": -0.045,
+        "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030": -0.0172,
+        "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030": 0.0206,
+        "vsa_climax_test-sl1.25-tp2.00-risk0.0030": -0.0064,
+        "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030": -0.0004,
+        "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030": 0.0409,
+        "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030": 1.0
+      }
+    },
+    "low_correlation_pairs": [
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0482
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "rho": 0.0218
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030",
+        "rho": -0.0442
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030",
+        "rho": -0.0771
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0355
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0407
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.097
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0264
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.00-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030",
+        "rho": 0.0601
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "rho": -0.029
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030",
+        "rho": 0.0353
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030",
+        "rho": 0.0269
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0397
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0498
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.1029
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.0072
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030",
+        "rho": 0.0142
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030",
+        "rho": -0.0342
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030",
+        "rho": 0.0057
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0724
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0801
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": 0.0033
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.081
+      },
+      {
+        "a": "anchored_vwap_reversal-sl1.50-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030",
+        "rho": 0.0686
+      },
+      {
+        "a": "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030",
+        "b": "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030",
+        "rho": -0.0564
+      },
+      {
+        "a": "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030",
+        "b": "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0105
+      },
+      {
+        "a": "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": 0.006
+      },
+      {
+        "a": "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.0121
+      },
+      {
+        "a": "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0244
+      },
+      {
+        "a": "grimes_abc_pullback-sl1.00-tp999.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030",
+        "rho": -0.045
+      },
+      {
+        "a": "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.057
+      },
+      {
+        "a": "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.0243
+      },
+      {
+        "a": "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0048
+      },
+      {
+        "a": "grimes_abc_pullback-sl1.25-tp999.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030",
+        "rho": -0.0172
+      },
+      {
+        "a": "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030",
+        "b": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0301
+      },
+      {
+        "a": "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": -0.0572
+      },
+      {
+        "a": "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0107
+      },
+      {
+        "a": "grimes_abc_pullback-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030",
+        "rho": 0.0206
+      },
+      {
+        "a": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "rho": 0.0596
+      },
+      {
+        "a": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0613
+      },
+      {
+        "a": "vsa_climax_test-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030",
+        "rho": -0.0064
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "rho": -0.0102
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.00-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030",
+        "rho": -0.0004
+      },
+      {
+        "a": "brooks_failed_breakout-sl1.25-tp2.00-risk0.0030",
+        "b": "brooks_failed_breakout-sl1.50-tp2.00-risk0.0030",
+        "rho": 0.0409
+      }
+    ],
+    "n_low_corr_pairs": 44,
+    "partial_note": "PARTIAL \u2014 sadece unconditional Pearson hesapland\u0131. Hipotez tam ko\u015fum i\u00e7in ekstra pipeline ister: sizing adapter analizi \u2014 tek setup, sweep yok, pre-registered fixed params; mevcut param_sweep runner'\u0131 bu yap\u0131y\u0131 ko\u015fturamaz (regime classifier + L\u00f3pez backstop custom adapter kodu gerektirir)"
   }
 }

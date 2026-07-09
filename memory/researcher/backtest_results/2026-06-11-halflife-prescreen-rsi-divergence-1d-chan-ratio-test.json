@@ -1,12 +1,15 @@
 {
   "hypothesis_id": "2026-06-11-halflife-prescreen-rsi-divergence-1d-chan-ratio-test",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-11-halflife-prescreen-rsi-divergence-1d-chan-ratio-test.md",
-  "extracted_at": "2026-06-11T02:30:15.590473+00:00",
+  "extracted_at": "2026-07-07T23:00:19.045863+00:00",
+  "bridge_version": 1,
   "spec": {
     "type": "new_strategy",
     "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
     "param_grid": {
-      "halflife_threshold": [
+      "half_life_threshold": [
         5,
         7,
         10
@@ -18,31 +21,32 @@
       ]
     },
     "accept_gates": [
-      "Branch A net annualized return >= 4%",
-      "Branch B net annualized return >= 10%",
-      "Branch A Sharpe >= 0.3",
-      "Branch B Sharpe >= 0.7",
+      "Branch A: net annualized return >= 4%",
+      "Branch A: Sharpe >= 0.3",
+      "Branch A: MaxDD <= 25%",
+      "Branch A: Win rate 30-50%",
+      "Branch A: Profit factor >= 1.1",
+      "Branch A: Trade count >= 200",
+      "Branch B: net annualized return >= 10%",
+      "Branch B: Sharpe >= 0.7",
+      "Branch B: MaxDD <= 18%",
+      "Branch B: Win rate 30-55%",
+      "Branch B: Profit factor >= 1.25",
+      "Branch B: Trade count >= 80",
+      "Branch B: Corr vs vsa_climax_test_v1 <= 0.30",
       "Sharpe_B / Sharpe_A in [1.8, 2.4]",
-      "Branch A MaxDD <= 25%",
-      "Branch B MaxDD <= 18%",
-      "Branch A win rate in [30%, 50%]",
-      "Branch B win rate in [30%, 55%]",
-      "Branch A profit factor >= 1.1",
-      "Branch B profit factor >= 1.25",
-      "Branch A trade count >= 200",
-      "Branch B trade count >= 80",
-      "Corr vs vsa_climax_test_v1 <= 0.30",
-      "DSR Branch A >= 0.55",
-      "DSR Branch B >= 0.65",
-      "Bonferroni-adjusted p <= 0.0083",
-      "Lookahead causality test passes",
-      "Half-life computed causally per bar"
+      "DSR Branch A >= 0.55, Branch B >= 0.65",
+      "Bonferroni-adjusted p <= 0.00625",
+      "Lookahead causality test pass",
+      "Half-life causality (per-bar recompute) pass"
     ],
     "executable": false,
-    "reason_if_not": "new_strategy: RSI divergence detector + Ornstein-Uhlenbeck half-life pre-screen 1D timeframe \u2014 yeni signal logic ve causal half-life hesab\u0131 gerekli; mevcut backtest motoru bu kal\u0131b\u0131 ko\u015fturamaz (DEFERRED, signal_chief implementasyonu bekliyor)"
+    "reason_if_not": "detector yok: RSI(14) bullish/bearish divergence (20-bar pivot) + 3-bar confirmation candle + OU half-life pre-screen (<=7d) filtresi, detector raf\u0131nda yok"
   },
   "result": {
-    "status": "NOT_EXECUTABLE",
-    "reason": "new_strategy: RSI divergence detector + Ornstein-Uhlenbeck half-life pre-screen 1D timeframe \u2014 yeni signal logic ve causal half-life hesab\u0131 gerekli; mevcut backtest motoru bu kal\u0131b\u0131 ko\u015fturamaz (DEFERRED, signal_chief implementasyonu bekliyor)"
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: RSI(14) bullish/bearish divergence (20-bar pivot) + 3-bar confirmation candle + OU half-life pre-screen (<=7d) filtresi, detector raf\u0131nda yok",
+    "shelf_size": 64
   }
 }

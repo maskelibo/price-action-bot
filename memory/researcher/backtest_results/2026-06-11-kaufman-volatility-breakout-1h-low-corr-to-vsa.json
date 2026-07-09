@@ -1,10 +1,13 @@
 {
   "hypothesis_id": "2026-06-11-kaufman-volbreak-1h-vsa-diversifier",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-11-kaufman-volatility-breakout-1h-low-corr-to-vsa.md",
-  "extracted_at": "2026-06-11T06:30:45.965434+00:00",
+  "extracted_at": "2026-07-07T23:00:08.266220+00:00",
+  "bridge_version": 1,
   "spec": {
     "type": "new_strategy",
     "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1h",
     "param_grid": null,
     "accept_gates": [
       "net_annual_return_pct > 35",
@@ -18,10 +21,12 @@
       "PBO < 0.5"
     ],
     "executable": false,
-    "reason_if_not": "new_strategy: Kaufman volatility breakout (Open + k\u00b7ATR) yeni bir momentum-continuation strateji ailesi; backtest motoru mevcut 4 strateji d\u0131\u015f\u0131nda bu signal logic'ini hen\u00fcz ko\u015fturamaz (DEFERRED \u2014 yeni detector + entry/exit handler implementasyonu gerekiyor)"
+    "reason_if_not": "detector yok: Open \u00b1 k\u00b7ATR stop-market volatility breakout (Kaufman) + ATR-median rejim filtresi rafta mevcut de\u011fil"
   },
   "result": {
-    "status": "NOT_EXECUTABLE",
-    "reason": "new_strategy: Kaufman volatility breakout (Open + k\u00b7ATR) yeni bir momentum-continuation strateji ailesi; backtest motoru mevcut 4 strateji d\u0131\u015f\u0131nda bu signal logic'ini hen\u00fcz ko\u015fturamaz (DEFERRED \u2014 yeni detector + entry/exit handler implementasyonu gerekiyor)"
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: Open \u00b1 k\u00b7ATR stop-market volatility breakout (Kaufman) + ATR-median rejim filtresi rafta mevcut de\u011fil",
+    "shelf_size": 64
   }
 }

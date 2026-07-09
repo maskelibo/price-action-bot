@@ -1,17 +1,20 @@
 {
-  "hypothesis_id": "grimes-anti-climax-fade-1d",
+  "hypothesis_id": "2026-06-10-grimes-anti-climax-fade-1d",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-10-grimes-anti-climax-fade-1d-low-corr-to-vsa.md",
-  "extracted_at": "2026-06-10T02:30:09.886301+00:00",
+  "extracted_at": "2026-07-08T00:30:17.617099+00:00",
+  "bridge_version": 1,
   "spec": {
-    "type": "new_strategy",
+    "type": "param_sweep",
     "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
     "param_grid": {
       "atr_multiplier": [
         1.5,
         2.0,
         2.5
       ],
-      "wick_body_ratio_max": [
+      "wick_ratio_max": [
         0.2,
         0.3,
         0.4
@@ -40,7 +43,7 @@
       "net_annualized_return >= 0.08",
       "sharpe_annualized >= 0.6",
       "max_dd <= 0.18",
-      "win_rate between 0.35 and 0.50",
+      "win_rate in [0.35, 0.50]",
       "profit_factor >= 1.15",
       "trade_count >= 150",
       "corr_vs_vsa_climax_test_v1 <= 0.30",
@@ -48,10 +51,10 @@
       "bonferroni_adjusted_p <= 1.03e-4"
     ],
     "executable": false,
-    "reason_if_not": "new_strategy: yeni detector (grimes_anti_climax_fade) implement edilmemi\u015f, mevcut backtest motoru bu sinyal mant\u0131\u011f\u0131n\u0131 ko\u015fturamaz \u2014 DEFERRED"
+    "reason_if_not": "detector yok: Grimes Anti climax-fade (2\u00d7ATR climax bar + k\u00fc\u00e7\u00fck i\u011fne + trend-paralel extension counter-trend fade) rafta \u00f6rt\u00fc\u015fen mod\u00fcl yok"
   },
   "result": {
     "status": "NOT_EXECUTABLE",
-    "reason": "new_strategy: yeni detector (grimes_anti_climax_fade) implement edilmemi\u015f, mevcut backtest motoru bu sinyal mant\u0131\u011f\u0131n\u0131 ko\u015fturamaz \u2014 DEFERRED"
+    "reason": "detector yok: Grimes Anti climax-fade (2\u00d7ATR climax bar + k\u00fc\u00e7\u00fck i\u011fne + trend-paralel extension counter-trend fade) rafta \u00f6rt\u00fc\u015fen mod\u00fcl yok"
   }
 }

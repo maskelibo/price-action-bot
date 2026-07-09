@@ -1,10 +1,13 @@
 {
   "hypothesis_id": "2026-06-11-bearish-marubozu-1d-momentum-low-corr-to-vsa",
   "source_path": "/Users/peyman/price-action-bot/memory/researcher/hypotheses/2026-06-11-bearish-marubozu-1d-momentum-low-corr-to-vsa.md",
-  "extracted_at": "2026-06-11T14:30:13.443080+00:00",
+  "extracted_at": "2026-07-07T23:30:27.551253+00:00",
+  "bridge_version": 1,
   "spec": {
     "type": "new_strategy",
     "base_strategy": null,
+    "strategy_module": null,
+    "timeframe": "1d",
     "param_grid": {
       "body_ratio_min": [
         0.8,
@@ -31,25 +34,27 @@
       ]
     },
     "accept_gates": [
-      "net_annual_return > 0.30",
+      "net_annual_return > 30%",
       "oos_sharpe > 0.8",
-      "max_dd_equity < 0.22",
+      "max_dd_equity < 22%",
       "profit_factor > 1.3",
-      "trade_count_total >= 250",
-      "abs(pearson_rho_daily_pnl_vs_vsa) < 0.30",
-      "marginal_sharpe_vs_vsa_alone > 0.15",
-      "regime_split_positive >= 2/3",
-      "stress_period_drawdown > -0.15",
-      "shuffle_baseline_p_value < 0.05",
-      "dsr >= 0.5",
-      "pbo <= 0.5",
-      "benjamini_hochberg_fdr_0.05_pass"
+      "trade_count >= 250",
+      "|pearson_rho_vs_vsa| < 0.30",
+      "marginal_sharpe > +0.15",
+      "regime_split at least 2/3 positive",
+      "no stress period -15%+ drawdown",
+      "shuffle_baseline_p < 0.05",
+      "DSR >= 0.5",
+      "PBO <= 0.5",
+      "BH FDR 0.05 pass"
     ],
     "executable": false,
-    "reason_if_not": "new_strategy: Bearish Marubozu 1D yeni signal logic (body_ratio, tail_tol, EMA trend filter, volume confirm) \u2014 mevcut 4 base strategy'den biri de\u011fil, backtest motoru bu detector'i hen\u00fcz ko\u015fturamaz (DEFERRED, signal_chief taraf\u0131ndan detector implementasyonu gerekli)"
+    "reason_if_not": "detector yok: bearish marubozu single-bar continuation (body/range >= 0.90, wick \u2248 0, EMA trend + volume onay\u0131) rafta mevcut de\u011fil"
   },
   "result": {
-    "status": "NOT_EXECUTABLE",
-    "reason": "new_strategy: Bearish Marubozu 1D yeni signal logic (body_ratio, tail_tol, EMA trend filter, volume confirm) \u2014 mevcut 4 base strategy'den biri de\u011fil, backtest motoru bu detector'i hen\u00fcz ko\u015fturamaz (DEFERRED, signal_chief taraf\u0131ndan detector implementasyonu gerekli)"
+    "status": "NO_DETECTOR",
+    "type": "new_strategy",
+    "reason": "rafta \u00f6rt\u00fc\u015fen detekt\u00f6r yok \u2014 detector request: detector yok: bearish marubozu single-bar continuation (body/range >= 0.90, wick \u2248 0, EMA trend + volume onay\u0131) rafta mevcut de\u011fil",
+    "shelf_size": 64
   }
 }
