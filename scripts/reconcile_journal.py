@@ -18,6 +18,7 @@ Cron: her 15dk (15M bar close ile aynı pencere).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -37,8 +38,14 @@ _REPO = Path(__file__).resolve().parent.parent
 # Reconciler donmuş v13 journal'ına bakıp v14'ü kör bırakıyordu. (5m ayrı hesap paylaşımı: nadir poz →
 # kabul edilebilir kısıt.)
 _BOT = os.environ.get("PA_BOT_NAME", "v14").strip()
-_JOURNAL = _REPO / "data" / (
-    f"futures_journal_{_BOT}.duckdb" if _BOT and _BOT not in ("default", "") else "futures_journal.duckdb"
+_JOURNAL = (
+    _REPO
+    / "data"
+    / (
+        f"futures_journal_{_BOT}.duckdb"
+        if _BOT and _BOT not in ("default", "")
+        else "futures_journal.duckdb"
+    )
 )
 _REPORT_DIR = _REPO / "reports" / "reconcile"
 
@@ -172,9 +179,11 @@ def _fetch_journal_open_positions() -> list[dict]:
                      )
                      GROUP BY trade_id
                 """).fetchdf()
-                partial_map = dict(
-                    zip(partial_df["trade_id"], partial_df["partial_sum"])
-                ) if not partial_df.empty else {}
+                partial_map = (
+                    dict(zip(partial_df["trade_id"], partial_df["partial_sum"], strict=False))
+                    if not partial_df.empty
+                    else {}
+                )
             except Exception:
                 partial_map = {}
         finally:
@@ -259,10 +268,8 @@ def _phantom_dedup(phantoms: list[dict], *, ttl_hours: float = 12.0) -> list[dic
             seen[sig] = now
     # eski imzaları temizle (ttl×2'den eski)
     seen = {k: v for k, v in seen.items() if now - float(v or 0) < ttl_hours * 7200}
-    try:
+    with contextlib.suppress(Exception):
         state_p.write_text(json.dumps(seen))
-    except Exception:
-        pass
     return fresh
 
 
@@ -293,10 +300,8 @@ def _qty_drift_dedup(mismatches: list[dict], *, ttl_hours: float = 12.0) -> list
             seen[sig] = now
     # eski imzaları temizle (ttl×2'den eski)
     seen = {k: v for k, v in seen.items() if now - float(v or 0) < ttl_hours * 7200}
-    try:
+    with contextlib.suppress(Exception):
         state_p.write_text(json.dumps(seen))
-    except Exception:
-        pass
     return fresh
 
 
@@ -328,6 +333,35 @@ def _push_phantom_alert(phantoms: list[dict]) -> None:
         _log(f"phantom_push_fail: {exc}")
 
 
+def _should_skip_reconcile(exchange: dict, journal: list) -> tuple[bool, str]:
+    """Reconcile GÜVENLİ mi — orphan-close yapılabilir mi? (fail-closed karar)
+
+    FIX 2026-07-08 (dalga-4 T8-DR6 CRIT): orphan-close journal'a KALICI yazım
+    (record_close). Yalnız GERÇEK borsa okumasıyla yapılabilir. _fetch_exchange_
+    positions ccxt auth fail olunca EMEKLİ log'dan (source='log_parse') eski
+    pozisyon döndürüyor → eski kod len(exchange)==0 SAFE_MODE'unu atlayıp canlı
+    journal'ı yanlış "orphan" sanıp kapatıyordu (07:16 AAVE/ZEC kazası).
+
+    SKIP (True) koşulları — hepsi journal'da AÇIK varken:
+      (a) borsa boş → fetch fail muhtemel (eski davranış)
+      (b) borsa listesi ccxt'ten DEĞİL (herhangi biri log_parse / source yok)
+          → güvenilmez köken, orphan yazma.
+    Journal boşsa orphan riski yok → devam (phantom-only yol güvenli).
+    """
+    if not journal:
+        return (False, "journal boş — orphan riski yok")
+    if len(exchange) == 0:
+        return (True, "exchange empty but journal open — API/fetch fail muhtemel")
+    _all_ccxt = all(p.get("source") == "ccxt" for p in exchange.values())
+    if not _all_ccxt:
+        return (
+            True,
+            "exchange listesi ccxt'ten değil (log_parse fallback / güvenilmez köken) "
+            "— orphan-close DURDURULDU (yanlış-kapanış önleme)",
+        )
+    return (False, "ccxt okuması güvenilir — reconcile devam")
+
+
 def reconcile() -> dict:
     """Ana reconcile fonksiyonu."""
     stats = {
@@ -343,18 +377,17 @@ def reconcile() -> dict:
     journal = _fetch_journal_open_positions()
     stats["exchange_pos"] = len(exchange)
     stats["journal_open"] = len(journal)
-    stats["exchange_fetch_ok"] = True  # placeholder
+    # FIX 2026-07-08 (dalga-4 T8-DR6): gerçek ccxt okuması mı? (placeholder değil)
+    _via_ccxt = bool(exchange) and all(p.get("source") == "ccxt" for p in exchange.values())
+    stats["exchange_fetch_ok"] = _via_ccxt
 
-    # FIX 2026-05-26: SAFE MODE — exchange fetch fail + journal'da açık varsa
-    # tümünü orphan sanma (yanlış kapanış riski). Önce kontrol et:
-    # Eğer ccxt fetch_positions boş döndü AMA journal'da açık varsa,
-    # API key eksikliği veya geçici hata olabilir → reconcile ETME, alert at.
-    if len(exchange) == 0 and len(journal) > 0:
-        _log(
-            f"SAFE_MODE: exchange empty but journal has {len(journal)} open — "
-            f"reconcile SKIPPED (API key veya fetch fail muhtemel)"
-        )
-        stats["exchange_fetch_ok"] = False
+    # SAFE MODE — orphan-close yalnız GÜVENİLİR borsa okumasıyla (fail-closed).
+    # Eski kod yalnız len(exchange)==0'a bakıyordu; log-fallback boş-olmayan liste
+    # döndürünce atlanıp yanlış-orphan yazıyordu (07:16 AAVE/ZEC kazası).
+    _skip, _skip_reason = _should_skip_reconcile(exchange, journal)
+    if _skip:
+        _log(f"SAFE_MODE: {_skip_reason} — reconcile SKIPPED (orphan-close yapılmadı)")
+        stats["exchange_fetch_ok"] = _via_ccxt
         # FIX 2026-05-26 (Faz 14.8): throttle (1h) — her 15dk spam etmesin
         try:
             from price_action.ops.telegram_throttle import get_telegram_throttle
@@ -388,11 +421,12 @@ def reconcile() -> dict:
     #   1) fapiPrivateGetAllOrders (kapanış tarihi yakın, reduceOnly fill)
     #   2) ticker (son çare)
     #   3) entry_price (en kötü durum — PnL=0 yazmak yanlış kayıptan iyidir)
-    _ORPHAN_QTY_EPSILON = 1e-6
+    orphan_qty_epsilon = 1e-6
     orphans = [
-        j for j in journal
+        j
+        for j in journal
         if j["symbol"] not in exchange_symbols
-        and float(j.get("remaining_qty", j.get("fill_qty", 0))) > _ORPHAN_QTY_EPSILON
+        and float(j.get("remaining_qty", j.get("fill_qty", 0))) > orphan_qty_epsilon
     ]
     for o in orphans:
         exit_px = float(o["fill_price"] or 0.0)  # fallback = entry (PnL=0)
@@ -502,9 +536,9 @@ def reconcile() -> dict:
             _o_start_ms = int(_o_ts.timestamp() * 1000) if _o_ts else None
             _o_income = _fetch_income_o(ex, o["symbol"], _o_start_ms)
             if _o_income is not None:
-                _orphan_pnl_override = _o_income - _TJo(
-                    db_path=str(_JOURNAL)
-                ).get_partial_pnl_sum(str(o["signal_id"]))
+                _orphan_pnl_override = _o_income - _TJo(db_path=str(_JOURNAL)).get_partial_pnl_sum(
+                    str(o["signal_id"])
+                )
         except Exception as _oio_err:
             _log(f"ORPHAN_INCOME_ERR {o['symbol']}: {str(_oio_err)[:80]}")
         if _close_orphan(o, exit_px, _orphan_pnl_override):
@@ -524,7 +558,7 @@ def reconcile() -> dict:
     journal_symbols_active = {
         j["symbol"]
         for j in journal
-        if float(j.get("remaining_qty", j.get("fill_qty", 0))) > _ORPHAN_QTY_EPSILON
+        if float(j.get("remaining_qty", j.get("fill_qty", 0))) > orphan_qty_epsilon
     }
     phantoms = [exchange[s] for s in exchange_symbols if s not in journal_symbols_active]
     stats["phantoms"] = len(phantoms)
@@ -652,7 +686,12 @@ def reconcile() -> dict:
                                     f"{_j_fill_qty}→{_ex_qty}"
                                 )
                                 _healed.append(
-                                    {"symbol": _sym, "sig_id": _sig_id, "from": _j_fill_qty, "to": _ex_qty}
+                                    {
+                                        "symbol": _sym,
+                                        "sig_id": _sig_id,
+                                        "from": _j_fill_qty,
+                                        "to": _ex_qty,
+                                    }
                                 )
                             except Exception as _hu_err:
                                 _log(f"QTY_HEAL_ERR futures_signals {_sym}: {str(_hu_err)[:80]}")

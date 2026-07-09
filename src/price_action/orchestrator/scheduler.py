@@ -900,6 +900,15 @@ async def _job_reconcile_journal() -> None:
             str(repo_root / ".venv" / "bin" / "python"),
             "scripts/reconcile_journal.py",
         ]
+        # FIX 2026-07-08 (dalga-4 T3-D4-6/T8-DR2 HIGH-CRIT): reconcile subprocess'i
+        # env aktarmıyordu → reconcile_journal.py PA_BOT_NAME default "v14"e düşüp
+        # DONMUŞ futures_journal_v14.duckdb'yi denetliyordu. Canlı v15p2'nin
+        # orphan/phantom güvenlik ağı 2 Tem'den beri KÖRDÜ (4×/saat "temiz"
+        # rapor yalanı). Canlı bota işaret et (PA_RECONCILE_BOT ile override
+        # edilebilir — sonraki bot geçişinde tek nokta). v15p2↔borsa mutabakatı
+        # deploy öncesi doğrulandı (3=3): orphan-close yalnız JOURNAL'a yazar,
+        # borsa emri YOK → yanlış-pointer fiziksel poz kapatmaz.
+        _recon_env = {**os.environ, "PA_BOT_NAME": os.environ.get("PA_RECONCILE_BOT", "v15p2")}
         result = await asyncio.to_thread(
             subprocess.run,
             cmd,
@@ -907,6 +916,7 @@ async def _job_reconcile_journal() -> None:
             capture_output=True,
             text=True,
             timeout=60,
+            env=_recon_env,
         )
         if result.returncode == 0:
             # Anlamlı çıktıyı logla
