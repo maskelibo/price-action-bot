@@ -11,9 +11,11 @@ Spot testnet'in (testnet.binance.vision) tam tersi:
 Usage:
     python scripts/futures_trade_daily.py [--dry-run] [--days 1]
 """
+
 from __future__ import annotations
 
 import argparse
+import contextlib
 import io
 import os
 import sys
@@ -23,45 +25,43 @@ from pathlib import Path
 
 # sys.stdout wrapping sadece __main__'de (import durumunda Streamlit'i bozar)
 if __name__ == "__main__":
-    try:
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    except Exception:
-        pass
+    with contextlib.suppress(Exception):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 os.environ["PA_LOG_QUIET"] = "1"
 import warnings
 
 warnings.filterwarnings("ignore")
 
-import duckdb
-import pandas as pd
+import duckdb  # noqa: E402
+import pandas as pd  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 # .env load (python-dotenv: quote+comment trim, mevcut env korunur)
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(ROOT / ".env", override=False)
 
-import ccxt
-import yaml
+import ccxt  # noqa: E402
+import yaml  # noqa: E402
 
-from price_action.contracts import Position
-from price_action.execution.capital_cap import load_capital_cap
-from price_action.execution.post_only_router import (
+from price_action.contracts import Position  # noqa: E402
+from price_action.execution.capital_cap import load_capital_cap  # noqa: E402
+from price_action.execution.post_only_router import (  # noqa: E402
     SlippageExceededError,
     place_post_only_with_fallback,
 )
-from scripts.lib.cooldown import filter_signals_by_cooldown
-from scripts.lib.risk_integration import (
+from scripts.lib.cooldown import filter_signals_by_cooldown  # noqa: E402
+from scripts.lib.risk_integration import (  # noqa: E402
     build_futures_account_state,
     build_returns_df,
     build_signal_from_scan,
     load_risk_officer,
 )
-from scripts.paper_trade_daily import init_journal, scan_signals
+from scripts.paper_trade_daily import init_journal, scan_signals  # noqa: E402
 
 # Multi-bot futures support — PA_BOT_NAME env var (atlas | phoenix | rsi2 | vwap | …)
 # FIX 2026-05-27 (Faz 14.26): generic — herhangi bir bot adı per-bot journal alır.
@@ -87,9 +87,22 @@ else:
     RISK_YAML = ROOT / "configs" / "risk_balanced.yaml"
     BREAKER_STATE = ROOT / "logs" / "risk" / "futures_breaker_state.json"
 BREAKER_STATE.parent.mkdir(parents=True, exist_ok=True)
-print(f"[futures_trade_daily] BOT={_BOT_NAME or 'default'} | journal={JOURNAL.name} | risk={RISK_YAML.name}")
+print(
+    f"[futures_trade_daily] BOT={_BOT_NAME or 'default'} | journal={JOURNAL.name} | risk={RISK_YAML.name}"
+)
 
-SYMBOLS = ["BTC/USDT","ETH/USDT","SOL/USDT","BNB/USDT","ADA/USDT","AVAX/USDT","LINK/USDT","DOT/USDT","DOGE/USDT","XRP/USDT"]
+SYMBOLS = [
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "BNB/USDT",
+    "ADA/USDT",
+    "AVAX/USDT",
+    "LINK/USDT",
+    "DOT/USDT",
+    "DOGE/USDT",
+    "XRP/USDT",
+]
 # Fallback sabitler — artık RiskOfficer/risk_balanced.yaml'dan okunuyor.
 # Sadece dry-run printlerinde gösterilmek için tutuluyor.
 LEVERAGE = 3
@@ -106,30 +119,36 @@ def get_futures_exchange():
     api_secret = os.getenv("BINANCE_FUTURES_TESTNET_API_SECRET")
     if not api_key or not api_secret:
         raise RuntimeError(".env'de BINANCE_FUTURES_TESTNET_API_KEY/SECRET yok")
-    ex = ccxt.binance({
-        'apiKey': api_key,
-        'secret': api_secret,
-        'enableRateLimit': True,
-        'options': {
-            'defaultType': 'future',
-            'warnOnFetchOpenOrdersWithoutSymbol': False,
-            'adjustForTimeDifference': True,
-            'recvWindow': 10000,
-            'fetchMarkets': ['linear'],  # sadece USDM futures, sapi/spot atla
-        },
-    })
+    ex = ccxt.binance(
+        {
+            "apiKey": api_key,
+            "secret": api_secret,
+            "enableRateLimit": True,
+            "options": {
+                "defaultType": "future",
+                "warnOnFetchOpenOrdersWithoutSymbol": False,
+                "adjustForTimeDifference": True,
+                "recvWindow": 10000,
+                "fetchMarkets": ["linear"],  # sadece USDM futures, sapi/spot atla
+            },
+        }
+    )
     # Manuel testnet URL override (sandbox mode futures icin deprecated)
-    TESTNET_FAPI = 'https://testnet.binancefuture.com/fapi'
-    for ver, suffix in [('fapiPublic', '/v1'), ('fapiPublicV2', '/v2'), ('fapiPublicV3', '/v3'),
-                        ('fapiPrivate', '/v1'), ('fapiPrivateV2', '/v2'), ('fapiPrivateV3', '/v3')]:
-        ex.urls['api'][ver] = TESTNET_FAPI + suffix
+    testnet_fapi = "https://testnet.binancefuture.com/fapi"
+    for ver, suffix in [
+        ("fapiPublic", "/v1"),
+        ("fapiPublicV2", "/v2"),
+        ("fapiPublicV3", "/v3"),
+        ("fapiPrivate", "/v1"),
+        ("fapiPrivateV2", "/v2"),
+        ("fapiPrivateV3", "/v3"),
+    ]:
+        ex.urls["api"][ver] = testnet_fapi + suffix
     # ccxt fetch_currencies sapi.binance.com (mainnet) cagiriyor — testnet key reject ediliyor
-    ex.has['fetchCurrencies'] = False
+    ex.has["fetchCurrencies"] = False
     # Time sync
-    try:
+    with contextlib.suppress(Exception):
         ex.load_time_difference()
-    except Exception:
-        pass
     return ex
 
 
@@ -138,6 +157,7 @@ def get_futures_exchange():
 # yeni kolon eklenmesi sessizce başarısız oluyordu eski DB'lerde.
 # Şimdi: schema_version tablosu + migration kayıt.
 _JOURNAL_SCHEMA_VERSION = 3  # 2026-05-31 — futures_partial_closes + partial-aware PnL
+
 
 def init_futures_journal():
     con = duckdb.connect(str(JOURNAL))
@@ -157,14 +177,16 @@ def init_futures_journal():
     if cur_ver is None or cur_ver < _JOURNAL_SCHEMA_VERSION:
         # Migration kayıt — INSERT OR IGNORE: eski version satırları PK çakışır
         from datetime import datetime as _dt
-        try:
+
+        with contextlib.suppress(Exception):
             con.execute(
                 "INSERT OR IGNORE INTO schema_version VALUES (?, ?, ?)",
-                [_JOURNAL_SCHEMA_VERSION, _dt.now(UTC),
-                 f"2026-05-31 partial-closes schema v{_JOURNAL_SCHEMA_VERSION}"],
+                [
+                    _JOURNAL_SCHEMA_VERSION,
+                    _dt.now(UTC),
+                    f"2026-05-31 partial-closes schema v{_JOURNAL_SCHEMA_VERSION}",
+                ],
             )
-        except Exception:
-            pass
     con.execute("""
         CREATE TABLE IF NOT EXISTS futures_signals (
             signal_id VARCHAR PRIMARY KEY,
@@ -256,12 +278,10 @@ def init_futures_journal():
         )
     """)
     con.execute(
-        "CREATE INDEX IF NOT EXISTS idx_fpc_trade_id "
-        "ON futures_partial_closes (trade_id)"
+        "CREATE INDEX IF NOT EXISTS idx_fpc_trade_id " "ON futures_partial_closes (trade_id)"
     )
     con.execute(
-        "CREATE INDEX IF NOT EXISTS idx_fpc_ts_close "
-        "ON futures_partial_closes (ts_close)"
+        "CREATE INDEX IF NOT EXISTS idx_fpc_ts_close " "ON futures_partial_closes (ts_close)"
     )
     con.commit()
     con.close()
@@ -270,10 +290,10 @@ def init_futures_journal():
 def fetch_futures_state(exchange):
     """Futures testnet hesap durumu."""
     raw = exchange.fapiPrivateV2GetAccount()
-    wallet = float(raw.get('totalWalletBalance', 0))
-    unrealized = float(raw.get('totalUnrealizedProfit', 0))
-    margin_bal = float(raw.get('totalMarginBalance', wallet))
-    available = float(raw.get('availableBalance', 0))
+    wallet = float(raw.get("totalWalletBalance", 0))
+    unrealized = float(raw.get("totalUnrealizedProfit", 0))
+    margin_bal = float(raw.get("totalMarginBalance", wallet))
+    available = float(raw.get("availableBalance", 0))
 
     # A3 fix: rate-limit ban'de (binance 418) silently boş liste dönerse pos_check
     # "tüm pozisyonlar kapanmış" sanıp journal'a yanlış 'filled' yazıyordu.
@@ -281,7 +301,7 @@ def fetch_futures_state(exchange):
     positions_ok = True
     try:
         positions = exchange.fetch_positions()
-        active_pos = [p for p in positions if abs(float(p.get('contracts', 0))) > 0]
+        active_pos = [p for p in positions if abs(float(p.get("contracts", 0))) > 0]
     except Exception:
         active_pos = []
         positions_ok = False
@@ -305,23 +325,23 @@ def fetch_futures_state(exchange):
     # SEC-#3A: totalInitialMargin — pozisyon stale dedektörü için gerekli.
     # fetch_positions() boş dönse bile borsada açık pozisyon varsa bu değer > 0.
     # "pozisyonlar boş AMA initialMargin > 0" = stale veri, giriş atlanmalı.
-    total_initial_margin = float(raw.get('totalInitialMargin', 0))
+    total_initial_margin = float(raw.get("totalInitialMargin", 0))
 
     return {
-        'wallet_balance': wallet,
-        'unrealized_pnl': unrealized,
-        'margin_balance': margin_bal,
-        'available_balance': available,
-        'total_initial_margin': total_initial_margin,
-        'n_positions': len(active_pos),
-        'n_open_orders': len(regular_orders) + len(algo_orders),
-        'n_regular_orders': len(regular_orders),
-        'n_algo_orders': len(algo_orders),
-        'positions': active_pos,
-        'algo_orders': algo_orders,
-        'positions_ok': positions_ok,
-        'regular_orders_ok': regular_orders_ok,
-        'algo_orders_ok': algo_orders_ok,
+        "wallet_balance": wallet,
+        "unrealized_pnl": unrealized,
+        "margin_balance": margin_bal,
+        "available_balance": available,
+        "total_initial_margin": total_initial_margin,
+        "n_positions": len(active_pos),
+        "n_open_orders": len(regular_orders) + len(algo_orders),
+        "n_regular_orders": len(regular_orders),
+        "n_algo_orders": len(algo_orders),
+        "positions": active_pos,
+        "algo_orders": algo_orders,
+        "positions_ok": positions_ok,
+        "regular_orders_ok": regular_orders_ok,
+        "algo_orders_ok": algo_orders_ok,
     }
 
 
@@ -332,7 +352,7 @@ def setup_leverage(exchange, symbol: str, leverage: int):
         return True
     except Exception as e:
         # Already set ise OK
-        if 'No need to change' in str(e) or 'leverage not modified' in str(e).lower():
+        if "No need to change" in str(e) or "leverage not modified" in str(e).lower():
             return True
         print(f"    [LEV] {symbol} set_leverage fail: {str(e)[:100]}")
         return False
@@ -349,8 +369,8 @@ def _is_margin_error(exc: Exception) -> bool:
         "insufficient",
         "margin",
         "balance",
-        "-2019",    # binance: insufficient margin
-        "-1100",    # binance: qty precision / margin at lower leverage
+        "-2019",  # binance: insufficient margin
+        "-1100",  # binance: qty precision / margin at lower leverage
         "notional must be no smaller",
         "not enough",
     )
@@ -416,19 +436,22 @@ def _submit_order_with_adaptive_leverage(
                 method = "market_only"
 
             if attempt_lev != base_leverage:
-                print(f"    [LEV_CASCADE] {symbol} leverage {base_leverage}x→{attempt_lev}x "
-                      f"(margin insufficient retry #{cascade.index(attempt_lev) + 1})")
+                print(
+                    f"    [LEV_CASCADE] {symbol} leverage {base_leverage}x→{attempt_lev}x "
+                    f"(margin insufficient retry #{cascade.index(attempt_lev) + 1})"
+                )
             return order, attempt_lev, method
         except SlippageExceededError:
             # Slippage aşımı — leverage cascade değil, direkt raise
             raise
         except Exception as exc:
             last_exc = exc
-            if _is_margin_error(exc):
-                if attempt_lev > 1:
-                    print(f"    [LEV_CASCADE] {symbol} margin err at {attempt_lev}x, "
-                          f"trying lower... ({str(exc)[:80]})")
-                    continue
+            if _is_margin_error(exc) and attempt_lev > 1:
+                print(
+                    f"    [LEV_CASCADE] {symbol} margin err at {attempt_lev}x, "
+                    f"trying lower... ({str(exc)[:80]})"
+                )
+                continue
             # Margin dışı hata — direkt raise, cascade yok
             raise
 
@@ -437,20 +460,55 @@ def _submit_order_with_adaptive_leverage(
     raise last_exc
 
 
-def place_protection_orders(exchange, symbol: str, side: str, qty: float,
-                             tp_price: float, sl_price: float,
-                             entry_price: float | None = None) -> dict:
+# F2 FIX 2026-07-10 (DERIN_DENETIM F2 CRIT): TP merdiveni doğrulanan kanona
+# sabitlendi. KAYNAK-PIN: backtest engine default'ları (engine.py:75-78
+# tp1_R=1.0/tp2_R=1.5/close_pct=0.30) + exit_tournament_verdict §6 primary reco
+# + v15p2'nin 2 Tem robustness doğrulaması AYNI merdivenle koştu. Eski canlı
+# kurulum (%25 qty sig.tp_price'a[2-2.5R!] + %25 1.5R'ye + %50 runner) hiçbir
+# modelde backtest'lenmemişti — 'TP1' etiketi uzak emirdeydi, merdiven tersti,
+# ts30 çıpası ('tp1' fill'i) fiilen hiç başlamıyordu.
+TP1_R = 1.0
+TP2_R = 1.5
+TP1_FRAC = 0.30
+TP2_FRAC = 0.30  # kalan %40 runner: trailing (daemon position_check)
+
+
+def compute_partial_tp_prices(
+    side: str,
+    entry_price: float,
+    sl_price: float,
+    tp1_r: float = TP1_R,
+    tp2_r: float = TP2_R,
+) -> tuple[float, float]:
+    """Doğrulanmış TP merdiveni: (TP1, TP2) = entry ± (1R, 1.5R).
+
+    R = |entry − SL|. Strateji ham hedefi (sig.tp_price) BURADA KULLANILMAZ —
+    o yalnız legacy single-TP modda ve observability'de (strategy_tp_price) yaşar.
+    """
+    sl_dist = abs(entry_price - sl_price)
+    if side == "long":
+        return (entry_price + tp1_r * sl_dist, entry_price + tp2_r * sl_dist)
+    return (entry_price - tp1_r * sl_dist, entry_price - tp2_r * sl_dist)
+
+
+def place_protection_orders(
+    exchange,
+    symbol: str,
+    side: str,
+    qty: float,
+    tp_price: float,
+    sl_price: float,
+    entry_price: float | None = None,
+) -> dict:
     """LONG icin SELL TP+SL, SHORT icin BUY TP+SL.
 
-    SEC26.A FIX: Multi-target TP placement — backtest engine parity.
-    Backtest engine: TP1 (1R, %30 qty) + TP2 (1.5R, %30 qty) + SL (full remaining).
-    Burada tp_price = sig.tp_price (strateji'nin ham TP'si = TP1 seviyesi ~1R).
-    TP2 = entry + 1.5 * (entry - sl) (entry_price verilirse hesaplanir).
-
-    Elestiri: Binance'a 3 ayri order:
-      - TAKE_PROFIT_MARKET TP1 fiyatinda %30 qty (partial close)
-      - TAKE_PROFIT_MARKET TP2 fiyatinda %30 qty (partial close)
-      - STOP_MARKET sl_price'da tam qty (reduceOnly=True — partial fill sonra kalan qty kapatir)
+    F2 FIX 2026-07-10: Multi-target TP placement — GERÇEK backtest engine parity.
+    Merdiven: TP1 (entry±1R, %30 qty) + TP2 (entry±1.5R, %30 qty) + SL (tam qty).
+    NOT (eski SEC26.A iddiasının düzeltmesi): tp_price = sig.tp_price stratejinin
+    HAM hedefiydi (vsa 2.5R, grimes >=2R) — '~1R' varsayımı YANLIŞTI; eski kod
+    TP1'i o uzak hedefe koyuyordu (ters merdiven). Artık TP1/TP2 entry+SL'den
+    compute_partial_tp_prices ile hesaplanır; tp_price yalnız legacy single-TP
+    modda kullanılır + strategy_tp_price olarak dönüşte raporlanır.
 
     NOTE: Binance futures'ta reduceOnly partial orders race condition riski var.
     Eger TP1 fill olunca SL hala tam qty'de ise SL bir sonraki tick pozisyon boyutuna
@@ -458,85 +516,75 @@ def place_protection_orders(exchange, symbol: str, side: str, qty: float,
 
     entry_price verilmezse eski davranis (tek TP + SL) korunur.
     """
-    close_side = 'SELL' if side == 'long' else 'BUY'
-
-    # Multi-target quantities — 25/25/50 (kullanıcı kararı 2026-05-20).
-    # Backtest 30/30/40 idi; runner %40 → %50 büyütüldü ki trailing stop
-    # (Faz 2) daha geniş runner ile trendi daha çok yakalasın.
-    TP1_FRAC = 0.25   # %25 TP1'de kapat
-    TP2_FRAC = 0.25   # %25 TP2'de kapat
-    # Kalan %50 runner: trailing stop yönetir (daemon position_check)
+    close_side = "SELL" if side == "long" else "BUY"
 
     qty_tp1 = qty * TP1_FRAC
     qty_tp2 = qty * TP2_FRAC
 
     try:
-        results = {}
-
         if entry_price is not None and entry_price > 0:
-            # Multi-target mode
-            sl_dist = abs(entry_price - sl_price)
-            tp2_R = 1.5  # backtest engine default tp2_R
-            if side == 'long':
-                tp2_price = entry_price + tp2_R * sl_dist
-            else:
-                tp2_price = entry_price - tp2_R * sl_dist
+            # Multi-target mode — merdiven kanondan (kaynak-pin üstte)
+            tp1_price, tp2_price = compute_partial_tp_prices(side, entry_price, sl_price)
 
             qty1_str = exchange.amount_to_precision(symbol, qty_tp1)
             qty2_str = exchange.amount_to_precision(symbol, qty_tp2)
-            tp1_str = exchange.price_to_precision(symbol, tp_price)
+            tp1_str = exchange.price_to_precision(symbol, tp1_price)
             tp2_str = exchange.price_to_precision(symbol, tp2_price)
             sl_str = exchange.price_to_precision(symbol, sl_price)
 
             # TP1: partial close at 1R
             tp1_order = exchange.create_order(
                 symbol=symbol,
-                type='TAKE_PROFIT_MARKET',
+                type="TAKE_PROFIT_MARKET",
                 side=close_side,
                 amount=float(qty1_str),
                 params={
-                    'stopPrice': tp1_str,
-                    'reduceOnly': True,
-                    'workingType': 'MARK_PRICE',
-                }
+                    "stopPrice": tp1_str,
+                    "reduceOnly": True,
+                    "workingType": "MARK_PRICE",
+                },
             )
             # TP2: partial close at 1.5R
             tp2_order = exchange.create_order(
                 symbol=symbol,
-                type='TAKE_PROFIT_MARKET',
+                type="TAKE_PROFIT_MARKET",
                 side=close_side,
                 amount=float(qty2_str),
                 params={
-                    'stopPrice': tp2_str,
-                    'reduceOnly': True,
-                    'workingType': 'MARK_PRICE',
-                }
+                    "stopPrice": tp2_str,
+                    "reduceOnly": True,
+                    "workingType": "MARK_PRICE",
+                },
             )
             # SL: full qty reduceOnly (covers remaining runner)
             qty_full_str = exchange.amount_to_precision(symbol, qty)
             sl_order = exchange.create_order(
                 symbol=symbol,
-                type='STOP_MARKET',
+                type="STOP_MARKET",
                 side=close_side,
                 amount=float(qty_full_str),
                 params={
-                    'stopPrice': sl_str,
-                    'reduceOnly': True,
-                    'workingType': 'MARK_PRICE',
-                }
+                    "stopPrice": sl_str,
+                    "reduceOnly": True,
+                    "workingType": "MARK_PRICE",
+                },
             )
             return {
-                'status': 'placed',
-                'mode': 'multi_target',
-                'tp_order_id': str(tp1_order.get('id')),     # primary TP (TP1) id
-                'tp2_order_id': str(tp2_order.get('id')),    # TP2 id
-                'sl_order_id': str(sl_order.get('id')),
-                'tp_price': float(tp1_str),
-                'tp2_price': float(tp2_str),
-                'sl_price': float(sl_str),
-                'qty_tp1': float(qty1_str),
-                'qty_tp2': float(qty2_str),
-                'qty_sl': float(qty_full_str),
+                "status": "placed",
+                "mode": "multi_target",
+                "tp_order_id": str(tp1_order.get("id")),  # primary TP (TP1) id
+                "tp2_order_id": str(tp2_order.get("id")),  # TP2 id
+                "sl_order_id": str(sl_order.get("id")),
+                "tp_price": float(tp1_str),
+                "tp2_price": float(tp2_str),
+                "sl_price": float(sl_str),
+                "qty_tp1": float(qty1_str),
+                "qty_tp2": float(qty2_str),
+                "qty_sl": float(qty_full_str),
+                # F2: stratejinin ham hedefi (grimes A-hedefi vb.) observability
+                # için korunur — futures_signals.tp_price bunu tutar, protection
+                # tablosundaki tp_price ise 1R'dir; fark KASITLI.
+                "strategy_tp_price": float(tp_price),
             }
         else:
             # Legacy single-TP mode (backward compat)
@@ -545,40 +593,44 @@ def place_protection_orders(exchange, symbol: str, side: str, qty: float,
             sl_str = exchange.price_to_precision(symbol, sl_price)
             tp_order = exchange.create_order(
                 symbol=symbol,
-                type='TAKE_PROFIT_MARKET',
+                type="TAKE_PROFIT_MARKET",
                 side=close_side,
                 amount=float(qty_str),
                 params={
-                    'stopPrice': tp_str,
-                    'reduceOnly': True,
-                    'workingType': 'MARK_PRICE',
-                }
+                    "stopPrice": tp_str,
+                    "reduceOnly": True,
+                    "workingType": "MARK_PRICE",
+                },
             )
             sl_order = exchange.create_order(
                 symbol=symbol,
-                type='STOP_MARKET',
+                type="STOP_MARKET",
                 side=close_side,
                 amount=float(qty_str),
                 params={
-                    'stopPrice': sl_str,
-                    'reduceOnly': True,
-                    'workingType': 'MARK_PRICE',
-                }
+                    "stopPrice": sl_str,
+                    "reduceOnly": True,
+                    "workingType": "MARK_PRICE",
+                },
             )
             return {
-                'status': 'placed',
-                'mode': 'single_target',
-                'tp_order_id': str(tp_order.get('id')),
-                'sl_order_id': str(sl_order.get('id')),
-                'tp_price': float(tp_str),
-                'sl_price': float(sl_str),
+                "status": "placed",
+                "mode": "single_target",
+                "tp_order_id": str(tp_order.get("id")),
+                "sl_order_id": str(sl_order.get("id")),
+                "tp_price": float(tp_str),
+                "sl_price": float(sl_str),
             }
     except Exception as e:
-        return {'status': 'error', 'reason': f'{type(e).__name__}: {str(e)[:200]}'}
+        return {"status": "error", "reason": f"{type(e).__name__}: {str(e)[:200]}"}
 
 
-def submit_to_futures(signals: list[dict], dry_run: bool = False, max_pos_usdt: float | None = None,
-                      execution_cfg: dict | None = None) -> int:
+def submit_to_futures(
+    signals: list[dict],
+    dry_run: bool = False,
+    max_pos_usdt: float | None = None,
+    execution_cfg: dict | None = None,
+) -> int:
     """Sinyalleri Binance USDM Futures Testnet'e gönder.
 
     LONG ve SHORT ikisi de calisir (margin var).
@@ -601,34 +653,46 @@ def submit_to_futures(signals: list[dict], dry_run: bool = False, max_pos_usdt: 
     # SEC26.B-5 — execution config (default OFF, replay etkisi sifir)
     execution_cfg = execution_cfg or {}
     post_only_enabled = bool(execution_cfg.get("post_only_limit_enabled", False))
-    post_only_timeout_sec = int(execution_cfg.get(
-        "post_only_fallback_seconds",
-        execution_cfg.get("fallback_to_market_after_sec", 30),
-    ))
-    slippage_limit_bps = float(execution_cfg.get(
-        "slippage_limit_bps",
-        execution_cfg.get("max_slippage_bps", 25.0),
-    ))
+    post_only_timeout_sec = int(
+        execution_cfg.get(
+            "post_only_fallback_seconds",
+            execution_cfg.get("fallback_to_market_after_sec", 30),
+        )
+    )
+    slippage_limit_bps = float(
+        execution_cfg.get(
+            "slippage_limit_bps",
+            execution_cfg.get("max_slippage_bps", 25.0),
+        )
+    )
     if post_only_enabled:
-        print(f"[EXECUTION] POST-ONLY enabled: timeout={post_only_timeout_sec}s, "
-              f"slippage_limit={slippage_limit_bps:.1f}bps")
+        print(
+            f"[EXECUTION] POST-ONLY enabled: timeout={post_only_timeout_sec}s, "
+            f"slippage_limit={slippage_limit_bps:.1f}bps"
+        )
     else:
         print("[EXECUTION] MARKET-ONLY (post-only disabled, sec26.b-5 paper test pending)")
 
     exchange = get_futures_exchange()
     state = fetch_futures_state(exchange)
-    print(f"\n[SUBMIT] Futures hesap: wallet=${state['wallet_balance']:.2f}, "
-          f"available=${state['available_balance']:.2f}, "
-          f"unrealized={state['unrealized_pnl']:+.2f}, "
-          f"pozisyon={state['n_positions']}, açik order={state['n_open_orders']}")
+    print(
+        f"\n[SUBMIT] Futures hesap: wallet=${state['wallet_balance']:.2f}, "
+        f"available=${state['available_balance']:.2f}, "
+        f"unrealized={state['unrealized_pnl']:+.2f}, "
+        f"pozisyon={state['n_positions']}, açik order={state['n_open_orders']}"
+    )
 
     if dry_run:
         print(f"\n[DRY-RUN] {len(signals)} sinyal LOG ONLY:")
         for s in signals:
-            print(f"  {s['ts'].strftime('%Y-%m-%d')} {s['symbol']:<10} {s['strategy']:<35} {s['side']:<5}")
+            print(
+                f"  {s['ts'].strftime('%Y-%m-%d')} {s['symbol']:<10} {s['strategy']:<35} {s['side']:<5}"
+            )
         if max_pos_usdt is not None:
-            print(f"[DRY-RUN][CAPITAL_CAP] enabled=True max={max_pos_usdt:.1f} USDT — "
-                  f"live'da bu sınır her emir için kontrol edilir")
+            print(
+                f"[DRY-RUN][CAPITAL_CAP] enabled=True max={max_pos_usdt:.1f} USDT — "
+                f"live'da bu sınır her emir için kontrol edilir"
+            )
         return 0
 
     # ===== RiskOfficer entegrasyonu =====
@@ -636,12 +700,16 @@ def submit_to_futures(signals: list[dict], dry_run: bool = False, max_pos_usdt: 
     risk_officer = load_risk_officer(yaml_path=RISK_YAML, breaker_state_path=BREAKER_STATE)
     open_sym_names = [p.get("symbol", "") for p in state.get("positions", []) or []]
     return_universe = sorted({*SYMBOLS, *(s for s in open_sym_names if s)})
-    returns_df = build_returns_df(return_universe, days=90, market_db=ROOT / "data" / "market.duckdb")
+    returns_df = build_returns_df(
+        return_universe, days=90, market_db=ROOT / "data" / "market.duckdb"
+    )
     account = build_futures_account_state(state, journal_path=JOURNAL)
     breaker_snap = risk_officer.breaker.snapshot(account)
-    print(f"[RISK] equity=${account.equity_usdt:.2f}, free=${account.free_margin_usdt:.2f}, "
-          f"open_pos={len(account.open_positions)}, pnl_today=${account.realized_pnl_today:+.2f}, "
-          f"breakers={ {k:v for k,v in breaker_snap.items() if v} or 'clear'}")
+    print(
+        f"[RISK] equity=${account.equity_usdt:.2f}, free=${account.free_margin_usdt:.2f}, "
+        f"open_pos={len(account.open_positions)}, pnl_today=${account.realized_pnl_today:+.2f}, "
+        f"breakers={ {k:v for k,v in breaker_snap.items() if v} or 'clear'}"
+    )
 
     submitted = 0
     rejected = 0
@@ -649,7 +717,7 @@ def submit_to_futures(signals: list[dict], dry_run: bool = False, max_pos_usdt: 
 
     for s in signals:
         sig_id = uuid.uuid4().hex[:16]
-        sym = s['symbol']
+        sym = s["symbol"]
 
         if sym not in SYMBOLS:
             print(f"  [SKIP] {sym} symbol list'te yok")
@@ -661,30 +729,52 @@ def submit_to_futures(signals: list[dict], dry_run: bool = False, max_pos_usdt: 
         # Tolerans: 2 gün (1 gün bar close lag + 1 gün buffer).
         # 7 gün eski sinyal: piyasa o tarihten bu yana hareket etmiş → entry/SL anlamını yitirdi.
         try:
-            sig_ts = s.get('ts')
+            sig_ts = s.get("ts")
             if sig_ts is not None:
-                if hasattr(sig_ts, 'tzinfo'):
-                    sig_date = sig_ts.date() if hasattr(sig_ts, 'date') else sig_ts.to_pydatetime().date()
+                if hasattr(sig_ts, "tzinfo"):
+                    sig_date = (
+                        sig_ts.date() if hasattr(sig_ts, "date") else sig_ts.to_pydatetime().date()
+                    )
                 else:
                     sig_date = pd.Timestamp(sig_ts).date()
                 today_utc = datetime.now(UTC).date()
                 stale_days = (today_utc - sig_date).days
                 if stale_days > 2:
                     rejected += 1
-                    print(f"  [REJECT-STALE] {sym:<10} {s['strategy']:<25} "
-                          f"signal_age={stale_days}d (sig_ts={sig_date}, today={today_utc})")
-                    con.execute("""
+                    print(
+                        f"  [REJECT-STALE] {sym:<10} {s['strategy']:<25} "
+                        f"signal_age={stale_days}d (sig_ts={sig_date}, today={today_utc})"
+                    )
+                    con.execute(
+                        """
                         INSERT INTO futures_signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (sig_id, s['ts'], sym, s['strategy'], s['side'], float(s['sl_price']),
-                          float(s['tp_price']), float(s['confluence']), 0, 'reject:stale_signal',
-                          None, None, None, None, None, f'age={stale_days}d>2d'))
+                    """,
+                        (
+                            sig_id,
+                            s["ts"],
+                            sym,
+                            s["strategy"],
+                            s["side"],
+                            float(s["sl_price"]),
+                            float(s["tp_price"]),
+                            float(s["confluence"]),
+                            0,
+                            "reject:stale_signal",
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            f"age={stale_days}d>2d",
+                        ),
+                    )
                     continue
         except Exception as stale_err:
             print(f"  [WARN] stale check err {sym}: {stale_err}")
 
         try:
             ticker = exchange.fetch_ticker(sym)
-            cur_px = ticker['last']
+            cur_px = ticker["last"]
 
             # 1) Signal contract + RiskOfficer.evaluate
             try:
@@ -705,12 +795,32 @@ def submit_to_futures(signals: list[dict], dry_run: bool = False, max_pos_usdt: 
                 reject_reason = getattr(decision, "reason", "unknown")
                 reject_detail = getattr(decision, "detail", {}) or {}
                 rejected += 1
-                print(f"  [REJECT-RISK] {sym:<10} {s['strategy']:<25} {reject_reason} {reject_detail}")
-                con.execute("""
+                print(
+                    f"  [REJECT-RISK] {sym:<10} {s['strategy']:<25} {reject_reason} {reject_detail}"
+                )
+                con.execute(
+                    """
                     INSERT INTO futures_signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (sig_id, s['ts'], sym, s['strategy'], s['side'], float(s['sl_price']),
-                      float(s['tp_price']), float(s['confluence']), 0, f'reject:{reject_reason}',
-                      None, None, None, None, None, str(reject_detail)[:200]))
+                """,
+                    (
+                        sig_id,
+                        s["ts"],
+                        sym,
+                        s["strategy"],
+                        s["side"],
+                        float(s["sl_price"]),
+                        float(s["tp_price"]),
+                        float(s["confluence"]),
+                        0,
+                        f"reject:{reject_reason}",
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        str(reject_detail)[:200],
+                    ),
+                )
                 continue
 
             # 2) RiskedOrder — quantity ve leverage RiskOfficer'dan
@@ -723,32 +833,71 @@ def submit_to_futures(signals: list[dict], dry_run: bool = False, max_pos_usdt: 
             # 2b) Capital cap kontrolü — kısmi gönderme YOK, tamamen reddet
             if max_pos_usdt is not None and notional > max_pos_usdt:
                 rejected += 1
-                print(f"  [REJECT-CAP] {sym:<10} {s['strategy']:<25} "
-                      f"notional=${notional:.2f} > cap=${max_pos_usdt:.2f} USDT")
-                con.execute("""
+                print(
+                    f"  [REJECT-CAP] {sym:<10} {s['strategy']:<25} "
+                    f"notional=${notional:.2f} > cap=${max_pos_usdt:.2f} USDT"
+                )
+                con.execute(
+                    """
                     INSERT INTO futures_signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (sig_id, s['ts'], sym, s['strategy'], s['side'], float(s['sl_price']),
-                      float(s['tp_price']), float(s['confluence']), leverage_used,
-                      'reject:capital_cap_exceeded', None, None, None, notional, margin,
-                      f'cap={max_pos_usdt:.2f}'))
+                """,
+                    (
+                        sig_id,
+                        s["ts"],
+                        sym,
+                        s["strategy"],
+                        s["side"],
+                        float(s["sl_price"]),
+                        float(s["tp_price"]),
+                        float(s["confluence"]),
+                        leverage_used,
+                        "reject:capital_cap_exceeded",
+                        None,
+                        None,
+                        None,
+                        notional,
+                        margin,
+                        f"cap={max_pos_usdt:.2f}",
+                    ),
+                )
                 continue
 
             # 3) Margin check (RiskOfficer free_margin'i hesapladı ama broker side ek check)
-            if margin > state['available_balance'] * 0.9:
+            if margin > state["available_balance"] * 0.9:
                 rejected += 1
-                print(f"  [SKIP-MARGIN] {sym} need=${margin:.2f}, have=${state['available_balance']:.2f}")
-                con.execute("""
+                print(
+                    f"  [SKIP-MARGIN] {sym} need=${margin:.2f}, have=${state['available_balance']:.2f}"
+                )
+                con.execute(
+                    """
                     INSERT INTO futures_signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (sig_id, s['ts'], sym, s['strategy'], s['side'], float(s['sl_price']),
-                      float(s['tp_price']), float(s['confluence']), leverage_used, 'reject:broker_margin',
-                      None, None, None, notional, margin, None))
+                """,
+                    (
+                        sig_id,
+                        s["ts"],
+                        sym,
+                        s["strategy"],
+                        s["side"],
+                        float(s["sl_price"]),
+                        float(s["tp_price"]),
+                        float(s["confluence"]),
+                        leverage_used,
+                        "reject:broker_margin",
+                        None,
+                        None,
+                        None,
+                        notional,
+                        margin,
+                        None,
+                    ),
+                )
                 continue
 
             # 4) Leverage + order
             # SEC58-M6: setup_leverage artık _submit_order_with_adaptive_leverage
             # içinde yapılıyor. Adaptive cascade: base_lev → 2x → 1x on margin error.
-            order_side = 'buy' if s['side'] == 'long' else 'sell'
-            order_method = 'market_only'
+            order_side = "buy" if s["side"] == "long" else "sell"
+            order_method = "market_only"
 
             try:
                 order, leverage_used, order_method = _submit_order_with_adaptive_leverage(
@@ -771,58 +920,129 @@ def submit_to_futures(signals: list[dict], dry_run: bool = False, max_pos_usdt: 
                     """
                     INSERT INTO futures_signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (sig_id, s['ts'], sym, s['strategy'], s['side'], float(s['sl_price']),
-                     float(s['tp_price']), float(s['confluence']), leverage_used,
-                     f'reject:slippage_exceeded:{slip_err.slippage_bps:.1f}bps',
-                     None, None, None, notional, margin,
-                     f'limit={slippage_limit_bps:.1f}bps,actual={slip_err.slippage_bps:.1f}bps'),
+                    (
+                        sig_id,
+                        s["ts"],
+                        sym,
+                        s["strategy"],
+                        s["side"],
+                        float(s["sl_price"]),
+                        float(s["tp_price"]),
+                        float(s["confluence"]),
+                        leverage_used,
+                        f"reject:slippage_exceeded:{slip_err.slippage_bps:.1f}bps",
+                        None,
+                        None,
+                        None,
+                        notional,
+                        margin,
+                        f"limit={slippage_limit_bps:.1f}bps,actual={slip_err.slippage_bps:.1f}bps",
+                    ),
                 )
                 continue
 
             submitted += 1
-            filled_qty = float(order.get('filled', qty))
-            avg_px = float(order.get('average', cur_px))
+            filled_qty = float(order.get("filled", qty))
+            avg_px = float(order.get("average", cur_px))
 
-            print(f"  [{s['side'].upper()}] {sym:<10} {s['strategy']:<25} "
-                  f"qty={filled_qty:.4f} notional=${notional:.2f} margin=${margin:.2f} "
-                  f"fill=${avg_px:.4f} lev={leverage_used}x conf={s['confluence']:.2f} id={order['id']} "
-                  f"method={order_method}")
+            print(
+                f"  [{s['side'].upper()}] {sym:<10} {s['strategy']:<25} "
+                f"qty={filled_qty:.4f} notional=${notional:.2f} margin=${margin:.2f} "
+                f"fill=${avg_px:.4f} lev={leverage_used}x conf={s['confluence']:.2f} id={order['id']} "
+                f"method={order_method}"
+            )
 
-            con.execute("""
+            con.execute(
+                """
                 INSERT INTO futures_signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (sig_id, s['ts'], sym, s['strategy'], s['side'], float(s['sl_price']),
-                  float(s['tp_price']), float(s['confluence']), leverage_used, 'filled',
-                  str(order['id']), avg_px, filled_qty, notional, margin, None))
+            """,
+                (
+                    sig_id,
+                    s["ts"],
+                    sym,
+                    s["strategy"],
+                    s["side"],
+                    float(s["sl_price"]),
+                    float(s["tp_price"]),
+                    float(s["confluence"]),
+                    leverage_used,
+                    "filled",
+                    str(order["id"]),
+                    avg_px,
+                    filled_qty,
+                    notional,
+                    margin,
+                    None,
+                ),
+            )
 
             # 5) Protection orders (SEC26.A: multi-target TP — backtest engine parity)
             # entry_price=avg_px geçildiğinde TP1+TP2+SL mode aktif olur.
-            prot = place_protection_orders(exchange, sym, s['side'], filled_qty,
-                                           float(s['tp_price']), float(s['sl_price']),
-                                           entry_price=avg_px)
-            if prot['status'] == 'placed':
-                mode = prot.get('mode', 'single_target')
-                if mode == 'multi_target':
-                    print(f"    [PROTECT-MULTI] tp1=${prot['tp_price']:.4f} "
-                          f"tp2=${prot.get('tp2_price', 0):.4f} sl=${prot['sl_price']:.4f} "
-                          f"tp1_id={prot['tp_order_id']} tp2_id={prot.get('tp2_order_id','?')} "
-                          f"sl_id={prot['sl_order_id']}")
+            prot = place_protection_orders(
+                exchange,
+                sym,
+                s["side"],
+                filled_qty,
+                float(s["tp_price"]),
+                float(s["sl_price"]),
+                entry_price=avg_px,
+            )
+            if prot["status"] == "placed":
+                mode = prot.get("mode", "single_target")
+                if mode == "multi_target":
+                    print(
+                        f"    [PROTECT-MULTI] tp1=${prot['tp_price']:.4f} "
+                        f"tp2=${prot.get('tp2_price', 0):.4f} sl=${prot['sl_price']:.4f} "
+                        f"tp1_id={prot['tp_order_id']} tp2_id={prot.get('tp2_order_id','?')} "
+                        f"sl_id={prot['sl_order_id']}"
+                    )
                     notes = f"mode=multi_target tp2={prot.get('tp2_price', 0):.4f} tp2_id={prot.get('tp2_order_id','')}"
                 else:
-                    print(f"    [PROTECT] tp=${prot['tp_price']:.4f} sl=${prot['sl_price']:.4f} "
-                          f"tp_id={prot['tp_order_id']} sl_id={prot['sl_order_id']}")
+                    print(
+                        f"    [PROTECT] tp=${prot['tp_price']:.4f} sl=${prot['sl_price']:.4f} "
+                        f"tp_id={prot['tp_order_id']} sl_id={prot['sl_order_id']}"
+                    )
                     notes = None
-                con.execute("""
+                con.execute(
+                    """
                     INSERT INTO futures_protection_orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (uuid.uuid4().hex[:16], datetime.now(UTC), sig_id, sym, s['side'],
-                      filled_qty, prot['tp_price'], prot['sl_price'],
-                      prot['tp_order_id'], prot['sl_order_id'], 'placed', notes))
+                """,
+                    (
+                        uuid.uuid4().hex[:16],
+                        datetime.now(UTC),
+                        sig_id,
+                        sym,
+                        s["side"],
+                        filled_qty,
+                        prot["tp_price"],
+                        prot["sl_price"],
+                        prot["tp_order_id"],
+                        prot["sl_order_id"],
+                        "placed",
+                        notes,
+                    ),
+                )
             else:
                 print(f"    [PROTECT] ERROR: {prot.get('reason')}")
-                con.execute("""
+                con.execute(
+                    """
                     INSERT INTO futures_protection_orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (uuid.uuid4().hex[:16], datetime.now(UTC), sig_id, sym, s['side'],
-                      filled_qty, float(s['tp_price']), float(s['sl_price']),
-                      None, None, 'error', prot.get('reason')))
+                """,
+                    (
+                        uuid.uuid4().hex[:16],
+                        datetime.now(UTC),
+                        sig_id,
+                        sym,
+                        s["side"],
+                        filled_qty,
+                        float(s["tp_price"]),
+                        float(s["sl_price"]),
+                        None,
+                        None,
+                        "error",
+                        prot.get("reason"),
+                    ),
+                )
 
             # 6) In-memory state update — sonraki sinyalin RiskOfficer kararı için
             try:
@@ -830,38 +1050,58 @@ def submit_to_futures(signals: list[dict], dry_run: bool = False, max_pos_usdt: 
                     Position(
                         venue="binance",
                         symbol=sym,
-                        side=s['side'],  # type: ignore[arg-type]
+                        side=s["side"],  # type: ignore[arg-type]
                         quantity=filled_qty,
                         entry_price=avg_px,
                         current_price=avg_px,
                         unrealized_pnl_usdt=0.0,
                         realized_pnl_usdt=0.0,
                         opened_at=datetime.now(UTC),
-                        strategy_id=s['strategy'],
+                        strategy_id=s["strategy"],
                         last_updated=datetime.now(UTC),
                     )
                 )
                 account.free_margin_usdt = max(0.0, account.free_margin_usdt - margin)
             except Exception:
                 pass
-            state['available_balance'] -= margin
+            state["available_balance"] -= margin
         except Exception as e:
             rejected += 1
             print(f"  [ERR] {sym:<10} {type(e).__name__}: {str(e)[:100]}")
-            con.execute("""
+            con.execute(
+                """
                 INSERT INTO futures_signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (sig_id, s['ts'], sym, s['strategy'], s['side'], float(s['sl_price']),
-                  float(s['tp_price']), float(s['confluence']), LEVERAGE, 'error',
-                  None, None, None, None, None, str(e)[:200]))
+            """,
+                (
+                    sig_id,
+                    s["ts"],
+                    sym,
+                    s["strategy"],
+                    s["side"],
+                    float(s["sl_price"]),
+                    float(s["tp_price"]),
+                    float(s["confluence"]),
+                    LEVERAGE,
+                    "error",
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    str(e)[:200],
+                ),
+            )
 
     con.commit()
     con.close()
 
     state_after = fetch_futures_state(exchange)
     print(f"\n[RESULT] Submitted: {submitted}, Rejected: {rejected}, Total: {len(signals)}")
-    print(f"[STATE] Wallet=${state_after['wallet_balance']:.2f}, "
-          f"available=${state_after['available_balance']:.2f}, "
-          f"pozisyon={state_after['n_positions']}, açik order={state_after['n_open_orders']}")
+    print(
+        f"[STATE] Wallet=${state_after['wallet_balance']:.2f}, "
+        f"available=${state_after['available_balance']:.2f}, "
+        f"pozisyon={state_after['n_positions']}, açik order={state_after['n_open_orders']}"
+    )
     return submitted
 
 
@@ -879,8 +1119,10 @@ def daily_run(target_date: datetime, dry_run: bool = False):
     risk_cfg = load_risk_yaml()
     cap_usdt = load_capital_cap(risk_cfg)
     if cap_usdt is not None:
-        print(f"[CAPITAL_CAP] enabled=True max={cap_usdt:.1f} USDT "
-              f"expires={risk_cfg.get('live_capital_cap', {}).get('cap_expires_at', 'N/A')}")
+        print(
+            f"[CAPITAL_CAP] enabled=True max={cap_usdt:.1f} USDT "
+            f"expires={risk_cfg.get('live_capital_cap', {}).get('cap_expires_at', 'N/A')}"
+        )
     else:
         print("[CAPITAL_CAP] inactive (paper/backtest mode veya disabled/expired)")
 
@@ -912,8 +1154,7 @@ def daily_run(target_date: datetime, dry_run: bool = False):
 
     # SEC26.B-5 — execution config (post-only limit + slippage gate, default OFF)
     execution_cfg = risk_cfg.get("execution", {}) or {}
-    submit_to_futures(signals, dry_run=dry_run, max_pos_usdt=cap_usdt,
-                      execution_cfg=execution_cfg)
+    submit_to_futures(signals, dry_run=dry_run, max_pos_usdt=cap_usdt, execution_cfg=execution_cfg)
 
 
 if __name__ == "__main__":
@@ -926,7 +1167,9 @@ if __name__ == "__main__":
     print("FUTURES TRADE DAILY (Binance USDM Futures Testnet)")
     print("=" * 80)
     print(f"Mode: {'DRY-RUN' if args.dry_run else 'LIVE TESTNET'}")
-    print(f"Leverage: {LEVERAGE}x | Risk: {RISK_PCT*100:.1f}% | Max notional: {MAX_NOTIONAL_PCT*100:.0f}% wallet")
+    print(
+        f"Leverage: {LEVERAGE}x | Risk: {RISK_PCT*100:.1f}% | Max notional: {MAX_NOTIONAL_PCT*100:.0f}% wallet"
+    )
     print("LONG + SHORT ikisi de calisir, TP+SL Binance tarafinda otomatik")
 
     today = datetime.now(UTC)
