@@ -137,9 +137,8 @@ class TestOrphanCancelJournalCrossCheck:
         """Replica of daemon's new guard logic (INC1 fix)."""
         if algo_sym in active_pos_syms:
             return True  # position exists, not orphan
-        if algo_sym in journal_open_syms:
-            return True  # journal says open — API stale, skip
-        return False
+        # journal says open — API stale, skip
+        return algo_sym in journal_open_syms
 
     def test_xlm_open_in_journal_skip_orphan_cancel(self):
         """
@@ -484,7 +483,6 @@ class TestXlmCorrectionPnLMath:
         entry = 0.23354
         exit_price = 0.24959
         qty = 1448.0
-        side = "short"
         pnl = (entry - exit_price) * qty
         assert abs(pnl - (-23.24)) < 0.1, f"PnL {pnl:.4f} not close to -23.24"
 
@@ -507,7 +505,6 @@ class TestXlmCorrectionPnLMath:
         entry = 0.23354
         exit_price = 0.24959
         sl = 0.25086
-        side = "short"
         pnl_per_unit = entry - exit_price  # short
         risk_per_unit = abs(entry - sl)
         r = pnl_per_unit / risk_per_unit
@@ -570,8 +567,8 @@ class TestTriggerPriceVsAvgPrice:
         triggered = {
             "algoId": "12345",
             "algoStatus": "TRIGGERED",
-            "triggerPrice": "1.2320",   # TP target (what was set)
-            "avgPrice": "1.2318",       # actual fill (slightly different)
+            "triggerPrice": "1.2320",  # TP target (what was set)
+            "avgPrice": "1.2318",  # actual fill (slightly different)
             "executedQty": "586.4",
         }
         exit_px, used_avg = self._resolve_exit_price(triggered)
@@ -622,7 +619,6 @@ class TestTriggerPriceVsAvgPrice:
         """
         entry = 1.281
         qty = 586.4
-        sl = 1.31705
 
         # WRONG: triggerPrice (TP target) used as exit
         wrong_exit = 1.232  # triggerPrice stored by daemon pre-fix
@@ -634,15 +630,13 @@ class TestTriggerPriceVsAvgPrice:
         exchange_pnl = -3.52
         correct_exit = entry - exchange_pnl / qty  # short: exit = entry - pnl/qty
         correct_pnl = (entry - correct_exit) * qty
-        assert abs(correct_pnl - exchange_pnl) < 0.01, (
-            f"Correct PnL should match exchange -3.52, got {correct_pnl:.2f}"
-        )
+        assert (
+            abs(correct_pnl - exchange_pnl) < 0.01
+        ), f"Correct PnL should match exchange -3.52, got {correct_pnl:.2f}"
 
         # The inflation
         inflation = wrong_pnl - exchange_pnl
-        assert inflation > 30.0, (
-            f"DOT inflation should be >$30, got {inflation:.2f}"
-        )
+        assert inflation > 30.0, f"DOT inflation should be >$30, got {inflation:.2f}"
 
     def test_pnl_calculation_uses_exit_price_not_target(self):
         """
@@ -656,7 +650,7 @@ class TestTriggerPriceVsAvgPrice:
         qty = 586.4
         side = "short"
 
-        pnl_avg = _compute_realized_pnl(entry, 1.2318, qty, side)   # correct
+        pnl_avg = _compute_realized_pnl(entry, 1.2318, qty, side)  # correct
         pnl_trigger = _compute_realized_pnl(entry, 1.2320, qty, side)  # slightly wrong
 
         # Both positive (exit < entry for short = win), but differ
@@ -690,9 +684,9 @@ class TestTriggerPriceVsAvgPrice:
         qty = 3117.0
 
         inflated_pnl = (ticker_exit - entry) * qty
-        assert abs(inflated_pnl - 17.14) < 0.05, (
-            f"ADA orphan inflation should be ~17.14, got {inflated_pnl:.2f}"
-        )
+        assert (
+            abs(inflated_pnl - 17.14) < 0.05
+        ), f"ADA orphan inflation should be ~17.14, got {inflated_pnl:.2f}"
 
         # If exit = entry (unknown, PnL=0 conservative fallback)
         fallback_pnl = (entry - entry) * qty
@@ -755,15 +749,15 @@ class TestOrphanNTickConfirm:
         key = "DOGEUSDT|7"
         assert self._tick(suspects, key, True) is False  # 1/3
         assert self._tick(suspects, key, True) is False  # 2/3
-        assert self._tick(suspects, key, True) is True   # 3/3 → cancel
+        assert self._tick(suspects, key, True) is True  # 3/3 → cancel
         assert key not in suspects  # sayaç temizlendi
 
     def test_position_reappearing_resets_streak(self):
         """2/3'e gelmişken pozisyon tek tick görünse streak sıfırlanır."""
         suspects: dict = {}
         key = "ZECUSDT|9"
-        self._tick(suspects, key, True)   # 1/3
-        self._tick(suspects, key, True)   # 2/3
+        self._tick(suspects, key, True)  # 1/3
+        self._tick(suspects, key, True)  # 2/3
         self._tick(suspects, key, False)  # pozisyon görünür → reset
         assert key not in suspects
         assert self._tick(suspects, key, True) is False  # tekrar 1/3
@@ -771,6 +765,7 @@ class TestOrphanNTickConfirm:
     def test_daemon_source_has_ntick_fix(self):
         """Kaynak doğrulama: fix daemon'da mevcut (revert tespiti)."""
         from pathlib import Path
+
         src = (Path(__file__).resolve().parents[2] / "scripts" / "futures_daemon.py").read_text(
             encoding="utf-8"
         )
@@ -817,7 +812,15 @@ class TestSLFillDetectionEntryCondition:
         assert self._should_enter(tp_open=True, sl_open=False, sl_oid=None, pos_qty=0.0) is False
 
     def test_daemon_source_has_fix(self):
+        """GÜNCELLEME 2026-07-10 (A1-01): inline koşul saf fonksiyona taşındı
+        (_should_check_protection_fills). 2026-06-11 sl-gone-pos-flat kuralı
+        artık fonksiyonun içinde yaşıyor; davranış testi
+        tests/test_partial_detection_gate.py'de gerçek fonksiyonla."""
         from pathlib import Path
-        src = (Path(__file__).resolve().parents[2] / "scripts" / "futures_daemon.py").read_text(encoding="utf-8")
-        assert "_sl_gone_pos_flat" in src
-        assert "or _sl_gone_pos_flat:" in src
+
+        src = (Path(__file__).resolve().parents[2] / "scripts" / "futures_daemon.py").read_text(
+            encoding="utf-8"
+        )
+        assert "_should_check_protection_fills" in src
+        # sl-gone-pos-flat kuralı (2026-06-11) fonksiyon gövdesinde korunuyor
+        assert "sl_oid and not sl_open and qty_now <= 1e-6" in src

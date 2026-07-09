@@ -762,6 +762,30 @@ def _runner_timestop_anchor_ts(jcon, sym_ccxt: str, side: str):
     return row[0] if row and row[0] else None
 
 
+def _should_check_protection_fills(
+    tp_oid, sl_oid, tp_open: bool, sl_open: bool, qty_now: float
+) -> bool:
+    """Fill-detection history sorgusuna girilmeli mi? (saf karar fonksiyonu)
+
+    FIX 2026-07-10 (dalga-5 A1-01, W1-S1 yan etkisi): eski kapı yalnız
+    `(not tp_open and not sl_open) or sl_gone_pos_flat` idi. TP1 kısmi
+    dolduğunda SL hâlâ borsada → sl_open=True → iki dal da False → partial
+    HİÇ tespit edilmiyordu. W1-S1 öncesi bu KAZAYLA çalışıyordu (watchdog
+    trail'i journal sl_order_id'yi bayatlatınca sl_open yanlışlıkla False
+    görünüyordu); S1 bayatlamayı kapatınca kazara-tespit de öldü → ts30
+    runner time-stop çıpasız kaldı, partial PnL/Telegram/remaining-qty kör.
+    YENİ dal: TP izleniyor + açık sette YOK + pozisyonda qty VAR → partial
+    şüphesi, history sorgusuna gir (kayıt idempotent; API-stale epsilon-skip
+    koruması içeride aynen duruyor).
+    """
+    if not tp_open and not sl_open:
+        return True
+    if sl_oid and not sl_open and qty_now <= 1e-6:
+        return True  # SL kayıp + flat = tam kapanış (2026-06-11 kuralı)
+    # A1-01: TP kayıp + pozisyon açık = partial şüphesi
+    return bool(tp_oid and not tp_open and qty_now > 1e-6)
+
+
 def _should_retire_protection(any_terminal: bool, exchange_qty_now: float) -> bool:
     """Koruma satırı yalnız borsada pozisyon FLAT iken emekli edilir.
 
@@ -1322,10 +1346,12 @@ def position_check():
                 # Yeni: SL kayıp + borsada pozisyon qty≈0 (çift kanıt) da tam
                 # kapanış sayılır; kalan TP'leri journal kapanınca orphan-temizlik
                 # N-tick teyidiyle süpürür.
-                _sl_gone_pos_flat = (
-                    sl_oid and not sl_open and _exchange_pos_qty_j.get(sym, 0.0) <= 1e-6
-                )
-                if (not tp_open and not sl_open) or _sl_gone_pos_flat:
+                # FIX 2026-07-10 (A1-01): karar saf fonksiyonda — TP-kayıp+pozisyon-açık
+                # (partial şüphesi) dalı eklendi; W1-S1 sonrası ölen partial tespiti
+                # ve ts30 çıpası geri geldi. Bkz _should_check_protection_fills docstring.
+                if _should_check_protection_fills(
+                    tp_oid, sl_oid, tp_open, sl_open, _exchange_pos_qty_j.get(sym, 0.0)
+                ):
                     # TP1 ve SL ikisi de algo_open_ids'de yok.
                     # UYARI: TP2 order_id'si notes'ta saklanıyor (tp2_id=...).
                     # notes parse et — TP2 hâlâ açıksa bu sadece TP1 filldir.
