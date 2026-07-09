@@ -2868,6 +2868,13 @@ def run_15m_mode(once: bool = False) -> None:
                                                 "max_attempts": 2,
                                                 "max_age_seconds": 120,  # 2 dk window
                                                 "orig_error": f"{_exc_name}: {str(_entry_exc)[:200]}",
+                                                # F4 FIX 2026-07-10: kuyruk kaydı kendini-tarifler —
+                                                # kuyruk dosyası botlar-arası paylaşımlı; retry
+                                                # subprocess'i doğru journal/idempotency DB'sini
+                                                # ancak kayıttan öğrenebilir (PA_BOT_NAME orada yok).
+                                                "bot_name": os.environ.get("PA_BOT_NAME", ""),
+                                                "journal_db": str(JOURNAL),
+                                                "idempotency_db": str(IDEMPOTENCY_DB),
                                             }
                                             with open(_pending_path, "a", encoding="utf-8") as _pf:
                                                 _pf.write(
