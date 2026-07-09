@@ -451,6 +451,40 @@ class TradeJournal:
         finally:
             con.close()
 
+    def get_realized_pnl_month_by_side(self, *, now: datetime | None = None) -> tuple[float, float]:
+        """Ay başından (UTC 1'i 00:00) şimdiye side-bazlı realized PnL (long, short).
+
+        F3 FIX 2026-07-10 (DERIN_DENETIM F3 CRIT): aylık breaker'ın journal-
+        derived feed'i — daily_pnl'in SEC26.B-4 deseniyle aynı: restart-proof,
+        idempotent (SUM sorgusu; event-akümülasyon çift-sayım riski yok).
+        trades_closed + futures_partial_closes toplamı (ayrık tablolar).
+        ts_close naive-UTC konvansiyonu → sınırlar naive-UTC.
+        """
+        if now is None:
+            now = datetime.now(UTC)
+        elif now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+        start = _strip_tz(datetime(now.year, now.month, 1, tzinfo=UTC))
+        end = _strip_tz(now)
+        con = duckdb.connect(self.db_path, read_only=True)
+        try:
+            sums = {"long": 0.0, "short": 0.0}
+            for table in ("futures_trades_closed", "futures_partial_closes"):
+                try:
+                    rows = con.execute(
+                        f"SELECT LOWER(side), COALESCE(SUM(realized_pnl_usdt),0.0) "
+                        f"FROM {table} WHERE ts_close >= ? AND ts_close <= ? GROUP BY LOWER(side)",
+                        [start, end],
+                    ).fetchall()
+                except duckdb.CatalogException:
+                    continue
+                for s, v in rows:
+                    if s in sums and v is not None:
+                        sums[s] += float(v)
+            return (sums["long"], sums["short"])
+        finally:
+            con.close()
+
 
 __all__ = [
     "TradeJournal",

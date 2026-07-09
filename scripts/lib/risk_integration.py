@@ -13,11 +13,12 @@ Helpers:
     realized_pnl_today_spot(journal)        → spot için
     count_consecutive_losses(journal, ...)  → son N trade'de ardışık loss
 """
+
 from __future__ import annotations
 
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,7 @@ def reset_returns_df_cache() -> None:
 # RiskOfficer loader
 # =====================================================================
 
+
 def load_risk_officer(
     yaml_path: str | Path = "configs/risk_balanced.yaml",
     breaker_state_path: Path | None = None,
@@ -81,6 +83,7 @@ def load_risk_officer(
 # Signal builder
 # =====================================================================
 
+
 def build_signal_from_scan(s: dict, *, venue: str = "binance", timeframe: str = "1d") -> Signal:
     """scan_signals()'tan dönen dict → Pydantic Signal contract.
 
@@ -95,7 +98,7 @@ def build_signal_from_scan(s: dict, *, venue: str = "binance", timeframe: str = 
     if isinstance(ts, pd.Timestamp):
         ts = ts.to_pydatetime()
     if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
+        ts = ts.replace(tzinfo=UTC)
 
     md: dict[str, Any] = {
         "strategy_id": s.get("strategy", ""),
@@ -124,6 +127,7 @@ def build_signal_from_scan(s: dict, *, venue: str = "binance", timeframe: str = 
 # =====================================================================
 # Returns DataFrame (korelasyon gate için)
 # =====================================================================
+
 
 def build_returns_df(
     symbols: list[str],
@@ -175,6 +179,7 @@ def build_returns_df(
         # read_only=False olduğu için daemon'ın mevcut bağlantısıyla çakışmaz.
         try:
             from price_action.data.store import OHLCVStore
+
             store = OHLCVStore(duckdb_path=Path(market_db))
             ph = ", ".join(["?"] * len(symbols))
             with store._conn() as con:
@@ -211,6 +216,7 @@ def build_returns_df(
 # Realized PnL today (DD breaker için)
 # =====================================================================
 
+
 def realized_pnl_today_futures(journal_path: str | Path) -> float:
     """futures_journal'dan bugün için realized PnL (USDT).
 
@@ -229,6 +235,7 @@ def realized_pnl_today_futures(journal_path: str | Path) -> float:
     # === Primary: futures_trades_closed (SEC26.B-4) ===
     try:
         from price_action.execution.trade_journal import TradeJournal
+
         # Schema ensure (idempotent CREATE IF NOT EXISTS)
         tj = TradeJournal(db_path=str(p))
         # Bugün için en az 1 kapanmış trade var mı?
@@ -280,6 +287,26 @@ def realized_pnl_today_futures(journal_path: str | Path) -> float:
         return float(first_last[0]) if first_last and first_last[0] is not None else 0.0
     except Exception:
         return 0.0
+
+
+def realized_pnl_month_by_side_futures(
+    journal_path: str | Path,
+) -> tuple[float | None, float | None]:
+    """F3 FIX 2026-07-10: DD breaker side-cond aylık feed — SEC26.B-4 deseni.
+
+    Journal yok → (0.0, 0.0) (yeni bot: ay sıfırdan). Sorgu hatası →
+    (None, None): breaker eski event-akümülasyon davranışında kalır
+    (bugünden kötü değil), sessiz yutma yok.
+    """
+    p = Path(journal_path)
+    if not p.exists():
+        return (0.0, 0.0)
+    try:
+        from price_action.execution.trade_journal import TradeJournal
+
+        return TradeJournal(db_path=str(p)).get_realized_pnl_month_by_side()
+    except Exception:
+        return (None, None)
 
 
 def realized_pnl_today_spot(journal_path: str | Path) -> float:
@@ -369,6 +396,7 @@ def count_consecutive_losses(
 # AccountState builders
 # =====================================================================
 
+
 def build_futures_account_state(
     exchange_state: dict,
     *,
@@ -385,7 +413,7 @@ def build_futures_account_state(
     raw_positions = exchange_state.get("positions", []) or []
 
     open_positions: list[Position] = []
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for p in raw_positions:
         try:
             qty = abs(float(p.get("contracts") or 0.0))
@@ -420,12 +448,16 @@ def build_futures_account_state(
 
     pnl_today = realized_pnl_today_futures(journal_path)
     consec = count_consecutive_losses(journal_path)
+    # F3 FIX 2026-07-10: aylık side PnL journal-feed'i (breaker otoritatif kaynağı)
+    pnl_ml, pnl_ms = realized_pnl_month_by_side_futures(journal_path)
 
     return AccountState(
         equity_usdt=equity,
         free_margin_usdt=free,
         open_positions=open_positions,
         realized_pnl_today=pnl_today,
+        realized_pnl_month_long=pnl_ml,
+        realized_pnl_month_short=pnl_ms,
         consecutive_losses=consec,
     )
 
@@ -449,9 +481,11 @@ def build_spot_account_state(
     usdt = float(bal.get("USDT", {}).get("total", 0.0) or 0.0)
     total = usdt
     open_positions: list[Position] = []
-    now = datetime.now(timezone.utc)
-    traded = set(traded_currencies or ["BTC", "ETH", "SOL", "BNB", "ADA",
-                                       "AVAX", "LINK", "DOT", "DOGE", "XRP"])
+    now = datetime.now(UTC)
+    traded = set(
+        traded_currencies
+        or ["BTC", "ETH", "SOL", "BNB", "ADA", "AVAX", "LINK", "DOT", "DOGE", "XRP"]
+    )
 
     for ccy, info in (bal.get("total") or {}).items():
         try:
@@ -504,6 +538,7 @@ __all__ = [
     "reset_returns_df_cache",
     "build_futures_account_state",
     "build_spot_account_state",
+    "realized_pnl_month_by_side_futures",
     "realized_pnl_today_futures",
     "realized_pnl_today_spot",
     "count_consecutive_losses",

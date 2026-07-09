@@ -110,6 +110,11 @@ class AccountState:
     realized_pnl_today: float = 0.0
     realized_pnl_week: float = 0.0
     realized_pnl_month: float = 0.0
+    # F3 FIX 2026-07-10: journal-derived aylık SIDE PnL. None = feed yok →
+    # breaker event-akümülasyon davranışını korur (unit testler / spot yolu);
+    # futures canlı yol (build_futures_account_state) doldurur → journal otoritatif.
+    realized_pnl_month_long: float | None = None
+    realized_pnl_month_short: float | None = None
     consecutive_losses: int = 0
     last_update: datetime = field(default_factory=_utcnow)
 

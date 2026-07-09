@@ -15,14 +15,16 @@ SEC-S1: Regime-conditional daily DD (BTC ATR% percentile).
   - `true` → BTC ATR% persantil calendar'dan dinamik eşik (volatile rejimde gevşek).
   - `_get_dynamic_daily_threshold(ts)` helper ile live'da da aynı mantık.
 """
+
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
 import threading
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta, timezone
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -87,7 +89,7 @@ def _parse_iso(s: str) -> datetime | None:
     try:
         dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return dt
     except Exception:
         return None
@@ -97,7 +99,7 @@ def _fmt_iso(dt: datetime | None) -> str:
     """datetime -> ISO string; None -> ''."""
     if dt is None:
         return ""
-    return dt.astimezone(timezone.utc).isoformat()
+    return dt.astimezone(UTC).isoformat()
 
 
 class DDBreaker:
@@ -143,7 +145,9 @@ class DDBreaker:
         self.consec_pause_days = float(cfg.get("consecutive_loss_pause_days", 5))
         # SEC-S1: Regime-conditional daily DD (lab.py parity için live DDBreaker'da da)
         self.daily_dd_regime_aware: bool = bool(cfg.get("daily_loss_pct_regime_aware", False))
-        self.daily_dd_volatile_multiplier: float = float(cfg.get("daily_loss_pct_volatile_multiplier", 2.0))
+        self.daily_dd_volatile_multiplier: float = float(
+            cfg.get("daily_loss_pct_volatile_multiplier", 2.0)
+        )
         self.regime_percentile_low: float = float(cfg.get("regime_percentile_low", 60)) / 100.0
         self.regime_percentile_high: float = float(cfg.get("regime_percentile_high", 90)) / 100.0
         # Pre-built calendar (date -> float persantil [0.0, 1.0]). None → conservative no-op.
@@ -170,6 +174,7 @@ class DDBreaker:
         """
         try:
             from price_action.backtest.regime import compute_btc_atr_pct_percentile_calendar
+
             rolling_window = int(cfg.get("regime_percentile_window", 252))
             return compute_btc_atr_pct_percentile_calendar(period=14, rolling_window=rolling_window)
         except Exception as exc:  # pragma: no cover
@@ -247,10 +252,8 @@ class DDBreaker:
                     json.dump(self.state.to_json(), f, default=str, indent=2)
                 os.replace(tmp_path, str(self.state_path))
             except Exception:
-                try:
+                with contextlib.suppress(OSError):
                     os.unlink(tmp_path)
-                except OSError:
-                    pass
                 raise
         except Exception as exc:  # pragma: no cover
             logger.bind(err=str(exc)).error("breaker.save_fail")
@@ -280,7 +283,7 @@ class DDBreaker:
         """
         with self._lock:  # SEC58 CRIT-3: transactional reset + save
             equity = account_state.equity_usdt
-            now = now or datetime.now(timezone.utc)
+            now = now or datetime.now(UTC)
             # Anchor'ları başlat
             if self.state.daily_anchor_equity == 0:
                 self.state.daily_anchor_equity = equity
@@ -335,6 +338,18 @@ class DDBreaker:
                 elif side_l == "short":
                     self.state.monthly_pnl_short += float(pnl_realized)
 
+            # F3 FIX (2026-07-10): journal-derived aylık side PnL — daily_pnl
+            # SEC26.B-4 deseniyle aynı. None = feed yok (event-akümülasyon
+            # korunur — unit testler + spot yolu); not-None = journal otoritatif,
+            # event feed'i EZER → restart-replay çift sayımı imkânsız. Sıra
+            # kritik: event bloğundan SONRA → journal her zaman kazanır.
+            _ml = getattr(account_state, "realized_pnl_month_long", None)
+            _ms = getattr(account_state, "realized_pnl_month_short", None)
+            if _ml is not None:
+                self.state.monthly_pnl_long = float(_ml)
+            if _ms is not None:
+                self.state.monthly_pnl_short = float(_ms)
+
             # Tetikleyici kontrolleri
             # Neden: risk.yaml drawdown_breakers — bu eşikler insan principal tarafından konur
             # ve algoritma tarafından bypass edilemez.
@@ -363,9 +378,7 @@ class DDBreaker:
             self.state.consec_consumed = min(
                 self.state.consec_consumed, self.state.consecutive_losses
             )
-            _effective_consec = (
-                self.state.consecutive_losses - self.state.consec_consumed
-            )
+            _effective_consec = self.state.consecutive_losses - self.state.consec_consumed
             cool_until_dt = _parse_iso(self.state.blocked_consecutive_until)
             if cool_until_dt is not None and now >= cool_until_dt:
                 # Cool-down süresi doldu -> auto-clear
@@ -465,9 +478,9 @@ class DDBreaker:
 
         ts=None → şimdi (UTC).
         """
-        ts = ts or datetime.now(timezone.utc)
+        ts = ts or datetime.now(UTC)
         if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
+            ts = ts.replace(tzinfo=UTC)
 
         side_l = (side or "").lower()
 
@@ -477,7 +490,11 @@ class DDBreaker:
             return False
         # Combined trigger flag'leri snapshot tarafından update edildi ama until
         # parse edilemiyorsa flag'e da bak (savunmacı).
-        if self.state.triggered_daily or self.state.triggered_weekly or self.state.triggered_monthly:
+        if (
+            self.state.triggered_daily
+            or self.state.triggered_weekly
+            or self.state.triggered_monthly
+        ):
             return False
         if self.state.triggered_consecutive:
             return False
@@ -532,7 +549,7 @@ class DDBreaker:
         return snap
 
     # ----- G19: standalone loop helper -----
-    def update_from_account(self, account_state: "AccountState") -> dict[str, bool]:
+    def update_from_account(self, account_state: AccountState) -> dict[str, bool]:
         """G19 — daemon 15m loop'undan sinyal-bağımsız tick çağrısı.
 
         Sadece `update()` wrapper'ı; semantik farklılık yok.
