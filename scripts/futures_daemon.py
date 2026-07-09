@@ -812,6 +812,44 @@ def _should_retire_protection(any_terminal: bool, exchange_qty_now: float) -> bo
     return bool(any_terminal) and exchange_qty_now <= 1e-6
 
 
+def _slip_expected_from_trigger(trigger_px: float, fill_px: float) -> float:
+    """Koruma (TP/SL) fill'i için slippage ÖLÇÜM referansı (saf fonksiyon).
+
+    FIX 2026-07-10 (execution paketi, slippage 0.0 bps bug — Fix A): daemon
+    koruma-fill slippage'ini `_prot_fill_px`'i HEM expected HEM realized geçerek
+    kaydediyordu → fill kendi benchmark'ı → %100 exit fill 0.0 bps (269/303 sıfır).
+    Doğru referans: yapılandırılan trigger fiyatı (emrin tetiklenmeye ayarlandığı
+    fiyat). avgPrice ile fill arasındaki sapma = gerçek exit slippage'i. trigger
+    yoksa (>0 değil) fill'in kendisine döner = dürüst-0 (bilinmiyor, uydurmuyoruz).
+    NOT: record_fill sign-konvansiyonu giriş-yönlü; exit bacağı ters işaretli okur
+    (magnitude doğru, işaret takip-işi — ayrı semantik değişiklik, kapsam dışı).
+    """
+    return trigger_px if trigger_px and trigger_px > 0 else fill_px
+
+
+def _slip_realized_from_order(order_avg, order_price, fetched_avg) -> float | None:
+    """Giriş fill'i slippage ölçümü için borsanın raporladığı GERÇEK fill fiyatı.
+
+    FIX 2026-07-10 (execution paketi, slippage 0.0 bps bug — Fix B): giriş
+    slippage'i `realized_price=_avg_px` geçiyordu ama `_avg_px` borsa average'ı
+    vermezse `_cur_px`'e (arrival) düşüyor → realized==expected → 0.0 (167 market
+    girişi). Bu fonksiyon slippage kaydı için AYRI gerçek-fiyat türetir; `_avg_px`
+    (journal/idem/notional besler) DOKUNULMAZ = measurement-only, sıfır trade-verisi
+    regresyonu. Emir-yanıtı avg/price → yoksa fetch_order avg. Hiçbiri yoksa None
+    (ölçülemez → çağıran arrival'a düşer = dürüst-0, sahte değer yazılmaz).
+    """
+    for cand in (order_avg, order_price, fetched_avg):
+        if cand is None:
+            continue
+        try:
+            v = float(cand)
+        except (TypeError, ValueError):
+            continue
+        if v > 0:
+            return v
+    return None
+
+
 def _desired_sl_price(
     side: str,
     entry: float,
@@ -1609,7 +1647,14 @@ def position_check():
                                                 symbol=str(sym_sig),
                                                 strategy=f"{strat or ''!s}_{triggered_kind.lower()}",
                                                 side=str(side_sig).lower(),
-                                                expected_price=_prot_fill_px,
+                                                # Fix A (slippage 0.0 bug): expected = yapılandırılan
+                                                # trigger (arrival ref), realized = gerçek fill.
+                                                # Eskiden ikisi de _prot_fill_px → fill kendi
+                                                # benchmark'ı → %100 exit 0.0 bps. trigger yoksa
+                                                # fill'e döner (dürüst-0). Measurement-only.
+                                                expected_price=_slip_expected_from_trigger(
+                                                    _prot_trigger_px, _prot_fill_px
+                                                ),
                                                 realized_price=_prot_fill_px,
                                                 quantity=_prot_qty,
                                                 fee_usdt=_prot_fee_usdt,
@@ -2932,26 +2977,43 @@ def run_15m_mode(once: bool = False) -> None:
                                 _avg_px = float(
                                     _order.get("average") or _order.get("price") or _cur_px
                                 )
+                                # Fix B (slippage 0.0 bug): slippage ÖLÇÜMÜ için borsanın
+                                # raporladığı GERÇEK fill fiyatını AYRI tut. _avg_px borsa
+                                # average vermezse _cur_px'e (arrival) düşer → realized==expected
+                                # → sahte 0.0 bps (167 market girişi). _slip_realized_px journal'a
+                                # DOKUNMADAN gerçek avg'i taşır (measurement-only). None = ölçülemez.
+                                _slip_realized_px = _slip_realized_from_order(
+                                    _order.get("average"), _order.get("price"), None
+                                )
                                 # FIX 2026-05-30 (INC2-fill-qty): market_fallback path'de
                                 # Binance testnet bazen filled=None/0 döner (async fill).
                                 # Önceki: `or _qty` → intended qty yazılıyordu (NEAR 291→219 bug).
                                 # Düzeltme: filled falsy ise fetch_order ile gerçek değeri al;
                                 # o da başarısızsa/hâlâ 0 ise intended qty'yi yaz AMA warn log.
                                 _raw_filled = _order.get("filled")
-                                if not _raw_filled or float(_raw_filled) <= 0:
+                                _qty_missing = not _raw_filled or float(_raw_filled) <= 0
+                                # Fetch: qty eksikse VEYA slippage için gerçek avg eksikse.
+                                # _avg_px/qty tazeleme YALNIZ qty eksikken (eski davranış byte-aynı);
+                                # avg-only durumda sadece _slip_realized_px doldurulur.
+                                if _qty_missing or _slip_realized_px is None:
                                     _order_id_for_fetch = str(_order.get("id", ""))
                                     if _order_id_for_fetch:
                                         try:
                                             _fetched = _ex_submit.fetch_order(
                                                 _order_id_for_fetch, sig["symbol"]
                                             )
-                                            _raw_filled = _fetched.get("filled") or _raw_filled
-                                            # avg_px da fetch'ten daha güvenilir olabilir
                                             _fetched_avg = _fetched.get("average") or _fetched.get(
                                                 "price"
                                             )
-                                            if _fetched_avg:
-                                                _avg_px = float(_fetched_avg)
+                                            if _qty_missing:
+                                                _raw_filled = _fetched.get("filled") or _raw_filled
+                                                # avg_px da fetch'ten daha güvenilir olabilir
+                                                if _fetched_avg:
+                                                    _avg_px = float(_fetched_avg)
+                                            if _slip_realized_px is None:
+                                                _slip_realized_px = _slip_realized_from_order(
+                                                    None, None, _fetched_avg
+                                                )
                                         except Exception as _fe_err:
                                             log(
                                                 f"  15M_FILL_FETCH_ERR: {sig['symbol']} fetch_order fail: {str(_fe_err)[:80]}"
@@ -3020,8 +3082,13 @@ def run_15m_mode(once: bool = False) -> None:
                                         symbol=sig["symbol"],
                                         strategy=sig.get("strategy", ""),
                                         side=sig["side"],
+                                        # Fix B: expected = arrival (_cur_px), realized = borsanın
+                                        # GERÇEK avg'i (_slip_realized_px). Ölçülemezse _cur_px'e
+                                        # döner (dürüst-0). _avg_px'e dokunulmaz (journal byte-aynı).
                                         expected_price=_cur_px,
-                                        realized_price=_avg_px,
+                                        realized_price=(
+                                            _slip_realized_px if _slip_realized_px else _cur_px
+                                        ),
                                         quantity=_fill_qty,
                                         fee_usdt=_entry_fee_usdt,
                                         is_maker=_is_maker,

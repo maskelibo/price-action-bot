@@ -25,16 +25,20 @@ Usage:
     summary = tracker.daily_summary()
     tf_hist  = tracker.tf_histogram("15m")
 """
+
 from __future__ import annotations
 
+import json
 import threading
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 import duckdb
 
-ROOT = Path(__file__).resolve().parents[3]  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
+ROOT = (
+    Path(__file__).resolve().parents[3]
+)  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
 DEFAULT_DB = ROOT / "data" / "execution_fills.duckdb"
 LOG_DIR = ROOT / "logs" / "execution"
 
@@ -45,12 +49,12 @@ SINGLE_FILL_MAX_BPS = 25.0
 
 # TF-spesifik slippage budget (bps)
 TF_SLIPPAGE_BUDGET: dict[str, dict[str, float]] = {
-    "1m":  {"warning": 10.0, "critical": 20.0, "single_max": 15.0},
-    "5m":  {"warning": 12.0, "critical": 24.0, "single_max": 18.0},
+    "1m": {"warning": 10.0, "critical": 20.0, "single_max": 15.0},
+    "5m": {"warning": 12.0, "critical": 24.0, "single_max": 18.0},
     "15m": {"warning": 15.0, "critical": 30.0, "single_max": 22.0},
-    "1h":  {"warning": 20.0, "critical": 40.0, "single_max": 25.0},
-    "4h":  {"warning": 20.0, "critical": 40.0, "single_max": 25.0},
-    "1d":  {"warning": 10.0, "critical": 20.0, "single_max": 25.0},
+    "1h": {"warning": 20.0, "critical": 40.0, "single_max": 25.0},
+    "4h": {"warning": 20.0, "critical": 40.0, "single_max": 25.0},
+    "1d": {"warning": 10.0, "critical": 20.0, "single_max": 25.0},
 }
 
 
@@ -154,10 +158,7 @@ class SlippageTracker:
         self._init_db()
         # fill_type → notes alanına yaz (mevcut notes varsa önüne ekle)
         _type_prefix = f"fill_type={fill_type}"
-        if notes:
-            notes = f"{_type_prefix} {notes}"
-        else:
-            notes = _type_prefix
+        notes = f"{_type_prefix} {notes}" if notes else _type_prefix
         notional = quantity * realized_price
         if side == "long":
             slippage_bps = (realized_price - expected_price) / max(expected_price, 1e-10) * 10_000
@@ -170,10 +171,11 @@ class SlippageTracker:
         # FIX 2026-05-28 (Faz 14.27 ORTA C4): outlier auto-quarantine.
         # Slippage > 100bps = OUTLIER, ayrı alarm + log dosyası.
         # Önceden P95/P99 hesaplanıyordu ama explicit auto-action yoktu.
-        OUTLIER_BPS_THRESHOLD = 100.0
+        OUTLIER_BPS_THRESHOLD = 100.0  # noqa: N806 (sabit-anlam, fonksiyon-yerel eşik)
         if slippage_bps > OUTLIER_BPS_THRESHOLD:
             try:
                 from price_action.orchestrator.notifications import push_critical
+
                 push_critical(
                     f"⚠️ SLIPPAGE OUTLIER — {symbol} {strategy} {side} "
                     f"{slippage_bps:.0f}bps > {OUTLIER_BPS_THRESHOLD}bps "
@@ -186,11 +188,20 @@ class SlippageTracker:
                 outlier_path = Path("logs/slippage_outliers.jsonl")
                 outlier_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(outlier_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps({
-                        "ts": ts.isoformat(), "fill_id": fill_id,
-                        "symbol": symbol, "strategy": strategy, "side": side,
-                        "slippage_bps": slippage_bps, "notional": notional,
-                    }) + "\n")
+                    f.write(
+                        json.dumps(
+                            {
+                                "ts": ts.isoformat(),
+                                "fill_id": fill_id,
+                                "symbol": symbol,
+                                "strategy": strategy,
+                                "side": side,
+                                "slippage_bps": slippage_bps,
+                                "notional": notional,
+                            }
+                        )
+                        + "\n"
+                    )
             except Exception:
                 pass
 
@@ -207,24 +218,46 @@ class SlippageTracker:
                     exchange_order_id, client_order_id, notes)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 [
-                    fill_id, ts, symbol, strategy, side, tf,
-                    expected_price, realized_price, quantity, notional,
-                    round(slippage_bps, 4), fee_usdt, round(fee_bps, 4),
-                    round(total_cost_bps, 4), is_maker, order_type, mode,
-                    exchange_order_id, client_order_id, notes,
+                    fill_id,
+                    ts,
+                    symbol,
+                    strategy,
+                    side,
+                    tf,
+                    expected_price,
+                    realized_price,
+                    quantity,
+                    notional,
+                    round(slippage_bps, 4),
+                    fee_usdt,
+                    round(fee_bps, 4),
+                    round(total_cost_bps, 4),
+                    is_maker,
+                    order_type,
+                    mode,
+                    exchange_order_id,
+                    client_order_id,
+                    notes,
                 ],
             )
             con.commit()
             con.close()
 
         # JSONL log
-        self._write_jsonl(ts, {
-            "fill_id": fill_id, "symbol": symbol, "side": side, "tf": tf,
-            "slippage_bps": round(slippage_bps, 4),
-            "fee_bps": round(fee_bps, 4),
-            "total_cost_bps": round(total_cost_bps, 4),
-            "is_maker": is_maker, "mode": mode,
-        })
+        self._write_jsonl(
+            ts,
+            {
+                "fill_id": fill_id,
+                "symbol": symbol,
+                "side": side,
+                "tf": tf,
+                "slippage_bps": round(slippage_bps, 4),
+                "fee_bps": round(fee_bps, 4),
+                "total_cost_bps": round(total_cost_bps, 4),
+                "is_maker": is_maker,
+                "mode": mode,
+            },
+        )
 
         # TF-bazlı tek fill alarm
         # FIX 2026-05-26 (Faz 14.5): insan-anlaşılır Türkçe mesaj
@@ -330,8 +363,15 @@ class SlippageTracker:
                     """INSERT OR REPLACE INTO daily_slippage_summary VALUES
                        (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     [
-                        target, n, avg_slip, max_slip, p95_slip,
-                        maker_rate * 100, total_fee, alarm_triggered, alarm_level,
+                        target,
+                        n,
+                        avg_slip,
+                        max_slip,
+                        p95_slip,
+                        maker_rate * 100,
+                        total_fee,
+                        alarm_triggered,
+                        alarm_level,
                     ],
                 )
                 con.commit()
@@ -363,15 +403,21 @@ class SlippageTracker:
         if not rows:
             budget = TF_SLIPPAGE_BUDGET.get(tf, TF_SLIPPAGE_BUDGET["1d"])
             return {
-                "tf": tf, "n_fills": 0,
-                "mean_bps": 0.0, "p50_bps": 0.0, "p95_bps": 0.0, "max_bps": 0.0,
+                "tf": tf,
+                "n_fills": 0,
+                "mean_bps": 0.0,
+                "p50_bps": 0.0,
+                "p95_bps": 0.0,
+                "max_bps": 0.0,
                 "maker_fill_pct": 0.0,
                 "budget_warning_bps": budget["warning"],
                 "budget_critical_bps": budget["critical"],
-                "pct_over_warning": 0.0, "pct_over_critical": 0.0,
+                "pct_over_warning": 0.0,
+                "pct_over_critical": 0.0,
             }
 
         import statistics
+
         slippages = [float(r[0]) for r in rows]
         is_maker_flags = [bool(r[1]) for r in rows]
         n = len(slippages)
@@ -410,13 +456,22 @@ class SlippageTracker:
                     ORDER BY ts DESC""",
             ).fetchall()
             con.close()
-        cols = ["fill_id", "ts", "symbol", "strategy", "side",
-                "slippage_bps", "fee_bps", "total_cost_bps", "is_maker", "mode"]
-        return [dict(zip(cols, r)) for r in rows]
+        cols = [
+            "fill_id",
+            "ts",
+            "symbol",
+            "strategy",
+            "side",
+            "slippage_bps",
+            "fee_bps",
+            "total_cost_bps",
+            "is_maker",
+            "mode",
+        ]
+        return [dict(zip(cols, r, strict=False)) for r in rows]
 
     def _write_jsonl(self, ts: datetime, data: dict) -> None:
         """logs/execution/YYYY-MM-DD.jsonl'e sat yaz."""
-        import json
         log_file = LOG_DIR / f"{ts.date()}.jsonl"
         try:
             with open(log_file, "a", encoding="utf-8") as f:
@@ -431,6 +486,7 @@ class SlippageTracker:
         Bu metod: trend (vs önceki hafta), outlier fills (>p99), maker rate drift.
         """
         from datetime import timedelta as _td
+
         end = end_date or date.today()
         start = end - _td(days=7)
         prev_start = start - _td(days=7)
@@ -474,8 +530,10 @@ class SlippageTracker:
 
         n, avg_slip, p95, p99, maker_rate, total_fee = curr or (0, 0, 0, 0, 0, 0)
         n_prev, avg_prev, maker_prev = prev or (0, 0, 0)
-        n = int(n or 0); n_prev = int(n_prev or 0)
-        avg_slip = float(avg_slip or 0); avg_prev = float(avg_prev or 0)
+        n = int(n or 0)
+        n_prev = int(n_prev or 0)
+        avg_slip = float(avg_slip or 0)
+        avg_prev = float(avg_prev or 0)
         slip_delta_bps = avg_slip - avg_prev
         slip_change_pct = (slip_delta_bps / avg_prev * 100) if avg_prev else None
 
@@ -502,8 +560,13 @@ class SlippageTracker:
                 ),
             },
             "outlier_fills_top10": [
-                {"symbol": o[0], "strategy": o[1], "side": o[2],
-                 "slippage_bps": round(float(o[3]), 2), "ts": str(o[4])}
+                {
+                    "symbol": o[0],
+                    "strategy": o[1],
+                    "side": o[2],
+                    "slippage_bps": round(float(o[3]), 2),
+                    "ts": str(o[4]),
+                }
                 for o in outliers
             ],
         }
@@ -511,12 +574,14 @@ class SlippageTracker:
     def _alarm(self, level: str, msg: str) -> None:
         """Log + Telegram (varsa, throttled)."""
         import sys
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+
+        ts = datetime.now(UTC).strftime("%H:%M:%S")
         line = f"[{ts}][SLIPPAGE_{level}] {msg}"
         print(line, file=sys.stderr)
         # Telegram (optional, fail-safe, throttled)
         try:
             from price_action.ops import get_telegram_throttle
+
             throttle = get_telegram_throttle()
             # Determine alert_type based on level
             alert_type = "slippage_critical" if level == "CRITICAL" else "slippage_warning"
