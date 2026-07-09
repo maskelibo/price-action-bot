@@ -30,6 +30,13 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 _REPO = Path(__file__).resolve().parent.parent
+# FIX 2026-07-09 (dalga-5 A1-03): `python scripts/reconcile_journal.py` olarak
+# koşunca sys.path[0] = scripts/ dizinidir, repo kökü YOKTUR → `from scripts.
+# futures_trade_daily import ...` ModuleNotFoundError → try/except yutuyor →
+# log-fallback → SAFE_MODE. e957f0c fix'i bu yüzden üretimde ETKİSİZDİ (testler
+# geçiyordu çünkü test harness ROOT'u path'e ekliyor). Repo kökü path'e eklenir.
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
 # FIX 2026-06-04: champion (futures_journal.duckdb) EMEKLİ — donmuş journal'ında
 # dangling ZEC short kalmıştı → her döngüde phantom/drift alarmı. Canlı 15m bot
 # artık v13 (futures_journal_v13.duckdb). PA_BOT_NAME ile override edilebilir;

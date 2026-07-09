@@ -919,6 +919,15 @@ async def _job_reconcile_journal() -> None:
             env=_recon_env,
         )
         if result.returncode == 0:
+            # FIX 2026-07-09 (dalga-5 A1-03 görünürlük): SAFE_MODE / fetch-fail
+            # sessiz kalamaz — e957f0c'nin üretimde etkisiz kaldığı haftalarca
+            # görünmedi çünkü stdout discard ediliyordu. exchange_fetch_ok=false
+            # → WARNING (güvenlik ağı O KOŞUDA kapalı demektir).
+            if '"exchange_fetch_ok": false' in result.stdout:
+                logger.warning(
+                    "scheduler.reconcile_safe_mode",
+                    extra={"stdout_tail": result.stdout[-400:]},
+                )
             # Anlamlı çıktıyı logla
             if (
                 "orphans_closed" in result.stdout
