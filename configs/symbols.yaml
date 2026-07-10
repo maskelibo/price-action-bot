@@ -36,7 +36,7 @@ universe:
     - LTC/USDT
 
   # Kategori metadata — Portfolio diversification için.
-  categories:
+  categories:  # ÖLÜ: hiçbir kod okumuyor (category_map'e derlenmiyor — T2-03). Doğrulandı 2026-07-10
     L1: [BTC, ETH, SOL, BNB, ADA, AVAX, DOT, NEAR, APT, SUI, ATOM, ALGO]
     L2: [ARB, OP, MATIC, BASE, IMX]
     DeFi: [UNI, AAVE, MKR, COMP, CRV, SNX, LDO, GMX, RUNE]

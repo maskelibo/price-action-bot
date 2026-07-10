@@ -45,6 +45,6 @@ diversity_targets:
 library_path: src/price_action/strategies/   # 40+ modül burada
 
 # Hangi config'lerden aktif strateji listesi okur
-active_configs:
+active_configs:  # ŞERH/BAYAT: liste emekli presetlere işaret ediyor — CANLI: risk_phoenix_scalp_15m_v15p2.yaml; güncelleme curator kararı ister. Doğrulandı 2026-07-10
   - configs/risk_phoenix_scalp_15m_widestop.yaml
   - configs/risk_phoenix_scalp_5m_p1c.yaml

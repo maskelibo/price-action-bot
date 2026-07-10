@@ -6,10 +6,10 @@
 #
 # Field tipleri:
 #   min_per_24h: Son 24 saatte minimum X tane çıktı/event/file
-#   max_silence_hours: Bu komponent N saatten fazla sessiz kalırsa alarm
+#   max_silence_hours: Bu komponent N saatten fazla sessiz kalırsa alarm  # UYGULANMADI: check_promises.py bu tipi desteklemiyor (sessiz no-op, T2-06). Doğrulandı 2026-07-10
 #   file_pattern: Bu glob pattern'a uyan dosyalar son 24h içinde yazılmalı
 #   log_pattern: Daemon log'unda son 24h içinde bu regex en az N kez
-#   journal_table: Bu DuckDB tablosuna son 24h içinde min N satır
+#   journal_table: Bu DuckDB tablosuna son 24h içinde min N satır  # UYGULANMADI: check_promises.py bu tipi desteklemiyor (sessiz no-op, T2-06). Doğrulandı 2026-07-10
 #
 # severity: 'warn' (info push) | 'crit' (push_critical)
 # enabled: false → skip check (geçici devre dışı bırakma)

@@ -119,7 +119,7 @@ risk:
 vsa_internals:
   atr_period: 20                      # kod atr20 kullanir; 20 × 15m = 5h; OK
   vol_sma_period: 40                  # 1d=20bar(20gun) → 15m=40bar(10h=1.5 seans)
-  confirmation_max_wait: 5            # 1d=3bar → 15m=5bar(75dak)
+  confirmation_max_wait: 5            # 1d=3bar → 15m=5bar(75dak)  # ÖLÜ: kod okumuyor — callsite'lar geçmez, hardcode 3 (F10). Doğrulandı 2026-07-10
 
 backtest:
   warmup_bars: 200                    # vol_sma + ATR + wait_max; 200 × 15m = 50h

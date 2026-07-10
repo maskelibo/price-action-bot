@@ -289,7 +289,7 @@ strategy_portfolio:
     # - fvg_fill_reversal
   same_symbol_side_cooldown_days: 0.010  # ~15 dakika (bar bazlı cooldown)
   max_concurrent_positions: 16
-  pyramid_enabled: true          # scalp'te pyramid disabled (hold süresi kısa)
+  pyramid_enabled: true          # AÇIK (true) — eski 'disabled' yorumu değerle çelişiyordu; düzeltildi. Doğrulandı 2026-07-10
   # SEC-SCALP-P0 FIX (2026-05-17): triggers/sizes önceden TANIMSIZ -> lab.py:643
   # pyramid_triggers boş tuple -> falsy -> kod tarafında pyramid kapalıydı.
   # 1d Phoenix v2.0.4 preset değerleri (yıllık +%150 katkı). Forensic raporu:
