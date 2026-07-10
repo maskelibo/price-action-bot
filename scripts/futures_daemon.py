@@ -323,8 +323,8 @@ def _dms_ping(state: dict | None = None):
         equity = float((state or {}).get("wallet_balance", 0))
         n_pos = int((state or {}).get("n_positions", 0))
         _dms.ping(equity_usdt=equity, n_open_positions=n_pos)
-    except Exception:
-        pass
+    except Exception as _e:
+        log(f"DMS_PING_FAIL: {_e}")  # log-only: heartbeat best-effort, akış değişmez
 
 
 def equity_snapshot():
@@ -3415,8 +3415,8 @@ def run_15m_mode(once: bool = False) -> None:
                 if dms_15m is not None:
                     try:
                         dms_15m.ping()
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log(f"DMS_15M_PING_FAIL: {_e}")  # log-only: akış değişmez
 
                 log(
                     f"15M_TICK_DONE: scan={scan_elapsed:.1f}s pos_monitor={pos_monitor_elapsed:.1f}s"

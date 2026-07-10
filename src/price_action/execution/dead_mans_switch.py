@@ -212,8 +212,9 @@ class DeadMansSwitch:
                         state = self._fetch_state()
                         equity = state.get("equity", 0.0)
                         n_pos = state.get("n_positions", 0)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # log-only: fallback equity=0/n_pos=0 aynen geçerli, akış değişmez
+                        self._log(f"DMS_STATE_FETCH_FAIL: {e}")
 
                 # Primary: write to lockless file watchdog (no DB lock risk)
                 file_ok = self._watchdog.ping()
@@ -405,8 +406,9 @@ class DeadMansSwitch:
             )
             con.commit()
             con.close()
-        except Exception:
-            pass
+        except Exception as e:
+            # log-only: heartbeat-state DB persist best-effort, akış değişmez
+            self._log(f"DMS_STATE_DB_PERSIST_FAIL: {e}")
 
     def _write_kill_switch(self) -> None:
         KILL_SWITCH_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -433,8 +435,9 @@ class DeadMansSwitch:
                 msg,
                 level="CRITICAL",
             )
-        except Exception:
-            pass
+        except Exception as e:
+            # log-only: flatten zaten yürütüldü; bu yalnız alarm-teslim hatasını yüzeye çıkarır
+            self._log(f"DMS_FLATTEN_ALERT_FAIL: {e}")
 
     def _log(self, msg: str) -> None:
         ts = datetime.now(UTC).strftime("%H:%M:%S")
