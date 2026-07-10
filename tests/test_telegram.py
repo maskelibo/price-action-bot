@@ -10,10 +10,10 @@ Test coverage:
   - Markdown parse_mode payload'a eklenir
   - requests.post hata dönerse graceful degradation
 """
+
 from __future__ import annotations
 
 import importlib
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -31,6 +31,7 @@ if str(_SRC) not in sys.path:
 # =====================================================================
 # Helpers
 # =====================================================================
+
 
 def _fresh_module() -> Any:
     """telegram modülünü env değişkenleri değiştikten sonra taze import et."""
@@ -58,6 +59,7 @@ def _mock_error_response(status: int = 400) -> MagicMock:
 # Test: INFO mesajı
 # =====================================================================
 
+
 class TestSendTelegram:
     def test_info_message_correct_payload(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """INFO mesajı → doğru URL ve payload ile requests.post çağrılır."""
@@ -74,7 +76,11 @@ class TestSendTelegram:
         mock_post.assert_called_once()
 
         call_kwargs = mock_post.call_args
-        url = call_kwargs[0][0] if call_kwargs[0] else call_kwargs.kwargs.get("url") or call_kwargs[0][0]
+        url = (
+            call_kwargs[0][0]
+            if call_kwargs[0]
+            else call_kwargs.kwargs.get("url") or call_kwargs[0][0]
+        )
         payload = call_kwargs[1].get("json") or call_kwargs.kwargs.get("json")
 
         assert "fake-token-123" in url
@@ -139,6 +145,7 @@ class TestSendTelegram:
 # Test: send_critical → 🚨 prefix
 # =====================================================================
 
+
 class TestSendCritical:
     def test_crit_prefix(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """send_critical → 🚨 ve [CRIT] prefix içermeli."""
@@ -174,6 +181,7 @@ class TestSendCritical:
 # =====================================================================
 # Test: Env var eksikse no-op
 # =====================================================================
+
 
 class TestNoEnvVars:
     def test_missing_token_no_crash(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -233,6 +241,7 @@ class TestNoEnvVars:
 # Test: Dry-run
 # =====================================================================
 
+
 class TestDryRun:
     def test_dry_run_no_http_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """PA_LLM_DRY_RUN=true → requests.post hiç çağrılmaz."""
@@ -277,6 +286,7 @@ class TestDryRun:
 # =====================================================================
 # Test: Markdown encoding
 # =====================================================================
+
 
 class TestMarkdownEncoding:
     def test_parse_mode_in_payload(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -334,6 +344,7 @@ class TestMarkdownEncoding:
 # Test: requests kütüphanesi yüklü değilse
 # =====================================================================
 
+
 class TestRequestsMissing:
     def test_requests_import_error_no_crash(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """requests import edilemezse False döner, exception yok."""
@@ -357,6 +368,7 @@ class TestRequestsMissing:
 # Test: Genel robustluk
 # =====================================================================
 
+
 class TestRobustness:
     def test_very_long_message(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Çok uzun mesaj → gracefully gönderilir (Telegram taraf truncate yapabilir)."""
@@ -369,9 +381,13 @@ class TestRobustness:
         with patch("requests.post", return_value=_mock_ok_response()) as mock_post:
             result = tg.send_telegram(long_msg)
 
-        # Crash olmamalı
+        # Crash olmamalı; 5000 char > Telegram 4096 hard-limit → chunk'lanır
+        # (W6-HIGH bildirim fix). Tek mesajda 5000 Telegram tarafından REDDEDİLİR.
         assert result is True
-        mock_post.assert_called_once()
+        assert mock_post.call_count >= 2  # >4096 → en az 2 parçaya bölünür
+        for _call in mock_post.call_args_list:
+            _text = _call.kwargs.get("json", {}).get("text", "")
+            assert len(_text) <= 4096, f"chunk {len(_text)} > Telegram 4096 limiti"
 
     def test_unicode_message(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Unicode ve emoji içeren mesaj → crash yok."""
@@ -380,7 +396,7 @@ class TestRobustness:
         monkeypatch.delenv("PA_LLM_DRY_RUN", raising=False)
 
         tg = _fresh_module()
-        with patch("requests.post", return_value=_mock_ok_response()) as mock_post:
+        with patch("requests.post", return_value=_mock_ok_response()):
             result = tg.send_telegram("BTC 🚀 ETH 💎 SOL ⚡ 测试")
 
         assert result is True

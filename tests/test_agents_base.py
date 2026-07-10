@@ -2,9 +2,11 @@
 
 Gerçek LLM çağrısı YOK — `PA_LLM_DRY_RUN=true` veya client mock.
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -120,17 +122,20 @@ def test_consolidate_weekly_writes_back_to_memory(env: dict) -> None:
 def test_retry_on_llm_error(env: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     """LLM hatası: 3 deneme, sonra exception fırlar."""
     monkeypatch.delenv("PA_LLM_DRY_RUN", raising=False)
+    # Token hard-cap'i bypass et (base.py:454) — GERÇEK token_budget DB'sini okuyor;
+    # gerçek ajan 24h bütçesini aşmışsa hardcap _call_anthropic'e VARMADAN LLMError
+    # atıyor → call_counts=0 (test-izolasyon flaky). Bu test tenacity retry'ini ölçer.
+    monkeypatch.setenv("PA_TOKEN_HARDCAP", "0")
     # FIX 2026-05-28 (audit-F7): circuit breaker state izole — full suite'te diğer
     # test'lerin _DummyAgent failures'ı kalıyor → 2.+ fail'de circuit OPEN olabilir
     # → retry 3 yerine 2 sayılır. Bu test tenacity retry'i ölçüyor, circuit'i değil
     # → state + file'ı sıfırla + lazy load'u bypass et.
     from price_action.agents import base as _base_mod
+
     _base_mod._circuit_state.clear()
     _base_mod._CIRCUIT_LOADED = True  # bypass JSON restore
-    try:
+    with contextlib.suppress(FileNotFoundError):
         _base_mod._CIRCUIT_STATE_FILE.unlink()
-    except FileNotFoundError:
-        pass
     store = MemoryStore(base_dir=env["memdir"])
     agent = _DummyAgent(memory_store=store)
 

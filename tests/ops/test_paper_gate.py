@@ -9,18 +9,18 @@ Tests:
   - Integration: All gates together (6/6 K gates simulated)
   - Telegram flow: throttle called with right level + message
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import duckdb
 import pytest
 
-from price_action.ops import PaperGate, PaperGateConfig
 from price_action.execution.trade_journal import TradeJournal
-
+from price_action.ops import PaperGate, PaperGateConfig
 
 # =====================================================================
 # Helpers — setup trade journal + trades
@@ -122,8 +122,8 @@ class TestK2:
 
     def test_k2_no_trades(self, journal_db: Path, mock_telegram) -> None:
         """No trades yet — K2 should return None."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 5, 26, tzinfo=timezone.utc)
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 5, 26, tzinfo=UTC)
 
         journal = TradeJournal(db_path=journal_db)
         config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0)
@@ -134,8 +134,8 @@ class TestK2:
 
     def test_k2_early_period_one_day(self, journal_db: Path, mock_telegram) -> None:
         """Only 1 day passed (< 1 day threshold) — K2 returns None."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 5, 25, hour=12, tzinfo=timezone.utc)
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 5, 25, hour=12, tzinfo=UTC)
 
         journal = TradeJournal(db_path=journal_db)
         config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0)
@@ -146,11 +146,16 @@ class TestK2:
 
     def test_k2_single_positive_month(self, journal_db: Path, mock_telegram) -> None:
         """First month positive — K2 PASS."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 6, 10, tzinfo=timezone.utc)
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 6, 10, tzinfo=UTC)
 
         # Add positive trade in May
-        _insert_trade(journal_db, trade_id="t1", ts_close=datetime(2026, 5, 26, tzinfo=timezone.utc), realized_pnl_usdt=50.0)
+        _insert_trade(
+            journal_db,
+            trade_id="t1",
+            ts_close=datetime(2026, 5, 26, tzinfo=UTC),
+            realized_pnl_usdt=50.0,
+        )
 
         journal = TradeJournal(db_path=journal_db)
         config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0)
@@ -161,14 +166,22 @@ class TestK2:
 
     def test_k2_single_negative_month(self, journal_db: Path, mock_telegram) -> None:
         """First month negative (1 neg) — K2 PASS (threshold=1)."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 6, 10, tzinfo=timezone.utc)
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 6, 10, tzinfo=UTC)
 
         # Add negative trade in May
-        _insert_trade(journal_db, trade_id="t1", ts_close=datetime(2026, 5, 26, tzinfo=timezone.utc), realized_pnl_usdt=-50.0, win=False)
+        _insert_trade(
+            journal_db,
+            trade_id="t1",
+            ts_close=datetime(2026, 5, 26, tzinfo=UTC),
+            realized_pnl_usdt=-50.0,
+            win=False,
+        )
 
         journal = TradeJournal(db_path=journal_db)
-        config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0, k2_max_neg_months_first_30d=1)
+        config = PaperGateConfig(
+            paper_start_date=paper_start, cap_usd=1000.0, k2_max_neg_months_first_30d=1
+        )
         gate = PaperGate(config, journal, mock_telegram)
 
         result = gate.evaluate_k2(current)
@@ -176,16 +189,30 @@ class TestK2:
 
     def test_k2_two_negative_months_first_30d(self, journal_db: Path, mock_telegram) -> None:
         """First 30 days with 2 negative months — K2 HALT (threshold=1)."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 6, 10, tzinfo=timezone.utc)  # 16 days, within first 30
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 6, 10, tzinfo=UTC)  # 16 days, within first 30
 
         # May: negative
-        _insert_trade(journal_db, trade_id="t1", ts_close=datetime(2026, 5, 26, tzinfo=timezone.utc), realized_pnl_usdt=-50.0, win=False)
+        _insert_trade(
+            journal_db,
+            trade_id="t1",
+            ts_close=datetime(2026, 5, 26, tzinfo=UTC),
+            realized_pnl_usdt=-50.0,
+            win=False,
+        )
         # June: negative
-        _insert_trade(journal_db, trade_id="t2", ts_close=datetime(2026, 6, 5, tzinfo=timezone.utc), realized_pnl_usdt=-30.0, win=False)
+        _insert_trade(
+            journal_db,
+            trade_id="t2",
+            ts_close=datetime(2026, 6, 5, tzinfo=UTC),
+            realized_pnl_usdt=-30.0,
+            win=False,
+        )
 
         journal = TradeJournal(db_path=journal_db)
-        config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0, k2_max_neg_months_first_30d=1)
+        config = PaperGateConfig(
+            paper_start_date=paper_start, cap_usd=1000.0, k2_max_neg_months_first_30d=1
+        )
         gate = PaperGate(config, journal, mock_telegram)
 
         result = gate.evaluate_k2(current)
@@ -201,15 +228,29 @@ class TestK2:
 
     def test_k2_after_30_days_no_eval(self, journal_db: Path, mock_telegram) -> None:
         """After 30 days, K2 should not evaluate (returns None)."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 6, 25, tzinfo=timezone.utc)  # exactly 31 days
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 6, 25, tzinfo=UTC)  # exactly 31 days
 
         # Add 2 negative months
-        _insert_trade(journal_db, trade_id="t1", ts_close=datetime(2026, 5, 26, tzinfo=timezone.utc), realized_pnl_usdt=-50.0, win=False)
-        _insert_trade(journal_db, trade_id="t2", ts_close=datetime(2026, 6, 5, tzinfo=timezone.utc), realized_pnl_usdt=-30.0, win=False)
+        _insert_trade(
+            journal_db,
+            trade_id="t1",
+            ts_close=datetime(2026, 5, 26, tzinfo=UTC),
+            realized_pnl_usdt=-50.0,
+            win=False,
+        )
+        _insert_trade(
+            journal_db,
+            trade_id="t2",
+            ts_close=datetime(2026, 6, 5, tzinfo=UTC),
+            realized_pnl_usdt=-30.0,
+            win=False,
+        )
 
         journal = TradeJournal(db_path=journal_db)
-        config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0, k2_max_neg_months_first_30d=1)
+        config = PaperGateConfig(
+            paper_start_date=paper_start, cap_usd=1000.0, k2_max_neg_months_first_30d=1
+        )
         gate = PaperGate(config, journal, mock_telegram)
 
         result = gate.evaluate_k2(current)
@@ -217,14 +258,27 @@ class TestK2:
 
     def test_k2_mixed_months(self, journal_db: Path, mock_telegram) -> None:
         """Mix: May +100, June -200 (1 neg month) — K2 PASS."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 6, 15, tzinfo=timezone.utc)
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 6, 15, tzinfo=UTC)
 
-        _insert_trade(journal_db, trade_id="t1", ts_close=datetime(2026, 5, 26, tzinfo=timezone.utc), realized_pnl_usdt=100.0)
-        _insert_trade(journal_db, trade_id="t2", ts_close=datetime(2026, 6, 5, tzinfo=timezone.utc), realized_pnl_usdt=-200.0, win=False)
+        _insert_trade(
+            journal_db,
+            trade_id="t1",
+            ts_close=datetime(2026, 5, 26, tzinfo=UTC),
+            realized_pnl_usdt=100.0,
+        )
+        _insert_trade(
+            journal_db,
+            trade_id="t2",
+            ts_close=datetime(2026, 6, 5, tzinfo=UTC),
+            realized_pnl_usdt=-200.0,
+            win=False,
+        )
 
         journal = TradeJournal(db_path=journal_db)
-        config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0, k2_max_neg_months_first_30d=1)
+        config = PaperGateConfig(
+            paper_start_date=paper_start, cap_usd=1000.0, k2_max_neg_months_first_30d=1
+        )
         gate = PaperGate(config, journal, mock_telegram)
 
         result = gate.evaluate_k2(current)
@@ -241,11 +295,13 @@ class TestK3:
 
     def test_k3_no_trades(self, journal_db: Path, mock_telegram) -> None:
         """No trades yet but 30 days passed — K3 should alert (ROI = 0% < 15%)."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 6, 25, tzinfo=timezone.utc)
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 6, 25, tzinfo=UTC)
 
         journal = TradeJournal(db_path=journal_db)
-        config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0)
+        config = PaperGateConfig(
+            paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0
+        )
         gate = PaperGate(config, journal, mock_telegram)
 
         result = gate.evaluate_k3(current)
@@ -256,14 +312,21 @@ class TestK3:
 
     def test_k3_early_period_no_30d(self, journal_db: Path, mock_telegram) -> None:
         """Less than 30 days passed — K3 should return None."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 6, 10, tzinfo=timezone.utc)  # 16 days
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 6, 10, tzinfo=UTC)  # 16 days
 
         # Add positive trade
-        _insert_trade(journal_db, trade_id="t1", ts_close=datetime(2026, 5, 26, tzinfo=timezone.utc), realized_pnl_usdt=100.0)
+        _insert_trade(
+            journal_db,
+            trade_id="t1",
+            ts_close=datetime(2026, 5, 26, tzinfo=UTC),
+            realized_pnl_usdt=100.0,
+        )
 
         journal = TradeJournal(db_path=journal_db)
-        config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0)
+        config = PaperGateConfig(
+            paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0
+        )
         gate = PaperGate(config, journal, mock_telegram)
 
         result = gate.evaluate_k3(current)
@@ -271,14 +334,21 @@ class TestK3:
 
     def test_k3_positive_roi_pass(self, journal_db: Path, mock_telegram) -> None:
         """30+ days, ROI +20% (> 15%) — K3 PASS."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 6, 25, tzinfo=timezone.utc)  # 31 days
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 6, 25, tzinfo=UTC)  # 31 days
 
         # +200 PnL = 200/1000 = 20% ROI
-        _insert_trade(journal_db, trade_id="t1", ts_close=datetime(2026, 6, 5, tzinfo=timezone.utc), realized_pnl_usdt=200.0)
+        _insert_trade(
+            journal_db,
+            trade_id="t1",
+            ts_close=datetime(2026, 6, 5, tzinfo=UTC),
+            realized_pnl_usdt=200.0,
+        )
 
         journal = TradeJournal(db_path=journal_db)
-        config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0)
+        config = PaperGateConfig(
+            paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0
+        )
         gate = PaperGate(config, journal, mock_telegram)
 
         result = gate.evaluate_k3(current)
@@ -286,14 +356,21 @@ class TestK3:
 
     def test_k3_low_roi_alert(self, journal_db: Path, mock_telegram) -> None:
         """30+ days, ROI +10% (< 15%) — K3 ALERT."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 6, 25, tzinfo=timezone.utc)  # 31 days
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 6, 25, tzinfo=UTC)  # 31 days
 
         # +100 PnL = 100/1000 = 10% ROI
-        _insert_trade(journal_db, trade_id="t1", ts_close=datetime(2026, 6, 5, tzinfo=timezone.utc), realized_pnl_usdt=100.0)
+        _insert_trade(
+            journal_db,
+            trade_id="t1",
+            ts_close=datetime(2026, 6, 5, tzinfo=UTC),
+            realized_pnl_usdt=100.0,
+        )
 
         journal = TradeJournal(db_path=journal_db)
-        config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0)
+        config = PaperGateConfig(
+            paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0
+        )
         gate = PaperGate(config, journal, mock_telegram)
 
         result = gate.evaluate_k3(current)
@@ -309,14 +386,22 @@ class TestK3:
 
     def test_k3_negative_roi_alert(self, journal_db: Path, mock_telegram) -> None:
         """30+ days, ROI -5% (< 15%) — K3 ALERT."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 6, 25, tzinfo=timezone.utc)
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 6, 25, tzinfo=UTC)
 
         # -50 PnL = -50/1000 = -5% ROI
-        _insert_trade(journal_db, trade_id="t1", ts_close=datetime(2026, 6, 5, tzinfo=timezone.utc), realized_pnl_usdt=-50.0, win=False)
+        _insert_trade(
+            journal_db,
+            trade_id="t1",
+            ts_close=datetime(2026, 6, 5, tzinfo=UTC),
+            realized_pnl_usdt=-50.0,
+            win=False,
+        )
 
         journal = TradeJournal(db_path=journal_db)
-        config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0)
+        config = PaperGateConfig(
+            paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0
+        )
         gate = PaperGate(config, journal, mock_telegram)
 
         result = gate.evaluate_k3(current)
@@ -326,16 +411,28 @@ class TestK3:
 
     def test_k3_rolling_window(self, journal_db: Path, mock_telegram) -> None:
         """30-day rolling window: only last 30 days count (not older trades)."""
-        paper_start = datetime(2026, 5, 1, tzinfo=timezone.utc)
-        current = datetime(2026, 6, 25, tzinfo=timezone.utc)  # 55 days
+        paper_start = datetime(2026, 5, 1, tzinfo=UTC)
+        current = datetime(2026, 6, 25, tzinfo=UTC)  # 55 days
 
         # Old trade (>30 days ago): +500
-        _insert_trade(journal_db, trade_id="t1", ts_close=datetime(2026, 5, 10, tzinfo=timezone.utc), realized_pnl_usdt=500.0)
+        _insert_trade(
+            journal_db,
+            trade_id="t1",
+            ts_close=datetime(2026, 5, 10, tzinfo=UTC),
+            realized_pnl_usdt=500.0,
+        )
         # Recent trade (within 30d): +100
-        _insert_trade(journal_db, trade_id="t2", ts_close=datetime(2026, 6, 20, tzinfo=timezone.utc), realized_pnl_usdt=100.0)
+        _insert_trade(
+            journal_db,
+            trade_id="t2",
+            ts_close=datetime(2026, 6, 20, tzinfo=UTC),
+            realized_pnl_usdt=100.0,
+        )
 
         journal = TradeJournal(db_path=journal_db)
-        config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0)
+        config = PaperGateConfig(
+            paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0
+        )
         gate = PaperGate(config, journal, mock_telegram)
 
         result = gate.evaluate_k3(current)
@@ -353,8 +450,8 @@ class TestPaperGateIntegration:
 
     def test_evaluate_all_empty(self, journal_db: Path, mock_telegram) -> None:
         """No trades, no triggers — evaluate_all returns []."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 5, 26, tzinfo=timezone.utc)
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 5, 26, tzinfo=UTC)
 
         journal = TradeJournal(db_path=journal_db)
         config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0)
@@ -365,15 +462,29 @@ class TestPaperGateIntegration:
 
     def test_evaluate_all_k2_trigger(self, journal_db: Path, mock_telegram) -> None:
         """K2 triggers in evaluate_all."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 6, 10, tzinfo=timezone.utc)
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 6, 10, tzinfo=UTC)
 
         # 2 negative months
-        _insert_trade(journal_db, trade_id="t1", ts_close=datetime(2026, 5, 26, tzinfo=timezone.utc), realized_pnl_usdt=-50.0, win=False)
-        _insert_trade(journal_db, trade_id="t2", ts_close=datetime(2026, 6, 5, tzinfo=timezone.utc), realized_pnl_usdt=-30.0, win=False)
+        _insert_trade(
+            journal_db,
+            trade_id="t1",
+            ts_close=datetime(2026, 5, 26, tzinfo=UTC),
+            realized_pnl_usdt=-50.0,
+            win=False,
+        )
+        _insert_trade(
+            journal_db,
+            trade_id="t2",
+            ts_close=datetime(2026, 6, 5, tzinfo=UTC),
+            realized_pnl_usdt=-30.0,
+            win=False,
+        )
 
         journal = TradeJournal(db_path=journal_db)
-        config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0, k2_max_neg_months_first_30d=1)
+        config = PaperGateConfig(
+            paper_start_date=paper_start, cap_usd=1000.0, k2_max_neg_months_first_30d=1
+        )
         gate = PaperGate(config, journal, mock_telegram)
 
         results = gate.evaluate_all(current)
@@ -383,13 +494,20 @@ class TestPaperGateIntegration:
 
     def test_evaluate_all_k3_trigger(self, journal_db: Path, mock_telegram) -> None:
         """K3 triggers in evaluate_all."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 6, 25, tzinfo=timezone.utc)
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 6, 25, tzinfo=UTC)
 
-        _insert_trade(journal_db, trade_id="t1", ts_close=datetime(2026, 6, 5, tzinfo=timezone.utc), realized_pnl_usdt=100.0)
+        _insert_trade(
+            journal_db,
+            trade_id="t1",
+            ts_close=datetime(2026, 6, 5, tzinfo=UTC),
+            realized_pnl_usdt=100.0,
+        )
 
         journal = TradeJournal(db_path=journal_db)
-        config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0)
+        config = PaperGateConfig(
+            paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0
+        )
         gate = PaperGate(config, journal, mock_telegram)
 
         results = gate.evaluate_all(current)
@@ -399,18 +517,35 @@ class TestPaperGateIntegration:
 
     def test_evaluate_all_both_k2_k3(self, journal_db: Path, mock_telegram) -> None:
         """Both K2 and K3 trigger."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
         # K2: 16 days (within first 30d)
         # K3: needs 30+ days, so we need 2 evaluations at different times
         # For this test, let's trigger at 35 days (K2 no longer active, K3 active)
-        current = datetime(2026, 6, 29, tzinfo=timezone.utc)  # 35 days
+        current = datetime(2026, 6, 29, tzinfo=UTC)  # 35 days
 
         # K3: only -80 PnL in last 30 days = -8% ROI < 15%
-        _insert_trade(journal_db, trade_id="t1", ts_close=datetime(2026, 6, 5, tzinfo=timezone.utc), realized_pnl_usdt=-50.0, win=False)
-        _insert_trade(journal_db, trade_id="t2", ts_close=datetime(2026, 6, 20, tzinfo=timezone.utc), realized_pnl_usdt=-30.0, win=False)
+        _insert_trade(
+            journal_db,
+            trade_id="t1",
+            ts_close=datetime(2026, 6, 5, tzinfo=UTC),
+            realized_pnl_usdt=-50.0,
+            win=False,
+        )
+        _insert_trade(
+            journal_db,
+            trade_id="t2",
+            ts_close=datetime(2026, 6, 20, tzinfo=UTC),
+            realized_pnl_usdt=-30.0,
+            win=False,
+        )
 
         journal = TradeJournal(db_path=journal_db)
-        config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0, k2_max_neg_months_first_30d=1, k3_min_monthly_roi_pct=15.0)
+        config = PaperGateConfig(
+            paper_start_date=paper_start,
+            cap_usd=1000.0,
+            k2_max_neg_months_first_30d=1,
+            k3_min_monthly_roi_pct=15.0,
+        )
         gate = PaperGate(config, journal, mock_telegram)
 
         results = gate.evaluate_all(current)
@@ -421,7 +556,10 @@ class TestPaperGateIntegration:
 
     def test_evaluate_all_with_timestamp_none(self, journal_db: Path, mock_telegram) -> None:
         """evaluate_all(current_date=None) uses UTC now."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
+        # paper_start now'a göreli (now-5g) — K3 rolling-30g penceresi 30g dolmadan
+        # NO-OP (paper_gate.py:103). Sabit tarih zaman geçince K3'ü tetikliyordu
+        # (boş DB → ROI %0 < %15 → alert) = zaman-bağımlı stale test.
+        paper_start = datetime.now(UTC) - timedelta(days=5)
 
         # Make sure no 30-day window has triggered (empty DB)
         journal = TradeJournal(db_path=journal_db)
@@ -433,14 +571,28 @@ class TestPaperGateIntegration:
 
     def test_telegram_level_k2_critical(self, journal_db: Path, mock_telegram) -> None:
         """K2 HALT sends CRITICAL level."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 6, 10, tzinfo=timezone.utc)
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 6, 10, tzinfo=UTC)
 
-        _insert_trade(journal_db, trade_id="t1", ts_close=datetime(2026, 5, 26, tzinfo=timezone.utc), realized_pnl_usdt=-50.0, win=False)
-        _insert_trade(journal_db, trade_id="t2", ts_close=datetime(2026, 6, 5, tzinfo=timezone.utc), realized_pnl_usdt=-30.0, win=False)
+        _insert_trade(
+            journal_db,
+            trade_id="t1",
+            ts_close=datetime(2026, 5, 26, tzinfo=UTC),
+            realized_pnl_usdt=-50.0,
+            win=False,
+        )
+        _insert_trade(
+            journal_db,
+            trade_id="t2",
+            ts_close=datetime(2026, 6, 5, tzinfo=UTC),
+            realized_pnl_usdt=-30.0,
+            win=False,
+        )
 
         journal = TradeJournal(db_path=journal_db)
-        config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0, k2_max_neg_months_first_30d=1)
+        config = PaperGateConfig(
+            paper_start_date=paper_start, cap_usd=1000.0, k2_max_neg_months_first_30d=1
+        )
         gate = PaperGate(config, journal, mock_telegram)
 
         gate.evaluate_k2(current)
@@ -450,13 +602,20 @@ class TestPaperGateIntegration:
 
     def test_telegram_level_k3_warning(self, journal_db: Path, mock_telegram) -> None:
         """K3 ALERT sends WARNING level."""
-        paper_start = datetime(2026, 5, 25, tzinfo=timezone.utc)
-        current = datetime(2026, 6, 25, tzinfo=timezone.utc)
+        paper_start = datetime(2026, 5, 25, tzinfo=UTC)
+        current = datetime(2026, 6, 25, tzinfo=UTC)
 
-        _insert_trade(journal_db, trade_id="t1", ts_close=datetime(2026, 6, 5, tzinfo=timezone.utc), realized_pnl_usdt=100.0)
+        _insert_trade(
+            journal_db,
+            trade_id="t1",
+            ts_close=datetime(2026, 6, 5, tzinfo=UTC),
+            realized_pnl_usdt=100.0,
+        )
 
         journal = TradeJournal(db_path=journal_db)
-        config = PaperGateConfig(paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0)
+        config = PaperGateConfig(
+            paper_start_date=paper_start, cap_usd=1000.0, k3_min_monthly_roi_pct=15.0
+        )
         gate = PaperGate(config, journal, mock_telegram)
 
         gate.evaluate_k3(current)

@@ -1,8 +1,9 @@
 """Memory layer testleri — store + episodic + boot context."""
+
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -20,21 +21,15 @@ def memdir(tmp_path: Path) -> Path:
     (base / "shared" / "facts").mkdir(parents=True)
     (base / "shared" / "lessons").mkdir(parents=True)
 
-    (base / "ceo" / "identity.md").write_text(
-        "# CEO Identity\nSen CEO'sun.\n", encoding="utf-8"
-    )
+    (base / "ceo" / "identity.md").write_text("# CEO Identity\nSen CEO'sun.\n", encoding="utf-8")
     (base / "ceo" / "know_how.md").write_text(
         "# Know How\n## Playbook A\nadım1\n", encoding="utf-8"
     )
-    (base / "ceo" / "learning.md").write_text(
-        "# Learning\n", encoding="utf-8"
-    )
+    (base / "ceo" / "learning.md").write_text("# Learning\n", encoding="utf-8")
     (base / "shared" / "facts" / "fact_one.md").write_text(
         "# Fact One\nimmutable\n", encoding="utf-8"
     )
-    (base / "shared" / "lessons" / "lesson_one.md").write_text(
-        "# Lesson One\n", encoding="utf-8"
-    )
+    (base / "shared" / "lessons" / "lesson_one.md").write_text("# Lesson One\n", encoding="utf-8")
     return base
 
 
@@ -114,8 +109,8 @@ def test_write_decision_creates_adr_file(memdir: Path) -> None:
 
 def test_boot_context_includes_sections(memdir: Path) -> None:
     store = MemoryStore(base_dir=memdir)
-    # Önce learning'e 6 entry ekle, son 5 görünmeli
-    for i in range(6):
+    # Learning'e 26 entry ekle, son 25 görünmeli (recency window n=25, store.py:304)
+    for i in range(26):
         store.append_learning(
             "ceo",
             make_entry(
@@ -129,15 +124,16 @@ def test_boot_context_includes_sections(memdir: Path) -> None:
     assert "## IDENTITY" in boot
     assert "## KNOW-HOW" in boot
     assert "## RECENT LEARNINGS" in boot
-    assert "## SHARED FACTS AVAILABLE" in boot
-    # En son 5 entry geçer; ilk entry (`l-0`) görülmemeli
-    assert "l-5" in boot
+    assert "## SHARED FACTS" in boot  # 2026-07-02 (fa2c893) header sadeleştirildi
+    # En son 25 entry geçer; ilk entry (`l-0`) recency penceresinden düşer
+    assert "l-25" in boot
     assert "l-0" not in boot
 
 
 # ----------------------------------------------------------------------
 # EpisodicLog
 # ----------------------------------------------------------------------
+
 
 def test_episodic_append_and_iter(memdir: Path) -> None:
     log = EpisodicLog(agent="ceo", base_dir=memdir)
@@ -156,9 +152,7 @@ def test_episodic_append_and_iter(memdir: Path) -> None:
 def test_episodic_consolidate_window(memdir: Path) -> None:
     log = EpisodicLog(agent="ceo", base_dir=memdir)
     # Eski kayıt — pencere dışında
-    log.append(
-        "stale event", tags=["x"], ts=datetime.now(timezone.utc) - timedelta(days=30)
-    )
+    log.append("stale event", tags=["x"], ts=datetime.now(UTC) - timedelta(days=30))
     # Yeni 3 kayıt aynı body prefix
     for _ in range(3):
         log.append("recurring body that is the same", tags=["repeat"])
