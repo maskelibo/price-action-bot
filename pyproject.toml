@@ -14,7 +14,8 @@ dependencies = [
     "pyarrow>=15",
     "duckdb>=1.0",
     "pydantic>=2.7",
-    "pydantic-settings>=2.3",
+    # CVE-floor 2026-07-10 (T6 #25): symlink-out-of-secrets_dir advisory → >=2.14.2
+    "pydantic-settings>=2.14.2",
     "pyyaml>=6.0",
     "python-dotenv>=1.0",
     "rich>=13.7",
@@ -49,10 +50,14 @@ dependencies = [
     "tiktoken>=0.7",
 
     # RAG
+    # NOT 2026-07-10 (T6 #25): chromadb 1.5.9 = CRITICAL GHSA-f4j7-r4q5-qw2c
+    # (pre-auth code injection) son-etkilenen sürüm; PyPI'da fix YOK (latest=1.5.9).
+    # Embedded kullanım (server dinleyici yok) → ağ-sömürüsü N/A. Fix çıkınca >1.5.9'a bump'la.
     "chromadb>=0.5",
     "sentence-transformers>=3.0",
     "youtube-transcript-api>=0.6",
-    "yt-dlp>=2024.7.16",
+    # CVE-floor 2026-07-10 (T6 #25): GHSA-69qj-pvh9-c5wg (--exec enjeksiyonu) → >=2026.6.9
+    "yt-dlp>=2026.6.9",
     "trafilatura>=1.12",
     "beautifulsoup4>=4.12",
     "httpx>=0.27",
@@ -78,6 +83,16 @@ dependencies = [
     # Observability
     "prometheus-client>=0.20",
     "structlog>=24.4",
+
+    # Güvenlik tabanları — transitive bağımlılıklara CVE-floor (T6 #25, 2026-07-10;
+    # shadow-venv'de tam suite ile doğrulandı). Doğrudan import edilmiyorlar; amaç
+    # çözücünün savunmasız sürümü seçmesini engellemek.
+    "cryptography>=48.0.1",     # HIGH GHSA-537c-gmf6-5ccf (wheel'de savunmasız OpenSSL, TLS yolu)
+    "starlette>=1.3.1",         # HIGH GHSA-82w8-qh3p-5jfq +5 (form-DoS, method-dispatch; FastAPI tabanı)
+    "aiohttp>=3.14.1",          # 12 advisory (pipelining DoS, cookie leak, digest-auth redirect)
+    "python-multipart>=0.0.31", # HIGH GHSA-5rvq-cxj2-64vf (querystring DoS)
+    # torch: LOW (jit.script) — OSV 2.13.0'ı temiz raporluyor; sentence-transformers
+    # transitive'i. Floor bilinçli KONULMADI (ağır paket, LOW sev) — lock'ta yönet.
 ]
 
 [project.optional-dependencies]
