@@ -35,6 +35,8 @@ Usage:
 
 Canlı bota / journal'a / mevcut pool dosyalarına DOKUNMAZ. DB read-only.
 """
+# ruff: noqa: E402, N806  (script deseni + R-domain adlandırma — 2026-07-10)
+
 from __future__ import annotations
 
 import argparse
@@ -82,10 +84,25 @@ TOP4_STRATEGIES: list[tuple[str, str]] = [
 
 # 19-sembol 15m evreni (18 trading + UNI data-only) — DB ile runtime'da doğrulanır
 SYMBOLS_19: list[str] = [
-    "AAVE/USDT", "ADA/USDT", "ALGO/USDT", "ATOM/USDT", "AVAX/USDT",
-    "BNB/USDT", "BTC/USDT", "DOGE/USDT", "DOT/USDT", "ETH/USDT",
-    "FIL/USDT", "LINK/USDT", "NEAR/USDT", "SOL/USDT", "TRX/USDT",
-    "UNI/USDT", "XLM/USDT", "XRP/USDT", "ZEC/USDT",
+    "AAVE/USDT",
+    "ADA/USDT",
+    "ALGO/USDT",
+    "ATOM/USDT",
+    "AVAX/USDT",
+    "BNB/USDT",
+    "BTC/USDT",
+    "DOGE/USDT",
+    "DOT/USDT",
+    "ETH/USDT",
+    "FIL/USDT",
+    "LINK/USDT",
+    "NEAR/USDT",
+    "SOL/USDT",
+    "TRX/USDT",
+    "UNI/USDT",
+    "XLM/USDT",
+    "XRP/USDT",
+    "ZEC/USDT",
 ]
 
 FEES = {"taker": 0.00075, "maker": -0.00010}
@@ -123,9 +140,7 @@ def resample_15m_to_1h(df_15m: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     if df_15m.empty:
         return pd.DataFrame(), {"n_src": 0, "n_buckets": 0, "n_complete": 0, "n_dropped": 0}
     g = df_15m.set_index("ts").resample("1h", label="left", closed="left")
-    out = g.agg(
-        {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
-    )
+    out = g.agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"})
     cnt = g["close"].count()
     n_buckets = int((cnt > 0).sum())
     complete_mask = cnt == BARS_PER_BUCKET
@@ -177,7 +192,8 @@ def gather_cell(module_name: str, class_name: str, sym: str, df_1h: pd.DataFrame
     try:
         e = BacktestEngine(risk_officer=None, store_load=None)
         r = e.run(
-            s, [sym],
+            s,
+            [sym],
             start=df["ts"].iloc[0].to_pydatetime(),
             end=df["ts"].iloc[-1].to_pydatetime(),
             timeframe=TF_DST,
@@ -206,6 +222,15 @@ def gather_cell(module_name: str, class_name: str, sym: str, df_1h: pd.DataFrame
                 peak_R = -mfe_pct / risk_pct if risk_pct > 0 else 0
             final_R = float(t["realized_r_multiple"])
             peak_R = max(peak_R, final_R)
+            # P2-#12 (2026-07-10): mae_R — MTM stress bandının gerçek-MAE işareti.
+            # peak_R'nin simetriği (engine mae_pct'yi zaten üretiyor; eski pool'lar
+            # taşımıyordu → -1R fallback). Konvansiyon: mae_R <= 0 (aleyhte-en-kötü).
+            mae_pct = float(t.get("mae_pct", 0) or 0)
+            if side == "long":
+                mae_R = mae_pct / risk_pct if risk_pct > 0 else 0.0
+            else:
+                mae_R = -mae_pct / risk_pct if risk_pct > 0 else 0.0
+            mae_R = min(mae_R, 0.0, final_R)  # aleyhte-uç final'den iyi olamaz
 
             ts_e = pd.Timestamp(t["entry_ts"])
             if ts_e.tzinfo is None:
@@ -221,19 +246,22 @@ def gather_cell(module_name: str, class_name: str, sym: str, df_1h: pd.DataFrame
                 vz_val = df["vol_z_pre"].iloc[idx]
                 vz = float(vz_val) if not pd.isna(vz_val) else 0.0
 
-            out.append({
-                "entry_ts": ts_e,
-                "exit_ts": ts_x,
-                "entry_price": entry_price,
-                "initial_sl": initial_sl,
-                "R": final_R,
-                "peak_R": peak_R,
-                "symbol": sym,
-                "side": str(t["side"]),
-                "conf": conf,
-                "strategy": module_name,
-                "vol_z": vz,
-            })
+            out.append(
+                {
+                    "entry_ts": ts_e,
+                    "exit_ts": ts_x,
+                    "entry_price": entry_price,
+                    "initial_sl": initial_sl,
+                    "R": final_R,
+                    "peak_R": peak_R,
+                    "mae_R": mae_R,  # P2-#12: MTM stress gerçek-MAE (yoksa tüketici -1R'a düşer)
+                    "symbol": sym,
+                    "side": str(t["side"]),
+                    "conf": conf,
+                    "strategy": module_name,
+                    "vol_z": vz,
+                }
+            )
         except Exception:
             continue
     return out
@@ -265,11 +293,15 @@ def run_build(symbols: list[str], out_path: Path) -> int:
             trades = gather_cell(module_name, class_name, sym, df_1h)
             pool.extend(trades)
             sym_trades += len(trades)
-            print(f"  {sym:11s} {module_name:24s} {len(trades):>6d} trade "
-                  f"({time.time()-t_cell:.1f}s)")
-        print(f"  {sym:11s} TOPLAM {sym_trades:>6d} trade | 15m={rs['n_src']:,} → "
-              f"1h={rs['n_complete']:,} (dropped {rs['n_dropped']}) "
-              f"({time.time()-t_sym:.1f}s)")
+            print(
+                f"  {sym:11s} {module_name:24s} {len(trades):>6d} trade "
+                f"({time.time()-t_cell:.1f}s)"
+            )
+        print(
+            f"  {sym:11s} TOPLAM {sym_trades:>6d} trade | 15m={rs['n_src']:,} → "
+            f"1h={rs['n_complete']:,} (dropped {rs['n_dropped']}) "
+            f"({time.time()-t_sym:.1f}s)"
+        )
 
     if not pool:
         print("[FATAL] pool boş — hiçbir hücre trade üretmedi")
@@ -283,6 +315,7 @@ def run_build(symbols: list[str], out_path: Path) -> int:
     # ── Özet ──
     elapsed = time.time() - t_start
     from collections import Counter
+
     strat_counts = Counter(t["strategy"] for t in pool)
     sym_counts = Counter(t["symbol"] for t in pool)
     ts_all = [t["entry_ts"] for t in pool]
@@ -296,7 +329,9 @@ def run_build(symbols: list[str], out_path: Path) -> int:
         print(f"    {k:12s} {sym_counts[k]:>7,}")
     print("  resample özeti (sembol: 15m→1h, dropped-incomplete):")
     for sym, rs in resample_rows:
-        print(f"    {sym:12s} {rs['n_src']:>8,} → {rs['n_complete']:>7,}  (dropped {rs['n_dropped']})")
+        print(
+            f"    {sym:12s} {rs['n_src']:>8,} → {rs['n_complete']:>7,}  (dropped {rs['n_dropped']})"
+        )
     return 0
 
 
@@ -366,11 +401,15 @@ def run_parity(report_path: Path = PARITY_REPORT) -> int:
     w("# 1h Pool Resample Parite Raporu")
     w("")
     w(f"- **Tarih:** {pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d %H:%M UTC')}")
-    w(f"- **Üretici:** `scripts/build_pool_1h.py --mode parity`")
-    w(f"- **Pencere:** {PARITY_START.date()} → {PARITY_END.date()} (30 gün) × {len(PARITY_SYMBOLS)} sembol")
-    w(f"- **Kural:** `resample('1h', label='left', closed='left')`, open=first/high=max/low=min/close=last/volume=sum, "
-      f"kovada <{BARS_PER_BUCKET} × 15m bar varsa DÜŞ (incomplete-bar kuralı)")
-    w(f"- **PASS eşiği:** max |close diff| < 0.1% (B1 resample-parity blocker disiplini)")
+    w("- **Üretici:** `scripts/build_pool_1h.py --mode parity`")
+    w(
+        f"- **Pencere:** {PARITY_START.date()} → {PARITY_END.date()} (30 gün) × {len(PARITY_SYMBOLS)} sembol"
+    )
+    w(
+        f"- **Kural:** `resample('1h', label='left', closed='left')`, open=first/high=max/low=min/close=last/volume=sum, "
+        f"kovada <{BARS_PER_BUCKET} × 15m bar varsa DÜŞ (incomplete-bar kuralı)"
+    )
+    w("- **PASS eşiği:** max |close diff| < 0.1% (B1 resample-parity blocker disiplini)")
     w("")
 
     all_pass = True
@@ -378,7 +417,9 @@ def run_parity(report_path: Path = PARITY_REPORT) -> int:
     # ── A) borsa-ingest 1h vs resample ──
     w("## A) Resample(15m→1h) vs borsa-ingest 1h (DB `timeframe='1h'` — bağımsız veri yolu)")
     w("")
-    w("| sembol | n_resample | n_db_1h | n_ortak | max\\|Δopen\\|% | max\\|Δhigh\\|% | max\\|Δlow\\|% | max\\|Δclose\\|% | max\\|Δvol\\|% | sonuç |")
+    w(
+        "| sembol | n_resample | n_db_1h | n_ortak | max\\|Δopen\\|% | max\\|Δhigh\\|% | max\\|Δlow\\|% | max\\|Δclose\\|% | max\\|Δvol\\|% | sonuç |"
+    )
     w("|---|---|---|---|---|---|---|---|---|---|")
     for sym in PARITY_SYMBOLS:
         df_15m = load_15m(sym)
@@ -397,9 +438,11 @@ def run_parity(report_path: Path = PARITY_REPORT) -> int:
             diffs[col] = float(d.max()) if len(d) else float("nan")
         ok = diffs["close"] < 0.1
         all_pass &= ok
-        w(f"| {sym} | {len(df_rs)} | {len(df_db)} | {len(m)} | {diffs['open']:.6f} | "
-          f"{diffs['high']:.6f} | {diffs['low']:.6f} | {diffs['close']:.6f} | "
-          f"{diffs['volume']:.6f} | {'PASS' if ok else 'FAIL'} |")
+        w(
+            f"| {sym} | {len(df_rs)} | {len(df_db)} | {len(m)} | {diffs['open']:.6f} | "
+            f"{diffs['high']:.6f} | {diffs['low']:.6f} | {diffs['close']:.6f} | "
+            f"{diffs['volume']:.6f} | {'PASS' if ok else 'FAIL'} |"
+        )
     w("")
 
     # ── B) saf-SQL agregasyon vs pandas resample ──
@@ -408,7 +451,9 @@ def run_parity(report_path: Path = PARITY_REPORT) -> int:
     # 1e-9 göreli tolerans (saf float-associativity gürültüsü).
     w("## B) pandas resample vs saf-SQL saat-kovası (bağımsız hesap yolu, aynı 15m veri)")
     w("")
-    w("| sembol | n_pandas | n_sql | n_ortak | max\\|Δohlc\\| (mutlak) | max\\|Δvol\\| (göreli) | sonuç |")
+    w(
+        "| sembol | n_pandas | n_sql | n_ortak | max\\|Δohlc\\| (mutlak) | max\\|Δvol\\| (göreli) | sonuç |"
+    )
     w("|---|---|---|---|---|---|---|")
     for sym in PARITY_SYMBOLS:
         df_15m = load_15m(sym)
@@ -424,11 +469,12 @@ def run_parity(report_path: Path = PARITY_REPORT) -> int:
         if len(m):
             denom = m["volume_s"].astype(float).abs().clip(lower=1e-12)
             max_vol_rel = float(((m["volume_p"] - m["volume_s"]).abs() / denom).max())
-        ok = (len(m) == len(df_rs) == len(df_sql)
-              and max_ohlc == 0.0 and max_vol_rel < 1e-9)
+        ok = len(m) == len(df_rs) == len(df_sql) and max_ohlc == 0.0 and max_vol_rel < 1e-9
         all_pass &= ok
-        w(f"| {sym} | {len(df_rs)} | {len(df_sql)} | {len(m)} | {max_ohlc:.10f} | "
-          f"{max_vol_rel:.2e} | {'PASS (ohlc bit-identical)' if ok else 'FAIL'} |")
+        w(
+            f"| {sym} | {len(df_rs)} | {len(df_sql)} | {len(m)} | {max_ohlc:.10f} | "
+            f"{max_vol_rel:.2e} | {'PASS (ohlc bit-identical)' if ok else 'FAIL'} |"
+        )
     w("")
 
     # ── C) elle doğrulanabilir örnek barlar ──
@@ -436,7 +482,9 @@ def run_parity(report_path: Path = PARITY_REPORT) -> int:
     w("")
     sym = "BTC/USDT"
     df_15m = load_15m(sym)
-    df_15m = df_15m[(df_15m["ts"] >= PARITY_START) & (df_15m["ts"] < PARITY_START + pd.Timedelta(hours=3))]
+    df_15m = df_15m[
+        (df_15m["ts"] >= PARITY_START) & (df_15m["ts"] < PARITY_START + pd.Timedelta(hours=3))
+    ]
     df_rs, _ = resample_15m_to_1h(df_15m)
     w("15m ham barlar:")
     w("")
@@ -445,7 +493,9 @@ def run_parity(report_path: Path = PARITY_REPORT) -> int:
     for _, r in df_15m.iterrows():
         w(f"| {r['ts']} | {r['open']} | {r['high']} | {r['low']} | {r['close']} | {r['volume']} |")
     w("")
-    w("Resample çıktısı 1h barlar (open=ilk 15m open, high=max, low=min, close=son 15m close, volume=Σ):")
+    w(
+        "Resample çıktısı 1h barlar (open=ilk 15m open, high=max, low=min, close=son 15m close, volume=Σ):"
+    )
     w("")
     w("| ts (UTC) | open | high | low | close | volume |")
     w("|---|---|---|---|---|---|")
@@ -455,10 +505,15 @@ def run_parity(report_path: Path = PARITY_REPORT) -> int:
 
     w("## Sonuç")
     w("")
-    w(f"**{'PASS' if all_pass else 'FAIL'}** — "
-      + ("resample hattı hem borsa-ingest 1h ile (<0.1%) hem saf-SQL agregasyonla (bit-identical) uyumlu; "
-         "1h pool inşasında kullanım ONAYLI." if all_pass
-         else "en az bir karşılaştırma eşiği aştı — pool'u kullanmadan önce incele."))
+    w(
+        f"**{'PASS' if all_pass else 'FAIL'}** — "
+        + (
+            "resample hattı hem borsa-ingest 1h ile (<0.1%) hem saf-SQL agregasyonla (bit-identical) uyumlu; "
+            "1h pool inşasında kullanım ONAYLI."
+            if all_pass
+            else "en az bir karşılaştırma eşiği aştı — pool'u kullanmadan önce incele."
+        )
+    )
     w("")
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -471,17 +526,20 @@ def run_parity(report_path: Path = PARITY_REPORT) -> int:
 def main() -> int:
     p = argparse.ArgumentParser(description="1h backtest pool builder (sec53 şeması)")
     p.add_argument("--mode", choices=["build", "parity"], default="build")
-    p.add_argument("--symbols", default="",
-                   help="Virgüllü alt-küme (örn: BTC/USDT,ETH/USDT). Boş = 19 sembol.")
-    p.add_argument("--out", type=Path, default=OUT_DEFAULT,
-                   help=f"Pool çıktı yolu (default: {OUT_DEFAULT})")
+    p.add_argument(
+        "--symbols", default="", help="Virgüllü alt-küme (örn: BTC/USDT,ETH/USDT). Boş = 19 sembol."
+    )
+    p.add_argument(
+        "--out", type=Path, default=OUT_DEFAULT, help=f"Pool çıktı yolu (default: {OUT_DEFAULT})"
+    )
     args = p.parse_args()
 
     if args.mode == "parity":
         return run_parity()
 
-    symbols = ([s.strip() for s in args.symbols.split(",") if s.strip()]
-               if args.symbols else SYMBOLS_19)
+    symbols = (
+        [s.strip() for s in args.symbols.split(",") if s.strip()] if args.symbols else SYMBOLS_19
+    )
     unknown = [s for s in symbols if s not in SYMBOLS_19]
     if unknown:
         print(f"[WARN] 19-sembol evreninde olmayan semboller: {unknown}")

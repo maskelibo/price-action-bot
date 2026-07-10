@@ -2256,6 +2256,18 @@ def position_check():
 
     except Exception as e:
         log(f"POS_CHECK ERROR: {e}")
+        # P2-#11 minimal-güvenli varyant (2026-07-10): HEAL/PROT dev-bloklarında
+        # exception anında açık kalmış journal bağlantılarını best-effort kapat
+        # (leak → DuckDB single-writer lock contention). Tam try/finally dönüşümü
+        # (70/430 satır re-indent) bilinçli yapılmadı — bu handler tüm blokların
+        # ortak çatısı olduğundan sızıntıyı aynı güvenceyle kapatır.
+        import contextlib as _ctx
+
+        for _leak_name in ("con", "_heal_con", "_jcon"):
+            _leak_con = locals().get(_leak_name)
+            if _leak_con is not None and hasattr(_leak_con, "close"):
+                with _ctx.suppress(Exception):
+                    _leak_con.close()
 
 
 # =====================================================================
