@@ -15,15 +15,19 @@ Usage:
     store.mark_submitted(fp, client_order_id, symbol)
     store.mark_filled(fp, exchange_order_id)
 """
+
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timezone
+from contextlib import closing
+from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
 
-ROOT = Path(__file__).resolve().parents[3]  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
+ROOT = (
+    Path(__file__).resolve().parents[3]
+)  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
 DEFAULT_DB = ROOT / "data" / "idempotency.duckdb"
 
 CLIENT_ID_PREFIX = "PA_"
@@ -34,6 +38,12 @@ class IdempotencyStore:
     """Thread-safe fingerprint persistence.
 
     DuckDB single-file, tek-writer model (lock korumalı).
+
+    FIX 2026-07-10 (T3, connection-leak): her metod `con = connect(); ...;
+    con.close()` yapıyordu — arada execute RAISE ederse close ATLANIYOR =
+    sızan DuckDB bağlantısı (canlı yolda mark_filled her fill'de; birikince
+    single-writer lock contention). `contextlib.closing` scope-çıkışında
+    (exception dahil) her zaman kapatır; success-path davranışı byte-aynı.
     """
 
     def __init__(self, db_path: Path | str | None = None) -> None:
@@ -43,23 +53,22 @@ class IdempotencyStore:
         self._init_db()
 
     def _init_db(self) -> None:
-        con = duckdb.connect(str(self._path))
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS order_fingerprints (
-                fingerprint VARCHAR PRIMARY KEY,
-                client_order_id VARCHAR NOT NULL,
-                symbol VARCHAR,
-                side VARCHAR,
-                created_at TIMESTAMP NOT NULL,
-                status VARCHAR NOT NULL,
-                exchange_order_id VARCHAR,
-                fill_price DOUBLE,
-                fill_qty DOUBLE,
-                notes VARCHAR
-            )
-        """)
-        con.commit()
-        con.close()
+        with closing(duckdb.connect(str(self._path))) as con:
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS order_fingerprints (
+                    fingerprint VARCHAR PRIMARY KEY,
+                    client_order_id VARCHAR NOT NULL,
+                    symbol VARCHAR,
+                    side VARCHAR,
+                    created_at TIMESTAMP NOT NULL,
+                    status VARCHAR NOT NULL,
+                    exchange_order_id VARCHAR,
+                    fill_price DOUBLE,
+                    fill_qty DOUBLE,
+                    notes VARCHAR
+                )
+            """)
+            con.commit()
 
     @staticmethod
     def make_client_id(fingerprint: str) -> str:
@@ -69,31 +78,36 @@ class IdempotencyStore:
 
     def is_seen(self, fingerprint: str) -> bool:
         """Bu parmak izi daha önce gönderildi mi?"""
-        with self._lock:
-            con = duckdb.connect(str(self._path))
+        with self._lock, closing(duckdb.connect(str(self._path))) as con:
             row = con.execute(
                 "SELECT 1 FROM order_fingerprints WHERE fingerprint = ?",
                 [fingerprint],
             ).fetchone()
-            con.close()
             return row is not None
 
     def get(self, fingerprint: str) -> dict | None:
         """Kayıtlı emir bilgisini döndür. Yoksa None."""
-        with self._lock:
-            con = duckdb.connect(str(self._path))
+        with self._lock, closing(duckdb.connect(str(self._path))) as con:
             row = con.execute(
                 """SELECT fingerprint, client_order_id, symbol, side,
                           created_at, status, exchange_order_id, fill_price, fill_qty
                    FROM order_fingerprints WHERE fingerprint = ?""",
                 [fingerprint],
             ).fetchone()
-            con.close()
         if row is None:
             return None
-        keys = ["fingerprint", "client_order_id", "symbol", "side",
-                "created_at", "status", "exchange_order_id", "fill_price", "fill_qty"]
-        return dict(zip(keys, row))
+        keys = [
+            "fingerprint",
+            "client_order_id",
+            "symbol",
+            "side",
+            "created_at",
+            "status",
+            "exchange_order_id",
+            "fill_price",
+            "fill_qty",
+        ]
+        return dict(zip(keys, row, strict=False))
 
     def mark_submitted(
         self,
@@ -103,17 +117,14 @@ class IdempotencyStore:
     ) -> str:
         """Yeni emir kaydını oluştur. Status='submitted'. client_order_id döndür."""
         client_id = self.make_client_id(fingerprint)
-        with self._lock:
-            con = duckdb.connect(str(self._path))
+        with self._lock, closing(duckdb.connect(str(self._path))) as con:
             con.execute(
                 """INSERT OR IGNORE INTO order_fingerprints
                    (fingerprint, client_order_id, symbol, side, created_at, status)
                    VALUES (?, ?, ?, ?, ?, 'submitted')""",
-                [fingerprint, client_id, symbol, side,
-                 datetime.now(timezone.utc)],
+                [fingerprint, client_id, symbol, side, datetime.now(UTC)],
             )
             con.commit()
-            con.close()
         return client_id
 
     def mark_filled(
@@ -124,8 +135,7 @@ class IdempotencyStore:
         fill_qty: float,
     ) -> None:
         """Fill alındı — kayıt güncelle."""
-        with self._lock:
-            con = duckdb.connect(str(self._path))
+        with self._lock, closing(duckdb.connect(str(self._path))) as con:
             con.execute(
                 """UPDATE order_fingerprints
                    SET status = 'filled',
@@ -136,12 +146,10 @@ class IdempotencyStore:
                 [exchange_order_id, fill_price, fill_qty, fingerprint],
             )
             con.commit()
-            con.close()
 
     def mark_rejected(self, fingerprint: str, reason: str) -> None:
         """Emir reddedildi."""
-        with self._lock:
-            con = duckdb.connect(str(self._path))
+        with self._lock, closing(duckdb.connect(str(self._path))) as con:
             con.execute(
                 """UPDATE order_fingerprints
                    SET status = 'rejected', notes = ?
@@ -149,16 +157,13 @@ class IdempotencyStore:
                 [reason[:200], fingerprint],
             )
             con.commit()
-            con.close()
 
     def count_submitted_today(self) -> int:
         """Bugün gönderilen toplam emir sayısı (monitoring)."""
-        with self._lock:
-            con = duckdb.connect(str(self._path))
+        with self._lock, closing(duckdb.connect(str(self._path))) as con:
             row = con.execute(
                 """SELECT COUNT(*) FROM order_fingerprints
                    WHERE created_at::DATE = CURRENT_DATE
                      AND status IN ('submitted', 'filled')"""
             ).fetchone()
-            con.close()
         return int(row[0]) if row else 0

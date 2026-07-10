@@ -106,10 +106,13 @@ def ct_ops_02_silent_cron(
 # ops_engineer'a triaj için düşer. Auto-verify: düzeltilince patern logdan
 # kaybolur → run_controls otomatik CLOSED yapar.
 # ----------------------------------------------------------------------
+# FIX 2026-07-10 (T5, izleme kör-noktası): eski liste v14.log + 5m.log +
+# v14.stderr tarıyordu — v14 (2 Tem emekli) ve 5m (30 Haz emekli) ÖLÜ loglar;
+# canlı bot v15p2. Günlük CT-OPS-03..07 error-pattern audit'i canlı botun
+# loglarını HİÇ görmüyordu → yeni kod/emir hataları sessizce kaçıyordu.
 _LOG_SCAN_FILES: tuple[str, ...] = (
-    "logs/futures_daemon_v14.log",
-    "logs/futures_daemon_5m.log",
-    "logs/launchd/futures_v14.stderr.log",
+    "logs/futures_daemon_v15p2.log",
+    "logs/launchd/futures_v15p2.stderr.log",
     "logs/launchd/ceo.stdout.log",
 )
 
