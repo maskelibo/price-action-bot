@@ -16,6 +16,7 @@ Helpers:
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from datetime import UTC, datetime
@@ -266,9 +267,11 @@ def realized_pnl_today_futures(journal_path: str | Path) -> float:
             WHERE ts::DATE = CURRENT_DATE
             """
         ).fetchone()
-        con.close()
     except Exception:
         return 0.0
+    finally:
+        with contextlib.suppress(Exception):
+            con.close()
     if not rows:
         return 0.0
     try:
@@ -283,10 +286,12 @@ def realized_pnl_today_futures(journal_path: str | Path) -> float:
                  - (SELECT wallet_balance FROM t ORDER BY ts ASC LIMIT 1)
             """
         ).fetchone()
-        con.close()
         return float(first_last[0]) if first_last and first_last[0] is not None else 0.0
     except Exception:
         return 0.0
+    finally:
+        with contextlib.suppress(Exception):
+            con.close()
 
 
 def realized_pnl_month_by_side_futures(
@@ -326,10 +331,12 @@ def realized_pnl_today_spot(journal_path: str | Path) -> float:
                  - (SELECT total_value_usdt FROM t ORDER BY ts ASC LIMIT 1)
             """
         ).fetchone()
-        con.close()
         return float(row[0]) if row and row[0] is not None else 0.0
     except Exception:
         return 0.0
+    finally:
+        with contextlib.suppress(Exception):
+            con.close()
 
 
 def count_consecutive_losses(
@@ -368,7 +375,6 @@ def count_consecutive_losses(
             WHERE table_name = 'futures_trades_closed'
         """).fetchone()
         if not tbl_exists or tbl_exists[0] == 0:
-            con.close()
             return 0
         rows = con.execute(
             f"""
@@ -378,9 +384,11 @@ def count_consecutive_losses(
             LIMIT {int(n_max)}
             """
         ).fetchall()
-        con.close()
     except Exception:
         return 0
+    finally:
+        with contextlib.suppress(Exception):
+            con.close()
 
     counter = 0
     for row in rows:

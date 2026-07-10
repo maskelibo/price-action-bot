@@ -339,24 +339,26 @@ def equity_snapshot():
         ex = get_futures_exchange()
         state = fetch_futures_state(ex)
         con = duckdb.connect(str(JOURNAL))
-        con.execute(
-            """
-            INSERT INTO futures_equity_snapshots VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                uuid.uuid4().hex[:16],
-                datetime.now(UTC),
-                state["wallet_balance"],
-                state["unrealized_pnl"],
-                state["margin_balance"],
-                state["available_balance"],
-                state["n_positions"],
-                state["n_open_orders"],
-                None,
-            ),
-        )
-        con.commit()
-        con.close()
+        try:
+            con.execute(
+                """
+                INSERT INTO futures_equity_snapshots VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    uuid.uuid4().hex[:16],
+                    datetime.now(UTC),
+                    state["wallet_balance"],
+                    state["unrealized_pnl"],
+                    state["margin_balance"],
+                    state["available_balance"],
+                    state["n_positions"],
+                    state["n_open_orders"],
+                    None,
+                ),
+            )
+            con.commit()
+        finally:
+            con.close()
         log(
             f"SNAPSHOT: wallet=${state['wallet_balance']:.2f}, "
             f"unrealized={state['unrealized_pnl']:+.2f}, "
@@ -715,13 +717,15 @@ def _update_journal_sl_order_id(sym_ccxt: str, side: str, new_sl_id) -> None:
         return
     try:
         _con = duckdb.connect(str(JOURNAL))
-        _con.execute(
-            "UPDATE futures_protection_orders SET sl_order_id=? "
-            "WHERE symbol=? AND LOWER(side)=LOWER(?) AND status='placed'",
-            [str(new_sl_id), sym_ccxt, side],
-        )
-        _con.commit()
-        _con.close()
+        try:
+            _con.execute(
+                "UPDATE futures_protection_orders SET sl_order_id=? "
+                "WHERE symbol=? AND LOWER(side)=LOWER(?) AND status='placed'",
+                [str(new_sl_id), sym_ccxt, side],
+            )
+            _con.commit()
+        finally:
+            _con.close()
     except Exception as _uje:
         log(f"  PROT_WATCHDOG_JOURNAL_ERR: {sym_ccxt} sl_order_id güncellenemedi: {str(_uje)[:80]}")
 
@@ -3115,31 +3119,33 @@ def run_15m_mode(once: bool = False) -> None:
                                 # bu kayıtlar olmadan tetiklenemiyordu (Signal Chief + Analyst convergence).
                                 try:
                                     _jcon = duckdb.connect(str(JOURNAL))
-                                    _jcon.execute(
-                                        """
-                                        INSERT INTO futures_signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                    """,
-                                        (
-                                            _sig_id,
-                                            sig.get("bar_close_ts") or sig.get("ts"),
-                                            sig["symbol"],
-                                            sig.get("strategy", ""),
-                                            sig["side"],
-                                            float(sig["sl_price"]),
-                                            float(sig["tp_price"]),
-                                            float(sig.get("confluence", 0.0)),
-                                            _lev,
-                                            "filled",
-                                            str(_order.get("id", "")),
-                                            _avg_px,
-                                            _fill_qty,
-                                            _notional,
-                                            _margin,
-                                            None,
-                                        ),
-                                    )
-                                    _jcon.commit()
-                                    _jcon.close()
+                                    try:
+                                        _jcon.execute(
+                                            """
+                                            INSERT INTO futures_signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        """,
+                                            (
+                                                _sig_id,
+                                                sig.get("bar_close_ts") or sig.get("ts"),
+                                                sig["symbol"],
+                                                sig.get("strategy", ""),
+                                                sig["side"],
+                                                float(sig["sl_price"]),
+                                                float(sig["tp_price"]),
+                                                float(sig.get("confluence", 0.0)),
+                                                _lev,
+                                                "filled",
+                                                str(_order.get("id", "")),
+                                                _avg_px,
+                                                _fill_qty,
+                                                _notional,
+                                                _margin,
+                                                None,
+                                            ),
+                                        )
+                                        _jcon.commit()
+                                    finally:
+                                        _jcon.close()
                                 except Exception as _je_sig:
                                     log(f"    15M_JOURNAL_SIG_ERR: {str(_je_sig)[:120]}")
 
@@ -3172,31 +3178,33 @@ def run_15m_mode(once: bool = False) -> None:
                                     # A2: futures_protection_orders INSERT (1d parity)
                                     try:
                                         _jcon = duckdb.connect(str(JOURNAL))
-                                        _prot_id = _uuid.uuid4().hex[:16]
-                                        _notes = None
-                                        if _prot.get("mode") == "multi_target":
-                                            _notes = f"mode=multi_target tp2={_prot.get('tp2_price',0):.4f} tp2_id={_prot.get('tp2_order_id','')}"
-                                        _jcon.execute(
-                                            """
-                                            INSERT INTO futures_protection_orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                        """,
-                                            (
-                                                _prot_id,
-                                                datetime.now(UTC),
-                                                _sig_id,
-                                                sig["symbol"],
-                                                sig["side"],
-                                                _fill_qty,
-                                                _prot["tp_price"],
-                                                _prot["sl_price"],
-                                                _prot.get("tp_order_id"),
-                                                _prot.get("sl_order_id"),
-                                                "placed",
-                                                _notes,
-                                            ),
-                                        )
-                                        _jcon.commit()
-                                        _jcon.close()
+                                        try:
+                                            _prot_id = _uuid.uuid4().hex[:16]
+                                            _notes = None
+                                            if _prot.get("mode") == "multi_target":
+                                                _notes = f"mode=multi_target tp2={_prot.get('tp2_price',0):.4f} tp2_id={_prot.get('tp2_order_id','')}"
+                                            _jcon.execute(
+                                                """
+                                                INSERT INTO futures_protection_orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            """,
+                                                (
+                                                    _prot_id,
+                                                    datetime.now(UTC),
+                                                    _sig_id,
+                                                    sig["symbol"],
+                                                    sig["side"],
+                                                    _fill_qty,
+                                                    _prot["tp_price"],
+                                                    _prot["sl_price"],
+                                                    _prot.get("tp_order_id"),
+                                                    _prot.get("sl_order_id"),
+                                                    "placed",
+                                                    _notes,
+                                                ),
+                                            )
+                                            _jcon.commit()
+                                        finally:
+                                            _jcon.close()
                                     except Exception as _je_prot:
                                         log(f"    15M_JOURNAL_PROT_ERR: {str(_je_prot)[:120]}")
                                 else:
@@ -4039,32 +4047,34 @@ def _write_5m_journal_trade_close(outcome: dict) -> None:
             return
 
         con = duckdb.connect(str(journal_path))
-        con.execute(
-            """
-            INSERT INTO futures_trades_closed
-            (trade_id, ts_open, ts_close, sym, side, strategy,
-             entry_price, exit_price, qty, realized_pnl_usdt, realized_r,
-             win, close_reason)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                str(uuid.uuid4()),
-                outcome.get("entry_ts", ""),
-                outcome["close_ts"],
-                outcome["symbol"],
-                outcome["side"],
-                outcome.get("strategy", "?"),
-                outcome["entry_price"],
-                outcome["close_price"],
-                0.0,  # qty placeholder (Faz 5.3.2 real submit'ta)
-                outcome["pnl_usdt"],
-                outcome["r_multiple"],
-                outcome["pnl_usdt"] > 0,
-                outcome["reason"],
-            ),
-        )
-        con.commit()
-        con.close()
+        try:
+            con.execute(
+                """
+                INSERT INTO futures_trades_closed
+                (trade_id, ts_open, ts_close, sym, side, strategy,
+                 entry_price, exit_price, qty, realized_pnl_usdt, realized_r,
+                 win, close_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    str(uuid.uuid4()),
+                    outcome.get("entry_ts", ""),
+                    outcome["close_ts"],
+                    outcome["symbol"],
+                    outcome["side"],
+                    outcome.get("strategy", "?"),
+                    outcome["entry_price"],
+                    outcome["close_price"],
+                    0.0,  # qty placeholder (Faz 5.3.2 real submit'ta)
+                    outcome["pnl_usdt"],
+                    outcome["r_multiple"],
+                    outcome["pnl_usdt"] > 0,
+                    outcome["reason"],
+                ),
+            )
+            con.commit()
+        finally:
+            con.close()
     except Exception as e:
         _log_5m(f"  5M_JOURNAL_CLOSE_ERR: {e}")
 
@@ -4085,34 +4095,36 @@ def _write_5m_journal_signal(sig: dict, decision: dict) -> None:
             return
 
         con = duckdb.connect(str(journal_path))
-        signal_id = str(uuid.uuid4())
-        bar_close = sig.get("bar_close_ts") or sig.get("ts")
-        if hasattr(bar_close, "to_pydatetime"):
-            bar_close = bar_close.to_pydatetime()
+        try:
+            signal_id = str(uuid.uuid4())
+            bar_close = sig.get("bar_close_ts") or sig.get("ts")
+            if hasattr(bar_close, "to_pydatetime"):
+                bar_close = bar_close.to_pydatetime()
 
-        con.execute(
-            """
-            INSERT INTO futures_signals
-            (signal_id, ts, symbol, strategy, side, sl_price, tp_price,
-             confluence, leverage, status, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                signal_id,
-                bar_close,
-                sig.get("symbol", "?"),
-                sig.get("strategy", "?"),
-                sig.get("side", "?"),
-                float(sig.get("sl_price", 0)),
-                float(sig.get("tp_price", 0)),
-                float(sig.get("confluence", 0)),
-                1,  # leverage placeholder
-                "ACCEPTED_PAPER",
-                f"tier={decision.get('tier', '?')} risk_pct={decision.get('risk_pct', 0):.4f} risk_usdt={decision.get('risk_usdt', 0):.2f} vol_z={sig.get('vol_z', 0):+.2f}",
-            ),
-        )
-        con.commit()
-        con.close()
+            con.execute(
+                """
+                INSERT INTO futures_signals
+                (signal_id, ts, symbol, strategy, side, sl_price, tp_price,
+                 confluence, leverage, status, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    signal_id,
+                    bar_close,
+                    sig.get("symbol", "?"),
+                    sig.get("strategy", "?"),
+                    sig.get("side", "?"),
+                    float(sig.get("sl_price", 0)),
+                    float(sig.get("tp_price", 0)),
+                    float(sig.get("confluence", 0)),
+                    1,  # leverage placeholder
+                    "ACCEPTED_PAPER",
+                    f"tier={decision.get('tier', '?')} risk_pct={decision.get('risk_pct', 0):.4f} risk_usdt={decision.get('risk_usdt', 0):.2f} vol_z={sig.get('vol_z', 0):+.2f}",
+                ),
+            )
+            con.commit()
+        finally:
+            con.close()
         _log_5m(f"  5M_JOURNAL_WRITE: {signal_id[:8]} → futures_journal_5m.duckdb")
     except Exception as e:
         _log_5m(f"  5M_JOURNAL_ERR: {e}")

@@ -124,18 +124,20 @@ class DeadMansSwitch:
 
     def _init_db(self) -> None:
         con = duckdb.connect(str(self._path))
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS heartbeat_log (
-                hb_id VARCHAR PRIMARY KEY,
-                service VARCHAR,
-                ts TIMESTAMP,
-                equity_usdt DOUBLE,
-                n_open_positions INTEGER,
-                status VARCHAR
-            )
-        """)
-        con.commit()
-        con.close()
+        try:
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS heartbeat_log (
+                    hb_id VARCHAR PRIMARY KEY,
+                    service VARCHAR,
+                    ts TIMESTAMP,
+                    equity_usdt DOUBLE,
+                    n_open_positions INTEGER,
+                    status VARCHAR
+                )
+            """)
+            con.commit()
+        finally:
+            con.close()
 
     # ----- public API -----
 
@@ -405,10 +407,12 @@ class DeadMansSwitch:
                 ],
             )
             con.commit()
-            con.close()
         except Exception as e:
             # log-only: heartbeat-state DB persist best-effort, akış değişmez
             self._log(f"DMS_STATE_DB_PERSIST_FAIL: {e}")
+        finally:
+            with contextlib.suppress(Exception):
+                con.close()
 
     def _write_kill_switch(self) -> None:
         KILL_SWITCH_PATH.parent.mkdir(parents=True, exist_ok=True)

@@ -22,9 +22,9 @@ Lookahead-free garantisi:
     (UTC: 1d bar 00:00 UTC kapanir; son 4h bar 20:00 UTC onceki gundur)
   - 4h verisi, 1d ts anina gore filtrelenir: df_4h[ts < 1d_bar_ts]
 """
-from __future__ import annotations
+# ruff: noqa: F841, N806  (pre-existing; 2026-07-10 batch-D dokunuşunda yüzeye çıktı — davranış-nötr)
 
-from typing import Any
+from __future__ import annotations
 
 import numpy as np
 import pandas as pd
@@ -35,26 +35,24 @@ from price_action.strategies.base import Strategy, StrategyManifest
 
 # Paylasilmis yardimcilar
 from price_action.strategies.classic_pa import (
+    _always_in_flags,
     _atr,
     _ema,
     _fractal_swings,
     _kaufman_efficiency_ratio,
-    _always_in_flags,
     _rolling_sharpe,
     _sr_levels,
 )
 from price_action.strategies.engulfing_continuation import (
-    EngulfingContinuationStrategy,
     _pullback_to_ema_flag,
     _strict_engulfing,
     _swing_sl,
-    _default_manifest as _engulf_default_manifest,
 )
-
 
 # =====================================================================
 # 4h always-in detection (lookahead-free)
 # =====================================================================
+
 
 def detect_4h_always_in(
     df_4h: pd.DataFrame,
@@ -107,23 +105,19 @@ def detect_4h_always_in(
 
     if direction == "long":
         # Long teyit: n_confirm bar yukari kapanmis VE son bar peak'e yakin
-        is_confirm = (
-            bullish_closes >= n_confirm
-            and (peak_close <= 0 or last_close >= strong_close_pct * peak_close)
+        is_confirm = bullish_closes >= n_confirm and (
+            peak_close <= 0 or last_close >= strong_close_pct * peak_close
         )
         # Karsi: n_confirm bar asagi kapanmis VE son bar trough'a yakin
-        is_against = (
-            bearish_closes >= n_confirm
-            and (trough_close >= 0 and last_close <= (1 + (1 - strong_close_pct)) * trough_close)
+        is_against = bearish_closes >= n_confirm and (
+            trough_close >= 0 and last_close <= (1 + (1 - strong_close_pct)) * trough_close
         )
     else:  # direction == 'short'
-        is_confirm = (
-            bearish_closes >= n_confirm
-            and (trough_close >= 0 and last_close <= (1 + (1 - strong_close_pct)) * trough_close)
+        is_confirm = bearish_closes >= n_confirm and (
+            trough_close >= 0 and last_close <= (1 + (1 - strong_close_pct)) * trough_close
         )
-        is_against = (
-            bullish_closes >= n_confirm
-            and (peak_close <= 0 or last_close >= strong_close_pct * peak_close)
+        is_against = bullish_closes >= n_confirm and (
+            peak_close <= 0 or last_close >= strong_close_pct * peak_close
         )
 
     if is_confirm and not is_against:
@@ -137,21 +131,28 @@ def detect_4h_always_in(
 # 4h features (once per symbol, not per bar)
 # =====================================================================
 
+
 def _load_4h_data(symbol: str, venue: str = "binance") -> pd.DataFrame | None:
     """DuckDB'den 4h veri yukle. Yoksa None doner."""
     try:
-        import duckdb
         from pathlib import Path
-        db_path = Path(__file__).resolve().parents[3] / "data" / "market.duckdb"  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı, 4h MTF sessizce ölüydü)
+
+        import duckdb
+
+        db_path = (
+            Path(__file__).resolve().parents[3] / "data" / "market.duckdb"
+        )  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı, 4h MTF sessizce ölüydü)
         if not db_path.exists():
             return None
         con = duckdb.connect(str(db_path), read_only=True)
-        df = con.execute(
-            "SELECT ts, open, high, low, close, volume FROM ohlcv "
-            "WHERE venue=? AND symbol=? AND timeframe='4h' ORDER BY ts",
-            [venue, symbol],
-        ).fetchdf()
-        con.close()
+        try:
+            df = con.execute(
+                "SELECT ts, open, high, low, close, volume FROM ohlcv "
+                "WHERE venue=? AND symbol=? AND timeframe='4h' ORDER BY ts",
+                [venue, symbol],
+            ).fetchdf()
+        finally:
+            con.close()
         if df.empty:
             return None
         df["ts"] = pd.to_datetime(df["ts"], utc=True)
@@ -167,6 +168,7 @@ def _load_4h_data(symbol: str, venue: str = "binance") -> pd.DataFrame | None:
 # =====================================================================
 # Default manifest (engulfing_continuation uzantisi)
 # =====================================================================
+
 
 def _default_manifest() -> StrategyManifest:
     raw = {
@@ -238,6 +240,7 @@ def _default_manifest() -> StrategyManifest:
 # =====================================================================
 # Strategy implementation
 # =====================================================================
+
 
 class EngulfingMTFStrategy(Strategy):
     """Engulfing 1d + 4h Brooks always-in confluence.
@@ -323,8 +326,12 @@ class EngulfingMTFStrategy(Strategy):
             if p.id in ("bullish_engulfing_cont", "bearish_engulfing_cont"):
                 body_ratio_min = float(p.params.get("body_ratio_min", 0.6))
                 break
-        df["strict_bull_engulf"] = _strict_engulfing(df, body_ratio_min=body_ratio_min, bullish=True)
-        df["strict_bear_engulf"] = _strict_engulfing(df, body_ratio_min=body_ratio_min, bullish=False)
+        df["strict_bull_engulf"] = _strict_engulfing(
+            df, body_ratio_min=body_ratio_min, bullish=True
+        )
+        df["strict_bear_engulf"] = _strict_engulfing(
+            df, body_ratio_min=body_ratio_min, bullish=False
+        )
 
         # Structural SL
         df["struct_sl_long"] = _swing_sl(df, "long", lookback=10)
@@ -369,9 +376,7 @@ class EngulfingMTFStrategy(Strategy):
         h4_confirm_boost = float(getattr(filters, "h4_confirm_boost", 1.3) or 1.3)
         h4_reject_against = bool(getattr(filters, "h4_reject_against", True))
 
-        primary_R = float(
-            self.manifest.risk.get("take_profit", {}).get("primary_R", 2.0)
-        )
+        primary_R = float(self.manifest.risk.get("take_profit", {}).get("primary_R", 2.0))
 
         venue = str(df["venue"].iloc[0]) if "venue" in df.columns else "binance"
         symbol = str(df["symbol"].iloc[0]) if "symbol" in df.columns else "UNKNOWN"
