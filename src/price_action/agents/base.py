@@ -92,8 +92,10 @@ def _circuit_save_state() -> None:
         tmp = _CIRCUIT_STATE_FILE.with_suffix(".json.tmp")
         tmp.write_text(_json.dumps(snapshot), encoding="utf-8")
         tmp.replace(_CIRCUIT_STATE_FILE)
-    except Exception:
-        pass
+    except Exception as _cs_err:
+        # log-only: persist fail → restart'ta circuit state kaybolur (breaker
+        # unutulur) — artık görünür.
+        logger.warning("circuit.state_persist_fail", extra={"err": str(_cs_err)[:120]})
 
 
 def _circuit_load_state() -> None:
@@ -554,8 +556,12 @@ class LLMAgentBase(abc.ABC):  # noqa: B024 — bilinçli: abstract metotsuz orta
             with open(_audit_path, "a", encoding="utf-8") as _af:
                 _af.write(_json.dumps(_audit_record) + "\n")
                 _af.flush()
-        except Exception:  # pragma: no cover — audit fail trade'i durdurmamalı
-            pass
+        except Exception as _au_err:  # pragma: no cover — audit fail trade'i durdurmamalı
+            # log-only: token muhasebesi deliği (W5) artık görünür.
+            logger.warning(
+                "llm.audit_jsonl_write_fail",
+                extra={"agent": self.name, "err": str(_au_err)[:120]},
+            )
 
         # Episodic kayıt (özet)
         self.record_episodic(

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -109,8 +109,9 @@ def close_pool_for_path(path: str) -> None:
     for con in conns:
         try:
             con.close()
-        except Exception:  # pragma: no cover
-            pass
+        except Exception as _cl_err:  # pragma: no cover
+            # log-only: pooled close fail → olası writer-lock leak artık görünür
+            logger.warning("store.pool_close_fail", extra={"path": path, "err": str(_cl_err)[:120]})
 
 
 def _get_pooled_connection(
@@ -187,10 +188,8 @@ def reset_store_pool() -> None:
     with _POOL_GUARD:
         for conns in list(_CONN_POOL.values()):
             for con in conns:
-                try:
+                with suppress(Exception):  # pragma: no cover
                     con.close()
-                except Exception:  # pragma: no cover
-                    pass
         _CONN_POOL.clear()
         _CONN_LOCKS.clear()
         _POOL_RR_INDEX.clear()
@@ -220,11 +219,9 @@ def exec_with_checkpoint(
         con.execute(sql)
     else:
         con.execute(sql, params)
-    try:
+    # Read-only mode veya tx open ise CHECKPOINT fail eder — kabul (benign)
+    with suppress(Exception):
         con.execute("CHECKPOINT")
-    except Exception:
-        # Read-only mode veya tx open ise CHECKPOINT fail eder — kabul
-        pass
 
 
 OHLCV_COLUMNS: tuple[str, ...] = (

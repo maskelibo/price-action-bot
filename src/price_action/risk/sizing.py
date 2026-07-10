@@ -443,13 +443,21 @@ class RiskOfficer:
                         equity,
                         float(_json.loads(state_path.read_text()).get("peak", equity)),
                     )
-            except Exception:
+            except Exception as _pk_err:
+                # log-only (W8): bozuk state sessizce resetleniyordu → throttle
+                # fiilen sıfırlanır; artık görünür. Davranış aynı.
+                logger.warning(
+                    f"DD_THROTTLE state corrupt ({state_path}): {str(_pk_err)[:80]}"
+                    " — peak=equity reset"
+                )
                 peak = equity  # bozuk state → equity'den yeniden başla
             try:
                 state_path.parent.mkdir(parents=True, exist_ok=True)
                 state_path.write_text(_json.dumps({"peak": peak}))
-            except Exception:
-                pass  # persist edilemezse in-memory davranışla devam
+            except Exception as _pw_err:
+                # log-only: persist fail → restart'ta peak kaybolur (throttle geç
+                # devreye girer); artık görünür. Davranış aynı.
+                logger.warning(f"DD_THROTTLE peak persist fail ({state_path}): {str(_pw_err)[:80]}")
             dd = (peak - equity) / peak if peak > 0 else 0.0
             if dd >= dd_threshold:
                 logger.info(

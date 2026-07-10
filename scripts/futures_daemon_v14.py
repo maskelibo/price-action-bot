@@ -82,8 +82,10 @@ try:
     from dotenv import load_dotenv as _load_dotenv
 
     _load_dotenv(ROOT / ".env", override=False)
-except Exception:
-    pass
+except Exception as _de_err:
+    # log-only: .env yüklenemezse daemon anahtar/telegram'sız başlar — görünür olsun
+    # (_vlog henüz tanımsız; launchd stderr'i yakalar)
+    sys.stderr.write(f"[V14] dotenv load FAIL: {_de_err}\n")
 
 _LOG_TAG = "v15p2" if _EXPECT_P3 == "v15p2" else "v14"
 LOG_FILE = ROOT / "logs" / f"futures_daemon_{_LOG_TAG}.log"

@@ -11,17 +11,19 @@ otomatik Telegram'a push edilir. Faz 1.2 path unification — eski
 
 SIGINT/SIGTERM yakalanır → graceful shutdown.
 """
+
 from __future__ import annotations
 
 import asyncio
 import os
 import signal
+from datetime import UTC
 from typing import Any
 
 import typer
 
 from price_action.logging_config import logger
-from price_action.settings import ensure_dirs, get_settings
+from price_action.settings import ensure_dirs
 
 from .scheduler import build_scheduler, register_jobs
 
@@ -58,9 +60,10 @@ async def _canary_check(scheduler: Any) -> None:
     """
     await asyncio.sleep(300)  # 5 dk bekle (2 dk → 5 dk)
     try:
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
         from pathlib import Path
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=300)
+
+        cutoff = datetime.now(UTC) - timedelta(seconds=300)
         jobs = scheduler.get_jobs()
         log_path = Path("logs/app.log")
         recent_jobs_fired = 0
@@ -70,6 +73,7 @@ async def _canary_check(scheduler: Any) -> None:
                 with log_path.open("r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()[-1500:]  # 500 → 1500 (5 dk fazla satır)
                 import re as _re
+
                 for line in lines:
                     if "scheduler." not in line and "ceo_loop" not in line:
                         continue
@@ -77,7 +81,7 @@ async def _canary_check(scheduler: Any) -> None:
                     if not m:
                         continue
                     try:
-                        ts = datetime.fromisoformat(m.group(1)).replace(tzinfo=timezone.utc)
+                        ts = datetime.fromisoformat(m.group(1)).replace(tzinfo=UTC)
                         if ts >= cutoff:
                             if "jobs_registered" in line:
                                 register_jobs_seen = True
@@ -85,13 +89,12 @@ async def _canary_check(scheduler: Any) -> None:
                                 recent_jobs_fired += 1
                     except Exception:
                         continue
-            except Exception:
-                pass
+            except Exception as _hb_err:
+                # log-only: heartbeat log okunamadı → liveness tespiti eksik
+                # veriyle devam eder — artık görünür.
+                logger.warning("ceo.heartbeat_log_read_fail", extra={"err": str(_hb_err)[:120]})
         # CANLI sayma: gerçek job tetik VEYA jobs_registered + non-empty jobs
-        is_alive = (
-            recent_jobs_fired > 0
-            or (register_jobs_seen and len(jobs) > 0)
-        )
+        is_alive = recent_jobs_fired > 0 or (register_jobs_seen and len(jobs) > 0)
         if not is_alive:
             # FIX 2026-05-27 06:32 TR (Faz 14.18): Telegram push KALDIRILDI.
             # Canary heuristic 3 false-positive verdi (Faz 14.7 + 14.17).
@@ -132,7 +135,9 @@ async def _run_daemon() -> None:
         extra={"telegram_push": os.environ.get("PA_CEO_PUSH_TELEGRAM", "false")},
     )
     # FIX 2026-05-26: canary background task — felç tespiti
-    asyncio.create_task(_canary_check(scheduler))
+    # RUF006 fix 2026-07-10: referanssız task GC'ye gidebilir (canary sessizce
+    # ölür) — loop ömrü boyunca referans sakla. Davranış aynı.
+    _canary_task = asyncio.create_task(_canary_check(scheduler))  # noqa: RUF006 (referans loop-ömrü saklanıyor)
     stop = asyncio.Event()
 
     def _signal(*_a: Any) -> None:
@@ -195,9 +200,7 @@ def _push_if_enabled(path: Any, *, caption: str | None = None) -> None:
 
 @app.command()
 def run(
-    mode: str = typer.Option(
-        "daily", help="daily | weekly | once", case_sensitive=False
-    ),
+    mode: str = typer.Option("daily", help="daily | weekly | once", case_sensitive=False),
     telegram: bool = typer.Option(
         False,
         "--telegram/--no-telegram",

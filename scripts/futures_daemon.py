@@ -2564,8 +2564,8 @@ def run_15m_mode(once: bool = False) -> None:
                         if _metrics_ok:
                             try:
                                 missed_bars_total.labels(tf="15m").inc(bars_elapsed - 1)
-                            except Exception:
-                                pass
+                            except Exception as _m_err:
+                                log(f"METRIC_EMIT_ERR: {str(_m_err)[:80]}")  # log-only
                 last_bar_boundary = current_boundary
 
                 scan_start = datetime.now(UTC)
@@ -2580,8 +2580,8 @@ def run_15m_mode(once: bool = False) -> None:
                 if _metrics_ok:
                     try:
                         scan_latency_seconds.labels(tf="15m").observe(scan_elapsed)
-                    except Exception:
-                        pass
+                    except Exception as _m_err:
+                        log(f"METRIC_EMIT_ERR: {str(_m_err)[:80]}")  # log-only
 
                 # ------ SIGNAL FILTER + ORDER SUBMIT (P-04 fix) ------
                 # futures_trade_15m.run_15m() tüm filtre + RiskOfficer + submit döngüsünü
@@ -3298,8 +3298,8 @@ def run_15m_mode(once: bool = False) -> None:
                     if _metrics_ok:
                         try:
                             signal_to_order_latency_seconds.observe(order_elapsed)
-                        except Exception:
-                            pass
+                        except Exception as _m_err:
+                            log(f"METRIC_EMIT_ERR: {str(_m_err)[:80]}")  # log-only
 
                 # ------ POSITION MONITOR (pyramid hook + P-05 TP/SL pop) ------
                 pos_monitor_start = datetime.now(UTC)
@@ -3464,8 +3464,8 @@ def run_15m_mode(once: bool = False) -> None:
         if dms_15m is not None:
             try:
                 dms_15m.stop()
-            except Exception:
-                pass
+            except Exception as _ds_err:
+                log(f"15M_DMS_STOP_ERR: {str(_ds_err)[:120]}")  # log-only
 
 
 def signal_scan_if_new_day():
@@ -3584,8 +3584,8 @@ def main_loop():
         if _dms is not None:
             try:
                 _dms.stop()
-            except Exception:
-                pass
+            except Exception as _ds_err:
+                log(f"DMS_STOP_ERR: {str(_ds_err)[:120]}")  # log-only
 
 
 # =============================================================================

@@ -1121,8 +1121,10 @@ async def _job_event_bus_dispatch() -> None:
 
         try:
             dedup_path.write_text(__import__("json").dumps(already))
-        except Exception:
-            pass
+        except Exception as _dd_err:
+            # log-only: dedup-state yazılamazsa sonraki koşuda aynı bulgular
+            # yeniden dispatch edilir (spam) — artık görünür.
+            logger.warning("scheduler.dedup_state_write_fail", extra={"err": str(_dd_err)[:120]})
 
         if n_dispatched > 0:
             logger.info("scheduler.event_bus_done", extra={"extra": {"n_dispatched": n_dispatched}})

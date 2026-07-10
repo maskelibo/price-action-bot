@@ -95,8 +95,13 @@ class AuditChiefAgent(AuditAgentBase):
                 due = datetime.fromisoformat(str(r.get("due_at", "")).replace("Z", "+00:00"))
                 if now > due:
                     overdue.append(r)
-            except Exception:
-                pass
+            except Exception as _du_err:
+                # log-only: due_at parse fail → bulgu overdue listesinden sessizce
+                # düşerdi (SLA ihlali görünmez olurdu) — artık görünür.
+                logger.warning(
+                    "audit_chief.due_at_parse_fail",
+                    extra={"finding": str(r.get("finding_id", "?")), "err": str(_du_err)[:80]},
+                )
         recurring = [r for r in latest.values() if int(r.get("recurrence_count", 0) or 0) > 0]
         by_sev: dict[str, int] = {}
         for r in open_f:
@@ -185,11 +190,14 @@ class AuditChiefAgent(AuditAgentBase):
             f"  - {d}: {s['covered']}/{s['total']} süreç kontrol-testli"
             for d, s in sorted(cov["by_domain"].items())
         )
-        open_lines = "\n".join(
-            f"  - [{r.get('severity', '?').upper()}] {r.get('finding_id')} "
-            f"({r.get('control_id')}, owner={r.get('owner')}, status={r.get('status')})"
-            for r in open_rows[:20]
-        ) or "  - (açık bulgu yok)"
+        open_lines = (
+            "\n".join(
+                f"  - [{r.get('severity', '?').upper()}] {r.get('finding_id')} "
+                f"({r.get('control_id')}, owner={r.get('owner')}, status={r.get('status')})"
+                for r in open_rows[:20]
+            )
+            or "  - (açık bulgu yok)"
+        )
 
         body = (
             "# İç Denetim — Dashboard\n\n"
@@ -248,8 +256,10 @@ class AuditChiefAgent(AuditAgentBase):
                 emitted = await cls().daily_control_review()
                 results[label] = len(emitted)
             except Exception as exc:
-                logger.warning("audit_chief.full_audit_domain_fail",
-                               extra={"label": label, "err": str(exc)[:160]})
+                logger.warning(
+                    "audit_chief.full_audit_domain_fail",
+                    extra={"label": label, "err": str(exc)[:160]},
+                )
                 results[label] = -1
         # kapsama açığı bulguları (sahip/denetçi yok)
         try:

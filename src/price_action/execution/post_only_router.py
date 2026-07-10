@@ -21,9 +21,12 @@ CRITICAL:
 
 from __future__ import annotations
 
+import logging as _logging
 import time
 from datetime import UTC
 from typing import Any
+
+_MOD_LOG = _logging.getLogger(__name__)
 
 
 class SlippageExceededError(Exception):
@@ -172,8 +175,13 @@ def place_post_only_with_fallback(
             params=post_only_params,
         )
         order_id = str(order.get("id", ""))
-    except Exception:
+    except Exception as _po_err:
         # Post-only reddedildi (market'i cross ediyor olabilir). Direk market fallback.
+        # log-only (W2-MED): taker'a düşüş artık görünür (maker-oranı teşhisi için).
+        _MOD_LOG.warning(
+            "post_only_router.phase1_reject",
+            extra={"symbol": symbol, "err": str(_po_err)[:160]},
+        )
         order = None
         order_id = None
 
@@ -192,7 +200,13 @@ def place_post_only_with_fallback(
             try:
                 final = exchange.fetch_order(order_id, symbol)
                 return final, "post_only_filled"
-            except Exception:
+            except Exception as _ff_err:
+                # log-only: kesin-detay fetch fail → bayat order objesi döner
+                # (eski davranış); artık görünür.
+                _MOD_LOG.warning(
+                    "post_only_router.final_fetch_fail_stale_order",
+                    extra={"symbol": symbol, "order_id": order_id, "err": str(_ff_err)[:120]},
+                )
                 return order or {}, "post_only_filled"
 
         # Timeout -> cancel (FIX 2026-05-28 (Faz 14.27 C3-1) — atomic guard)
@@ -225,8 +239,13 @@ def place_post_only_with_fallback(
                 return verify, "post_only_filled_late"
             # CRIT-1 fix: iptal edilen limitin dolan kısmı fallback'ten düşülür
             partial_filled = float(verify.get("filled") or 0.0)
-        except Exception:
-            pass  # Verify fail → market fallback'a güven, ama log
+        except Exception as _vf_err:
+            # log-only: verify fail → partial_filled=0 varsayımıyla devam (eski
+            # davranış — kısmi dolum varsa fallback tam-qty atar); artık görünür.
+            _MOD_LOG.warning(
+                "post_only_router.verify_fail",
+                extra={"symbol": symbol, "order_id": order_id, "err": str(_vf_err)[:120]},
+            )
 
         if not cancel_ok:
             # Cancel fail + verify de fail → BELİRSİZ STATE. Market YAPMA, alarm.
@@ -252,8 +271,13 @@ def place_post_only_with_fallback(
         fb_qty = max(qty - partial_filled, 0.0)
         try:
             fb_qty = float(exchange.amount_to_precision(symbol, fb_qty))
-        except Exception:
-            pass
+        except Exception as _pr_err:
+            # log-only: precision fail → yuvarlanmamış qty ile devam (borsa
+            # -1111 ile reddederse zaten görünür); artık teşhis edilebilir.
+            _MOD_LOG.warning(
+                "post_only_router.fb_qty_precision_fail",
+                extra={"symbol": symbol, "fb_qty": fb_qty, "err": str(_pr_err)[:120]},
+            )
         if fb_qty <= 0 or (partial_filled / max(qty, 1e-12)) >= 0.999:
             # Fiilen tamamı dolmuş — partial'ı geç-fill olarak dön, market YAPMA.
             return verify, "post_only_filled_late"
@@ -287,8 +311,13 @@ def place_post_only_with_fallback(
             fill_px = float(_mk_fresh.get("average") or 0.0)
             if float(_mk_fresh.get("filled") or 0.0) > 0:
                 market_order = _mk_fresh
-        except Exception:
-            pass
+        except Exception as _fr_err:
+            # log-only (HIGH-7 tazeleme adımı): refresh fail → fill_px price/
+            # target fallback'ına düşer (eski davranış); artık görünür.
+            _MOD_LOG.warning(
+                "post_only_router.fill_refresh_fail",
+                extra={"symbol": symbol, "err": str(_fr_err)[:120]},
+            )
     if fill_px <= 0:
         fill_px = float(market_order.get("price") or target_price)
     slip_bps = _compute_slippage_bps(side, target_price, fill_px)
@@ -367,8 +396,13 @@ def place_post_only_with_fallback(
                         )
                         + "\n"
                     )
-            except Exception:
-                pass
+            except Exception as _oj_err:
+                # log-only: ORPHAN devir-dosyası (reconciler okur) yazılamadı —
+                # sessiz kalırsa orphan takipsiz kalırdı; artık görünür.
+                _MOD_LOG.error(
+                    "post_only_router.orphan_jsonl_write_fail",
+                    extra={"symbol": symbol, "err": str(_oj_err)[:120]},
+                )
 
         raise SlippageExceededError(slip_bps, slippage_limit_bps, symbol=symbol)
 
@@ -383,7 +417,12 @@ def place_post_only_with_fallback(
             market_order["filled"] = total_fill
             market_order["average"] = w_avg
             market_order["partial_limit_qty"] = partial_filled
-        except Exception:
-            pass
+        except Exception as _bl_err:
+            # log-only: blend fail → yalnız market bacağı raporlanır (limit
+            # bacağı koruma-boyutundan düşer — CRIT-1 sınıfı); artık görünür.
+            _MOD_LOG.error(
+                "post_only_router.partial_blend_fail",
+                extra={"symbol": symbol, "partial": partial_filled, "err": str(_bl_err)[:120]},
+            )
 
     return market_order, "market_fallback"

@@ -23,16 +23,16 @@ Slippage:
     - >25 bps → zaten broker'da iptal; burada tekrar log
     - Günlük özet: daily_summary() çağrısı daemon loop sonunda
 """
+
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
+from price_action.contracts import Signal
 from price_action.execution.idempotency import IdempotencyStore
 from price_action.execution.slippage_tracker import SlippageTracker
-from price_action.contracts import Position, Signal
-
 
 # Singleton'lar (daemon başına bir instance)
 _idem_store: IdempotencyStore | None = None
@@ -78,6 +78,7 @@ def route_signal(
 
     # 1) Signal fingerprint — idempotency kontrolü
     from scripts.lib.risk_integration import build_signal_from_scan
+
     try:
         signal_obj: Signal = build_signal_from_scan(signal_dict, venue="binance")
     except Exception as e:
@@ -103,17 +104,19 @@ def route_signal(
         except Exception as e:
             return {"status": "error", "symbol": sym, "reason": f"ticker_fail: {e}"}
 
-        decision_tmp = risk_officer.evaluate(signal_obj, account,
-                                             market_price=cur_px, returns_df=returns_df)
-        if hasattr(decision_tmp, "notional_usdt"):
-            if float(decision_tmp.notional_usdt) > capital_cap_usdt:
-                idem.mark_rejected(fingerprint, reason="capital_cap_exceeded")
-                return {
-                    "status": "cap_exceeded",
-                    "symbol": sym,
-                    "notional": float(decision_tmp.notional_usdt),
-                    "cap": capital_cap_usdt,
-                }
+        decision_tmp = risk_officer.evaluate(
+            signal_obj, account, market_price=cur_px, returns_df=returns_df
+        )
+        if hasattr(decision_tmp, "notional_usdt") and (
+            float(decision_tmp.notional_usdt) > capital_cap_usdt
+        ):
+            idem.mark_rejected(fingerprint, reason="capital_cap_exceeded")
+            return {
+                "status": "cap_exceeded",
+                "symbol": sym,
+                "notional": float(decision_tmp.notional_usdt),
+                "cap": capital_cap_usdt,
+            }
 
     # 4) Ticker (varsa zaten fetch edildi)
     try:
@@ -123,8 +126,9 @@ def route_signal(
         return {"status": "error", "symbol": sym, "reason": f"ticker_fail: {e}"}
 
     # 5) RiskOfficer
-    decision = risk_officer.evaluate(signal_obj, account,
-                                     market_price=ref_price, returns_df=returns_df)
+    decision = risk_officer.evaluate(
+        signal_obj, account, market_price=ref_price, returns_df=returns_df
+    )
     if not hasattr(decision, "quantity"):
         reject_reason = getattr(decision, "reason", "unknown")
         idem.mark_rejected(fingerprint, reason=reject_reason)
@@ -140,8 +144,13 @@ def route_signal(
     avail = float(getattr(account, "free_margin_usdt", 0))
     if margin > avail * 0.9:
         idem.mark_rejected(fingerprint, reason="broker_margin")
-        return {"status": "rejected", "symbol": sym, "reason": "broker_margin",
-                "need": margin, "have": avail}
+        return {
+            "status": "rejected",
+            "symbol": sym,
+            "reason": "broker_margin",
+            "need": margin,
+            "have": avail,
+        }
 
     # 7) Idempotency mark + client_order_id oluştur
     client_order_id = idem.mark_submitted(fingerprint, symbol=sym, side=side)
@@ -151,7 +160,11 @@ def route_signal(
         exchange.set_leverage(leverage_used, sym)
     except Exception as e:
         if "No need to change" not in str(e) and "not modified" not in str(e).lower():
-            pass  # leverage set fail non-fatal
+            # log-only (W8-MED): gerçek set_leverage fail'i artık görünür —
+            # pozisyon amaçlanandan farklı kaldıraçla açılabilir (non-fatal ama kör olmasın)
+            import logging as _lg
+
+            _lg.getLogger(__name__).warning(f"order_router.set_leverage_fail {sym}: {str(e)[:120]}")
 
     # 9) Emir gönder
     order_side = "buy" if side == "long" else "sell"
@@ -188,8 +201,14 @@ def route_signal(
         # İptal et — resubmit yasak
         try:
             exchange.cancel_order(exchange_order_id, sym)
-        except Exception:
-            pass
+        except Exception as _cx_err:
+            # log-only: cancel fail → emir borsada canlı kalabilir ama biz
+            # rejected işaretledik (drift) — artık görünür.
+            import logging as _lg
+
+            _lg.getLogger(__name__).warning(
+                f"order_router.slip_cancel_fail {sym}: {str(_cx_err)[:120]}"
+            )
         idem.mark_rejected(fingerprint, reason=f"slippage_exceeded:{slip_bps:.1f}bps")
         return {
             "status": "rejected",
@@ -205,7 +224,7 @@ def route_signal(
     fill_id = uuid.uuid4().hex[:20]
     tracker.record_fill(
         fill_id=fill_id,
-        ts=datetime.now(timezone.utc),
+        ts=datetime.now(UTC),
         symbol=sym,
         strategy=strategy,
         side=side,
@@ -239,8 +258,7 @@ def route_signal(
     }
 
 
-def _place_market(exchange: Any, sym: str, side: str, qty: float,
-                  client_order_id: str) -> Any:
+def _place_market(exchange: Any, sym: str, side: str, qty: float, client_order_id: str) -> Any:
     """Market order, client_order_id ile."""
     return exchange.create_market_order(
         symbol=sym,
@@ -277,10 +295,7 @@ def _place_post_only_with_fallback(
 
     ref = (best_bid + best_ask) / 2
     tick = ref * 0.0001
-    if side == "buy":
-        limit_px = best_bid - tick
-    else:
-        limit_px = best_ask + tick
+    limit_px = best_bid - tick if side == "buy" else best_ask + tick
 
     try:
         order = exchange.create_limit_order(
@@ -310,8 +325,15 @@ def _place_post_only_with_fallback(
         time.sleep(1.0)
 
     # Timeout → cancel + market
+    # NOT: cancel fail + koşulsuz market = çift-pozisyon sınıfı (ccxt_live Bug-A
+    # ile aynı desen). Bu modül referans-impl (canlı daemon kullanmıyor); tam
+    # fail-closed tasarımı canlıya alınırsa ccxt_live fix'i örnek alınmalı.
     try:
         exchange.cancel_order(order_id, sym)
-    except Exception:
-        pass
+    except Exception as _tc_err:
+        import logging as _lg
+
+        _lg.getLogger(__name__).warning(
+            f"order_router.timeout_cancel_fail {sym} id={order_id}: {str(_tc_err)[:120]}"
+        )
     return _place_market(exchange, sym, side, qty, client_order_id + "_fb"), "market"
