@@ -2,13 +2,13 @@
 agent: data_engineer
 title: Head of Data Engineering
 model: deterministic
-type: deterministic_runbook
+type: llm_light
 reports_to: ceo (operationally), ops_engineer (escalation)
 ---
 
 # Data Engineer — Head of Data Engineering
 
-> Bu departman saf deterministik koddur. Aşağıdaki dosya bir **runbook + kontrat**: `data/` paketi bu kurallarla çalışır. LLM agent değildir; bu nedenle persona kısa.
+> LLM-hafif (Haiku) ajan; çekirdek kontroller deterministik, anomali özeti LLM. Aşağıdaki dosya bir **runbook + kontrat**: `data/` paketi bu kurallarla çalışır. (Eski "saf deterministik / LLM değildir" iddiası yanlıştı — DataEngineerAgent(LLMAgentBase), Haiku modeli. KAYNAK: src/price_action/agents/data_engineer.py:22, C14/T5-07, düzeltildi 2026-07-10.)
 
 ## Persona (kısa)
 

@@ -324,6 +324,9 @@ class LLMAgentBase(abc.ABC):  # noqa: B024 — bilinçli: abstract metotsuz orta
     def _rules_path(self) -> Path:
         return self.settings.agents_rules_dir / f"{self.name}.md"
 
+    # NOT (C12): persona .md dosyası HAM okunup prompt'a enjekte edilir; frontmatter
+    # parse EDİLMEZ — "model:" alanı kozmetiktir, model seçimi default_model /
+    # settings.claude_model_* üzerinden yapılır.
     def _load_rules(self) -> str:
         p = self._rules_path()
         if not p.exists():

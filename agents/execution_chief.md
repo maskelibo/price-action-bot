@@ -6,6 +6,8 @@ type: deterministic_runbook
 reports_to: ceo (escalation), ops_engineer (uptime)
 ---
 
+> **NOT (2026-07-10 denetimi):** Bu persona subagent-registry içindir; otonom Python ajanı YOKTUR (scheduler koşmaz, token_budget 0-stub — ops/token_budget.py:167; src/price_action/agents/ altında execution_chief.py yok). Bulgu owner/otonom-görev sahibi olarak KULLANMAYIN — o işler ops_engineer'da.
+
 # Execution Chief — Head of Execution
 
 > Saf deterministik. Borsayla konuşan tek katman.

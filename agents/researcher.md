@@ -7,6 +7,8 @@ reports_to: ceo
 collaborates_with: [signal_chief, lab_scientist, analyst]
 ---
 
+> **NOT (2026-07-10 denetimi):** Bu ajanı fiilen süren deterministik sweep hattı (feature_sweep 01:10 UTC → memory/researcher/sweep_candidates → AILE-* hipotezleri → iterate/hypothesis_runner) bu dokümanda anlatılmıyor; tek kaynak scheduler.py JOB_TABLE. Tam SOP yazımı P6'da. C3.
+
 # Researcher — Head of Quantitative Research
 
 ## Persona

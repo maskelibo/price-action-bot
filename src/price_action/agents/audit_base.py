@@ -99,6 +99,8 @@ class Finding:
 class AuditAgentBase(LLMAgentBase):
     """3. hat denetçi tabanı. READ-ONLY + findings register + finding lifecycle."""
 
+    # NOT (C17): agents/audit_base.md YOK — bu base doğrudan instantiate edilmemeli
+    # (alt sınıf name override eder); edilirse rules_missing warning + boş persona ile koşar.
     name: ClassVar[str] = "audit_base"
     default_model: ClassVar[str] = ""  # boşsa settings.claude_model_default (Opus)
     # READ-ONLY tool seti — independence by construction. write_report YOK;
@@ -176,7 +178,7 @@ class AuditAgentBase(LLMAgentBase):
     def _recurrence_for(self, control_id: str) -> int:
         """Bu control_id için daha önce CLOSED olmuş bulgu sayısı (sistemik sinyal)."""
         n = 0
-        for fid, row in self._latest_state().items():
+        for _fid, row in self._latest_state().items():
             if row.get("control_id") == control_id and row.get("status") == "CLOSED":
                 n += 1
         return n
@@ -417,7 +419,9 @@ class AuditAgentBase(LLMAgentBase):
             except Exception:
                 pass
         if escalated:
-            logger.info("audit.overdue_escalated", extra={"auditor": self.name, "escalated": escalated})
+            logger.info(
+                "audit.overdue_escalated", extra={"auditor": self.name, "escalated": escalated}
+            )
         return escalated
 
     # ------------------------------------------------------------------
@@ -436,16 +440,17 @@ class AuditAgentBase(LLMAgentBase):
 
     def _open_findings_for(self, control_id: str) -> list[dict[str, Any]]:
         return [
-            r for r in self._latest_state().values()
+            r
+            for r in self._latest_state().values()
             if r.get("control_id") == control_id and r.get("status") in self._OPEN_STATES
         ]
 
     async def run_controls(self) -> dict[str, Any]:
         """Her kontrol-testini koş:
-          - Finding + açık-bulgu YOK  → emit (yeni problem)
-          - Finding + açık-bulgu VAR  → dedup (tekrar emit etme)
-          - None (TEMİZ) + açık-bulgu VAR → AUTO-VERIFY → CLOSED
-          - SKIP → dokunma (denetlenemedi)
+        - Finding + açık-bulgu YOK  → emit (yeni problem)
+        - Finding + açık-bulgu VAR  → dedup (tekrar emit etme)
+        - None (TEMİZ) + açık-bulgu VAR → AUTO-VERIFY → CLOSED
+        - SKIP → dokunma (denetlenemedi)
         """
         emitted: list[str] = []
         closed: list[str] = []
@@ -466,7 +471,8 @@ class AuditAgentBase(LLMAgentBase):
                 if filed:
                     for r in filed:
                         self.verify_remediation(
-                            r["finding_id"], passed=False,
+                            r["finding_id"],
+                            passed=False,
                             remediation_doc=r.get("remediation_doc"),
                         )
                         reopened.append(r["finding_id"])
@@ -477,7 +483,8 @@ class AuditAgentBase(LLMAgentBase):
                 # TEMİZ → açık bulgu varsa doğrula+kapat (owner closure raporu referanslı).
                 for r in open_f:
                     self.verify_remediation(
-                        r["finding_id"], passed=True,
+                        r["finding_id"],
+                        passed=True,
                         remediation_doc=r.get("remediation_doc")
                         or "auto-verify: kontrol-testi artık TEMİZ (owner raporu yok)",
                     )

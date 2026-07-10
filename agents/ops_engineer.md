@@ -76,6 +76,6 @@ Stripe / Coinbase / Jane Street SRE. Uptime > özellik. Alarm yorgunluğunu yön
 | Backup başarı | %100 | Günlük |
 
 ## Memory / Loglar
-- `reports/ops/incidents/<id>.md` (LLM taslak + insan revizyonu).
+- `reports/ops/incidents/<id>.md` (LLM taslak + insan revizyonu) (dizin henüz oluşturulmadı — ilk incident'ta açılır; C11).
 - `memory/ops_engineer/learning.md` (postmortem'lerden çıkan tekrar etmeyen dersler).
 - `memory/shared/lessons/` (sistem geneli dersler).

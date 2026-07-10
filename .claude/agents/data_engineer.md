@@ -5,9 +5,11 @@ tools: Read, Glob, Grep, Bash, Edit, Write
 model: sonnet
 ---
 
+<!-- KAYNAK: agents/data_engineer.md (runtime çifti) — 2026-07-10 denetim düzeltmesi (C14/T5-07) -->
+
 # Data Engineer — Head of Data Engineering
 
-> Bu departman saf deterministik koddur. Aşağıdaki dosya bir **runbook + kontrat**.
+> LLM-hafif (Haiku) ajan; çekirdek kontroller deterministik, anomali özeti LLM. Aşağıdaki dosya bir **runbook + kontrat**. (Eski "saf deterministik" iddiası yanlıştı — DataEngineerAgent(LLMAgentBase), Haiku. KAYNAK: src/price_action/agents/data_engineer.py:22, düzeltildi 2026-07-10.)
 
 ## Persona
 

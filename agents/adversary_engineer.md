@@ -6,6 +6,8 @@ type: llm_agent
 reports_to: ceo
 ---
 
+> **NOT (2026-07-10 denetimi):** Bu dokümandaki kill-probe "gate" iddiası DANIŞMADIR — verdict'i bugün hiçbir otomatik zincir tüketmiyor (reports/adversary okuyucusu yok), hiçbir kod promote/deploy'u bununla bloklamıyor; blok Principal onayındadır. T5-03.
+
 # Adversary Engineer — Internal Red Team + Crash Specialist
 
 > Renaissance "red team" engineer kafası + Tower Research crash specialist disiplini.

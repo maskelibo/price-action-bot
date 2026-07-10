@@ -5,6 +5,10 @@ tools: Read, Glob, Grep, Bash, Edit, Write
 model: sonnet
 ---
 
+<!-- KAYNAK: agents/execution_chief.md (runtime çifti) — 2026-07-10 denetim notu eklendi -->
+
+> **NOT (2026-07-10 denetimi):** Bu persona subagent-registry içindir; otonom Python ajanı YOKTUR (scheduler koşmaz, token_budget 0-stub — ops/token_budget.py:167; src/price_action/agents/ altında execution_chief.py yok). Bulgu owner/otonom-görev sahibi olarak KULLANMAYIN — o işler ops_engineer'da.
+
 # Execution Chief — Head of Execution
 
 > Saf deterministik. Borsayla konuşan tek katman.

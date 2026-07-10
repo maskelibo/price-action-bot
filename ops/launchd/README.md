@@ -1,13 +1,20 @@
 # ops/launchd/
 
+> **⚠️ BAYAT DOKÜMAN (2026-05 çağı) — güncelleme 2026-07-10 (D22+D15):**
+> Canlı trading servisi **`com.priceaction.futures_v15p2`** (`run_futures_v15p2.sh` → `futures_daemon_v14.py` wrapper); yanında `com.priceaction.healthping` + ceo/ingest15m/liqcollector/dashboard/dbbackup/logrotate çalışır.
+> **EMEKLİ plist'ler: `futures15m` (+`_v11`/`_v63`), `futures5m`, v14 dönemi script'leri — ASLA `cp`+`load` ETMEYİN.** KeepAlive'lı emekli plist reboot'ta dirilir → split-brain çift-daemon (2× yaşandı; bkz memory "champion-15m-launchd-keepalive" dersi). Aşağıdaki §3 tarihsel arşivdir, uygulamayın.
+
 macOS launchd plist'leri — Mac mini'nin boot anında otomatik başlattığı servisler.
 
 ## Dosyalar
 
 | Plist | Servis | Yükleme durumu | Komutu |
 |---|---|---|---|
-| `com.priceaction.ceo.plist` | `pa-ceo --mode daily --telegram` (orchestrator) | **YÜKLENEBİLİR** | aşağıda §2 |
-| `com.priceaction.futures15m.plist` | `futures_daemon.py --timeframe 15m` (trading bot) | **YÜKLENMEDİ** (mevcut manuel PID 17267) | dikkatli! §3 |
+| `com.priceaction.futures_v15p2.plist` | `run_futures_v15p2.sh` (CANLI trading bot, v15p2) | **YÜKLÜ (canlı)** | — |
+| `com.priceaction.healthping.plist` | health ping | **YÜKLÜ** | — |
+| `com.priceaction.ceo.plist` | `pa-ceo --mode daily --telegram` (orchestrator) | **YÜKLÜ** | aşağıda §2 |
+| `com.priceaction.futures15m.plist` (+`_v11`/`_v63`) | eski 15m daemon | **EMEKLİ (15 Haz 2026, 3-adım bootout)** — yükleme! | §3 TARİHSEL |
+| `com.priceaction.futures5m.plist` | eski 5m daemon | **EMEKLİ (30 Haz 2026, 0 fill)** — yükleme! | — |
 
 ## §1 launchd nedir?
 
@@ -96,11 +103,13 @@ PYTHONPATH=src PA_LLM_USE_CLI=true PA_CEO_PUSH_TELEGRAM=true \
   .venv/bin/python -m price_action.orchestrator.ceo_loop --mode once --telegram
 ```
 
-## §3 futures15m daemon — DİKKAT
+## §3 futures15m daemon — EMEKLİ (TARİHSEL ARŞİV — UYGULAMAYIN)
 
-**Bu plist HAZIR ama YÜKLENMEDİ.**
+> **⚠️ EMEKLİ (2026-07-10 şerhi):** futures15m botu 15 Haz 2026'da 3-adım (bootout+disable+plist taşı) ile KALICI emekli edildi; PID 17267 çoktan yok. Aşağıdaki geçiş prosedürünü çalıştırmak emekli KeepAlive plist'ini diriltir → canlı v15p2 ile split-brain. Bu bölüm yalnız tarihsel kayıttır.
 
-Mevcut durum:
+**Bu plist HAZIR ama YÜKLENMEDİ.** (tarihsel not — artık EMEKLİ)
+
+Mevcut durum (2026-05 itibarıyla — BAYAT):
 - PID 17267 manuel `python -u scripts/futures_daemon.py --timeframe 15m` ile çalışıyor
 - 2+ gün uptime, paper testnet'te aktif
 - **Eğer plist'i yüklersen iki daemon aynı anda emir gönderir** → felaket

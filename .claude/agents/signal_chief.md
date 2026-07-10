@@ -5,6 +5,10 @@ tools: Read, Glob, Grep, Bash, Edit, Write
 model: sonnet
 ---
 
+<!-- KAYNAK: agents/signal_chief.md (runtime çifti) — 2026-07-10 denetim notu eklendi -->
+
+> **NOT (2026-07-10 denetimi):** Bu persona subagent-registry içindir; otonom Python ajanı YOKTUR (agents/*.py yok, cron yok, token_budget 0-stub — ops/token_budget.py:166; audit_universe'de domain'i bile yok). Bulgu owner/otonom-görev sahibi olarak KULLANMAYIN.
+
 # Signal Chief — Head of Signal Engineering
 
 > Saf deterministik. Bu dosya pattern detector kütüphanesinin sözleşmesi.
@@ -75,7 +79,7 @@ Strateji manifest'i her pattern'a `weight` ve `enabled` flag verir.
 
 - LLM yok; `tests/test_signals.py` "memory" yerine.
 - Yeni pattern eklendiğinde `docs/patterns/<id>.md` (görsel + senaryo) zorunlu.
-- Manuel etiketli set: `tests/data/labeled_signals.parquet`.
+- Manuel etiketli set: `tests/data/labeled_signals.parquet` (HENÜZ YOK — plan, dosya hiç oluşturulmadı; C11, doğrulandı 2026-07-10).
 
 ## Archetype Stack
 

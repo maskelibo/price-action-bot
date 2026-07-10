@@ -101,7 +101,7 @@ processes:
     controls: []               # (Faz 3) regime cache freshness + eşik tutarlılık
   portfolio.allocator:
     domain: risk
-    owner_agent: portfolio_manager
+    owner_agent: portfolio_manager  # ŞERH: bu owner çalışabilir Python ajanı değil (persona-only) — T5-01. Doğrulandı 2026-07-10
     auditor: audit_risk
     inherent_risk: high
     cadence: daily
@@ -117,7 +117,7 @@ processes:
   # ============ EXECUTION + DAEMON (audit_execution) ============
   execution.reconcile_journal:
     domain: execution
-    owner_agent: execution_chief
+    owner_agent: execution_chief  # ŞERH: bu owner çalışabilir Python ajanı değil (persona-only) — T5-01. Doğrulandı 2026-07-10
     auditor: audit_execution
     inherent_risk: critical
     cadence: daily
@@ -126,63 +126,63 @@ processes:
                                        # (2026-05-30: journal +57.73 vs borsa -11.58 kör-noktası)
   execution.order_manager:
     domain: execution
-    owner_agent: execution_chief
+    owner_agent: execution_chief  # ŞERH: bu owner çalışabilir Python ajanı değil (persona-only) — T5-01. Doğrulandı 2026-07-10
     auditor: audit_execution
     inherent_risk: critical
     cadence: daily
     controls: []
   execution.post_only_router:
     domain: execution
-    owner_agent: execution_chief
+    owner_agent: execution_chief  # ŞERH: bu owner çalışabilir Python ajanı değil (persona-only) — T5-01. Doğrulandı 2026-07-10
     auditor: audit_execution
     inherent_risk: high
     cadence: daily
     controls: []
   execution.pyramid_router:
     domain: execution
-    owner_agent: execution_chief
+    owner_agent: execution_chief  # ŞERH: bu owner çalışabilir Python ajanı değil (persona-only) — T5-01. Doğrulandı 2026-07-10
     auditor: audit_execution
     inherent_risk: high
     cadence: daily
     controls: []
   execution.idempotency:
     domain: execution
-    owner_agent: execution_chief
+    owner_agent: execution_chief  # ŞERH: bu owner çalışabilir Python ajanı değil (persona-only) — T5-01. Doğrulandı 2026-07-10
     auditor: audit_execution
     inherent_risk: critical
     cadence: daily
     controls: []               # (Faz 3) çift-emir koruması testi
   execution.slippage_tracker:
     domain: execution
-    owner_agent: execution_chief
+    owner_agent: execution_chief  # ŞERH: bu owner çalışabilir Python ajanı değil (persona-only) — T5-01. Doğrulandı 2026-07-10
     auditor: audit_execution
     inherent_risk: med
     cadence: daily
     controls: []               # (Faz 3) TF-bütçe ihlali
   execution.dead_mans_switch:
     domain: execution
-    owner_agent: execution_chief
+    owner_agent: execution_chief  # ŞERH: bu owner çalışabilir Python ajanı değil (persona-only) — T5-01. Doğrulandı 2026-07-10
     auditor: audit_execution
     inherent_risk: critical
     cadence: daily
     controls: []               # (Faz 3) heartbeat fail-safe
   execution.ccxt_live_paper:
     domain: execution
-    owner_agent: execution_chief
+    owner_agent: execution_chief  # ŞERH: bu owner çalışabilir Python ajanı değil (persona-only) — T5-01. Doğrulandı 2026-07-10
     auditor: audit_execution
     inherent_risk: critical
     cadence: daily
     controls: []
   daemon.futures_15m:
     domain: execution
-    owner_agent: execution_chief
+    owner_agent: execution_chief  # ŞERH: bu owner çalışabilir Python ajanı değil (persona-only) — T5-01. Doğrulandı 2026-07-10
     auditor: audit_execution
     inherent_risk: high
     cadence: daily
     controls: []
   daemon.futures_5m:
     domain: execution
-    owner_agent: execution_chief
+    owner_agent: execution_chief  # ŞERH: bu owner çalışabilir Python ajanı değil (persona-only) — T5-01. Doğrulandı 2026-07-10
     auditor: audit_execution
     inherent_risk: high
     cadence: daily
