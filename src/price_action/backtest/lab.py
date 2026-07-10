@@ -14,6 +14,13 @@ Kullanim:
     result = production_replay(trades, cfg)
     print(result.summary())
 """
+# ruff: noqa: N806, N815, SIM102, F841
+# 2026-07-10: 52 önceden-var stil bulgusu (R_use/Rs/tp2_R finans-domain
+# adlandırması ×40, SIM102 ×10, F841 ×2). Para-kritik motorda toplu rename =
+# regresyon riski (byte-parite şartı) → bilinçli dosya-seviyesi suppress.
+# NOT: F841 'cg' (from_yaml correlation_gate okunup kullanılmıyor) latent
+# ölü-config sınıfı — davranış değişikliği ayrı karar ister, burada gizlendi
+# ama unutulmasın diye bu satır var.
 
 from __future__ import annotations
 
@@ -521,6 +528,47 @@ class ProductionConfig:
 # =====================================================================
 
 
+def _stress_risk_mark(pos: dict) -> float:
+    """Açık pozisyonun stres-işareti ($) — P2 CRIT MTM bandı (2026-07-10).
+
+    mae_R varsa (pool zenginleştirilmişse): risk * max(-mae_R, 0) = pozisyonun
+    GERÇEK yaşanmış en kötü anı (intrinsic, lookahead değil — trade'in kendi
+    geçmişi). mae_R yoksa: risk (= -1R, stop'ta işaretle) = konservatif üst-sınır.
+    Pool builder'lar mae_R üretmiyor henüz → bugün fiilen -1R; alan hazır.
+    """
+    risk = float(pos.get("risk", 0.0) or 0.0)
+    mae = pos.get("mae_R")
+    if mae is not None:
+        try:
+            return risk * max(-float(mae), 0.0)
+        except (TypeError, ValueError):
+            return risk
+    return risk
+
+
+def _update_dd_state(state: dict, book: float, stress: float) -> None:
+    """Online peak/max-DD güncelle — P2 CRIT MTM bandı (2026-07-10).
+
+    İKİ paralel seri: book = cash + Σ(açık marjin) (wind-down DÜZELTMELİ gerçek
+    defter-equity) ve stress = book − Σ(stres-işaret) (açık pozisyonlar en kötü
+    anlarında). Eski max_drawdown İKİ kusur taşır: (1) ana-döngüde açık pozisyon
+    unrealized'sız → DD az gösterir; (2) wind-down'da equity=cash açık marjinleri
+    HARİÇ tutar → yapay dip, DD fazla gösterir. Bu state her cash-olayında
+    (entry/close/wind-down) doğru muhasebeyle beslenir; eski alanlara DOKUNULMAZ
+    (byte-parite + arşiv-JSON korunur). Bant: [max_dd_mtm (book), max_dd_stress].
+    """
+    if book > state["peak"]:
+        state["peak"] = book
+    dd = (book - state["peak"]) / state["peak"] if state["peak"] > 0 else 0.0
+    if dd < state["dd"]:
+        state["dd"] = dd
+    if stress > state["speak"]:
+        state["speak"] = stress
+    sdd = (stress - state["speak"]) / state["speak"] if state["speak"] > 0 else 0.0
+    if sdd < state["sdd"]:
+        state["sdd"] = sdd
+
+
 @dataclass(frozen=True)
 class ReplayResult:
     """Tek bir replay sonucu — tum metrikler.
@@ -542,6 +590,15 @@ class ReplayResult:
     # Faz 14.20 — opsiyonel detay; eski callers etkilenmez
     equity_curve: list[float] | None = None
     entry_ts_list: list[Any] | None = None
+    # P2 CRIT MTM bandı (2026-07-10) — ADDITIVE, eski alanlar byte-aynı:
+    #   max_drawdown_mtm    : wind-down-DÜZELTMELİ book DD (dürüst realized-only)
+    #   max_drawdown_stress : açık pozisyonlar en-kötü-anda (mae_R varsa gerçek
+    #                         MAE, yoksa -1R) = üst-sınır. Gerçek hesap-DD bandı:
+    #                         [max_drawdown_mtm, max_drawdown_stress]. Eski
+    #                         max_drawdown iki zıt kusur taşır (bkz _update_dd_state)
+    #                         — kıyas/arşiv için korunur, YENİ karar bu banda baksın.
+    max_drawdown_mtm: float = 0.0
+    max_drawdown_stress: float = 0.0
 
     @property
     def total_return(self) -> float:
@@ -701,6 +758,14 @@ def production_replay(
     cash = cfg.initial_capital
     open_pos: list[dict] = []
     eq_curve: list[float] = [cfg.initial_capital]
+    # P2 CRIT MTM bandı: her cash-olayında (entry/close/wind-down) doğru
+    # muhasebeyle beslenen online DD state (dict-mutasyon → nonlocal gerekmez).
+    _mtm_dd_state = {
+        "peak": cfg.initial_capital,
+        "dd": 0.0,
+        "speak": cfg.initial_capital,
+        "sdd": 0.0,
+    }
     # Faz 14.20: process edilen her trade'in exit_ts'i — aylık aggregation için
     _processed_exit_ts: list[Any] = []
     Rs: list[float] = []
@@ -729,7 +794,8 @@ def production_replay(
         nonlocal cash, equity, peak_equity, consecutive_losses, cool_until
         nonlocal monthly_long_pnl, monthly_short_pnl, _dyn_last_eq
         still = []
-        for p in open_pos:
+        # _j_mtm: yalnız MTM-band kalan-küme hesabı için (davranış değişmez)
+        for _j_mtm, p in enumerate(open_pos):
             if p["exit_ts"] <= now:
                 # v2.0.3 PYRAMID R-adjust (SEC16 düzeltmeleri)
                 # MFE-aware: peak_R kullan (ek pos peak >= trigger ise açıldı)
@@ -783,6 +849,18 @@ def production_replay(
                 peak_equity = max(peak_equity, equity)
                 Rs.append(R_use)
                 eq_curve.append(equity)
+                # P2 MTM bandı: bu kapanış anında GERÇEKTEN açık kalanlar =
+                # still (şu ana dek taranan açıklar) + taranmamış kuyrukta
+                # exit_ts > now olanlar (aynı-anda-kapananlar açık sayılmaz).
+                # Eski eq_curve'ün orta-iterasyon eksik-still kusuru AYNEN
+                # kalır (byte-parite); doğru muhasebe yalnız MTM'e akar.
+                _rem_mtm = still + [q for q in open_pos[_j_mtm + 1 :] if q["exit_ts"] > now]
+                _book_mtm = cash + sum(q["margin"] for q in _rem_mtm)
+                _update_dd_state(
+                    _mtm_dd_state,
+                    _book_mtm,
+                    _book_mtm - sum(_stress_risk_mark(q) for q in _rem_mtm),
+                )
                 # v10 dynamic-exposure hook: realized per-close return (<= t-1)
                 if cfg.dynamic_exposure_fn is not None and _dyn_last_eq > 0:
                     _dyn_closed_rets.append(equity / _dyn_last_eq - 1.0)
@@ -1103,11 +1181,24 @@ def production_replay(
                 "strategy": t.get("strategy", ""),  # SEC21: needed for slot class lookup
                 "peak_R": t.get("peak_R", t["R"]),  # SEC16 MFE-aware pyramid
                 "sl_pct": sl_pct,  # SEC54.1: fee normalisation
+                "mae_R": t.get("mae_R"),  # P2 MTM: pool zenginse gerçek MAE işareti
             }
+        )
+        # P2 MTM bandı: entry book-nötr (cash↓margin, marjin↑aynı) ama stress
+        # derinleşir (yeni açık pozisyon = yeni risk-altında-sermaye).
+        _book_mtm_e = cash + sum(q["margin"] for q in open_pos)
+        _update_dd_state(
+            _mtm_dd_state,
+            _book_mtm_e,
+            _book_mtm_e - sum(_stress_risk_mark(q) for q in open_pos),
         )
 
     # Acik pozisyonlari kapat (v2.0.3 SEC16 fix)
-    for p in open_pos:
+    # P2 MTM notu: aşağıdaki eski `equity = cash` KALAN açık marjinleri HARİÇ
+    # tutar → çok pozisyon kalmışsa yapay dip (max_drawdown'ı ŞİŞİRİR; dead-end
+    # analizinde -0.388 sahte-DD kanıtlandı). Byte-parite için DOKUNULMUYOR;
+    # doğru muhasebe (cash + Σ kalan marjin) yalnız MTM bandına akar.
+    for _i_wd, p in enumerate(open_pos):
         R_use = p["R"]
         if cfg.pyramid_enabled and cfg.pyramid_triggers and cfg.pyramid_sizes:
             peak_R_p = float(p.get("peak_R", R_use))
@@ -1137,6 +1228,15 @@ def production_replay(
         equity = cash
         Rs.append(R_use)
         eq_curve.append(equity)
+        # P2 MTM bandı: wind-down'da henüz işlenmemiş pozisyonlar hâlâ açık —
+        # book = cash + Σ(kalan marjin) (eski equity=cash'in dışladığı).
+        _rem_wd = open_pos[_i_wd + 1 :]
+        _book_wd = cash + sum(q["margin"] for q in _rem_wd)
+        _update_dd_state(
+            _mtm_dd_state,
+            _book_wd,
+            _book_wd - sum(_stress_risk_mark(q) for q in _rem_wd),
+        )
         # Faz 14.20: kalan açıkları kapatırken de exit_ts kaydet
         _processed_exit_ts.append(p.get("exit_ts"))
 
@@ -1164,6 +1264,8 @@ def production_replay(
         config_label=cfg.label(),
         equity_curve=list(eq_curve),  # Faz 14.20: aylık aggregation için
         entry_ts_list=list(_processed_exit_ts),  # Faz 14.20: gerçek process edilen trade ts'leri
+        max_drawdown_mtm=_mtm_dd_state["dd"],  # P2: wind-down-düzeltmeli book DD
+        max_drawdown_stress=_mtm_dd_state["sdd"],  # P2: açık-poz en-kötü-an üst-sınırı
     )
 
 
