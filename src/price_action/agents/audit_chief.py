@@ -19,9 +19,106 @@ from typing import Any, ClassVar
 
 from price_action.logging_config import logger
 
-from .audit_base import AuditAgentBase, Finding
+from .audit_base import SKIP, AuditAgentBase, Finding
 
 _OWNER = "ceo"  # kapsama açığı sahibi (süreç sahipliği atanana dek)
+
+# ---------------------------------------------------------------------------
+# T5-01 (2026-07-10) — ÇALIŞABILIR ajan kümesi (CT-CHF-02 phantom-owner girdisi)
+#
+# src/price_action/agents/*.py içindeki GERÇEK Agent sınıflarının
+# ``name: ClassVar[str]`` değerleri. Persona-only ajanlar (.claude/agents/*.md
+# dosyası var ama Python sınıfı YOK — örn. execution_chief, portfolio_manager,
+# signal_chief) bu kümede DEĞİLDİR: onlara atanan bulgu remediation dead-end
+# olur (kimse koşmaz, SLA sessizce dolar — CT-OPS-03/05/06'da yaşandı).
+#
+# Açık liste (dinamik import yerine) bilinçli tercih: denetim koşusu importable
+# olmayan tek bir ajan modülünde patlamasın. Kaynak-pin testi
+# tests/audit/test_ct_chf_02_phantom_owner.py — küme kod tabanından regex ile
+# türetilip bu frozenset ile karşılaştırılır; drift = kırmızı test.
+# ---------------------------------------------------------------------------
+RUNNABLE_AGENT_NAMES: frozenset[str] = frozenset(
+    {
+        "adversary_engineer",
+        "analyst",
+        "audit_chief",
+        "audit_data",
+        "audit_execution",
+        "audit_ops",
+        "audit_research",
+        "audit_risk",
+        "bot_monitor",
+        "ceo",
+        "data_engineer",
+        "lab_scientist",
+        "market_scout",
+        "ops_engineer",
+        "researcher",
+        "risk_officer",
+        "strategy_curator",
+    }
+)
+
+
+def phantom_owner(
+    universe_processes: dict[str, dict[str, Any]],
+    runnable_agents: frozenset[str] = RUNNABLE_AGENT_NAMES,
+) -> Finding | None:
+    """DETERMİNİSTİK ÇEKİRDEK (CT-CHF-02) — phantom-owner kontrolü (T5-01).
+
+    audit_universe.yaml'daki her ``owner_agent`` ÇALIŞABILIR ajan kümesinde mi?
+    Değilse o sürece açılan bulgular remediation dead-end'dir (owner'ı koşacak
+    Python sınıfı yok → kimse düzeltmez, SLA sessizce dolar).
+
+    Düşük-gürültü tasarımı: süreç başına değil, TEK toplu bulgu (phantom owner →
+    süreç listesi haritasıyla). ``owner_agent`` hiç yoksa saymaz — o zaten
+    CT-CHF-01'in (kapsama açığı) işi; çift bulgu üretmeyelim.
+    """
+    phantoms: dict[str, list[str]] = {}
+    for proc, spec in (universe_processes or {}).items():
+        owner = str((spec or {}).get("owner_agent") or "").strip()
+        if not owner:
+            continue  # owner YOK → CT-CHF-01 kapsama açığı olarak raporlar
+        if owner not in runnable_agents:
+            phantoms.setdefault(owner, []).append(proc)
+    if not phantoms:
+        return None
+    detail = "; ".join(
+        f"{owner} → [{', '.join(sorted(procs))}]" for owner, procs in sorted(phantoms.items())
+    )
+    n_procs = sum(len(v) for v in phantoms.values())
+    return Finding(
+        control_id="CT-CHF-02",
+        severity="med",
+        owner="ops_engineer",
+        title=f"phantom owner — {len(phantoms)} çalıştırılamaz owner_agent ({n_procs} süreç)",
+        condition=(
+            "audit_universe.yaml'da çalışabilir Python ajanı OLMAYAN "
+            f"owner_agent atamaları var: {detail}"
+        ),
+        criteria=(
+            "Her sürecin owner_agent'ı src/price_action/agents/ altındaki gerçek "
+            "Agent sınıflarından biri olmalı (RUNNABLE_AGENT_NAMES); aksi hâlde o "
+            "sürece açılan bulgu remediation dead-end olur."
+        ),
+        cause=(
+            "Persona-only ajan (.claude/agents/*.md var, Python sınıfı yok) "
+            "owner olarak atanmış veya ajan adı yanlış yazılmış."
+        ),
+        effect=(
+            "Phantom owner'a route edilen bulgular sahipsiz kalır; SLA sessizce "
+            "dolar, kontrol açığı görünmez büyür (CT-OPS-03/05/06 vakası)."
+        ),
+        recommendation=(
+            "audit_universe.yaml'daki phantom owner'ları çalışabilir bir ajanla "
+            "değiştir (örn. ops_engineer) veya eksik ajan sınıfını implemente et."
+        ),
+        evidence={
+            "phantom_owners": detail,
+            "n_phantom_owners": len(phantoms),
+            "n_affected_processes": n_procs,
+        },
+    )
 
 
 def coverage_gap(universe_processes: dict[str, dict[str, Any]]) -> list[Finding]:
@@ -81,6 +178,20 @@ class AuditChiefAgent(AuditAgentBase):
 
     def run_coverage_gap(self) -> list[Finding]:
         return coverage_gap(self._load_universe())
+
+    # ------------------------------------------------------------------
+    # T5-01 — CT-CHF-02 phantom-owner (controls() kaydı → run_controls
+    # yaşam döngüsü: emit + dedup + auto-verify)
+    # ------------------------------------------------------------------
+    def run_ct_chf_02_phantom_owner(self) -> Any:
+        """CT-CHF-02 runner — universe okunamıyorsa SKIP (yanlışlıkla kapatma)."""
+        procs = self._load_universe()
+        if not procs:
+            return SKIP  # dosya yok/parse hatası/boş — bilgi yok, dokunma
+        return phantom_owner(procs)
+
+    def controls(self) -> dict[str, Any]:
+        return {"CT-CHF-02": self.run_ct_chf_02_phantom_owner}
 
     def register_summary(self) -> dict[str, Any]:
         """Açık/overdue/recurrence özeti (deterministik — güvence raporu girdisi)."""
@@ -266,5 +377,13 @@ class AuditChiefAgent(AuditAgentBase):
             results["coverage_gaps"] = len([self.emit_finding(f) for f in self.run_coverage_gap()])
         except Exception:
             results["coverage_gaps"] = 0
+        # T5-01: chief'in kendi kontrol-testleri (CT-CHF-02 phantom-owner) —
+        # run_controls yaşam döngüsüyle (emit + dedup + auto-verify).
+        try:
+            own = await self.run_controls()
+            results["chief_controls"] = {k: len(v) for k, v in own.items()}
+        except Exception as exc:
+            logger.warning("audit_chief.own_controls_fail", extra={"err": str(exc)[:160]})
+            results["chief_controls"] = {}
         results["dashboard"] = str(self.build_dashboard())
         return results

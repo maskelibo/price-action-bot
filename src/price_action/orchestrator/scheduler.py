@@ -2653,13 +2653,21 @@ async def _job_audit_ops() -> None:
 
 
 async def _job_audit_chief_weekly() -> None:
-    """Haftalık kapsama-boşluğu taraması (uncovered_process bulguları)."""
+    """Haftalık kapsama-boşluğu taraması (uncovered_process bulguları).
+
+    T5-01 (2026-07-10): + chief'in kendi kontrol-testleri (CT-CHF-02
+    phantom-owner) — run_controls yaşam döngüsüyle (emit+dedup+auto-verify).
+    """
     try:
         from price_action.agents import AuditChiefAgent
 
         agent = AuditChiefAgent()
         emitted = [agent.emit_finding(f) for f in agent.run_coverage_gap()]
-        logger.info("scheduler.audit_chief_weekly", extra={"n_gaps": len(emitted)})
+        ctrl = await agent.run_controls()
+        logger.info(
+            "scheduler.audit_chief_weekly",
+            extra={"n_gaps": len(emitted), "controls": {k: len(v) for k, v in ctrl.items()}},
+        )
     except Exception as exc:
         logger.warning("scheduler.audit_chief_weekly_fail", extra={"err": str(exc)[:200]})
 

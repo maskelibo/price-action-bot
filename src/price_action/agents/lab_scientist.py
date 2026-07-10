@@ -17,6 +17,95 @@ from price_action.rag import summarize_recent_additions
 
 from .base import LLMAgentBase
 
+# Kill-probe PASS izinin deterministik imzası — adversary_engineer
+# `evaluate_promotion_candidate()` PASS endorse doc'una bu satırı yazar
+# (body: "- Passed: **True**"); FAIL critique doc'u "Passed: **False**" taşır.
+_KILL_PROBE_PASS_MARKER = "Passed: **True**"
+
+
+def promotion_enforcement_gate(
+    candidate_id: str,
+    *,
+    risk_decisions_dir: Path,
+    adversary_reports_dir: Path,
+) -> dict[str, Any]:
+    """T5-03(b) — promote ÖN-KOŞULU (deterministik kod kapısı, LLM'siz).
+
+    Bir aday istatistiksel gate'leri (DSR/effect/MaxDD) geçse BİLE şu iki iz
+    olmadan ``promote_candidate`` OLAMAZ:
+
+    1. **Risk Officer endorse dokümanı** — ``memory/risk_officer/decisions/``
+       altında adı ``endorse`` içeren ve gövdesinde/frontmatter'ında aday
+       id'sini referanslayan bir ``*.md``.
+    2. **Adversary kill-probe PASS izi** — ``reports/adversary/`` (veya risk
+       decisions kopyası) altında aday id'sini referanslayan, ``kill_probe``
+       içeren ve ``Passed: **True**`` imzalı bir doc
+       (``AdversaryEngineerAgent.evaluate_promotion_candidate`` çıktısı).
+
+    Eşleşme substring bazlıdır (doc metni frontmatter ``depends_on`` dahil) —
+    aday id'leri hipotez stem'i / sweep cell id'si gibi uzun-özgül
+    string'lerdir. Dosya okunamazsa o dosya eşleşmemiş sayılır (fail-closed).
+
+    Returns
+    -------
+    dict
+        ``{"allowed": bool, "candidate_id": str, "risk_endorsement": str|None,
+        "kill_probe_pass": str|None, "missing": [str, ...]}``
+    """
+    cid = str(candidate_id or "").strip()
+    result: dict[str, Any] = {
+        "allowed": False,
+        "candidate_id": cid,
+        "risk_endorsement": None,
+        "kill_probe_pass": None,
+        "missing": [],
+    }
+    if not cid:
+        result["missing"].append("candidate_id boş — gate fail-closed")
+        return result
+
+    def _read(p: Path) -> str:
+        try:
+            return p.read_text(encoding="utf-8")
+        except Exception:
+            return ""  # okunamayan doc = kanıt değil (fail-closed)
+
+    # 1) Risk Officer endorse dokümanı
+    if risk_decisions_dir.is_dir():
+        for p in sorted(risk_decisions_dir.glob("*.md"), reverse=True):
+            if "endorse" not in p.name.lower():
+                continue
+            if cid in _read(p):
+                result["risk_endorsement"] = str(p)
+                break
+    if result["risk_endorsement"] is None:
+        result["missing"].append(
+            f"risk_officer endorse dokümanı YOK ({risk_decisions_dir}/*endorse*.md "
+            f"içinde '{cid}' referansı bulunamadı)"
+        )
+
+    # 2) Adversary kill-probe PASS izi
+    for d in (adversary_reports_dir, risk_decisions_dir):
+        if result["kill_probe_pass"] is not None:
+            break
+        if not d.is_dir():
+            continue
+        for p in sorted(d.glob("*.md"), reverse=True):
+            text = _read(p)
+            if cid not in text or "kill_probe" not in text:
+                continue
+            if _KILL_PROBE_PASS_MARKER in text:
+                result["kill_probe_pass"] = str(p)
+                break
+    if result["kill_probe_pass"] is None:
+        result["missing"].append(
+            f"adversary kill-probe PASS izi YOK ({adversary_reports_dir} altında "
+            f"'{cid}' + kill_probe + '{_KILL_PROBE_PASS_MARKER}' imzalı doc bulunamadı)"
+        )
+
+    result["allowed"] = not result["missing"]
+    return result
+
 
 class LabScientistAgent(LLMAgentBase):
     name: ClassVar[str] = "lab_scientist"
@@ -390,17 +479,53 @@ class LabScientistAgent(LLMAgentBase):
                 and float(ch.get("oos_maxdd", 1))
                 <= float(champion.get("oos_maxdd", 1)) + maxdd_excess
             )
-            rows.append(
-                {
-                    "id": ch.get("id"),
-                    "oos_sharpe": ch.get("oos_sharpe"),
-                    "oos_maxdd": ch.get("oos_maxdd"),
-                    "effect_vs_champion": round(effect, 4),
-                    "welch_p": tt["p"],
-                    "dsr_p": dsr.get("p"),
-                    "decision": "promote_candidate" if promote else "reject",
+            # T5-03(b) — enforcement gate: istatistiksel gate'leri geçen aday,
+            # risk_officer endorse + adversary kill-probe PASS izi olmadan
+            # promote_candidate OLAMAZ (deterministik kod kapısı, LLM'siz).
+            gate: dict[str, Any] | None = None
+            if promote:
+                gate = promotion_enforcement_gate(
+                    str(ch.get("id") or ""),
+                    risk_decisions_dir=self.settings.memory_dir / "risk_officer" / "decisions",
+                    adversary_reports_dir=self.settings.reports_dir / "adversary",
+                )
+                if not gate["allowed"]:
+                    # GÜRÜLTÜLÜ log — sessiz downgrade değil, blok gerekçesiyle.
+                    logger.error(
+                        "lab.promotion_blocked_enforcement_gate",
+                        extra={
+                            "candidate": ch.get("id"),
+                            "missing": gate["missing"],
+                            "risk_endorsement": gate["risk_endorsement"],
+                            "kill_probe_pass": gate["kill_probe_pass"],
+                        },
+                    )
+            if promote and gate is not None and gate["allowed"]:
+                decision = "promote_candidate"
+            elif promote:
+                # NOT: bilerek 'promote' substring'i İÇERMEYEN etiket —
+                # audit_ops CT-OPS churn taraması ("promote_candidate" grep'i)
+                # bloklanmış adayı terfi saymasın.
+                decision = "blocked_pending_endorsement"
+            else:
+                decision = "reject"
+            row: dict[str, Any] = {
+                "id": ch.get("id"),
+                "oos_sharpe": ch.get("oos_sharpe"),
+                "oos_maxdd": ch.get("oos_maxdd"),
+                "effect_vs_champion": round(effect, 4),
+                "welch_p": tt["p"],
+                "dsr_p": dsr.get("p"),
+                "decision": decision,
+            }
+            if gate is not None:
+                row["enforcement_gate"] = {
+                    "allowed": gate["allowed"],
+                    "risk_endorsement": gate["risk_endorsement"],
+                    "kill_probe_pass": gate["kill_probe_pass"],
+                    "missing": gate["missing"],
                 }
-            )
+            rows.append(row)
 
         prompt = (
             "Tournament Report — sayısal sonuçlar verildi. CEO için tavsiye yaz "
