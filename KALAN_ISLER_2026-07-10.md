@@ -56,6 +56,13 @@ Her biri davranış değiştirir; tek tek tasarım + test-first ister. Önerilen
 
 ## 2. 🟠 PAKET İŞLERİ — davranışsal rework (kod, ama batch değil)
 
+> **✅ GÜNCELLEME (10 Tem, "turuncu-sarıları kapat" onayı):** 🟠 9,10,11(minimal),
+> 12,13,14,16,17,18,19 + 🟡 20(kısmi+D16+DR11),23(doğrulama),24(analiz),28,29,30
+> KAPANDI — commit'ler: `4d253e1` `6568f5a` `bf9c23a` `fd198bb`. AÇIK KALAN:
+> #15 C1-enforcement + #25 CVE (kendi oturumlarını ister, plan aşağıda) +
+> #8 boş-dönüş mini-projesi + Principal-fiziksel: #21 healthchecks-URL,
+> #22 vol_target kararı, #26 2.hesap, #27 VPS, retention DEĞERİ, E13-trail kararı.
+
 9. **Paket-5: cancel-yutma kardeşleri** — `order_router.py:191,315`,
    `maker_only_router.py:306`, ccxt_live cancel yolu: doğru fix cancel-verify +
    filled-ise-pozisyon-sahiplen (ccxt_live fix'i `7d6fc29` şablon). Modüller
