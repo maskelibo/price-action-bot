@@ -1,5 +1,12 @@
 # KALAN İŞLER — Kapanış Sprinti Sonrası Defter (2026-07-10)
 
+> **🏁 NİHAİ DURUM (10 Tem gece):** #6/C1 (`29936e3`) + #7/CVE 8-of-9 (`0417651`,
+> A/B-kanıtlı + canlı venv + restart) + #8/DEGRADED_READ (`b07745c`) + #4/retention-3g
+> (`ad4aaab`, disk %85→%82) KAPANDI. **Kod tarafında AÇIK İŞ KALMADI.** Kalanlar:
+> (a) Principal-fiziksel: healthchecks-URL, 2. testnet hesabı; (b) Principal-karar:
+> vol_target EKLE onayı (öneri: ekle), E13 trail (40-kapanış verisi sonrası);
+> (c) dış-bağımlı: chromadb CRITICAL (fix dünyada yayınlanmamış — pip-audit takibi).
+
 > Bağlam: 10 Tem tam-kapanış turu bitti — **CRIT 5/5 + kod-fixable HIGH'ların tamamı
 > + 87 MED/LOW kalemi KAPALI** (15 commit: `fe741e6..a65a5b6`, hepsi origin'de).
 > Bu dosya geriye kalan HER ŞEYİN tek kaynağı: 39 karar-sınıfı kalem (sayım filosu
