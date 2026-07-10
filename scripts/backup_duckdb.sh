@@ -22,6 +22,9 @@ set -euo pipefail
 ROOT="${PA_PROJECT_ROOT:-$HOME/price-action-bot}"
 DATA_DIR="$ROOT/data"
 BACKUP_ROOT="$DATA_DIR/backups"
+# 2026-07-10 (Principal kararı): retention = "SON N GÜNÜ TUT" anlamı.
+# find -mtime +N "N+1 günden eski" demek → eski hali N=3'te 4-5 klasör tutuyordu;
+# +$((N-1)) ile tam N günlük pencere kalır. Env: plist PA_BACKUP_RETENTION_DAYS=3.
 RETENTION_DAYS="${PA_BACKUP_RETENTION_DAYS:-7}"
 DATESTAMP="$(date +%Y%m%d)"
 DST_DIR="$BACKUP_ROOT/$DATESTAMP"
@@ -83,7 +86,7 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     _log "BACKUP_PRUNE: silinen $old_dir"
     rm -rf "$old_dir"
     REMOVED=$((REMOVED + 1))
-  done < <(find "$BACKUP_ROOT" -maxdepth 1 -mindepth 1 -type d -mtime "+${RETENTION_DAYS}" 2>/dev/null || true)
+  done < <(find "$BACKUP_ROOT" -maxdepth 1 -mindepth 1 -type d -mtime "+$((RETENTION_DAYS - 1))" 2>/dev/null || true)
   _log "BACKUP_PRUNE_DONE: $REMOVED eski backup silindi (retention=${RETENTION_DAYS}d)"
 fi
 
