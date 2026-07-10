@@ -283,7 +283,7 @@ stop_loss:  # ÖLÜ: SL sinyal katmanından gelir (signal.sl_price); sizing atr_
     multiplier: 1.5
     activate_after_R: 1.0
 
-take_profit:  # İNERT-CANLI: RiskOfficer tp_levels üretir ama canlı emir katmanı okumaz (hardcoded merdiven — E13/F2). Doğrulandı 2026-07-10
+take_profit:  # İNERT-CANLI (E13/F2): canlı emir katmanı okumaz. KARŞILAŞTIRMA 2026-07-10: F2-canon (canlı, e702555) TP1=1.0R/%30 + TP2=1.5R/%30 + runner %40 ≠ bu blok (1.2R/0.8R) — kanonikleştirme kararı trail-tipi (pct vs ATR) seçimiyle birlikte Principal'de
   method: r_multiple
   # DIFF vs 1d: 1.5 → 1.2R (scalp'te hızlı kâr realizasyonu, fee etkisi büyük)
   primary_R: 1.2

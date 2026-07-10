@@ -2319,7 +2319,10 @@ def _scan_signals_15m(target_dt: datetime) -> list:
         sigs = scan_signals_15m(target_dt)
         return sigs
     except Exception as e:
-        log(f"15M_SCAN_ERROR: {e}")
+        log(
+            f"15M_SCAN_FAILED: {e} — bu tick'in '0 sinyal' görünümü GEÇERSİZ "
+            f"(tarama hatası, piyasa-sinyalsizliği değil)"
+        )
         return []
 
 

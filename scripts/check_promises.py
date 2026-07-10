@@ -176,6 +176,16 @@ def check_promises(promises: dict[str, Any]) -> list[dict[str, Any]]:
                             "comment": check.get("comment", ""),
                         }
                     )
+            else:
+                # T2-06 fix (2026-07-10): bilinmeyen kind eskiden SESSİZ no-op idi —
+                # yaml'a desteklenmeyen tip yazan biri kontrolün koştuğunu sanırdı.
+                # Konservatif fail-loud: yeni violation SINIFI üretmeden yalnız log
+                # (alarm davranışı değişmez, körlük görünür olur).
+                print(
+                    f"[check_promises] UYARI: bilinmeyen kind={kind!r} "
+                    f"(component={comp_name}) — bu kontrol KOŞMUYOR (desteklenen: "
+                    f"file_pattern, log_pattern)"
+                )
     return violations
 
 

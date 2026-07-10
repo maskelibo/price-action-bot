@@ -68,8 +68,16 @@ def config_provenance(config_path: Path | str) -> dict[str, Any]:
         "pyramid_enabled": portfolio.get("pyramid_enabled", False),
         "daily_loss_pct": breakers.get("daily_loss_pct"),
         "weekly_loss_pct": breakers.get("weekly_loss_pct"),
-        "expected_annual_return": cfg.get("expected_annual_return"),
-        "preset_name": exec_cfg.get("preset_name") or pos_sizing.get("preset_name"),
+        # T2-08 fix (2026-07-10): doğru yaml yolları — eskiden top-level/exec'ten
+        # okunuyordu (her zaman None → banner eksik). Gerçek konumlar:
+        # strategy_portfolio.expected_annual_return + defaults.preset_name.
+        "expected_annual_return": (cfg.get("strategy_portfolio") or {}).get(
+            "expected_annual_return"
+        )
+        or cfg.get("expected_annual_return"),
+        "preset_name": (cfg.get("defaults") or {}).get("preset_name")
+        or exec_cfg.get("preset_name")
+        or pos_sizing.get("preset_name"),
     })
 
     # Header yorumundan backtest özeti çıkar (ilk 80 satır)

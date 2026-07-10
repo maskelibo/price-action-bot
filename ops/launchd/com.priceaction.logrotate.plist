@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.priceaction.logrotate</string>
+
+  <!--
+    FIX 2026-05-28 (audit-F2): launchd log rotation cron.
+    Gece 04:00 UTC = 07:00 TR.
+    logs/launchd/*.log dosyalarını 50MB üstünde gzip'ler + truncate.
+    30g rolling retention. scripts/rotate_logs.sh.
+  -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/peyman/price-action-bot/scripts/rotate_logs.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/peyman/price-action-bot</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PA_PROJECT_ROOT</key>
+    <string>/Users/peyman/price-action-bot</string>
+    <key>PA_LOG_ROTATE_MB</key>
+    <string>50</string>
+    <key>PA_LOG_RETENTION_DAYS</key>
+    <string>30</string>
+  </dict>
+
+  <!-- Gece 04:00 UTC = 07:00 TR -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>4</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/logrotate.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/logrotate.stderr.log</string>
+</dict>
+</plist>

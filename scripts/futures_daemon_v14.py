@@ -95,7 +95,9 @@ PID_FILE = ROOT / "logs" / f"{_LOG_TAG}_daemon.pid"
 
 def _vlog(msg: str) -> None:
     ts = datetime.now(UTC).strftime("%H:%M:%SZ")
-    line = f"[{ts}] [V14] {msg}"
+    # W1-LOW fix (2026-07-10): '[V14]' literal'i v15p2 koşarken yalan söylüyordu;
+    # tüketici envanteri temiz (repo-geniş '\[V14\]' grep: 0 tüketici) → dinamik tag.
+    line = f"[{ts}] [{_LOG_TAG.upper()}] {msg}"
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(line + "\n")

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.priceaction.dashboard</string>
+
+  <!--
+    Komuta Merkezi Dashboard — always-on web sunucu (2026-06-18, Principal isteği).
+    YK başkanı her zaman açıp durumu görebilsin diye KeepAlive ile sürekli çalışır.
+
+    Aç:    http://127.0.0.1:8787
+    Load:  launchctl bootstrap gui/501 ~/Library/LaunchAgents/com.priceaction.dashboard.plist
+    Stop:  launchctl bootout gui/501/com.priceaction.dashboard
+    Restart: launchctl kickstart -k gui/501/com.priceaction.dashboard
+  -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/peyman/price-action-bot/.venv/bin/python</string>
+    <string>/Users/peyman/price-action-bot/scripts/dashboard/server.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/peyman/price-action-bot</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PA_PROJECT_ROOT</key>
+    <string>/Users/peyman/price-action-bot</string>
+    <key>PA_DASHBOARD_PORT</key>
+    <string>8787</string>
+    <key>PA_LOG_QUIET</key>
+    <string>1</string>
+  </dict>
+
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/dashboard.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/dashboard.stderr.log</string>
+</dict>
+</plist>
