@@ -30,6 +30,7 @@ import pandas as pd
 from price_action.contracts import Position, Signal
 from price_action.risk.breaker import DDBreaker
 from price_action.risk.sizing import AccountState, RiskOfficer
+from scripts.lib.degraded_reads import record_degraded_read
 
 # =====================================================================
 # M4 — returns_df TTL cache (SEC58 2026-05-18)
@@ -483,7 +484,10 @@ def build_spot_account_state(
     """
     try:
         bal = exchange.fetch_balance()
-    except Exception:
+    except Exception as _bal_exc:
+        # KALAN_ISLER #8 (2026-07-10): önceden tamamen sessizdi — equity=0
+        # "başarı gibi" dönüyordu. Görünürlük-only: dönüş birebir aynı.
+        record_degraded_read("spot_account.fetch_balance", _bal_exc)
         return AccountState(equity_usdt=0.0, free_margin_usdt=0.0)
 
     usdt = float(bal.get("USDT", {}).get("total", 0.0) or 0.0)
@@ -505,7 +509,10 @@ def build_spot_account_state(
         try:
             ticker = exchange.fetch_ticker(f"{ccy}/USDT")
             px = float(ticker.get("last") or 0.0)
-        except Exception:
+        except Exception as _tk_exc:
+            # KALAN_ISLER #8: önceden sessizdi — pozisyon equity'den sessizce
+            # düşüyordu. Görünürlük-only: akış birebir aynı (continue).
+            record_degraded_read("spot_account.fetch_ticker", _tk_exc)
             continue
         if px <= 0:
             continue

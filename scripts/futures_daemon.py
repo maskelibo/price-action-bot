@@ -47,6 +47,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
+# KALAN_ISLER #8 (2026-07-10): borsa-okuma "başarı-şekilli boş dönüş" görünürlüğü.
+# Saf-stdlib hafif sayaç modülü — kontrol akışına dokunmaz (bkz. degraded_reads.py).
+from scripts.lib.degraded_reads import (
+    record_degraded_read,
+    total_degraded_reads,
+)
+
 # Multi-bot futures support
 # FIX 2026-05-27 (Faz 14.25): generic — herhangi bir bot adına izin ver.
 # FIX 2026-05-27 (Faz 14.26): idempotency + pyramid_store + DMS DB'leri de per-bot.
@@ -516,6 +523,8 @@ def _rebuild_position_tracking_from_exchange(exchange) -> None:
         positions = exchange.fetch_positions()
         active_pos = [p for p in positions if abs(float(p.get("contracts", 0))) > 0]
     except Exception as _fetch_err:
+        # KALAN_ISLER #8: sayaç-only (log zaten var) — akış/dönüş birebir aynı.
+        record_degraded_read("rebuild_tracking.fetch_positions", _fetch_err, emit_log=False)
         log(f"REBUILD_TRACKING_FAIL: borsa pozisyonları çekilemedi: {_fetch_err}")
         return
 
@@ -560,6 +569,8 @@ def _rebuild_position_tracking_from_exchange(exchange) -> None:
                 if _ao_sym and _ao_tp > 0:
                     _algo_sl_map[_ao_sym] = _ao_tp
     except Exception as _algo_err:
+        # KALAN_ISLER #8: sayaç-only (log zaten var) — akış/dönüş birebir aynı.
+        record_degraded_read("rebuild_tracking.open_algo_orders", _algo_err, emit_log=False)
         log(f"REBUILD_TRACKING: algo SL'ler çekilemedi ({_algo_err}) — borsa entry kullanılacak")
 
     rebuilt_count = 0
@@ -956,10 +967,14 @@ def _remaining_qty_on_con(con, trade_id: str, fill_qty: float) -> float:
         return float(fill_qty)
 
 
+_POS_CHECK_DEG_SNAPSHOT: int = 0  # KALAN_ISLER #8: önceki POS_CHECK'teki toplam sayaç
+
+
 def position_check():
     """Açık pozisyonları + algo (TP/SL) protection order durumu."""
     from scripts.futures_trade_daily import fetch_futures_state, get_futures_exchange
 
+    global _POS_CHECK_DEG_SNAPSHOT
     try:
         ex = get_futures_exchange()
         state = fetch_futures_state(ex)
@@ -969,6 +984,19 @@ def position_check():
         algo_ok = state.get("algo_orders_ok", True)
         pos_ok = state.get("positions_ok", True)
         rate_limit_suffix = "" if (algo_ok and pos_ok) else " [API_STALE]"
+
+        # KALAN_ISLER #8 (2026-07-10): son tick'ten bu yana DEGRADED_READ olduysa
+        # özet satırına [DEGRADED:n] eki — '0 pozisyon' ile 'okuma çöktü' loglarda
+        # ayrışsın. Görünürlük-only: akış/dönüş değişmez, hata ekleri boş kalır.
+        degraded_suffix = ""
+        try:
+            _deg_total_now = total_degraded_reads()
+            _deg_delta = _deg_total_now - _POS_CHECK_DEG_SNAPSHOT
+            _POS_CHECK_DEG_SNAPSHOT = _deg_total_now
+            if _deg_delta > 0:
+                degraded_suffix = f" [DEGRADED:{_deg_delta}]"
+        except Exception:
+            degraded_suffix = ""
 
         if positions:
             pos_summary = []
@@ -989,11 +1017,14 @@ def position_check():
                     f"{sym.replace('/USDT:USDT','').replace('/USDT','')}={side[0].upper()}{abs(contracts):.3f}@${entry:.4f}->{mark:.4f}({pnl:+.2f})"
                 )
             log(
-                f"POS_CHECK: {len(positions)} pos, {state['n_algo_orders']} algo (TP+SL){rate_limit_suffix} | "
+                f"POS_CHECK: {len(positions)} pos, {state['n_algo_orders']} algo (TP+SL){rate_limit_suffix}{degraded_suffix} | "
                 + " | ".join(pos_summary[:6])
             )
         else:
-            log(f"POS_CHECK: 0 pozisyon, {state['n_algo_orders']} algo orders{rate_limit_suffix}")
+            log(
+                f"POS_CHECK: 0 pozisyon, {state['n_algo_orders']} algo orders"
+                f"{rate_limit_suffix}{degraded_suffix}"
+            )
 
         # SEC-#3C: Fill-sonrası konsantrasyon watchdog (sadece alarm).
         # Sorun: mevcut concentration_gate PRE-trade çalışır; FILL SONRASI gerçek
@@ -1159,7 +1190,9 @@ def position_check():
                 for _pr in ex.fapiPrivateV2GetPositionRisk():
                     if abs(float(_pr.get("positionAmt", 0) or 0)) > 0.0001:
                         _confirm_syms.add(str(_pr.get("symbol", "")))
-            except Exception:
+            except Exception as _pr_exc:
+                # KALAN_ISLER #8: önceden tamamen sessizdi — sayaç + marker.
+                record_degraded_read("pos_check.position_risk_confirm", _pr_exc, log_fn=log)
                 _confirm_syms = None  # teyit alınamadı → hiçbir şeyi orphan sayma
 
             # FIX 2026-06-10 (XRP 02:15Z olayı): N-ARDIŞIK-TİCK STATEFUL TEYİT.
@@ -1821,6 +1854,8 @@ def position_check():
                             # trigger yok ama terminal + pozisyon flat → satır emekli edildi
                             log(f"PROT_CANCEL: {sym} cancelled (stale/manual — no trigger)")
                     except Exception as e:
+                        # KALAN_ISLER #8: sayaç-only (log zaten var) — akış aynı.
+                        record_degraded_read("prot_check.algo_history", e, emit_log=False)
                         log(f"  algo hist err {sym_id}: {str(e)[:80]}")
             con.commit()
             con.close()
@@ -2096,7 +2131,14 @@ def position_check():
                                         if _pa > 0:
                                             _fresh_amt = _pa
                                             break
-                                except Exception:
+                                except Exception as _fq_exc:
+                                    # KALAN_ISLER #8: önceden sessizdi (stale qty'ye
+                                    # düşülüyordu) — sayaç + marker; dönüş aynı.
+                                    record_degraded_read(
+                                        "prot_watchdog.fetch_positions_fresh",
+                                        _fq_exc,
+                                        log_fn=log,
+                                    )
                                     _fresh_amt = _contracts
                                 if _fresh_amt > 0:
                                     _fresh_qty = ex.amount_to_precision(_sym_ccxt, _fresh_amt)
@@ -3088,6 +3130,12 @@ def run_15m_mode(once: bool = False) -> None:
                                                     None, None, _fetched_avg
                                                 )
                                         except Exception as _fe_err:
+                                            # KALAN_ISLER #8: sayaç-only (log zaten var).
+                                            record_degraded_read(
+                                                "entry_submit.fetch_order",
+                                                _fe_err,
+                                                emit_log=False,
+                                            )
                                             log(
                                                 f"  15M_FILL_FETCH_ERR: {sig['symbol']} fetch_order fail: {str(_fe_err)[:80]}"
                                             )

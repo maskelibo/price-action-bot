@@ -55,6 +55,7 @@ from price_action.execution.post_only_router import (  # noqa: E402
     place_post_only_with_fallback,
 )
 from scripts.lib.cooldown import filter_signals_by_cooldown  # noqa: E402
+from scripts.lib.degraded_reads import record_degraded_read  # noqa: E402
 from scripts.lib.risk_integration import (  # noqa: E402
     build_futures_account_state,
     build_returns_df,
@@ -302,14 +303,17 @@ def fetch_futures_state(exchange):
     try:
         positions = exchange.fetch_positions()
         active_pos = [p for p in positions if abs(float(p.get("contracts", 0))) > 0]
-    except Exception:
+    except Exception as _pos_exc:
+        # KALAN_ISLER #8 (2026-07-10): görünürlük-only — dönüş birebir aynı ([]).
+        record_degraded_read("fetch_futures_state.fetch_positions", _pos_exc)
         active_pos = []
         positions_ok = False
 
     regular_orders_ok = True
     try:
         regular_orders = exchange.fapiPrivateGetOpenOrders()
-    except Exception:
+    except Exception as _oo_exc:
+        record_degraded_read("fetch_futures_state.open_orders", _oo_exc)  # görünürlük-only
         regular_orders = []
         regular_orders_ok = False
 
@@ -318,7 +322,8 @@ def fetch_futures_state(exchange):
         algo_orders = exchange.fapiPrivateGetOpenAlgoOrders()
         if not isinstance(algo_orders, list):
             algo_orders = []
-    except Exception:
+    except Exception as _ao_exc:
+        record_degraded_read("fetch_futures_state.open_algo_orders", _ao_exc)  # görünürlük-only
         algo_orders = []
         algo_orders_ok = False
 

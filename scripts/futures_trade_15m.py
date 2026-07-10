@@ -306,6 +306,13 @@ def _fetch_fresh_bars_ccxt(sym: str, n_bars: int = 50) -> pd.DataFrame | None:
         df = df[["venue", "symbol", "timeframe", "ts", "open", "high", "low", "close", "volume"]]
         return df.sort_values("ts").reset_index(drop=True)
     except Exception as exc:
+        # KALAN_ISLER #8 (2026-07-10): sayaç-only (loguru log zaten var) — dönüş aynı (None).
+        try:
+            from scripts.lib.degraded_reads import record_degraded_read
+
+            record_degraded_read("scan15m.fresh_fetch_ohlcv", exc, emit_log=False)
+        except Exception:
+            pass
         logger.bind(symbol=sym, err=str(exc)).warning("scan15m.fresh_fetch_fail")
         return None
 
