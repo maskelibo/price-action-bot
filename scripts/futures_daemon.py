@@ -1033,8 +1033,9 @@ def position_check():
                                         _last_dt = _last_dt.replace(tzinfo=UTC)
                                     if (datetime.now(UTC) - _last_dt) < _td(hours=12):
                                         _skip_dedup = True
-                                except Exception:
-                                    pass
+                                except Exception as _e:
+                                    # log-only: _skip_dedup False kalır (eski davranış)
+                                    log(f"  CONC_DEDUP_TS_PARSE_FAIL {_psym}: {str(_e)[:60]}")
                             if not _skip_dedup:
                                 log(
                                     f"  CONCENTRATION_BREACH: {_psym} "
@@ -1063,8 +1064,8 @@ def position_check():
                             _conc_dedup_path.write_text(
                                 _json_conc.dumps(_dedup_state, indent=2), encoding="utf-8"
                             )
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log(f"  CONC_DEDUP_WRITE_FAIL: {str(_e)[:60]}")  # log-only
             except Exception as _conc_ex:
                 log(f"  CONC_WATCHDOG_ERR: {str(_conc_ex)[:80]}")
 
@@ -1415,8 +1416,9 @@ def position_check():
                             [prot_id],
                         ).fetchone()
                         _notes_str = str(_nr[0] or "") if _nr else ""
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        # log-only: _notes_str "" kalır → TP2-suz akış (eski davranış)
+                        log(f"  TP2_NOTES_READ_FAIL prot_id={prot_id}: {str(_e)[:60]}")
                     _tp2_oid = None
                     if "tp2_id=" in _notes_str:
                         try:
@@ -1878,8 +1880,9 @@ def position_check():
                         try:
                             ex.fapiPrivateDeleteAlgoOrder({"symbol": _sym_algo, "algoId": _a})
                             log(f"  PROT_WATCHDOG: {_sym_algo} fazla SL iptal " f"(algoId={_a})")
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            # log-only: iptal edilemeyen fazla-SL sonraki tick'te tekrar denenir
+                            log(f"  EXCESS_SL_CANCEL_FAIL {_sym_algo} algoId={_a}: {str(_e)[:60]}")
                 # pyramid_store'dan orijinal SL + leg-1 entry.
                 # ÖNEMLİ: TP1/TP2/R hesabı leg-1 (orijinal) entry ile yapılmalı.
                 # Borsa entryPrice'ı pyramid ADD sonrası ortalama → şişer →
@@ -2961,8 +2964,10 @@ def run_15m_mode(once: bool = False) -> None:
                                         }
                                         with open(_missed_path, "a", encoding="utf-8") as _mf:
                                             _mf.write(json.dumps(_missed_entry, default=str) + "\n")
-                                    except Exception:
-                                        pass
+                                    except Exception as _e:
+                                        log(
+                                            f"  MISSED_ENTRY_WRITE_FAIL: {str(_e)[:60]}"
+                                        )  # log-only
                                     try:
                                         from price_action.orchestrator.notifications import (
                                             push_critical,
@@ -3155,8 +3160,11 @@ def run_15m_mode(once: bool = False) -> None:
                                         f"{sig['symbol'].replace('/', '').replace(':USDT', '')}"
                                         f"|{str(sig['side']).lower()}"
                                     ] = float(sig["sl_price"])
-                                except Exception:
-                                    pass
+                                except Exception as _e:
+                                    # log-only: store başarısızsa watchdog G22 fallback'i devrede
+                                    log(
+                                        f"    ORIG_SL_STORE_FAIL {sig.get('symbol', '?')}: {str(_e)[:60]}"
+                                    )
                                 if _prot["status"] == "placed":
                                     log(
                                         f"    15M_PROTECT: tp=${_prot['tp_price']:.4f} sl=${_prot['sl_price']:.4f}"

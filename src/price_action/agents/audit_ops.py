@@ -120,7 +120,7 @@ _LOG_SCAN_FILES: tuple[str, ...] = (
 _LOG_PATTERN_SPECS: tuple[dict[str, Any], ...] = (
     {
         "control_id": "CT-OPS-03",
-        "owner": "execution_chief",
+        "owner": "ops_engineer",  # T5-01 fix 2026-07-10: execution_chief çalışabilir agent DEĞİL (yalnız persona) → bulgu remediation dead-end idi
         "severity": "med",
         "threshold": 3,
         "title": "journal DuckDB ro+rw çakışması (tekrar eden)",
@@ -140,7 +140,7 @@ _LOG_PATTERN_SPECS: tuple[dict[str, Any], ...] = (
     },
     {
         "control_id": "CT-OPS-05",
-        "owner": "execution_chief",
+        "owner": "ops_engineer",  # T5-01 fix 2026-07-10: execution_chief çalışabilir agent DEĞİL (yalnız persona) → bulgu remediation dead-end idi
         "severity": "high",
         "threshold": 2,
         "title": "pozisyon-koruma döngüsü unhandled exception",
@@ -150,7 +150,7 @@ _LOG_PATTERN_SPECS: tuple[dict[str, Any], ...] = (
     },
     {
         "control_id": "CT-OPS-06",
-        "owner": "execution_chief",
+        "owner": "ops_engineer",  # T5-01 fix 2026-07-10: execution_chief çalışabilir agent DEĞİL (yalnız persona) → bulgu remediation dead-end idi
         "severity": "low",
         "threshold": 5,
         "title": "pyramid leg insufficient-margin tekrar denemesi",
@@ -295,6 +295,44 @@ class AuditOpsAgent(AuditAgentBase):
             "sınıfı tekrar ediyor. ops_engineer triaj edip ya düzeltmeli ya katalога "
             "yeni spec eklemeli.",
         )
+
+    # ------------------------------------------------------------------
+    # CT-OPS-02 canlı veri kaynağı (FIX 2026-07-10, T5-02): dedektör tanımlı+
+    # unit-testliydi ama controls()'a HİÇ kayıtlı değildi → sessiz-cron kontrolü
+    # kendisi sessizdi (ölü kod). Koşu-izi = dosya mtime (parse-siz, deterministik);
+    # eşikler kasıtlı CÖMERT (gerçek cadence ×4+) → restart/rotasyon pencereleri
+    # asla false-fire etmez. Dosya YOKSA o job ATLANIR (rotasyon/kurulum farkı
+    # false-pozitif üretmesin — SKIP-on-missing-data). Hiç dosya yoksa SKIP.
+    # ------------------------------------------------------------------
+    _CT_OPS_02_RUN_EVIDENCE: tuple[tuple[str, str, float], ...] = (
+        # (job_adı, koşu-izi dosyası [repo-göreli], izin_verilen_max_saat)
+        ("futures_v15p2_daemon", "logs/futures_daemon_v15p2.log", 3.0),  # 15dk bar ×12
+        ("ceo_scheduler", "logs/launchd/ceo.stdout.log", 12.0),  # sürekli scheduler
+        ("liq_collector", "data/liquidations.duckdb", 12.0),  # periyodik flush
+        ("ingest_15m", "logs/launchd/ingest15m.stdout.log", 12.0),  # 15dk cadence
+    )
+
+    def run_ct_ops_02_silent_cron(self) -> Finding | None:
+        """Kritik job'ların koşu-izi dosya-yaşları → ct_ops_02_silent_cron çekirdeği."""
+        try:
+            import time as _time
+
+            repo = self._repo_root()
+            now = _time.time()
+            ages: dict[str, float] = {}
+            expected: dict[str, float] = {}
+            for job, rel, max_h in self._CT_OPS_02_RUN_EVIDENCE:
+                p = repo / rel
+                if not p.exists():
+                    continue  # rotasyon/kurulum farkı → bu job'u değerlendirme
+                ages[job] = (now - p.stat().st_mtime) / 3600.0
+                expected[job] = float(max_h)
+            if not expected:
+                return SKIP  # hiç koşu-izi yok → veri yetersiz, asla false-fire etme
+            return ct_ops_02_silent_cron(ages, expected)
+        except Exception as exc:
+            logger.warning("audit_ops.ct_ops_02_fail", extra={"err": str(exc)[:160]})
+            return SKIP
 
     def run_ct_ops_01(self) -> Finding | None:
         """Canlı mute durumunu kod'dan oku (telegram_throttle + notifications)."""
@@ -459,6 +497,8 @@ class AuditOpsAgent(AuditAgentBase):
 
     def controls(self) -> dict[str, Any]:
         ctrls: dict[str, Any] = {"CT-OPS-01": self.run_ct_ops_01}
+        # CT-OPS-02 — sessiz-cron (T5-02 fix 2026-07-10: tanımlıydı ama kayıtsızdı).
+        ctrls["CT-OPS-02"] = self.run_ct_ops_02_silent_cron
         # CT-OPS-03..06 — bilinen hata-paternleri (owner'a route, 1-gün SLA).
         for spec in _LOG_PATTERN_SPECS:
             ctrls[spec["control_id"]] = lambda s=spec: self._scan_log_pattern(s)

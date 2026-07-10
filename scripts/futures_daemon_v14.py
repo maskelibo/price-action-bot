@@ -55,9 +55,7 @@ if _PHASE not in _PHASE_CONFIGS:
 V14_CONFIG, _EXPECT_RISK, _EXPECT_P3 = _PHASE_CONFIGS[_PHASE]
 _prev_cfg = os.environ.get("PA_15M_CONFIG")
 if _prev_cfg and _prev_cfg != V14_CONFIG:
-    sys.stderr.write(
-        f"[V14] UYARI: PA_15M_CONFIG={_prev_cfg} override ediliyor → {V14_CONFIG}\n"
-    )
+    sys.stderr.write(f"[V14] UYARI: PA_15M_CONFIG={_prev_cfg} override ediliyor → {V14_CONFIG}\n")
 # v15p2 → ayrı bot-adı: temiz journal (futures_journal_v15p2.duckdb) + temiz
 # breaker state (Principal "temiz başlangıç" direktifi, 2026-07-02).
 os.environ["PA_BOT_NAME"] = "v15p2" if _EXPECT_P3 == "v15p2" else "v14"
@@ -72,7 +70,7 @@ if os.environ.get("PA_LIVE_CONFIRM", "").strip():
     )
 
 os.environ["PA_LOG_QUIET"] = "1"
-import warnings
+import warnings  # noqa: E402 (kasıtlı: env-setup import'lardan önce — wrapper deseni)
 
 warnings.filterwarnings("ignore")
 
@@ -121,40 +119,58 @@ def _verify_v14_config() -> dict:
 
     checks = {
         "position_sizing.risk_per_trade": (
-            float(cfg.get("position_sizing", {}).get("risk_per_trade", 0)), _EXPECT_RISK),
+            float(cfg.get("position_sizing", {}).get("risk_per_trade", 0)),
+            _EXPECT_RISK,
+        ),
         "position_sizing.backtest_risk_pct": (
-            float(cfg.get("position_sizing", {}).get("backtest_risk_pct", 0)), _EXPECT_RISK),
-        "execution.sl_pct_min": (
-            float(cfg.get("execution", {}).get("sl_pct_min", 0)), 0.025),
+            float(cfg.get("position_sizing", {}).get("backtest_risk_pct", 0)),
+            _EXPECT_RISK,
+        ),
+        "execution.sl_pct_min": (float(cfg.get("execution", {}).get("sl_pct_min", 0)), 0.025),
         "drawdown_breakers.daily_loss_pct": (
-            float(cfg.get("drawdown_breakers", {}).get("daily_loss_pct", 0)), 0.04),
+            float(cfg.get("drawdown_breakers", {}).get("daily_loss_pct", 0)),
+            0.04,
+        ),
         "drawdown_breakers.weekly_loss_pct": (
-            float(cfg.get("drawdown_breakers", {}).get("weekly_loss_pct", 0)), 0.08),
+            float(cfg.get("drawdown_breakers", {}).get("weekly_loss_pct", 0)),
+            0.08,
+        ),
         "strategy_portfolio.pyramid_enabled": (
             bool(cfg.get("strategy_portfolio", {}).get("pyramid_enabled", False)),
-            _EXPECT_P3 != "v15p2"),  # v15p2 → pyramid OFF beklenir; diğerleri ON
+            _EXPECT_P3 != "v15p2",
+        ),  # v15p2 → pyramid OFF beklenir; diğerleri ON
     }
     if _EXPECT_P3 == "p3":
         ps = cfg.get("position_sizing", {})
         checks["strategy_risk_weights.vsa"] = (
-            float((ps.get("strategy_risk_weights") or {}).get("vsa_climax_test", 0)), 1.4)
+            float((ps.get("strategy_risk_weights") or {}).get("vsa_climax_test", 0)),
+            1.4,
+        )
         checks["strategy_risk_weights.grimes"] = (
-            float((ps.get("strategy_risk_weights") or {}).get("grimes_abc_pullback", 0)), 1.0)
+            float((ps.get("strategy_risk_weights") or {}).get("grimes_abc_pullback", 0)),
+            1.0,
+        )
         checks["dd_throttle.enabled"] = (
-            bool((ps.get("dd_throttle") or {}).get("enabled", False)), True)
-        checks["strategies_enabled (5)"] = (
-            len(cfg.get("strategies_enabled") or []), 5)
+            bool((ps.get("dd_throttle") or {}).get("enabled", False)),
+            True,
+        )
+        checks["strategies_enabled (5)"] = (len(cfg.get("strategies_enabled") or []), 5)
     elif _EXPECT_P3 == "v15p2":
         # v15p2 konsantre filo: grimes+vsa EŞİT (1.0/1.0), 2 strateji, dd_throttle ON.
         ps = cfg.get("position_sizing", {})
         checks["strategy_risk_weights.vsa"] = (
-            float((ps.get("strategy_risk_weights") or {}).get("vsa_climax_test", 0)), 1.0)
+            float((ps.get("strategy_risk_weights") or {}).get("vsa_climax_test", 0)),
+            1.0,
+        )
         checks["strategy_risk_weights.grimes"] = (
-            float((ps.get("strategy_risk_weights") or {}).get("grimes_abc_pullback", 0)), 1.0)
+            float((ps.get("strategy_risk_weights") or {}).get("grimes_abc_pullback", 0)),
+            1.0,
+        )
         checks["dd_throttle.enabled"] = (
-            bool((ps.get("dd_throttle") or {}).get("enabled", False)), True)
-        checks["strategies_enabled (2)"] = (
-            len(cfg.get("strategies_enabled") or []), 2)
+            bool((ps.get("dd_throttle") or {}).get("enabled", False)),
+            True,
+        )
+        checks["strategies_enabled (2)"] = (len(cfg.get("strategies_enabled") or []), 2)
     bad = [(k, got, want) for k, (got, want) in checks.items() if got != want]
     if bad:
         for k, got, want in bad:
@@ -213,8 +229,8 @@ except Exception as _patch_err:
 def _write_pid() -> None:
     try:
         PID_FILE.write_text(str(os.getpid()))
-    except Exception:
-        pass
+    except Exception as e:
+        _vlog(f"PID_WRITE_FAIL: {e}")  # log-only: PID dosyası izleme-amaçlı, akış değişmez
 
 
 def _print_banner() -> None:
