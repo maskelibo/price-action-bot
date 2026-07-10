@@ -137,7 +137,8 @@ def route_signal(
     risked = decision
     qty = float(risked.quantity)
     notional = float(risked.notional_usdt)
-    leverage_used = max(1, min(5, int(round(risked.leverage)))) or 1
+    # not: RUF046 pre-existing — int() Decimal/np-leverage girişleri için korunur
+    leverage_used = max(1, min(5, int(round(risked.leverage)))) or 1  # noqa: RUF046
     margin = notional / leverage_used
 
     # 6) Margin check
@@ -198,16 +199,94 @@ def route_signal(
         slip_bps = (ref_price - avg_px) / max(ref_price, 1e-10) * 10_000
 
     if slip_bps > max_slippage_bps:
-        # İptal et — resubmit yasak
+        # İptal et — resubmit yasak.
+        # Paket-5 fix (2026-07-10, ccxt_live 7d6fc29 şablonu): cancel YUTULMAZ —
+        # cancel sonrası fetch_order ile BORSA GERÇEĞİ doğrulanır:
+        #   * emir (kısmen) DOLMUŞSA (race) → fill SAHİPLENİLİR; rejected yazmak
+        #     journal-drift = naked-position sınıfı idi,
+        #   * emir hâlâ açık / durum bilinmiyorsa → cancel_verified=False bayrağı
+        #     + error log (çağıran borsada asılı emir olabileceğini bilir).
+        import logging as _lg
+
+        _rlog = _lg.getLogger(__name__)
+        cancel_ok = True
         try:
             exchange.cancel_order(exchange_order_id, sym)
         except Exception as _cx_err:
-            # log-only: cancel fail → emir borsada canlı kalabilir ama biz
-            # rejected işaretledik (drift) — artık görünür.
-            import logging as _lg
+            cancel_ok = False
+            _rlog.warning(f"order_router.slip_cancel_fail {sym}: {str(_cx_err)[:120]}")
 
-            _lg.getLogger(__name__).warning(
-                f"order_router.slip_cancel_fail {sym}: {str(_cx_err)[:120]}"
+        v_status = ""
+        v_filled = 0.0
+        v_avg = 0.0
+        verify_ok = False
+        try:
+            _v = exchange.fetch_order(exchange_order_id, sym)
+            v_status = str(_v.get("status") or "").lower()
+            v_filled = float(_v.get("filled") or 0.0)
+            v_avg = float(_v.get("average") or 0.0)
+            verify_ok = True
+        except Exception as _vf_err:
+            _rlog.warning(f"order_router.slip_cancel_verify_fail {sym}: {str(_vf_err)[:120]}")
+
+        # Sahiplenme yalnız TANINAN borsa-durumlarında: tam dolum (closed/filled)
+        # veya bilinen-iptal statüsünde gerçek kısmi dolum. Tanınmayan status +
+        # filled alanı tek başına sahiplenme tetiklemez (sahte-pozitif koruması).
+        _known_cancel = ("canceled", "cancelled", "expired", "rejected")
+        if verify_ok and (
+            v_status in ("closed", "filled") or (v_status in _known_cancel and v_filled > 0.0)
+        ):
+            # Race: emir slippage-iptaline rağmen (kısmen) doldu → pozisyon BORSADA
+            # gerçek → fill'i sahiplen (idem+tracker'a gerçeği yaz, filled dön).
+            own_qty = v_filled if v_filled > 0.0 else fill_qty
+            own_px = v_avg or avg_px
+            _rlog.error(
+                f"order_router.slip_cancel_race_filled {sym}: pozisyon BORSADA "
+                f"(qty={own_qty}, px={own_px}, slip={slip_bps:.1f}bps) — fill sahiplenildi"
+            )
+            idem.mark_filled(fingerprint, exchange_order_id, own_px, own_qty)
+            fill_id = uuid.uuid4().hex[:20]
+            tracker.record_fill(
+                fill_id=fill_id,
+                ts=datetime.now(UTC),
+                symbol=sym,
+                strategy=strategy,
+                side=side,
+                expected_price=ref_price,
+                realized_price=own_px,
+                quantity=own_qty,
+                fee_usdt=own_qty * own_px * 0.00075,
+                is_maker=(actual_type == "post_only_limit"),
+                order_type=actual_type,
+                mode="live",
+                exchange_order_id=exchange_order_id,
+                client_order_id=client_order_id,
+            )
+            return {
+                "status": "filled",
+                "symbol": sym,
+                "side": side,
+                "strategy": strategy,
+                "fill_id": fill_id,
+                "exchange_order_id": exchange_order_id,
+                "client_order_id": client_order_id,
+                "ref_price": ref_price,
+                "fill_price": own_px,
+                "fill_qty": own_qty,
+                "notional_usdt": own_qty * own_px,
+                "fee_usdt": own_qty * own_px * 0.00075,
+                "slippage_bps": round(slip_bps, 2),
+                "slippage_exceeded": True,  # kapı aşıldı AMA pozisyon borsada gerçek
+                "is_maker": actual_type == "post_only_limit",
+                "leverage": leverage_used,
+            }
+
+        cancel_verified = verify_ok and v_status != "open"
+        if not cancel_verified:
+            _rlog.error(
+                f"order_router.slip_cancel_unverified {sym} id={exchange_order_id}: "
+                f"emir borsada ASILI olabilir (cancel_ok={cancel_ok}, "
+                f"status={v_status or 'unknown'})"
             )
         idem.mark_rejected(fingerprint, reason=f"slippage_exceeded:{slip_bps:.1f}bps")
         return {
@@ -215,6 +294,7 @@ def route_signal(
             "symbol": sym,
             "reason": "slippage_exceeded",
             "slippage_bps": slip_bps,
+            "cancel_verified": cancel_verified,
         }
 
     # 12) Idempotency fill update
@@ -313,27 +393,92 @@ def _place_post_only_with_fallback(
     except Exception:
         return _place_market(exchange, sym, side, qty, client_order_id), "market"
 
-    # Fill bekleme
+    import logging as _lg
+
+    _rlog = _lg.getLogger(__name__)
+
+    # Fill bekleme (#10: poll hataları YUTULMAZ — timeout sonunda tek özet log)
     t0 = time.time()
+    _polls = 0
+    _poll_errs = 0
+    _last_err: str | None = None
     while time.time() - t0 < timeout_sec:
+        _polls += 1
         try:
             o = exchange.fetch_order(order_id, sym)
             if o.get("status") == "closed":
                 return o, "post_only_limit"
-        except Exception:
-            pass
+        except Exception as _pe:
+            _poll_errs += 1
+            _last_err = str(_pe)[:120]
         time.sleep(1.0)
+    if _poll_errs:
+        _rlog.warning(
+            f"order_router.poll_summary {sym} id={order_id}: {_polls} deneme, "
+            f"{_poll_errs} hata, son_hata={_last_err}"
+        )
 
-    # Timeout → cancel + market
-    # NOT: cancel fail + koşulsuz market = çift-pozisyon sınıfı (ccxt_live Bug-A
-    # ile aynı desen). Bu modül referans-impl (canlı daemon kullanmıyor); tam
-    # fail-closed tasarımı canlıya alınırsa ccxt_live fix'i örnek alınmalı.
+    # Timeout → cancel + market — Paket-5 fix (2026-07-10, ccxt_live 7d6fc29 şablonu):
+    # cancel fail YUTULMAZ + koşulsuz TAM-QTY market YOK (çift-pozisyon sınıfı).
+    #   * cancel sonrası fetch_order ile borsa gerçeği tazelenir,
+    #   * limit hâlâ açık / durum bilinmiyor → market fallback REDDET → (None, ...),
+    #   * race'te dolmuşsa fill sahiplenilir (market gerekmez),
+    #   * onaylı iptal + kısmi dolum → yalnız KALAN market'e; dönen order dict
+    #     toplamı yansıtır (filled=kısmi+market, average=ağırlıklı).
+    cancel_ok = True
     try:
         exchange.cancel_order(order_id, sym)
     except Exception as _tc_err:
-        import logging as _lg
-
-        _lg.getLogger(__name__).warning(
+        cancel_ok = False
+        _rlog.warning(
             f"order_router.timeout_cancel_fail {sym} id={order_id}: {str(_tc_err)[:120]}"
         )
-    return _place_market(exchange, sym, side, qty, client_order_id + "_fb"), "market"
+
+    partial_filled = 0.0
+    partial_px = 0.0
+    still_resting = not cancel_ok
+    o = None
+    try:
+        o = exchange.fetch_order(order_id, sym)
+        _status = str(o.get("status") or "").lower()
+        partial_filled = float(o.get("filled") or 0.0)
+        partial_px = float(o.get("average") or 0.0) or limit_px
+        if _status in ("closed", "filled"):
+            return o, "post_only_limit"  # race: timeout sonrası tam doldu → sahiplen
+        if _status == "open":
+            still_resting = True  # cancel etkisiz — limit hâlâ borsada
+    except Exception as _vf_err:
+        still_resting = True  # durum bilinmiyor → fail-closed
+        _rlog.error(
+            f"order_router.timeout_cancel_verify_fail {sym} id={order_id}: "
+            f"{str(_vf_err)[:120]}"
+        )
+
+    if still_resting:
+        _rlog.error(
+            f"order_router.timeout_cancel_unverified {sym} id={order_id}: "
+            f"limit borsada ASILI olabilir — market fallback REDDEDİLDİ "
+            f"(çift-pozisyon riski)"
+        )
+        return None, "cancel_unverified"
+
+    remaining = max(0.0, qty - partial_filled)
+    if remaining <= 0.0:
+        return o, "post_only_limit"  # fiilen tümü dolmuş — market gerekmez
+
+    fb = _place_market(exchange, sym, side, remaining, client_order_id + "_fb")
+    if fb is not None and partial_filled > 0.0:
+        # Kısmi limit dolumu + market kalanı → çağırana TOPLAMI yansıt
+        # (aksi hâlde journal/koruma yalnız market bacağını boyutlar).
+        try:
+            mk_fill = float(fb.get("filled") or remaining)
+            mk_px = float(fb.get("average") or 0.0) or partial_px
+            total = mk_fill + partial_filled
+            fb["filled"] = total
+            fb["average"] = ((mk_px * mk_fill) + (partial_px * partial_filled)) / max(
+                total, 1e-12
+            )
+            fb["partial_limit_qty"] = partial_filled
+        except Exception as _bl_err:
+            _rlog.error(f"order_router.partial_blend_fail {sym}: {str(_bl_err)[:120]}")
+    return fb, "market"

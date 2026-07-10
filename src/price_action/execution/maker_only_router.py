@@ -35,9 +35,8 @@ Usage:
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
-
 
 # ===== Exceptions =====
 
@@ -196,26 +195,24 @@ class MakerOnlyRouter:
             )
 
             if status in ("closed", "filled"):
-                fill_px = float(
-                    filled_order.get("average")
-                    or filled_order.get("price")
-                    or target_price
-                )
-                # Slippage defense check
-                slip_bps = _compute_slippage_bps(side, target_price, fill_px)
-                if slip_bps > self.slippage_limit_bps:
-                    self.stats.filled += 1
-                    raise MakerSlippageError(symbol, slip_bps, self.slippage_limit_bps)
+                return self._accept_fill(filled_order, attempt, symbol, side, target_price)
 
-                self.stats.filled += 1
-                _log_info(
-                    f"[MakerOnly] FILLED attempt={attempt} {symbol} {side} "
-                    f"@ {fill_px:.6g} slip={slip_bps:.1f}bps"
+            # Timeout → cancel + retry.
+            # Paket-5 fix (2026-07-10, ccxt_live 7d6fc29 şablonu): cancel fail
+            # YUTULMAZ — _cancel_safe fetch-verify yapar:
+            #   * race'te dolmuşsa → fill sahiplenilir,
+            #   * iptal doğrulanamadıysa → YENİ EMİR YERLEŞTİRİLMEZ (eski emir
+            #     borsada asılıyken retry = çift-pozisyon sınıfı) → signal abort.
+            cancel_ok, race_fill = _cancel_safe(self.exchange, order_id, symbol)
+            if race_fill is not None:
+                return self._accept_fill(race_fill, attempt, symbol, side, target_price)
+            if not cancel_ok:
+                self.stats.aborted += 1
+                _log_warn(
+                    f"[MakerOnly] CANCEL_UNVERIFIED {symbol} {side} id={order_id} "
+                    f"attempt={attempt} — retry İPTAL (çift-pozisyon riski), signal abort"
                 )
-                return filled_order, attempt
-
-            # Timeout → cancel + retry
-            _cancel_safe(self.exchange, order_id, symbol)
+                raise SignalAbortedError(symbol, side, attempt, target_price)
             _log_warn(
                 f"[MakerOnly] attempt={attempt}/{self.max_retries} TIMEOUT "
                 f"{symbol} {side} @ {target_price:.6g}"
@@ -234,6 +231,31 @@ class MakerOnlyRouter:
         return self.stats.kill_criteria_check(min_fill_rate_pct)
 
     # ----- internal -----
+
+    def _accept_fill(
+        self,
+        filled_order: dict,
+        attempt: int,
+        symbol: str,
+        side: str,
+        target_price: float,
+    ) -> tuple[dict, int]:
+        """Fill'i sahiplen: slippage defense + stats + log (tek nokta)."""
+        fill_px = float(
+            filled_order.get("average") or filled_order.get("price") or target_price
+        )
+        # Slippage defense check
+        slip_bps = _compute_slippage_bps(side, target_price, fill_px)
+        if slip_bps > self.slippage_limit_bps:
+            self.stats.filled += 1
+            raise MakerSlippageError(symbol, slip_bps, self.slippage_limit_bps)
+
+        self.stats.filled += 1
+        _log_info(
+            f"[MakerOnly] FILLED attempt={attempt} {symbol} {side} "
+            f"@ {fill_px:.6g} slip={slip_bps:.1f}bps"
+        )
+        return filled_order, attempt
 
     def _submit_post_only(
         self,
@@ -276,16 +298,27 @@ class MakerOnlyRouter:
         """
         t0 = time.time()
         last_order: dict = {}
+        # #10: poll hataları YUTULMAZ — timeout sonunda tek özet log
+        n_polls = 0
+        n_errs = 0
+        last_err: str | None = None
         while time.time() - t0 < timeout_sec:
+            n_polls += 1
             try:
                 o = self.exchange.fetch_order(order_id, symbol)
                 last_order = o
                 st = str(o.get("status", "open"))
                 if st in ("closed", "filled", "canceled"):
                     return st, o
-            except Exception:
-                pass
+            except Exception as exc:
+                n_errs += 1
+                last_err = str(exc)[:120]
             time.sleep(self.poll_interval)
+        if n_errs:
+            _log_warn(
+                f"[MakerOnly] poll_summary {symbol} id={order_id}: {n_polls} deneme, "
+                f"{n_errs} hata, son_hata={last_err}"
+            )
         return "timeout", last_order
 
 
@@ -300,11 +333,40 @@ def _compute_slippage_bps(side: str, expected_px: float, fill_px: float) -> floa
     return (expected_px - fill_px) / expected_px * 10_000
 
 
-def _cancel_safe(exchange: Any, order_id: str, symbol: str) -> None:
+def _cancel_safe(exchange: Any, order_id: str, symbol: str) -> tuple[bool, dict | None]:
+    """Cancel + (fail durumunda) fetch-verify — cancel fail YUTULMAZ (Paket-5).
+
+    Eski sözleşme: dönüş yoktu (None), fail sessizce yutuluyordu → cancel gerçekte
+    başarısızsa eski emir borsada asılıyken retry yeni emir yerleştiriyordu
+    (çift-pozisyon sınıfı). Yeni dönüş çağıran tarafından opsiyonel tüketilir:
+
+    Returns:
+        (cancel_ok, race_fill_order)
+        cancel_ok=True  → iptal borsaca kabul edildi (veya verify 'canceled' dedi);
+                          yeni deneme güvenli.
+        cancel_ok=False → iptal DOĞRULANAMADI (emir hâlâ açık / durum bilinmiyor);
+                          çağıran YENİ EMİR YERLEŞTİRMEMELİ.
+        race_fill_order → cancel sırasında emir DOLMUŞSA (status closed/filled)
+                          borsa-gerçeği order dict; çağıran fill'i sahiplenmeli.
+    """
     try:
         exchange.cancel_order(order_id, symbol)
-    except Exception:
-        pass
+        return True, None
+    except Exception as exc:
+        _log_warn(f"[MakerOnly] cancel_order fail {symbol} id={order_id}: {str(exc)[:120]}")
+    # Cancel exception attı → borsa gerçeğini fetch-verify et
+    try:
+        o = exchange.fetch_order(order_id, symbol)
+        st = str(o.get("status", "")).lower()
+        if st in ("closed", "filled"):
+            return True, o  # race: emir cancel'dan önce doldu → fill sahiplenilecek
+        if st in ("canceled", "cancelled", "expired", "rejected"):
+            return True, None  # ör. "already canceled" hatası — iptal gerçekleşmiş
+    except Exception as exc:
+        _log_warn(
+            f"[MakerOnly] cancel verify fetch fail {symbol} id={order_id}: {str(exc)[:120]}"
+        )
+    return False, None  # open / bilinmiyor → doğrulanamadı (fail-closed)
 
 
 def _log_info(msg: str) -> None:

@@ -69,15 +69,30 @@ def _wait_for_fill(
     """
     t0 = time.time()
     last_status = "open"
+    # #10: poll hataları YUTULMAZ — timeout sonunda tek özet log (s-başına spam yok)
+    n_polls = 0
+    n_errs = 0
+    last_err: str | None = None
     while time.time() - t0 < timeout_sec:
+        n_polls += 1
         try:
             o = exchange.fetch_order(order_id, symbol)
             last_status = str(o.get("status", "open"))
             if last_status in ("closed", "filled", "canceled"):
                 return last_status
-        except Exception:
-            pass
+        except Exception as exc:
+            n_errs += 1
+            last_err = str(exc)[:120]
         time.sleep(poll_interval)
+    if n_errs:
+        _MOD_LOG.warning(
+            "post_only_router.poll_summary %s id=%s: %d deneme, %d hata, son_hata=%s",
+            symbol,
+            order_id,
+            n_polls,
+            n_errs,
+            last_err,
+        )
     return last_status
 
 

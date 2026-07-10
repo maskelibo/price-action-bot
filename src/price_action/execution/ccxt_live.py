@@ -170,17 +170,28 @@ class CCXTLiveBroker(BrokerBase):
         if instruction.order_type == "post_only_limit":
             t0 = time.time()
             filled = False
+            # #10 (2026-07-10): poll hataları yutulmaz — SADECE sayaç + timeout'ta
+            # tek özet log (akış AYNI; s-başına spam yok).
+            _polls = 0
+            _poll_errs = 0
+            _last_poll_err: str | None = None
             while time.time() - t0 < self.post_only_timeout_sec:
+                _polls += 1
                 try:
                     o = ex.fetch_order(order_id, symbol)
                     if o.get("status") == "closed":
                         filled = True
                         order = o
                         break
-                except Exception:
-                    pass
+                except Exception as _pe:
+                    _poll_errs += 1
+                    _last_poll_err = str(_pe)[:120]
                 time.sleep(1.0)
             if not filled:
+                if _poll_errs:
+                    self._log.bind(
+                        polls=_polls, errors=_poll_errs, last_err=_last_poll_err
+                    ).warning("live.post_only_poll_summary")
                 # Fix A (çift-pozisyon önleme, 2026-07-10): cancel'ı YUTMA + körü
                 # körüne tam-qty market ATMA. Cancel sonrası borsadan GERÇEĞİ tazele;
                 # limit hâlâ açık/durum bilinmiyorsa ikiye katlamayı REDDET
