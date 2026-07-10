@@ -1,4 +1,10 @@
-"""Faz 5 — Breaker Monitor.
+"""ARŞİV NOTU:
+ARŞİVLENDİ 2026-07-10 (T2-04, Principal onayı): İKİNCİ kill-switch yazarıydı
+— DMS ile split-brain sınıfı risk (iki bağımsız yazar aynı kill_switch.json'a).
+Canlı hiçbir launchd/cron/scheduler referansı YOKTU (yalnız faz7_preflight
+talimat-string'leri). Tek kill-switch otoritesi: dead_mans_switch.py.
+
+Faz 5 — Breaker Monitor.
 
 paper_journal.duckdb'i her PA_BREAKER_POLL_INTERVAL saniyede (varsayılan 300)
 poll eder. Günlük/haftalık/aylık DD breaker eşikleri aşılırsa:
@@ -25,6 +31,8 @@ Breaker thresholds (paper_trading_loop.py ile uyumlu):
     Weekly loss >= 10%  → weekly_dd
     Monthly loss>= 15%  → monthly_dd
 """
+
+# ruff: noqa: E402, F841  (arşiv dosyası — pre-existing stil)
 from __future__ import annotations
 
 import argparse
@@ -33,7 +41,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +78,7 @@ def _is_dry_run() -> bool:
 # Kill-switch state
 # =====================================================================
 
+
 def _load_kill_switch() -> dict[str, Any]:
     """Kill switch durumunu oku."""
     if not KILL_SWITCH_PATH.exists():
@@ -97,7 +106,7 @@ def _reset_kill_switch() -> None:
         "breakers": {},
         "triggered_at": None,
         "reason": None,
-        "reset_at": datetime.now(timezone.utc).isoformat(),
+        "reset_at": datetime.now(UTC).isoformat(),
     }
     _save_kill_switch(state)
     logger.info("breaker_monitor.kill_switch_reset")
@@ -106,6 +115,7 @@ def _reset_kill_switch() -> None:
 # =====================================================================
 # DD computation from journal
 # =====================================================================
+
 
 def _compute_drawdowns() -> dict[str, Any]:
     """Journal'dan DD hesapla.
@@ -135,7 +145,7 @@ def _compute_drawdowns() -> dict[str, Any]:
         import duckdb  # type: ignore[import-not-found]
 
         conn = duckdb.connect(str(JOURNAL_PATH), read_only=True)
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
         today = date.today()
         week_start = today - timedelta(days=today.weekday())
         month_start = today.replace(day=1)
@@ -187,6 +197,7 @@ def _compute_drawdowns() -> dict[str, Any]:
 # Breaker evaluation
 # =====================================================================
 
+
 def _evaluate_breakers(dd: dict[str, Any]) -> dict[str, bool]:
     """DD'yi eşiklerle karşılaştır, tetiklenen breaker'ları döndür."""
     return {
@@ -200,9 +211,7 @@ def _format_reason(breakers: dict[str, bool], dd: dict[str, Any]) -> str:
     """Tetiklenen breaker'lar için açıklama metni üret."""
     parts = []
     if breakers.get("daily_dd"):
-        parts.append(
-            f"GÜNLÜK DD: {dd['daily_dd_pct']*100:.2f}% >= {DAILY_DD_PCT*100:.0f}% limit"
-        )
+        parts.append(f"GÜNLÜK DD: {dd['daily_dd_pct']*100:.2f}% >= {DAILY_DD_PCT*100:.0f}% limit")
     if breakers.get("weekly_dd"):
         parts.append(
             f"HAFTALIK DD: {dd['weekly_dd_pct']*100:.2f}% >= {WEEKLY_DD_PCT*100:.0f}% limit"
@@ -217,6 +226,7 @@ def _format_reason(breakers: dict[str, bool], dd: dict[str, Any]) -> str:
 # =====================================================================
 # Trigger logic
 # =====================================================================
+
 
 def _trigger_orchestrator(reason: str) -> None:
     """llm_orchestrator.py --mode crit-alarm subprocess çağrısı."""
@@ -253,7 +263,7 @@ def handle_breaker_trigger(
 ) -> None:
     """Breaker tetiklendiğinde tüm aksiyonları uygula."""
     reason = _format_reason(breakers, dd)
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     # 1. Kill switch kaydet
     state: dict[str, Any] = {
@@ -294,6 +304,7 @@ def handle_breaker_trigger(
 # =====================================================================
 # Poll cycle
 # =====================================================================
+
 
 def poll_once() -> dict[str, Any]:
     """Tek bir poll döngüsü — breaker tetiklenirse handle_breaker_trigger çağırır."""
@@ -362,6 +373,7 @@ def poll_once() -> dict[str, Any]:
 # Entry point
 # =====================================================================
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Faz 5 Breaker Monitor — DD breaker poll + Telegram CRIT alert"
@@ -379,9 +391,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.reset:
-        confirm = input(
-            "Kill-switch'i sıfırlamak istediğini onayla — 'YES' yaz: "
-        ).strip()
+        confirm = input("Kill-switch'i sıfırlamak istediğini onayla — 'YES' yaz: ").strip()
         if confirm == "YES":
             _reset_kill_switch()
             send_telegram("Kill-switch manuel olarak sıfırlandı.", level="WARNING")
@@ -393,6 +403,7 @@ def main() -> None:
     if args.once:
         result = poll_once()
         import json
+
         print(json.dumps(result, indent=2, default=str))
         return
 

@@ -234,8 +234,19 @@ class DDBreaker:
             filtered = {k: v for k, v in data.items() if k in valid_keys}
             return BreakerState(**filtered)
         except Exception as exc:  # pragma: no cover
-            logger.bind(err=str(exc)).warning("breaker.load_fail")
-            return BreakerState()
+            # FAIL-CLOSED (2026-07-10 Principal onayı): bozuk state eskiden
+            # sessizce SIFIRLANIYORDU → tripped halt restart'ta kayboluyordu
+            # (fail-open). Artık: 24 SAATLİK combined-halt + CRIT log. Süreli
+            # halt = kalıcı-takılma yok (tek-seferlik corruption kendini
+            # 24h'te affeder), ama bozuk-state penceresinde trade AÇILMAZ.
+            logger.bind(err=str(exc)).error("breaker.load_fail_FAIL_CLOSED_24h_halt")
+            from datetime import timedelta as _td
+
+            _until = (datetime.now(UTC) + _td(hours=24)).isoformat()
+            return BreakerState(
+                triggered_daily=True,
+                blocked_combined_until=_until,
+            )
 
     def _save(self) -> None:
         """Atomically persist state using tempfile + os.replace (SEC58 CRIT-3).

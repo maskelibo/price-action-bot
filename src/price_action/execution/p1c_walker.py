@@ -27,12 +27,14 @@ Public API:
     halts = walker.check_halts()
     summary = walker.state_summary()
 """
+# ruff: noqa: N806, N815, SIM105  (pre-existing R-domain adlandırma + benign cleanup guard'ları — 2026-07-10)
+
 from __future__ import annotations
 
 import json
-from collections import deque
+import logging as _logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +42,8 @@ try:
     import yaml
 except ImportError:
     yaml = None  # type: ignore[assignment]
+
+_P1C_LOG = _logging.getLogger(__name__)
 
 
 # State persistence
@@ -67,11 +71,13 @@ class P1cConfig:
     rolling_halt_days: int = 14
 
     # vol_z sizing tiers
-    vol_z_tiers: list[dict[str, Any]] = field(default_factory=lambda: [
-        {"min": 2.0, "max": 999, "risk_pct": 0.007, "label": "high"},
-        {"min": 0.0, "max": 2.0, "risk_pct": 0.005, "label": "normal"},
-        {"min": -999, "max": 0.0, "risk_pct": 0.003, "label": "low"},
-    ])
+    vol_z_tiers: list[dict[str, Any]] = field(
+        default_factory=lambda: [
+            {"min": 2.0, "max": 999, "risk_pct": 0.007, "label": "high"},
+            {"min": 0.0, "max": 2.0, "risk_pct": 0.005, "label": "normal"},
+            {"min": -999, "max": 0.0, "risk_pct": 0.003, "label": "low"},
+        ]
+    )
 
     # BE-protect
     be_protect_enabled: bool = True
@@ -92,7 +98,7 @@ class P1cConfig:
     per_symbol_cap: int = 1
 
     @classmethod
-    def from_yaml(cls, path: Path) -> "P1cConfig":
+    def from_yaml(cls, path: Path) -> P1cConfig:
         """`configs/risk_phoenix_scalp_5m_p1c.yaml`'ı parse et."""
         if yaml is None:
             return cls()  # fallback default
@@ -110,7 +116,9 @@ class P1cConfig:
         cfg.halt_hours = int(p1c.get("three_loss_window_hours", cfg.halt_hours))
         cfg.rolling_window_days = int(p1c.get("rolling_dd_window_days", cfg.rolling_window_days))
         cfg.rolling_halt_days = int(p1c.get("rolling_dd_halt_days", cfg.rolling_halt_days))
-        cfg.rolling_threshold_pct = float(p1c.get("rolling_dd_threshold_pct", cfg.rolling_threshold_pct))
+        cfg.rolling_threshold_pct = float(
+            p1c.get("rolling_dd_threshold_pct", cfg.rolling_threshold_pct)
+        )
         cfg.be_protect_trigger_R = float(p1c.get("be_protect_trigger_R", cfg.be_protect_trigger_R))
 
         # Drawdown breakers
@@ -137,7 +145,9 @@ class P1cConfig:
         sp = data.get("strategy_portfolio", {})
         if "drop_strategies" in sp:
             cfg.drop_strategies = sp["drop_strategies"]
-        cfg.max_concurrent_positions = int(sp.get("max_concurrent_positions", cfg.max_concurrent_positions))
+        cfg.max_concurrent_positions = int(
+            sp.get("max_concurrent_positions", cfg.max_concurrent_positions)
+        )
         cfg.per_symbol_cap = int(sp.get("per_symbol_cap", cfg.per_symbol_cap))
 
         # Capital
@@ -208,6 +218,7 @@ class P1cWalker:
         # Telegram critical alert (best-effort, fail tolerated)
         try:
             from price_action.orchestrator.notifications import push_critical
+
             push_critical(f"⚠️ P1c walker state CORRUPT — manuel kurtarma şart. {msg}")
         except Exception:
             pass
@@ -222,7 +233,9 @@ class P1cWalker:
 
         Concurrent writer korunması: fcntl.flock advisory lock (Unix).
         """
-        import os, tempfile
+        import os
+        import tempfile
+
         _STATE_DIR.mkdir(parents=True, exist_ok=True)
         try:
             # Mevcut state'i .bak'a kopyala (corruption recovery için)
@@ -230,8 +243,9 @@ class P1cWalker:
                 try:
                     bak = _STATE_FILE.with_suffix(_STATE_FILE.suffix + ".bak")
                     bak.write_bytes(_STATE_FILE.read_bytes())
-                except Exception:
-                    pass
+                except Exception as _bak_err:
+                    # log-only: corruption-recovery kopyası alınamadı — görünür olsun
+                    _P1C_LOG.warning("p1c.state_bak_copy_fail err=%s", str(_bak_err)[:80])
 
             # Atomic write: tempfile → rename
             data = json.dumps(self._state, default=str, indent=2)
@@ -245,6 +259,7 @@ class P1cWalker:
                     # Advisory lock (Unix only, no-op on Windows)
                     try:
                         import fcntl
+
                         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
                     except (ImportError, OSError):
                         pass
@@ -287,15 +302,24 @@ class P1cWalker:
 
     def check_halts(self) -> dict[str, Any]:
         """Aktif halt var mı? Returns {halted: bool, reason: str, release_at: ISO}."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         active_halts = []
         for h in self._state.get("halts", []):
             try:
                 release = datetime.fromisoformat(h["release_at"])
                 if release > now:
                     active_halts.append(h)
-            except Exception:
-                pass
+            except Exception as _rel_err:
+                # FAIL-CLOSED (2026-07-10 Principal onayı): release_at parse
+                # edilemiyorsa halt eskiden SESSİZCE DÜŞÜYORDU (risk-halt
+                # fail-open!). Artık: bozuk-kayıtlı halt AKTİF sayılır (elle
+                # temizlenene/veri düzelene dek) + görünür log.
+                _P1C_LOG.error(
+                    "p1c.halt_release_parse_fail_KEPT reason=%s err=%s",
+                    h.get("reason", "?"),
+                    str(_rel_err)[:80],
+                )
+                active_halts.append(h)
 
         # Expired halts'ı temizle
         if len(active_halts) != len(self._state.get("halts", [])):
@@ -325,11 +349,13 @@ class P1cWalker:
         if rolling_pct < self.config.rolling_threshold_pct:
             release = (now + timedelta(days=self.config.rolling_halt_days)).isoformat()
             # Self-add halt event
-            self._state["halts"].append({
-                "reason": f"rolling_14d_dd_breach ({rolling_pct*100:.2f}%)",
-                "release_at": release,
-                "added_at": now.isoformat(),
-            })
+            self._state["halts"].append(
+                {
+                    "reason": f"rolling_14d_dd_breach ({rolling_pct*100:.2f}%)",
+                    "release_at": release,
+                    "added_at": now.isoformat(),
+                }
+            )
             self._save_state()
             return {
                 "halted": True,
@@ -349,7 +375,7 @@ class P1cWalker:
         return {"halted": False, "reason": "ok"}
 
     def _refresh_mtd(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         month_key = now.strftime("%Y-%m")
         if self._state.get("mtd_month") != month_key:
             # Ay değişti — reset
@@ -365,17 +391,26 @@ class P1cWalker:
         edildiğinde tz bilgisi kaybolup halt expire logic kırılıyordu.
         Şimdi: tzinfo=timezone.utc explicit.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if now.month == 12:
             return now.replace(
-                year=now.year + 1, month=1, day=1,
-                hour=0, minute=0, second=0, microsecond=0,
-                tzinfo=timezone.utc,
+                year=now.year + 1,
+                month=1,
+                day=1,
+                hour=0,
+                minute=0,
+                second=0,
+                microsecond=0,
+                tzinfo=UTC,
             )
         return now.replace(
-            month=now.month + 1, day=1,
-            hour=0, minute=0, second=0, microsecond=0,
-            tzinfo=timezone.utc,
+            month=now.month + 1,
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+            tzinfo=UTC,
         )
 
     def _rolling_dd_pct(self) -> float:
@@ -385,14 +420,14 @@ class P1cWalker:
         cutoff (tz-aware) ile karşılaştırma TypeError atar (sessizce continue).
         Şimdi: naive parse sonrası UTC varsay.
         """
-        cutoff = datetime.now(timezone.utc) - timedelta(days=self.config.rolling_window_days)
+        cutoff = datetime.now(UTC) - timedelta(days=self.config.rolling_window_days)
         cum = 0.0
         for t in self._state.get("trades", []):
             try:
                 close_ts_str = t.get("close_ts", "")
                 close_ts = datetime.fromisoformat(close_ts_str.replace("Z", "+00:00"))
                 if close_ts.tzinfo is None:
-                    close_ts = close_ts.replace(tzinfo=timezone.utc)
+                    close_ts = close_ts.replace(tzinfo=UTC)
                 if close_ts >= cutoff:
                     cum += float(t.get("pnl_usdt", 0))
             except Exception:
@@ -426,7 +461,11 @@ class P1cWalker:
         # 3. Max concurrent
         n_open = len(self._state.get("open_positions", {}))
         if n_open >= self.config.max_concurrent_positions:
-            return {"accept": False, "reason": f"max_concurrent_breach (open={n_open})", "risk_pct": 0}
+            return {
+                "accept": False,
+                "reason": f"max_concurrent_breach (open={n_open})",
+                "risk_pct": 0,
+            }
 
         # 4. vol_z tier sizing
         vol_z = float(sig.get("vol_z", 0.0))
@@ -465,25 +504,27 @@ class P1cWalker:
         """
         pnl = float(trade.get("pnl_usdt", 0))
         symbol = trade.get("symbol", "")
-        close_ts = trade.get("close_ts", datetime.now(timezone.utc).isoformat())
+        close_ts = trade.get("close_ts", datetime.now(UTC).isoformat())
 
         # Add to trades log
-        self._state.setdefault("trades", []).append({
-            "symbol": symbol,
-            "entry_ts": trade.get("entry_ts", ""),
-            "close_ts": close_ts,
-            "pnl_usdt": pnl,
-            "r_multiple": float(trade.get("r_multiple", 0)),
-            "side": trade.get("side", ""),
-            "strategy": trade.get("strategy", ""),
-        })
+        self._state.setdefault("trades", []).append(
+            {
+                "symbol": symbol,
+                "entry_ts": trade.get("entry_ts", ""),
+                "close_ts": close_ts,
+                "pnl_usdt": pnl,
+                "r_multiple": float(trade.get("r_multiple", 0)),
+                "side": trade.get("side", ""),
+                "strategy": trade.get("strategy", ""),
+            }
+        )
 
         # Update equity (additive-pct mode)
         if self.config.walker_mode == "additive_pct":
             self._state["equity_usdt"] += pnl
         else:
             # compound — but we don't use it (V14 bug)
-            self._state["equity_usdt"] *= (1 + pnl / max(self.config.initial_capital, 1))
+            self._state["equity_usdt"] *= 1 + pnl / max(self.config.initial_capital, 1)
 
         # Update MTD
         self._refresh_mtd()
@@ -501,28 +542,33 @@ class P1cWalker:
             loss_times = self._state.setdefault("last_loss_times", [])
             loss_times.append(close_ts)
             # Keep last N+1
-            self._state["last_loss_times"] = loss_times[-(self.config.n_losses + 1):]
+            self._state["last_loss_times"] = loss_times[-(self.config.n_losses + 1) :]
 
             # 3-loss halt check
             if len(loss_times) >= self.config.n_losses:
-                recent_losses = loss_times[-self.config.n_losses:]
+                recent_losses = loss_times[-self.config.n_losses :]
                 try:
                     earliest = datetime.fromisoformat(recent_losses[0].replace("Z", "+00:00"))
                     latest = datetime.fromisoformat(recent_losses[-1].replace("Z", "+00:00"))
                     if earliest.tzinfo is None:
-                        earliest = earliest.replace(tzinfo=timezone.utc)
+                        earliest = earliest.replace(tzinfo=UTC)
                     if latest.tzinfo is None:
-                        latest = latest.replace(tzinfo=timezone.utc)
+                        latest = latest.replace(tzinfo=UTC)
                     window = (latest - earliest).total_seconds() / 3600  # hours
                     if window <= 12:  # 3 loss within any 12h window
                         release = (latest + timedelta(hours=self.config.halt_hours)).isoformat()
-                        self._state.setdefault("halts", []).append({
-                            "reason": f"3_loss_halt (window={window:.1f}h)",
-                            "release_at": release,
-                            "added_at": datetime.now(timezone.utc).isoformat(),
-                        })
-                except Exception:
-                    pass
+                        self._state.setdefault("halts", []).append(
+                            {
+                                "reason": f"3_loss_halt (window={window:.1f}h)",
+                                "release_at": release,
+                                "added_at": datetime.now(UTC).isoformat(),
+                            }
+                        )
+                except Exception as _h3_err:
+                    # log-only: 3-loss halt hesabı çöktü → halt EKLENEMEDİ;
+                    # bilinmeyen hatadan halt uydurmak yanlış-pozitif üretir,
+                    # ama artık en azından GÖRÜNÜR (eski: sessiz).
+                    _P1C_LOG.error("p1c.3loss_halt_calc_fail err=%s", str(_h3_err)[:120])
 
         # Remove from open positions
         if symbol in self._state.get("open_positions", {}):
@@ -605,22 +651,31 @@ class P1cWalker:
                 old_sl = pos["sl_price"]
                 pos["sl_price"] = entry  # SL → breakeven
                 pos["be_protected"] = True
-                be_triggered.append({
-                    "symbol": symbol,
-                    "side": side,
-                    "entry": entry,
-                    "old_sl": old_sl,
-                    "new_sl": entry,
-                    "peak_R": round(peak_R, 3),
-                    "current_price": current,
-                })
+                be_triggered.append(
+                    {
+                        "symbol": symbol,
+                        "side": side,
+                        "entry": entry,
+                        "old_sl": old_sl,
+                        "new_sl": entry,
+                        "peak_R": round(peak_R, 3),
+                        "current_price": current,
+                    }
+                )
 
         if be_triggered or any(pos.get("peak_R", 0) > 0 for pos in positions.values()):
             self._save_state()
 
         return be_triggered
 
-    def close_position(self, symbol: str, *, close_price: float, close_ts: str | None = None, reason: str = "manual") -> dict[str, Any] | None:
+    def close_position(
+        self,
+        symbol: str,
+        *,
+        close_price: float,
+        close_ts: str | None = None,
+        reason: str = "manual",
+    ) -> dict[str, Any] | None:
         """Bir pozisyonu kapat — PnL hesabı + record_trade_outcome.
 
         Args:
@@ -632,7 +687,7 @@ class P1cWalker:
         Returns:
             Trade outcome dict (record_trade_outcome'a verilir), veya None.
         """
-        from datetime import datetime as _dt, timezone as _tz
+        from datetime import datetime as _dt
 
         positions = self._state.get("open_positions", {})
         if symbol not in positions:
@@ -668,7 +723,7 @@ class P1cWalker:
             "symbol": symbol,
             "side": side,
             "entry_ts": pos.get("entry_ts", ""),
-            "close_ts": close_ts or _dt.now(_tz.utc).isoformat(),
+            "close_ts": close_ts or _dt.now(UTC).isoformat(),
             "entry_price": entry,
             "close_price": close_price,
             "pnl_usdt": round(pnl_usdt, 4),

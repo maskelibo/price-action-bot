@@ -130,6 +130,11 @@ ORPHAN_CONFIRM_TICKS = 3
 _JOURNAL_HEAL_TICKS: dict[str, int] = {}
 HEAL_CONFIRM_TICKS = 3
 
+# T2-02 (2026-07-10): kaldıraç MUTLAK tavanı — son-savunma. Birincil kaynak
+# RiskOfficer (yaml leverage.max_leverage_per_symbol); bu sabit yaml/karar ne
+# derse desin aşılamayan hard-cap. yaml != cap ise startup LEV_CAP_MISMATCH loglar.
+_LEV_HARD_CAP = 3
+
 
 def _pyramid_enabled_15m() -> bool:
     """15m active config'de strategy_portfolio.pyramid_enabled değerini döner.
@@ -145,9 +150,19 @@ def _pyramid_enabled_15m() -> bool:
         _path = _risk_config_15m()
         with open(_path, encoding="utf-8") as _pe_f:
             _cfg = _yaml_pe.safe_load(_pe_f) or {}
-        _enabled = bool(_cfg.get("strategy_portfolio", {}).get("pyramid_enabled", True))
-    except Exception:
-        _enabled = True  # safe default: behavior unchanged on read fail
+        _pe_raw = _cfg.get("strategy_portfolio", {}).get("pyramid_enabled")
+        if _pe_raw is None:
+            # FAIL-CLOSED (T2-05, 2026-07-10 Principal onayı): anahtar YOKSA
+            # pyramid KAPALI varsay (eski default True = anahtar-eksik config'te
+            # sessizce pyramid açılırdı). v15p2 anahtarı açıkça false → parite.
+            log("PYRAMID_KEY_MISSING: pyramid_enabled anahtarı yok — FAIL-CLOSED (False)")
+            _enabled = False
+        else:
+            _enabled = bool(_pe_raw)
+    except Exception as _pe_err:
+        # FAIL-CLOSED: config okunamıyorsa pyramid AÇMA (eski: True = fail-open).
+        log(f"PYRAMID_CFG_FAIL: {str(_pe_err)[:80]} — FAIL-CLOSED (False)")
+        _enabled = False
     _PYRAMID_ENABLED_CACHE[cache_key] = _enabled
     return _enabled
 
@@ -311,7 +326,9 @@ def _init_dead_mans_switch(exchange):
         _dms.start()
         log("DEAD_MANS_SWITCH: başlatıldı (timeout=300s, heartbeat=60s)")
     except Exception as e:
-        log(f"DEAD_MANS_SWITCH_INIT_ERROR: {e}")
+        # FAIL-CLOSED (2026-07-10): 15m yoluyla tutarlı — DMS'siz koşma yok.
+        log(f"DEAD_MANS_SWITCH_INIT_FATAL: {e} — fail-closed, çıkılıyor")
+        raise SystemExit(f"DEAD_MANS_SWITCH_INIT_FATAL: {e}") from e
 
 
 def _dms_ping(state: dict | None = None):
@@ -2352,8 +2369,11 @@ def run_15m_mode(once: bool = False) -> None:
         dms_15m.start()
         log("15M_DMS: başlatıldı (tf=15m, heartbeat=20s, timeout=1800s, flatten AKTİF)")
     except Exception as e:
-        log(f"15M_DMS_INIT_ERROR: {e} — DMS devre dışı, devam ediyor")
-        dms_15m = None
+        # FAIL-CLOSED (2026-07-10 Principal onayı): DMS kurulamadıysa KORUMASIZ
+        # koşmayı REDDET (eski: switch'siz devam = fail-open). launchd yeniden
+        # dener; ardışık başarısızlıkta DR9 crash-loop alarmı Principal'e gider.
+        log(f"15M_DMS_INIT_FATAL: {e} — DMS'siz koşmak reddedildi (fail-closed)")
+        raise SystemExit(f"15M_DMS_INIT_FATAL: {e}") from e
 
     # Prometheus metrics — lazy import (metrics yoksa graceful)
     try:
@@ -2420,13 +2440,32 @@ def run_15m_mode(once: bool = False) -> None:
     # sinyal geçemez) + push_critical.
     _sl_pct_min_15m = 0.0
     _sl_cfg_load_ok = False
+    # T2-02: kaldıraç tek-kaynak tutarlılık kontrolü (aşağıdaki yaml-load'ı paylaşır)
+    _yaml_lev_max = None
     try:
         import yaml as _yaml_sl
 
         with open(_risk_config_15m(), encoding="utf-8") as _sl_f:
             _sl_cfg_raw = _yaml_sl.safe_load(_sl_f) or {}
-        _sl_pct_min_15m = float((_sl_cfg_raw.get("execution", {}) or {}).get("sl_pct_min", 0.0))
+        _sl_raw_val = (_sl_cfg_raw.get("execution", {}) or {}).get("sl_pct_min")
+        if _sl_raw_val is None:
+            # FAIL-CLOSED (E7, 2026-07-10 Principal onayı): anahtar YOKSA filtre
+            # sessizce kapanıyordu (0.0 default = tüm sinyaller geçer, fee-kalkanı
+            # yok). Artık exception-yoluyla AYNI: 1.0 = hiçbir sinyal geçemez.
+            log(
+                "15M_WIDESTOP_KEY_MISSING: execution.sl_pct_min anahtarı yok — "
+                "FAIL-CLOSED sl_pct_min=1.0 (TÜM sinyaller reddedilecek)"
+            )
+            _sl_pct_min_15m = 1.0
+        else:
+            _sl_pct_min_15m = float(_sl_raw_val)
         _sl_cfg_load_ok = True
+        _yaml_lev_max = (_sl_cfg_raw.get("leverage") or {}).get("max_leverage_per_symbol")
+        if _yaml_lev_max is not None and int(_yaml_lev_max) != _LEV_HARD_CAP:
+            log(
+                f"LEV_CAP_MISMATCH: yaml max_leverage_per_symbol={_yaml_lev_max} != "
+                f"hard-cap {_LEV_HARD_CAP} — min(ikisi) uygulanır (T2-02 hiyerarşi)"
+            )
     except Exception as _sl_err:
         log(
             f"15M_WIDESTOP_CFG_FAIL: {_sl_err} — SAFE DEFAULT sl_pct_min=1.0 (TÜM sinyaller reddedilecek)"
@@ -2758,7 +2797,12 @@ def run_15m_mode(once: bool = False) -> None:
                         else:
                             _qty = float(_decision.quantity)
                             _notional = float(_decision.notional_usdt)
-                            _lev = max(1, min(3, int(round(_decision.leverage)))) or 1
+                            # Kaldıraç hiyerarşisi (T2-02, 2026-07-10): TEK KAYNAK =
+                            # RiskOfficer kararı (yaml leverage.max_leverage_per_symbol
+                            # üzerinden); _LEV_HARD_CAP = mutlak son-savunma tavanı
+                            # (yaml ne derse desin aşılamaz). yaml>cap ise startup'ta
+                            # LEV_CAP_MISMATCH uyarısı düşer.
+                            _lev = max(1, min(_LEV_HARD_CAP, int(round(_decision.leverage)))) or 1
                             _margin = _notional / _lev if _lev > 0 else _notional
 
                             if _margin > _state_submit["available_balance"] * 0.9:
@@ -3537,7 +3581,9 @@ def main_loop():
         _ex_for_dms = get_futures_exchange()
         _init_dead_mans_switch(_ex_for_dms)
     except Exception as e:
-        log(f"DMS_INIT_WARNING: {e} — devam ediliyor (DMS devre dışı)")
+        # FAIL-CLOSED (2026-07-10): DMS'siz koşma yok — 15m/1d yollarıyla tutarlı.
+        log(f"DMS_INIT_FATAL: {e} — DMS'siz koşmak reddedildi (fail-closed)")
+        raise SystemExit(f"DMS_INIT_FATAL: {e}") from e
 
     try:
         while True:

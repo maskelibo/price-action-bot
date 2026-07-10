@@ -11,6 +11,8 @@ Kullanim:
 Cikti:
     PASS / FAIL her kriter icin + genel READY / NOT READY karari
 """
+# ruff: noqa: N806, E741  (pre-existing stil; preflight script — 2026-07-10)
+
 from __future__ import annotations
 
 import argparse
@@ -18,7 +20,7 @@ import io
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +61,7 @@ def _c(text: str, color: str) -> str:
 # =====================================================================
 # Check sonuc yapisi
 # =====================================================================
+
 
 class CheckResult:
     def __init__(
@@ -102,6 +105,7 @@ class CheckResult:
 # Bireysel kontroller
 # =====================================================================
 
+
 def check_paper_four_weeks() -> CheckResult:
     """Paper trading 4 hafta tamamlandi mi?"""
     name = "Paper trading 4 hafta tamamlandi"
@@ -109,7 +113,8 @@ def check_paper_four_weeks() -> CheckResult:
 
     if not state_path.exists():
         return CheckResult(
-            name, False,
+            name,
+            False,
             "logs/execution/paper_state_faz6.json bulunamadi.",
             "Faz 6 paper trading loop'u calistir: python scripts/paper_trading_loop.py --watchdog",
         )
@@ -119,31 +124,35 @@ def check_paper_four_weeks() -> CheckResult:
         created_at_str = data.get("created_at") or data.get("start_ts")
         if not created_at_str:
             return CheckResult(
-                name, False,
+                name,
+                False,
                 "paper_state_faz6.json icerisinde 'created_at' veya 'start_ts' yok.",
                 "Dosyayi kontrol et veya paper_status_report.py --json calistir.",
             )
         created_at = datetime.fromisoformat(str(created_at_str).replace("Z", "+00:00"))
         if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-        now = datetime.now(timezone.utc)
+            created_at = created_at.replace(tzinfo=UTC)
+        now = datetime.now(UTC)
         elapsed_days = (now - created_at).days
 
         if elapsed_days >= 28:
             return CheckResult(
-                name, True,
+                name,
+                True,
                 f"Paper trading suresi: {elapsed_days} gun (>= 28 gun).",
             )
         else:
             remaining = 28 - elapsed_days
             return CheckResult(
-                name, False,
+                name,
+                False,
                 f"Sadece {elapsed_days} gun gecti. {remaining} gun daha beklenmeli.",
                 "Faz 7 icin 28 gun (4 hafta) tam bekleme suresi zorunlu.",
             )
     except Exception as exc:
         return CheckResult(
-            name, False,
+            name,
+            False,
             f"paper_state dosyasi okunamadi: {exc}",
             "Dosya formatini kontrol et.",
         )
@@ -161,12 +170,14 @@ def check_pl_deviation() -> CheckResult:
         journal_path = _ROOT / "data" / "paper_journal.duckdb"
         if not journal_path.exists():
             return CheckResult(
-                name, False,
+                name,
+                False,
                 "Ne paper status raporu ne de paper_journal.duckdb bulunamadi.",
                 "python scripts/paper_status_report.py --json calistir.",
             )
         try:
             import duckdb  # type: ignore
+
             conn = duckdb.connect(str(journal_path), read_only=True)
             row = conn.execute(
                 "SELECT SUM(realized_pnl) FROM paper_trades WHERE status='closed' AND dry_run=false"
@@ -175,7 +186,8 @@ def check_pl_deviation() -> CheckResult:
             total_pnl = float(row[0] or 0.0) if row else 0.0
         except Exception as exc:
             return CheckResult(
-                name, False,
+                name,
+                False,
                 f"DuckDB sorgusu basarisiz: {exc}",
                 "duckdb kurulu mu? uv add duckdb",
             )
@@ -190,10 +202,10 @@ def check_pl_deviation() -> CheckResult:
                 if created_at_str:
                     created_at = datetime.fromisoformat(str(created_at_str).replace("Z", "+00:00"))
                     if created_at.tzinfo is None:
-                        created_at = created_at.replace(tzinfo=timezone.utc)
-                    elapsed_days = (datetime.now(timezone.utc) - created_at).days
+                        created_at = created_at.replace(tzinfo=UTC)
+                    elapsed_days = (datetime.now(UTC) - created_at).days
                     months_elapsed = max(elapsed_days / 30.0, 0.1)
-                    expected_pnl = initial * (1.056 ** months_elapsed - 1.0)
+                    expected_pnl = initial * (1.056**months_elapsed - 1.0)
                 else:
                     expected_pnl = initial * 0.056  # 1 ay varsayimi
             else:
@@ -203,7 +215,8 @@ def check_pl_deviation() -> CheckResult:
 
         if expected_pnl <= 0:
             return CheckResult(
-                name, True,
+                name,
+                True,
                 "Beklenen P&L sifir veya negatif (cok kisa sure) — atlaniyor.",
                 warning=True,
             )
@@ -213,12 +226,14 @@ def check_pl_deviation() -> CheckResult:
 
         if pct < 20:
             return CheckResult(
-                name, True,
+                name,
+                True,
                 f"Gercek P&L: ${total_pnl:.2f}, Beklenen: ${expected_pnl:.2f}, Sapma: %{pct:.1f} (< %20).",
             )
         else:
             return CheckResult(
-                name, False,
+                name,
+                False,
                 f"Gercek P&L: ${total_pnl:.2f}, Beklenen: ${expected_pnl:.2f}, Sapma: %{pct:.1f} (>= %20).",
                 "1 ay daha paper trading yap; strateji kalibrasyonunu kontrol et.",
             )
@@ -235,18 +250,21 @@ def check_pl_deviation() -> CheckResult:
         deviation_pct = detail_text.get("deviation_pct", "?")
         if deviation_ok:
             return CheckResult(
-                name, True,
+                name,
+                True,
                 f"Gercek P&L: ${actual}, Beklenen: ${expected}, Sapma: %{deviation_pct} (< %20).",
             )
         else:
             return CheckResult(
-                name, False,
+                name,
+                False,
                 f"Gercek P&L: ${actual}, Beklenen: ${expected}, Sapma: %{deviation_pct} (>= %20).",
                 "1 ay daha paper trading yap; Researcher'a hipotez rafine et.",
             )
     except Exception as exc:
         return CheckResult(
-            name, False,
+            name,
+            False,
             f"Rapor dosyasi okunamadi: {exc}",
             "python scripts/paper_status_report.py --json calistir.",
         )
@@ -261,20 +279,23 @@ def check_slippage_realistic() -> CheckResult:
     journal_path = _ROOT / "data" / "paper_journal.duckdb"
     if not journal_path.exists():
         return CheckResult(
-            name, True,
+            name,
+            True,
             "paper_journal.duckdb yok — paper slippage verisi toplanmamis, atlaniyor.",
             warning=True,
         )
 
     try:
         import duckdb  # type: ignore
+
         conn = duckdb.connect(str(journal_path), read_only=True)
         # paper_trades tablosunda slippage_bps yoksa sorgu bos donecek
         tables = [r[0] for r in conn.execute("SHOW TABLES").fetchall()]
         if "paper_trades" not in tables:
             conn.close()
             return CheckResult(
-                name, True,
+                name,
+                True,
                 "paper_trades tablosu yok — henuz trade yok, atlaniyor.",
                 warning=True,
             )
@@ -283,7 +304,8 @@ def check_slippage_realistic() -> CheckResult:
         conn.close()
         if "slippage_bps" not in cols:
             return CheckResult(
-                name, True,
+                name,
+                True,
                 "paper_trades tablosunda slippage_bps sutunu yok — eski versiyon, atlaniyor.",
                 warning=True,
             )
@@ -294,7 +316,8 @@ def check_slippage_realistic() -> CheckResult:
         conn.close()
         if not row or row[1] == 0:
             return CheckResult(
-                name, True,
+                name,
+                True,
                 "Kapanan paper trade yok — slippage verisi yok, atlaniyor.",
                 warning=True,
             )
@@ -303,25 +326,29 @@ def check_slippage_realistic() -> CheckResult:
 
         if multiplier <= MAX_ACCEPTABLE_MULTIPLIER:
             return CheckResult(
-                name, True,
+                name,
+                True,
                 f"Ortalama slippage: {avg_slip:.1f} bps ({multiplier:.1f}x backtest {BACKTEST_SLIPPAGE_BPS} bps). Kabul edilebilir.",
             )
         else:
             return CheckResult(
-                name, False,
+                name,
+                False,
                 f"Ortalama slippage: {avg_slip:.1f} bps ({multiplier:.1f}x backtest {BACKTEST_SLIPPAGE_BPS} bps). Cok yuksek!",
-                f"configs/risk.yaml max_slippage_bps degerini 25'ten dusur; veya backtest'te gercekci slippage modeli kullan.",
+                "configs/risk.yaml max_slippage_bps degerini 25'ten dusur; veya backtest'te gercekci slippage modeli kullan.",
             )
     except ImportError:
         return CheckResult(
-            name, True,
+            name,
+            True,
             "duckdb kurulu degil — slippage kontrolu atlaniyor.",
             "uv add duckdb",
             warning=True,
         )
     except Exception as exc:
         return CheckResult(
-            name, True,
+            name,
+            True,
             f"Slippage kontrolu basarisiz ({exc}) — atlaniyor.",
             warning=True,
         )
@@ -334,9 +361,10 @@ def check_kill_switch() -> CheckResult:
 
     if not ks_path.exists():
         return CheckResult(
-            name, False,
+            name,
+            False,
             "logs/kill_switch.json bulunamadi. Kill-switch hic tetiklenmemis.",
-            "PYTHONPATH=src python scripts/breaker_monitor.py --force-halt ile test et, sonra --reset ile ac.",
+            "PYTHONPATH=src python scripts/_archive/breaker_monitor_ARCHIVED_20260710.py (ARŞİV — tek otorite DMS) --force-halt ile test et, sonra --reset ile ac.",
         )
 
     try:
@@ -344,25 +372,29 @@ def check_kill_switch() -> CheckResult:
         # Aktif mi?
         if data.get("active"):
             return CheckResult(
-                name, False,
+                name,
+                False,
                 "Kill-switch AKTIF durumda! Sistemi acmadan once reset et.",
-                "PYTHONPATH=src python scripts/breaker_monitor.py --reset",
+                "PYTHONPATH=src python scripts/_archive/breaker_monitor_ARCHIVED_20260710.py (ARŞİV — tek otorite DMS) --reset",
             )
         # Gecmiste en az bir kez tetiklendi mi?
         history = data.get("history", [])
         if not history and not data.get("last_halt_ts"):
             return CheckResult(
-                name, False,
+                name,
+                False,
                 "Kill-switch dosyasi var ama hic tetikleme gecmisi yok.",
-                "PYTHONPATH=src python scripts/breaker_monitor.py --force-halt ile test et.",
+                "PYTHONPATH=src python scripts/_archive/breaker_monitor_ARCHIVED_20260710.py (ARŞİV — tek otorite DMS) --force-halt ile test et.",
             )
         return CheckResult(
-            name, True,
+            name,
+            True,
             f"Kill-switch gecmiste test edildi. Son tetikleme: {data.get('last_halt_ts', 'kayit yok')}.",
         )
     except Exception as exc:
         return CheckResult(
-            name, False,
+            name,
+            False,
             f"kill_switch.json okunamadi: {exc}",
             "Dosyayi kontrol et.",
         )
@@ -376,7 +408,8 @@ def check_telegram_alarm() -> CheckResult:
 
     if not token or not chat_id:
         return CheckResult(
-            name, False,
+            name,
+            False,
             "TELEGRAM_BOT_TOKEN veya TELEGRAM_CHAT_ID .env dosyasinda yok.",
             "RUNBOOK.md Faz 5 bolumunu izleyerek Telegram bot kur.",
         )
@@ -393,16 +426,22 @@ def check_telegram_alarm() -> CheckResult:
             pass
 
     # reports/ceo/ altinda crisis raporu var mi?
-    crisis_reports = list((_ROOT / "reports" / "ceo").glob("crisis-*.md")) if (_ROOT / "reports" / "ceo").exists() else []
+    crisis_reports = (
+        list((_ROOT / "reports" / "ceo").glob("crisis-*.md"))
+        if (_ROOT / "reports" / "ceo").exists()
+        else []
+    )
 
     if crit_found or crisis_reports:
         return CheckResult(
-            name, True,
+            name,
+            True,
             f"Telegram token/chat_id mevcut. CRIT alarm gecmisi bulundu ({len(crisis_reports)} kriz raporu).",
         )
     else:
         return CheckResult(
-            name, False,
+            name,
+            False,
             "Telegram bilgileri mevcut ama gecmiste CRIT alarm tetiklenmemis.",
             "Bir kez manuel test yap: PYTHONPATH=src python scripts/llm_orchestrator.py --mode crit-alarm --reason 'Preflight test'",
             warning=False,
@@ -416,19 +455,22 @@ def check_manifest_hash() -> CheckResult:
 
     if not journal_path.exists():
         return CheckResult(
-            name, False,
+            name,
+            False,
             "paper_journal.duckdb yok — trade kaydi yok.",
             "Paper trading loop'u en az 1 kez calistir.",
         )
 
     try:
         import duckdb  # type: ignore
+
         conn = duckdb.connect(str(journal_path), read_only=True)
         tables = [r[0] for r in conn.execute("SHOW TABLES").fetchall()]
         if "paper_trades" not in tables:
             conn.close()
             return CheckResult(
-                name, False,
+                name,
+                False,
                 "paper_trades tablosu yok.",
                 "Paper trading loop'u calistir.",
             )
@@ -438,7 +480,8 @@ def check_manifest_hash() -> CheckResult:
 
         if total == 0:
             return CheckResult(
-                name, False,
+                name,
+                False,
                 "Hic paper trade yok — manifest hash kontrolu yapilamadi.",
                 "En az 1 paper trade olcak sekilde loop calistir.",
             )
@@ -455,25 +498,29 @@ def check_manifest_hash() -> CheckResult:
 
         if hash_found:
             return CheckResult(
-                name, True,
+                name,
+                True,
                 f"Toplam {total} paper trade kaydi var. manifest_hash log'larda goruldu.",
             )
         else:
             return CheckResult(
-                name, True,
+                name,
+                True,
                 f"Toplam {total} paper trade kaydi var. manifest_hash dogrudan log'larda gorulmuyor — kod seviyesinde stable_hash() her Fill'de mevcut.",
                 warning=True,
             )
     except ImportError:
         return CheckResult(
-            name, True,
+            name,
+            True,
             "duckdb kurulu degil — manifest hash kontrolu atlaniyor.",
             "uv add duckdb",
             warning=True,
         )
     except Exception as exc:
         return CheckResult(
-            name, False,
+            name,
+            False,
             f"DuckDB sorgusu basarisiz: {exc}",
         )
 
@@ -483,21 +530,30 @@ def check_postgres_journal() -> CheckResult:
     name = "Postgres journal aktif (audit trail)"
     try:
         import subprocess
+
         result = subprocess.run(
             ["docker", "compose", "ps", "--format", "json"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
             cwd=str(_ROOT),
         )
         if result.returncode == 0 and "postgres" in result.stdout.lower():
             # JSON output - postgres running mi?
-            if '"running"' in result.stdout.lower() or '"up"' in result.stdout.lower() or "running" in result.stdout.lower():
+            if (
+                '"running"' in result.stdout.lower()
+                or '"up"' in result.stdout.lower()
+                or "running" in result.stdout.lower()
+            ):
                 return CheckResult(
-                    name, True,
+                    name,
+                    True,
                     "Postgres container 'running' durumunda.",
                 )
             else:
                 return CheckResult(
-                    name, False,
+                    name,
+                    False,
                     "Postgres container docker compose ps'de gorunuyor ama running degil.",
                     "docker compose up -d postgres",
                 )
@@ -505,7 +561,9 @@ def check_postgres_journal() -> CheckResult:
             # Eski docker-compose format dene
             result2 = subprocess.run(
                 ["docker", "compose", "ps"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
                 cwd=str(_ROOT),
             )
             if result2.returncode == 0 and "postgres" in result2.stdout.lower():
@@ -515,30 +573,35 @@ def check_postgres_journal() -> CheckResult:
                     return CheckResult(name, True, "Postgres container UP durumunda.")
                 else:
                     return CheckResult(
-                        name, False,
+                        name,
+                        False,
                         f"Postgres container durumu belirsiz: {lines}",
                         "docker compose up -d postgres",
                     )
             return CheckResult(
-                name, False,
+                name,
+                False,
                 "Postgres docker compose'da bulunamadi.",
                 "docker compose up -d  # tam stack'i kaldir",
             )
     except FileNotFoundError:
         return CheckResult(
-            name, False,
+            name,
+            False,
             "docker komutu bulunamadi — Docker Desktop yuklu mu?",
             "Docker Desktop kur: https://www.docker.com/products/docker-desktop",
         )
     except subprocess.TimeoutExpired:
         return CheckResult(
-            name, False,
+            name,
+            False,
             "docker compose ps zaman asimina ugradi.",
             "Docker Desktop calisiyor mu?",
         )
     except Exception as exc:
         return CheckResult(
-            name, False,
+            name,
+            False,
             f"Postgres kontrolu basarisiz: {exc}",
             "docker compose up -d",
         )
@@ -551,7 +614,8 @@ def check_env_live_config() -> CheckResult:
 
     if not env_path.exists():
         return CheckResult(
-            name, False,
+            name,
+            False,
             ".env dosyasi bulunamadi.",
             "cp .env.example .env  ve gerekli degerleri doldur.",
         )
@@ -570,7 +634,8 @@ def check_env_live_config() -> CheckResult:
             env_values[k.strip()] = v.strip()
     except Exception as exc:
         return CheckResult(
-            name, False,
+            name,
+            False,
             f".env okunamadi: {exc}",
         )
 
@@ -599,20 +664,23 @@ def check_env_live_config() -> CheckResult:
 
     if missing:
         return CheckResult(
-            name, False,
+            name,
+            False,
             f"Eksik: {'; '.join(missing)}",
             "RUNBOOK.md Faz 7 bolum D'yi izle.",
         )
 
     if warnings:
         return CheckResult(
-            name, True,
+            name,
+            True,
             f"Temel degerler mevcut. Dikkat: {'; '.join(warnings)}",
             warning=True,
         )
 
     return CheckResult(
-        name, True,
+        name,
+        True,
         "Zorunlu .env degerleri mevcut (API key, secret, Telegram).",
     )
 
@@ -624,25 +692,29 @@ def check_risk_yaml() -> CheckResult:
 
     if not risk_path.exists():
         return CheckResult(
-            name, False,
+            name,
+            False,
             "configs/risk.yaml bulunamadi.",
             "Dosya silindi mi? Git'ten geri yukle.",
         )
 
     try:
         import yaml  # type: ignore
+
         with risk_path.open(encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
     except ImportError:
         return CheckResult(
-            name, True,
+            name,
+            True,
             "yaml modulu yok — detayli dogrulama atlaniyor.",
             "uv add pyyaml",
             warning=True,
         )
     except Exception as exc:
         return CheckResult(
-            name, False,
+            name,
+            False,
             f"risk.yaml okunamadi: {exc}",
         )
 
@@ -657,17 +729,21 @@ def check_risk_yaml() -> CheckResult:
 
     lev = cfg.get("leverage", {})
     if int(lev.get("max_leverage_per_symbol", 0)) > 5:
-        issues.append(f"max_leverage_per_symbol: {lev.get('max_leverage_per_symbol')} (maks 5 olmali)")
+        issues.append(
+            f"max_leverage_per_symbol: {lev.get('max_leverage_per_symbol')} (maks 5 olmali)"
+        )
 
     if issues:
         return CheckResult(
-            name, False,
+            name,
+            False,
             f"risk.yaml parametreleri uyumsuz: {'; '.join(issues)}",
             "configs/risk.yaml ADR-006 ile karsilastir.",
         )
 
     return CheckResult(
-        name, True,
+        name,
+        True,
         "Breaker esikleri (%5/%10/%15) ve leverage (<=5x) dogrulandi.",
     )
 
@@ -684,7 +760,8 @@ def check_human_principal_commitment() -> CheckResult:
             content = commitment_path.read_text(encoding="utf-8").strip()
             if len(content) > 10:
                 return CheckResult(
-                    name, True,
+                    name,
+                    True,
                     f"Taahhut dosyasi mevcut: {commitment_path.name}",
                 )
         except Exception:
@@ -692,7 +769,8 @@ def check_human_principal_commitment() -> CheckResult:
 
     today = datetime.now().strftime("%Y-%m-%d")
     return CheckResult(
-        name, False,
+        name,
+        False,
         "logs/faz7_commitment.txt yok — insan taahhut belgesi gerekli.",
         (
             "Asagidaki komutu calistir:\n"
@@ -764,9 +842,7 @@ def print_report(results: list[CheckResult], all_passed: bool) -> None:
 
     print(_c("-" * 60, _BOLD))
     summary_line = (
-        f"  Sonuc: {passed_count}/{total} PASS"
-        f" | {failed_count} FAIL"
-        f" | {warn_count} WARN"
+        f"  Sonuc: {passed_count}/{total} PASS" f" | {failed_count} FAIL" f" | {warn_count} WARN"
     )
     print(_c(summary_line, _BOLD))
     print()
@@ -774,7 +850,9 @@ def print_report(results: list[CheckResult], all_passed: bool) -> None:
     if all_passed and failed_count == 0:
         print(_c("  SISTEM FAZ 7 ICIN HAZIR.", _GREEN + _BOLD))
         print(_c("  Son adim: .env dosyasina PA_LIVE_CONFIRM=YES_I_KNOW ekle.", _GREEN))
-        print(_c("  Sonra: PYTHONPATH=src python scripts/paper_trading_loop.py --live-mode", _GREEN))
+        print(
+            _c("  Sonra: PYTHONPATH=src python scripts/paper_trading_loop.py --live-mode", _GREEN)
+        )
     else:
         print(_c("  SISTEM FAZ 7 ICIN HAZIR DEGIL.", _RED + _BOLD))
         print(_c("  Yukaridaki FAIL maddelerini duzelt ve tekrar calistir.", _RED))
@@ -813,7 +891,7 @@ def main() -> None:
 
     if args.json:
         output = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "faz": 7,
             "ready": all_passed,
             "summary": {
