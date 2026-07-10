@@ -36,11 +36,14 @@ from typing import Any
 
 import duckdb
 
+from price_action.runtime_paths import RuntimePaths
+
 ROOT = (
     Path(__file__).resolve().parents[3]
 )  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
-DEFAULT_DB = ROOT / "data" / "execution_fills.duckdb"
-LOG_DIR = ROOT / "logs" / "execution"
+_RUNTIME_PATHS = RuntimePaths.from_env(ROOT)
+DEFAULT_DB = _RUNTIME_PATHS.data / "execution_fills.duckdb"
+LOG_DIR = _RUNTIME_PATHS.logs / "execution"
 
 # Legacy (1d) defaults
 ALARM_WARNING_BPS = 10.0
@@ -185,7 +188,7 @@ class SlippageTracker:
             except Exception:
                 pass
             try:
-                outlier_path = Path("logs/slippage_outliers.jsonl")
+                outlier_path = _RUNTIME_PATHS.logs / "slippage_outliers.jsonl"
                 outlier_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(outlier_path, "a", encoding="utf-8") as f:
                     f.write(

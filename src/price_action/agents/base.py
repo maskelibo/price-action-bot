@@ -39,6 +39,7 @@ from price_action.contracts import MemoryEntry
 from price_action.logging_config import logger
 from price_action.memory import EpisodicLog, MemoryStore
 from price_action.memory.store import make_entry
+from price_action.runtime_paths import RuntimePaths
 from price_action.settings import get_settings
 
 # FIX 2026-05-26 (H5): Global semaphore for CLI subprocess calls.
@@ -73,7 +74,8 @@ _circuit_state: dict[str, dict[str, Any]] = {}  # agent_name → state
 # Önceki bug: `_circuit_state` modül-level global → process exit'te kayıp.
 # 10dk cooldown ortasında launchd restart → fresh state → failing agent
 # hemen tekrar çağrılır → retry storm. Şimdi state file'a yazılır + load'da okunur.
-_CIRCUIT_STATE_FILE = Path(__file__).resolve().parents[3] / "logs" / "circuit_breaker_state.json"
+_RUNTIME_PATHS = RuntimePaths.from_env(Path(__file__).resolve().parents[3])
+_CIRCUIT_STATE_FILE = _RUNTIME_PATHS.logs / "circuit_breaker_state.json"
 
 
 def _circuit_save_state() -> None:
@@ -592,9 +594,8 @@ class LLMAgentBase(abc.ABC):  # noqa: B024 — bilinçli: abstract metotsuz orta
             import json as _json
             import uuid as _uuid
             from datetime import datetime as _dt
-            from pathlib import Path as _Path
 
-            _audit_path = _Path("data/llm_calls.jsonl")
+            _audit_path = _RUNTIME_PATHS.data / "llm_calls.jsonl"
             _audit_path.parent.mkdir(parents=True, exist_ok=True)
             # FIX 2026-07-06 (P1-2 izlenebilirlik): call_id — bu çağrıdan doğan
             # protokol dokümanı frontmatter'ında llm_call_id olarak görünür;

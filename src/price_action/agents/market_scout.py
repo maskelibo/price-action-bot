@@ -11,11 +11,12 @@ final yazımı yapmaz.
 Mevcut deployment SADECE crypto (Binance USDM, 10 sembol); scout başka pazarları
 **araştırır** ama dokunmaz.
 """
+
 from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -63,7 +64,7 @@ class MarketScoutAgent(LLMAgentBase):
 
     def _calendar_path(self) -> Path:
         s = get_settings()
-        return s.reports_dir.parent / "configs" / "market_scout_calendar.yaml"
+        return s.configs_dir / "market_scout_calendar.yaml"
 
     def load_calendar(self) -> dict[str, Any]:
         """`configs/market_scout_calendar.yaml`'ı parse et."""
@@ -202,9 +203,7 @@ class MarketScoutAgent(LLMAgentBase):
                 )
                 return None
         else:
-            slot = self.select_market_for_month(
-                target_month=target_month, calendar=cal
-            )
+            slot = self.select_market_for_month(target_month=target_month, calendar=cal)
         if slot is None:
             logger.warning("market_scout.no_rotation_slot")
             return None
@@ -236,11 +235,14 @@ class MarketScoutAgent(LLMAgentBase):
             )
             hits = []
 
-        rag_block = "\n\n".join(
-            f"[#{i+1} score={h.score:.3f} src={h.metadata.get('source_id', '?')}]\n"
-            f"{h.text[:400]}"
-            for i, h in enumerate(hits)
-        ) or "(RAG corpus boş veya hit yok)"
+        rag_block = (
+            "\n\n".join(
+                f"[#{i+1} score={h.score:.3f} src={h.metadata.get('source_id', '?')}]\n"
+                f"{h.text[:400]}"
+                for i, h in enumerate(hits)
+            )
+            or "(RAG corpus boş veya hit yok)"
+        )
 
         prompt = (
             "SOP-1 Monthly Feasibility Study. Aşağıdaki pazar slot'u için "
@@ -276,7 +278,7 @@ class MarketScoutAgent(LLMAgentBase):
         body_text = await self.run(prompt, max_tokens=6000)
 
         # Header — deterministik özet (LLM body üstüne)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         header = (
             f"# Market Feasibility — {market_name} — {now.strftime('%Y-%m')}\n\n"
             f"- Reproducibility: scout_run_at={now.strftime('%Y-%m-%dT%H:%M:%SZ')}\n"
@@ -359,11 +361,14 @@ class MarketScoutAgent(LLMAgentBase):
             )
             hits = []
 
-        rag_block = "\n\n".join(
-            f"[#{i+1} score={h.score:.3f} src={h.metadata.get('source_id', '?')}]\n"
-            f"{h.text[:350]}"
-            for i, h in enumerate(hits)
-        ) or "(RAG corpus boş)"
+        rag_block = (
+            "\n\n".join(
+                f"[#{i+1} score={h.score:.3f} src={h.metadata.get('source_id', '?')}]\n"
+                f"{h.text[:350]}"
+                for i, h in enumerate(hits)
+            )
+            or "(RAG corpus boş)"
+        )
 
         prompt = (
             "SOP-2 Quick Cross-Exchange Arb Scan. **Lite** 30dk iş — "
@@ -389,7 +394,7 @@ class MarketScoutAgent(LLMAgentBase):
 
         body_text = await self.run(prompt, max_tokens=3500)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         header = (
             f"# Cross-Exchange Arb Scan — {ex_a} vs {ex_b} — {now.strftime('%Y-%m-%d')}\n\n"
             f"- Symbol: `{symbol}`\n"

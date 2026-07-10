@@ -19,17 +19,18 @@ check_budget(stats, budget_config) -> list[dict]
 build_weekly_report(stats, budget_config) -> str
     Markdown rapor body (write_protocol_doc'a body olarak verilir).
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from price_action.logging_config import logger
+from price_action.runtime_paths import RuntimePaths
 from price_action.settings import get_settings
-
 
 # Model fiyatlandırma (input + output per 1M token, USD) — kabaca
 # Faz 4'te güncellenebilir; Max Pro kullanımında bu rakamlar referans amaçlı.
@@ -61,15 +62,15 @@ def get_token_stats(window_hours: int = 24) -> dict[str, dict[str, Any]]:
     dict
         ``{"agent|model": {input: N, output: M, calls: K, cost_usd: X}}``
     """
-    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
-    from pathlib import Path as _Path
     import json as _json
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
 
     stats: dict[tuple[str, str], dict[str, Any]] = {}
-    cutoff = _dt.now(_tz.utc) - _td(hours=window_hours)
+    cutoff = _dt.now(UTC) - _td(hours=window_hours)
 
     # 1) PERSISTENT AUDIT — primary source of truth
-    audit_path = _Path("data/llm_calls.jsonl")
+    audit_path = RuntimePaths.from_env().data / "llm_calls.jsonl"
     if audit_path.exists():
         try:
             with audit_path.open("r", encoding="utf-8") as f:
@@ -79,6 +80,8 @@ def get_token_stats(window_hours: int = 24) -> dict[str, dict[str, Any]]:
                         continue
                     try:
                         rec = _json.loads(line)
+                        if rec.get("stop_reason") == "dry_run":
+                            continue
                         ts = _dt.fromisoformat(rec["ts"])
                         if ts < cutoff:
                             continue
@@ -101,7 +104,7 @@ def get_token_stats(window_hours: int = 24) -> dict[str, dict[str, Any]]:
         try:
             from prometheus_client import REGISTRY  # type: ignore[import-not-found]
 
-            for collector in REGISTRY._collector_to_names.keys():  # type: ignore[attr-defined]
+            for collector in REGISTRY._collector_to_names:  # type: ignore[attr-defined]
                 try:
                     metrics = collector.collect()
                 except Exception:
@@ -128,8 +131,7 @@ def get_token_stats(window_hours: int = 24) -> dict[str, dict[str, Any]]:
         _agent, model = key
         pricing = MODEL_PRICING_USD_PER_1M.get(model, MODEL_PRICING_USD_PER_1M["_default"])
         s["cost_usd"] = round(
-            s["input"] / 1_000_000 * pricing["input"]
-            + s["output"] / 1_000_000 * pricing["output"],
+            s["input"] / 1_000_000 * pricing["input"] + s["output"] / 1_000_000 * pricing["output"],
             4,
         )
 
@@ -141,7 +143,7 @@ def load_budget_config(path: Path | None = None) -> dict[str, Any]:
     """Load `configs/token_budget.yaml` (yoksa default budget)."""
     if path is None:
         s = get_settings()
-        path = s.reports_dir.parent / "configs" / "token_budget.yaml"
+        path = s.configs_dir / "token_budget.yaml"
     if not path.exists():
         logger.info("token_budget.config_missing", extra={"path": str(path)})
         return _default_budget()
@@ -201,13 +203,15 @@ def check_budget(
         pct = used / limit * 100
         if pct >= alert_pct:
             level = "CRIT" if pct >= 100 else "WARN"
-            alerts.append({
-                "agent": agent,
-                "used": used,
-                "limit": limit,
-                "pct": round(pct, 1),
-                "level": level,
-            })
+            alerts.append(
+                {
+                    "agent": agent,
+                    "used": used,
+                    "limit": limit,
+                    "pct": round(pct, 1),
+                    "level": level,
+                }
+            )
     return alerts
 
 
@@ -217,7 +221,7 @@ def build_weekly_report(
     alerts: list[dict[str, Any]],
 ) -> str:
     """Markdown body — write_protocol_doc'a verilir."""
-    iso = datetime.now(timezone.utc).isocalendar()
+    iso = datetime.now(UTC).isocalendar()
     week_label = f"{iso.year}-W{iso.week:02d}"
 
     total_input = sum(s["input"] for s in stats.values())
@@ -255,15 +259,23 @@ def build_weekly_report(
         body.append("| Agent | Used | Limit | % | Level |")
         body.append("|---|---|---|---|---|")
         for a in alerts:
-            body.append(f"| {a['agent']} | {a['used']:,} | {a['limit']:,} | {a['pct']}% | **{a['level']}** |")
+            body.append(
+                f"| {a['agent']} | {a['used']:,} | {a['limit']:,} | {a['pct']}% | **{a['level']}** |"
+            )
     else:
         body.append("✅ Hiçbir agent günlük limitin %80'ini aşmadı.")
     body.append("")
 
     body.append("## Notlar")
     body.append("")
-    body.append(f"- Bütçe config: `configs/token_budget.yaml` (alert eşiği {config.get('alert_threshold_pct', 80)}%)")
-    body.append("- Max Pro plan altında bu rakamlar referans amaçlı (gerçek faturalama Anthropic dashboard'unda)")
-    body.append("- Prometheus counter cumulative — daily breakdown yapılmadı (process restart'ta sıfırlanır)")
+    body.append(
+        f"- Bütçe config: `configs/token_budget.yaml` (alert eşiği {config.get('alert_threshold_pct', 80)}%)"
+    )
+    body.append(
+        "- Max Pro plan altında bu rakamlar referans amaçlı (gerçek faturalama Anthropic dashboard'unda)"
+    )
+    body.append(
+        "- Prometheus counter cumulative — daily breakdown yapılmadı (process restart'ta sıfırlanır)"
+    )
 
     return "\n".join(body)

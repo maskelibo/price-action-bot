@@ -46,6 +46,14 @@ import duckdb
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
+from price_action.runtime_paths import resolve_runtime_root
+
+RUNTIME_ROOT = resolve_runtime_root(ROOT)
+DATA_DIR = RUNTIME_ROOT / "data"
+LOGS_DIR = RUNTIME_ROOT / "logs"
+MARKET_DB = (
+    Path(os.environ.get("DUCKDB_PATH", str(DATA_DIR / "market.duckdb"))).expanduser().resolve()
+)
 
 # KALAN_ISLER #8 (2026-07-10): borsa-okuma "başarı-şekilli boş dönüş" görünürlüğü.
 # Saf-stdlib hafif sayaç modülü — kontrol akışına dokunmaz (bkz. degraded_reads.py).
@@ -63,25 +71,25 @@ from scripts.lib.degraded_reads import (
 _BOT_NAME = os.environ.get("PA_BOT_NAME", "").lower().strip()
 if _BOT_NAME and _BOT_NAME not in ("default", ""):
     # Generic: PA_BOT_NAME=rsi2 → futures_journal_rsi2.duckdb
-    JOURNAL = ROOT / "data" / f"futures_journal_{_BOT_NAME}.duckdb"
-    LOG_FILE = ROOT / "logs" / f"futures_daemon_{_BOT_NAME}.log"
-    LAST_SCAN_STATE = ROOT / "logs" / "state" / f"futures_last_scan_{_BOT_NAME}.txt"
-    IDEMPOTENCY_DB = ROOT / "data" / f"idempotency_{_BOT_NAME}.duckdb"
-    PYRAMID_STORE_DB = ROOT / "data" / f"pyramid_store_{_BOT_NAME}.duckdb"
+    JOURNAL = DATA_DIR / f"futures_journal_{_BOT_NAME}.duckdb"
+    LOG_FILE = LOGS_DIR / f"futures_daemon_{_BOT_NAME}.log"
+    LAST_SCAN_STATE = LOGS_DIR / "state" / f"futures_last_scan_{_BOT_NAME}.txt"
+    IDEMPOTENCY_DB = DATA_DIR / f"idempotency_{_BOT_NAME}.duckdb"
+    PYRAMID_STORE_DB = DATA_DIR / f"pyramid_store_{_BOT_NAME}.duckdb"
     # FIX 2026-06-10 (v14 audit BLOCKER-2): breaker state de bot-bazlı olmalı.
     # Önceden iki yerde hardcoded "futures_breaker_state_15m_phoenix.json" idi →
     # yeni bot (v14) eski botun daily_anchor/triggered watermark'larını miras
     # alıyordu (d04/w08 eşikleri d02/w05 anchor'ı üstünde yanlış hesap).
-    BREAKER_STATE_15M = ROOT / "logs" / "risk" / f"futures_breaker_state_15m_{_BOT_NAME}.json"
+    BREAKER_STATE_15M = LOGS_DIR / "risk" / f"futures_breaker_state_15m_{_BOT_NAME}.json"
 else:
-    JOURNAL = ROOT / "data" / "futures_journal.duckdb"
-    LOG_FILE = ROOT / "logs" / "futures_daemon.log"
-    LAST_SCAN_STATE = ROOT / "logs" / "state" / "futures_last_scan.txt"
-    IDEMPOTENCY_DB = ROOT / "data" / "idempotency.duckdb"
-    PYRAMID_STORE_DB = ROOT / "data" / "pyramid_store.duckdb"
+    JOURNAL = DATA_DIR / "futures_journal.duckdb"
+    LOG_FILE = LOGS_DIR / "futures_daemon.log"
+    LAST_SCAN_STATE = LOGS_DIR / "state" / "futures_last_scan.txt"
+    IDEMPOTENCY_DB = DATA_DIR / "idempotency.duckdb"
+    PYRAMID_STORE_DB = DATA_DIR / "pyramid_store.duckdb"
     # Backward-compat: PA_BOT_NAME yokken eski path korunur (çalışan botlar etkilenmez)
-    BREAKER_STATE_15M = ROOT / "logs" / "risk" / "futures_breaker_state_15m_phoenix.json"
-KILL_SWITCH_PATH = ROOT / "logs" / "kill_switch.json"
+    BREAKER_STATE_15M = LOGS_DIR / "risk" / "futures_breaker_state_15m_phoenix.json"
+KILL_SWITCH_PATH = LOGS_DIR / "kill_switch.json"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 LAST_SCAN_STATE.parent.mkdir(parents=True, exist_ok=True)
 
@@ -429,7 +437,7 @@ def _get_pyramid_store() -> object | None:
 
     # Önce data/ dizini yazılabilir mi kontrol et (defansif)
     try:
-        data_dir = Path("data")
+        data_dir = DATA_DIR
         data_dir.mkdir(parents=True, exist_ok=True)
         test_file = data_dir / ".pyramid_write_test"
         test_file.write_text("ok", encoding="utf-8")
@@ -1049,7 +1057,7 @@ def position_check():
                 )
                 if _watchdog_equity > 0:
                     # Dedup state dosyası
-                    _conc_dedup_path = ROOT / "logs" / "risk" / "conc_watchdog_dedup.json"
+                    _conc_dedup_path = LOGS_DIR / "risk" / "conc_watchdog_dedup.json"
                     _conc_dedup_path.parent.mkdir(parents=True, exist_ok=True)
                     try:
                         import json as _json_conc
@@ -2704,7 +2712,7 @@ def run_15m_mode(once: bool = False) -> None:
                     _shared_returns_df = _build_returns_df(
                         _all_scan_syms,
                         days=90,
-                        market_db=ROOT / "data" / "market.duckdb",
+                        market_db=MARKET_DB,
                     )
                 except Exception as _rdf_err:
                     # A1-04: dürüst log — boş DF'te gate KONSERVATIF değil KÖRDÜR
@@ -2824,7 +2832,7 @@ def run_15m_mode(once: bool = False) -> None:
                                 _returns_df = _build_returns_df(
                                     sorted(set(_all_scan_syms) | set(_missing_pos_syms)),
                                     days=90,
-                                    market_db=ROOT / "data" / "market.duckdb",
+                                    market_db=MARKET_DB,
                                 )
                             except Exception as _rdf_err2:
                                 log(f"  15M_RETURNS_DF_WARN: pos-sym rebuild fail {_rdf_err2}")
@@ -3008,7 +3016,7 @@ def run_15m_mode(once: bool = False) -> None:
                                     if _is_timeout:
                                         # Deferred retry queue'ya yaz, daemon bloke olma
                                         try:
-                                            _pending_path = Path("data/pending_retries.jsonl")
+                                            _pending_path = DATA_DIR / "pending_retries.jsonl"
                                             _pending_path.parent.mkdir(parents=True, exist_ok=True)
                                             _pending_entry = {
                                                 "ts": datetime.now(UTC).isoformat(),
@@ -3054,7 +3062,7 @@ def run_15m_mode(once: bool = False) -> None:
                                         f"  15M_ENTRY_ERR: {sig['symbol']} {_exc_name}: {str(_entry_exc)[:120]}"
                                     )
                                     try:
-                                        _missed_path = Path("data/missed_signals.jsonl")
+                                        _missed_path = DATA_DIR / "missed_signals.jsonl"
                                         _missed_path.parent.mkdir(parents=True, exist_ok=True)
                                         _missed_entry = {
                                             "ts": datetime.now(UTC).isoformat(),
@@ -4016,7 +4024,7 @@ def _log_5m(msg: str) -> None:
     ts = datetime.now(UTC).strftime("%H:%M:%SZ")
     line = f"[{ts}] {msg}"
     print(line, flush=True)
-    log_path = ROOT / "logs" / "futures_daemon_5m.log"
+    log_path = LOGS_DIR / "futures_daemon_5m.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with open(log_path, "a", encoding="utf-8") as f:
@@ -4151,7 +4159,7 @@ def _write_5m_journal_trade_close(outcome: dict) -> None:
 
         import duckdb
 
-        journal_path = ROOT / "data" / "futures_journal_5m.duckdb"
+        journal_path = DATA_DIR / "futures_journal_5m.duckdb"
         if not journal_path.exists():
             return
 
@@ -4198,7 +4206,7 @@ def _write_5m_journal_signal(sig: dict, decision: dict) -> None:
 
         import duckdb
 
-        journal_path = ROOT / "data" / "futures_journal_5m.duckdb"
+        journal_path = DATA_DIR / "futures_journal_5m.duckdb"
         if not journal_path.exists():
             _log_5m(f"5M_JOURNAL_MISSING: {journal_path}")
             return

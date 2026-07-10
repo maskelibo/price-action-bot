@@ -23,28 +23,29 @@ SEC58-L2 sprint kapsamı:
   - upsert_position / load_all / delete_position / delete_closed_legs
   - 8 unit test (test_pyramid_store.py)
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import duckdb
 
 from price_action.execution.pyramid_router import (
     PyramidLeg,
     PyramidPosition,
-    LegState,
-    PositionSide,
 )
+from price_action.runtime_paths import RuntimePaths
 
 log = logging.getLogger(__name__)
 
-ROOT = Path(__file__).resolve().parents[3]  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
-DEFAULT_DB = ROOT / "data" / "pyramid_store.duckdb"
+ROOT = (
+    Path(__file__).resolve().parents[3]
+)  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
+DEFAULT_DB = RuntimePaths.from_env(ROOT).data / "pyramid_store.duckdb"
 
 _DDL_POSITIONS = """
 CREATE TABLE IF NOT EXISTS pyramid_positions (
@@ -88,7 +89,7 @@ def _leg_id(parent_position_id: str, leg_num: int) -> str:
 
 
 def _ts_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class PyramidStore:
@@ -267,8 +268,14 @@ class PyramidStore:
                 result: dict[str, PyramidPosition] = {}
                 for row in pos_rows:
                     (
-                        pos_id, symbol, side, entry_price, sl_price,
-                        initial_r, triggers_json, sizes_json,
+                        pos_id,
+                        symbol,
+                        side,
+                        entry_price,
+                        sl_price,
+                        initial_r,
+                        triggers_json,
+                        sizes_json,
                     ) = row
 
                     # Leg'leri cek
@@ -287,21 +294,29 @@ class PyramidStore:
                     legs: list[PyramidLeg] = []
                     for lr in leg_rows:
                         (
-                            leg_num, leg_state, leg_qty, leg_price,
-                            client_order_id, exchange_order_id, fill_price,
-                            submitted_at, filled_at,
+                            leg_num,
+                            leg_state,
+                            leg_qty,
+                            leg_price,
+                            client_order_id,
+                            exchange_order_id,
+                            fill_price,
+                            submitted_at,
+                            filled_at,
                         ) = lr
-                        legs.append(PyramidLeg(
-                            leg_num=int(leg_num),
-                            leg_state=str(leg_state),  # type: ignore[arg-type]
-                            leg_qty=float(leg_qty),
-                            leg_price=float(leg_price),
-                            client_order_id=str(client_order_id),
-                            exchange_order_id=exchange_order_id,
-                            fill_price=float(fill_price) if fill_price is not None else None,
-                            submitted_at=submitted_at,
-                            filled_at=filled_at,
-                        ))
+                        legs.append(
+                            PyramidLeg(
+                                leg_num=int(leg_num),
+                                leg_state=str(leg_state),  # type: ignore[arg-type]
+                                leg_qty=float(leg_qty),
+                                leg_price=float(leg_price),
+                                client_order_id=str(client_order_id),
+                                exchange_order_id=exchange_order_id,
+                                fill_price=float(fill_price) if fill_price is not None else None,
+                                submitted_at=submitted_at,
+                                filled_at=filled_at,
+                            )
+                        )
 
                     # Pozisyon hepsi terminal durumda ise yukle ama isaretlenmemis demektir
                     # (daemon P-05 tarafindan pop edilmemis). Tutarlilik icin dahil et.
@@ -335,9 +350,7 @@ class PyramidStore:
         with self._lock:
             con = duckdb.connect(str(self._path))
             try:
-                row = con.execute(
-                    "SELECT COUNT(*) FROM pyramid_positions"
-                ).fetchone()
+                row = con.execute("SELECT COUNT(*) FROM pyramid_positions").fetchone()
                 return int(row[0]) if row else 0
             finally:
                 con.close()

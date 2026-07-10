@@ -87,10 +87,13 @@ except Exception as _de_err:
     # (_vlog henüz tanımsız; launchd stderr'i yakalar)
     sys.stderr.write(f"[V14] dotenv load FAIL: {_de_err}\n")
 
+from price_action.runtime_paths import resolve_runtime_root  # noqa: E402
+
+RUNTIME_ROOT = resolve_runtime_root(ROOT)
 _LOG_TAG = "v15p2" if _EXPECT_P3 == "v15p2" else "v14"
-LOG_FILE = ROOT / "logs" / f"futures_daemon_{_LOG_TAG}.log"
+LOG_FILE = RUNTIME_ROOT / "logs" / f"futures_daemon_{_LOG_TAG}.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-PID_FILE = ROOT / "logs" / f"{_LOG_TAG}_daemon.pid"
+PID_FILE = RUNTIME_ROOT / "logs" / f"{_LOG_TAG}_daemon.pid"
 
 
 def _vlog(msg: str) -> None:

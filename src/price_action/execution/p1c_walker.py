@@ -38,6 +38,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from price_action.runtime_paths import RuntimePaths
+
 try:
     import yaml
 except ImportError:
@@ -47,7 +49,7 @@ _P1C_LOG = _logging.getLogger(__name__)
 
 
 # State persistence
-_STATE_DIR = Path(__file__).resolve().parents[3] / "data" / "state"
+_STATE_DIR = RuntimePaths.from_env(Path(__file__).resolve().parents[3]).data / "state"
 _STATE_FILE = _STATE_DIR / "p1c_walker_state.json"
 
 

@@ -58,6 +58,15 @@ from dotenv import load_dotenv
 
 load_dotenv(ROOT / ".env", override=False)
 
+from price_action.runtime_paths import resolve_runtime_root
+
+RUNTIME_ROOT = resolve_runtime_root(ROOT)
+DATA_DIR = RUNTIME_ROOT / "data"
+LOGS_DIR = RUNTIME_ROOT / "logs"
+MARKET_DB = (
+    Path(os.environ.get("DUCKDB_PATH", str(DATA_DIR / "market.duckdb"))).expanduser().resolve()
+)
+
 from price_action.logging_config import logger
 
 # ── DQ-02: Stale signal threshold ─────────────────────────────────────────────
@@ -158,15 +167,15 @@ def _get_parallel_workers() -> int:
 
 _BOT_NAME = os.environ.get("PA_BOT_NAME", "phoenix").lower()
 if _BOT_NAME == "phoenix":
-    JOURNAL = ROOT / "data" / "futures_journal_15m_phoenix.duckdb"
+    JOURNAL = DATA_DIR / "futures_journal_15m_phoenix.duckdb"
     # G4 fix (hard review 2026-05-21): 15m bot 15m config kullanmalı —
     # eskiden risk_phoenix_v204.yaml (1d config) yükleniyordu.
     RISK_YAML = ROOT / "configs" / "risk_phoenix_scalp_15m_c2v5_final.yaml"
-    BREAKER_STATE = ROOT / "logs" / "risk" / "futures_breaker_state_15m_phoenix.json"
+    BREAKER_STATE = LOGS_DIR / "risk" / "futures_breaker_state_15m_phoenix.json"
 else:
-    JOURNAL = ROOT / "data" / "futures_journal_15m.duckdb"
+    JOURNAL = DATA_DIR / "futures_journal_15m.duckdb"
     RISK_YAML = ROOT / "configs" / "risk_phoenix_scalp_15m_c2_champion.yaml"
-    BREAKER_STATE = ROOT / "logs" / "risk" / "futures_breaker_state_15m.json"
+    BREAKER_STATE = LOGS_DIR / "risk" / "futures_breaker_state_15m.json"
 
 BREAKER_STATE.parent.mkdir(parents=True, exist_ok=True)
 print(f"[futures_trade_15m] BOT={_BOT_NAME} | journal={JOURNAL.name} | risk={RISK_YAML.name}")
@@ -710,7 +719,7 @@ def run_15m(dry_run: bool = False) -> None:
         )
         return
 
-    returns_df = build_returns_df(SYMBOLS, days=90, market_db=ROOT / "data" / "market.duckdb")
+    returns_df = build_returns_df(SYMBOLS, days=90, market_db=MARKET_DB)
     account = build_futures_account_state(state, journal_path=JOURNAL)
 
     # Cooldown filter

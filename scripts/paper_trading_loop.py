@@ -12,6 +12,9 @@ Usage:
     python scripts/paper_trading_loop.py --once --dry-run     # dry run (no orders)
     python scripts/paper_trading_loop.py --watchdog           # continuous 00:30 UTC
 """
+
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import argparse
@@ -20,7 +23,7 @@ import os
 import sys
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -35,10 +38,8 @@ import pandas as pd
 
 from price_action.contracts import (
     OrderInstruction,
-    Position,
     Reject,
     RiskedOrder,
-    Signal,
     TPLevel,
     stable_hash,
 )
@@ -48,11 +49,14 @@ from price_action.execution.paper_state import PaperState
 from price_action.logging_config import logger
 from price_action.risk.breaker import DDBreaker
 from price_action.risk.sizing import AccountState, RiskOfficer
+from price_action.runtime_paths import resolve_runtime_root
 from price_action.settings import get_settings
 from price_action.strategies.engulfing_continuation import (
     EngulfingContinuationStrategy,
     _default_manifest,
 )
+
+_RUNTIME_ROOT = resolve_runtime_root(_ROOT)
 
 
 # =====================================================================
@@ -91,13 +95,14 @@ VENUE = "binance"
 STRATEGY_ID = "engulfing_continuation_v1_faz6"
 
 # Journal path
-JOURNAL_PATH = _ROOT / "data" / "paper_journal.duckdb"
-LOG_PATH = _ROOT / "logs" / "paper_trading.log"
+JOURNAL_PATH = _RUNTIME_ROOT / "data" / "paper_journal.duckdb"
+LOG_PATH = _RUNTIME_ROOT / "logs" / "paper_trading.log"
 
 
 # =====================================================================
 # Confidence score — production formula
 # =====================================================================
+
 
 def compute_confidence_score(
     confluence_score: float,
@@ -146,20 +151,24 @@ def confidence_to_leverage(confidence: float) -> int:
 # OHLCV fetch — with testnet & offline fallback
 # =====================================================================
 
+
 def _build_ccxt_exchange(dry_run: bool = False) -> Any | None:
     """Build CCXT exchange for data fetching. Returns None in dry-run / no-ccxt."""
     if dry_run or os.environ.get("PA_LLM_DRY_RUN") == "true":
         return None
     try:
         import ccxt  # type: ignore
+
         s = get_settings()
         api_key = os.environ.get("BINANCE_TESTNET_API_KEY", s.binance_api_key)
         api_secret = os.environ.get("BINANCE_TESTNET_API_SECRET", s.binance_api_secret)
-        exchange = ccxt.binance({
-            "enableRateLimit": True,
-            "apiKey": api_key,
-            "secret": api_secret,
-        })
+        exchange = ccxt.binance(
+            {
+                "enableRateLimit": True,
+                "apiKey": api_key,
+                "secret": api_secret,
+            }
+        )
         # Use testnet for data fetching (public endpoint still works on mainnet)
         return exchange
     except Exception as exc:
@@ -167,7 +176,9 @@ def _build_ccxt_exchange(dry_run: bool = False) -> Any | None:
         return None
 
 
-def fetch_ohlcv(symbol: str, timeframe: str, limit: int, exchange: Any | None) -> pd.DataFrame | None:
+def fetch_ohlcv(
+    symbol: str, timeframe: str, limit: int, exchange: Any | None
+) -> pd.DataFrame | None:
     """Fetch OHLCV bars. Returns None on failure (caller generates synthetic data in dry-run)."""
     if exchange is None:
         return None
@@ -189,9 +200,9 @@ def fetch_ohlcv(symbol: str, timeframe: str, limit: int, exchange: Any | None) -
 
 def _make_synthetic_ohlcv(symbol: str, n: int = 250) -> pd.DataFrame:
     """Deterministic synthetic OHLCV for dry-run / offline mode."""
-    seed = abs(hash(symbol)) % (2 ** 31)
+    seed = abs(hash(symbol)) % (2**31)
     rng = np.random.default_rng(seed)
-    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2024, 1, 1, tzinfo=UTC)
     ts = pd.date_range(start, periods=n, freq="1D", tz="UTC")
     rets = rng.normal(0.0005, 0.025, size=n)
     close = 100.0 * np.exp(np.cumsum(rets))
@@ -203,23 +214,26 @@ def _make_synthetic_ohlcv(symbol: str, n: int = 250) -> pd.DataFrame:
     high = np.maximum.reduce([high, open_, close])
     low = np.minimum.reduce([low, open_, close])
     volume = rng.uniform(500, 5000, size=n)
-    df = pd.DataFrame({
-        "ts": ts,
-        "open": open_,
-        "high": high,
-        "low": low,
-        "close": close,
-        "volume": volume,
-        "venue": VENUE,
-        "symbol": symbol,
-        "timeframe": TIMEFRAME,
-    })
+    df = pd.DataFrame(
+        {
+            "ts": ts,
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+            "venue": VENUE,
+            "symbol": symbol,
+            "timeframe": TIMEFRAME,
+        }
+    )
     return df
 
 
 # =====================================================================
 # Journal — DuckDB append
 # =====================================================================
+
 
 class PaperJournal:
     """Append-only DuckDB journal for paper trades."""
@@ -232,6 +246,7 @@ class PaperJournal:
     def _get_conn(self) -> Any:
         try:
             import duckdb  # type: ignore
+
             return duckdb.connect(str(self.path))
         except ImportError:
             return None
@@ -310,9 +325,20 @@ class PaperJournal:
                     confluence_score, strategy_id, dry_run, status)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')""",
                 [
-                    trade_id, symbol, side, entry_ts, entry_price, quantity,
-                    leverage, confidence, sl_price, tp_price, pattern_id,
-                    confluence_score, STRATEGY_ID, dry_run,
+                    trade_id,
+                    symbol,
+                    side,
+                    entry_ts,
+                    entry_price,
+                    quantity,
+                    leverage,
+                    confidence,
+                    sl_price,
+                    tp_price,
+                    pattern_id,
+                    confluence_score,
+                    STRATEGY_ID,
+                    dry_run,
                 ],
             )
             conn.close()
@@ -362,8 +388,12 @@ class PaperJournal:
                    (snapshot_id, ts, equity, open_positions, realized_pnl_total, daily_pnl)
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 [
-                    uuid.uuid4().hex[:16], ts, equity,
-                    open_positions, realized_pnl_total, daily_pnl,
+                    uuid.uuid4().hex[:16],
+                    ts,
+                    equity,
+                    open_positions,
+                    realized_pnl_total,
+                    daily_pnl,
                 ],
             )
             conn.close()
@@ -375,9 +405,7 @@ class PaperJournal:
         if conn is None:
             return []
         try:
-            rows = conn.execute(
-                "SELECT trade_id FROM paper_trades WHERE status='open'"
-            ).fetchall()
+            rows = conn.execute("SELECT trade_id FROM paper_trades WHERE status='open'").fetchall()
             conn.close()
             return [r[0] for r in rows]
         except Exception:
@@ -402,6 +430,7 @@ class PaperJournal:
 # =====================================================================
 # Active positions tracker (in-memory, reconciled from paper_state)
 # =====================================================================
+
 
 class ActivePositionTracker:
     """Track open positions with TP/SL for intraday check."""
@@ -450,6 +479,7 @@ class ActivePositionTracker:
 # Core daily run logic
 # =====================================================================
 
+
 def run_daily(
     *,
     dry_run: bool = False,
@@ -462,7 +492,7 @@ def run_daily(
     if log is None:
         log = logger.bind(component="paper_loop")
 
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(UTC)
     log.info(f"paper_loop.daily_run.start ts={now_utc.isoformat()} dry_run={dry_run}")
 
     # Setup
@@ -474,7 +504,7 @@ def run_daily(
     JOURNAL_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     # Paper state — persists wallet & positions
-    paper_state_path = _ROOT / "logs" / "execution" / "paper_state_faz6.json"
+    paper_state_path = _RUNTIME_ROOT / "logs" / "execution" / "paper_state_faz6.json"
     paper_state = PaperState(
         path=paper_state_path,
         initial_balance_usdt=INITIAL_CAPITAL,
@@ -518,8 +548,7 @@ def run_daily(
     open_positions = broker.fetch_positions()
 
     log.info(
-        f"paper_loop.account equity={equity:.2f} USDT "
-        f"open_positions={len(open_positions)}"
+        f"paper_loop.account equity={equity:.2f} USDT " f"open_positions={len(open_positions)}"
     )
 
     # ---- Daily equity snapshot ----
@@ -550,7 +579,7 @@ def run_daily(
             "monthly_loss_pct": 0.15,
             "consecutive_losses": 6,
         },
-        state_path=_ROOT / "logs" / "risk" / "breaker_state_faz6.json",
+        state_path=_RUNTIME_ROOT / "logs" / "risk" / "breaker_state_faz6.json",
     )
     breaker_status = dd_breaker.snapshot(account_state)
     any_breaker = any(breaker_status.values())
@@ -609,7 +638,8 @@ def run_daily(
 
         # Filter signals to last bar only
         last_signals = [
-            sig for sig in signals
+            sig
+            for sig in signals
             if abs((sig.ts - last_ts).total_seconds()) < 86400  # within today's bar
         ]
 
@@ -672,6 +702,7 @@ def run_daily(
             # Hypothesis: perp-orderbook-imbalance (2026-05-09)
             try:
                 from price_action.data.orderbook_logger import OrderbookLogger
+
                 _ob_logger = OrderbookLogger()
                 _ob_signal_info = {
                     **signal_info,
@@ -683,7 +714,7 @@ def run_daily(
                     exchange=exchange,
                     top_n=5,
                 )
-            except Exception as _ob_exc:  # noqa: BLE001
+            except Exception as _ob_exc:
                 log.bind(err=str(_ob_exc), symbol=symbol).debug(
                     "paper_loop.orderbook_hook_skip — not critical"
                 )
@@ -710,14 +741,14 @@ def run_daily(
             )
 
             if isinstance(risked_or_reject, Reject):
-                rejects.append({
-                    **signal_info,
-                    "reason": risked_or_reject.reason,
-                    "detail": risked_or_reject.detail,
-                })
-                sym_log.warning(
-                    f"paper_loop.risk_reject reason={risked_or_reject.reason}"
+                rejects.append(
+                    {
+                        **signal_info,
+                        "reason": risked_or_reject.reason,
+                        "detail": risked_or_reject.detail,
+                    }
                 )
+                sym_log.warning(f"paper_loop.risk_reject reason={risked_or_reject.reason}")
                 continue
 
             risked_order: RiskedOrder = risked_or_reject
@@ -738,14 +769,14 @@ def run_daily(
             # low-vol günde size büyüt. Default kapalı.
             base_risk_dollar = current_equity * RISK_PER_TRADE
             try:
+                import yaml as _yaml
+
                 from price_action.risk.vol_target import (
                     apply_vol_target,
                     from_risk_yaml,
                 )
-                import yaml as _yaml
-                _risk_yaml_path = (
-                    Path(__file__).resolve().parents[1] / "configs" / "risk.yaml"
-                )
+
+                _risk_yaml_path = Path(__file__).resolve().parents[1] / "configs" / "risk.yaml"
                 _risk_cfg = _yaml.safe_load(_risk_yaml_path.read_text(encoding="utf-8")) or {}
                 _vt_cfg = from_risk_yaml(_risk_cfg)
                 # signal metadata'sında ATR% varsa kullan; yoksa SL distance / price proxy
@@ -774,11 +805,13 @@ def run_daily(
                 risk_budget_consumed=RISK_PER_TRADE,
                 breakers_status=breaker_status,
                 correlation_factor=risked_order.correlation_factor,
-                manifest_hash=stable_hash({
-                    "sig": sig.fingerprint(),
-                    "conf": confidence,
-                    "lev": final_leverage,
-                }),
+                manifest_hash=stable_hash(
+                    {
+                        "sig": sig.fingerprint(),
+                        "conf": confidence,
+                        "lev": final_leverage,
+                    }
+                ),
             )
 
             instruction = OrderInstruction(
@@ -798,14 +831,16 @@ def run_daily(
                     f"notional={quantity * market_price:.2f} USDT "
                     f"trade_id={trade_id}"
                 )
-                orders_placed.append({
-                    **signal_info,
-                    "trade_id": trade_id,
-                    "quantity": round(quantity, 8),
-                    "market_price": market_price,
-                    "notional": round(quantity * market_price, 2),
-                    "status": "dry_run",
-                })
+                orders_placed.append(
+                    {
+                        **signal_info,
+                        "trade_id": trade_id,
+                        "quantity": round(quantity, 8),
+                        "market_price": market_price,
+                        "notional": round(quantity * market_price, 2),
+                        "status": "dry_run",
+                    }
+                )
                 # Log to journal even in dry-run for consistency
                 journal.log_trade_open(
                     trade_id=trade_id,
@@ -822,29 +857,34 @@ def run_daily(
                     confluence_score=sig.confluence_score,
                     dry_run=True,
                 )
-                tracker.add(trade_id, {
-                    "symbol": symbol,
-                    "side": sig.direction,
-                    "entry_price": market_price,
-                    "sl": sig.sl_price,
-                    "tp": sig.tp_price,
-                    "quantity": quantity,
-                    "leverage": final_leverage,
-                    "confidence": confidence,
-                })
+                tracker.add(
+                    trade_id,
+                    {
+                        "symbol": symbol,
+                        "side": sig.direction,
+                        "entry_price": market_price,
+                        "sl": sig.sl_price,
+                        "tp": sig.tp_price,
+                        "quantity": quantity,
+                        "leverage": final_leverage,
+                        "confidence": confidence,
+                    },
+                )
             else:
                 fill = om.submit(instruction)
                 if hasattr(fill, "order_id"):
                     # Success
-                    orders_placed.append({
-                        **signal_info,
-                        "trade_id": trade_id,
-                        "order_id": fill.order_id,
-                        "fill_price": fill.price,
-                        "quantity": fill.quantity,
-                        "slippage_bps": fill.slippage_bps,
-                        "status": "filled",
-                    })
+                    orders_placed.append(
+                        {
+                            **signal_info,
+                            "trade_id": trade_id,
+                            "order_id": fill.order_id,
+                            "fill_price": fill.price,
+                            "quantity": fill.quantity,
+                            "slippage_bps": fill.slippage_bps,
+                            "status": "filled",
+                        }
+                    )
                     journal.log_trade_open(
                         trade_id=trade_id,
                         symbol=symbol,
@@ -860,26 +900,31 @@ def run_daily(
                         confluence_score=sig.confluence_score,
                         dry_run=False,
                     )
-                    tracker.add(trade_id, {
-                        "symbol": symbol,
-                        "side": sig.direction,
-                        "entry_price": fill.price,
-                        "sl": sig.sl_price,
-                        "tp": sig.tp_price,
-                        "quantity": fill.quantity,
-                        "leverage": final_leverage,
-                        "confidence": confidence,
-                    })
+                    tracker.add(
+                        trade_id,
+                        {
+                            "symbol": symbol,
+                            "side": sig.direction,
+                            "entry_price": fill.price,
+                            "sl": sig.sl_price,
+                            "tp": sig.tp_price,
+                            "quantity": fill.quantity,
+                            "leverage": final_leverage,
+                            "confidence": confidence,
+                        },
+                    )
                     sym_log.info(
                         f"paper_loop.order_filled order_id={fill.order_id} "
                         f"price={fill.price:.4f} qty={fill.quantity:.6f}"
                     )
                 else:
                     reject: Reject = fill  # type: ignore
-                    rejects.append({
-                        **signal_info,
-                        "reason": reject.reason,
-                    })
+                    rejects.append(
+                        {
+                            **signal_info,
+                            "reason": reject.reason,
+                        }
+                    )
                     sym_log.warning(f"paper_loop.order_rejected reason={reject.reason}")
 
     # ---- Summary ----
@@ -914,6 +959,7 @@ def run_daily(
 # =====================================================================
 # Intraday TP/SL monitor (per-minute, runs in watchdog mode)
 # =====================================================================
+
 
 def check_tp_sl_intraday(
     broker: CCXTPaperBroker,
@@ -953,7 +999,7 @@ def check_tp_sl_intraday(
         # Log close to journal
         journal.log_trade_close(
             trade_id=trade_id,
-            exit_ts=datetime.now(timezone.utc),
+            exit_ts=datetime.now(UTC),
             exit_price=exit_price,
             exit_reason=reason,
             realized_pnl=0.0,  # simplified — actual from paper_state
@@ -965,9 +1011,10 @@ def check_tp_sl_intraday(
 # Timing
 # =====================================================================
 
+
 def _seconds_until_next_run(target_hour: int = 0, target_minute: int = 30) -> float:
     """Compute seconds until next 00:30 UTC."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     target = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
     if target <= now:
         target += timedelta(days=1)
@@ -977,6 +1024,7 @@ def _seconds_until_next_run(target_hour: int = 0, target_minute: int = 30) -> fl
 # =====================================================================
 # Entry point
 # =====================================================================
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -1028,7 +1076,7 @@ def main() -> None:
         wait_secs = _seconds_until_next_run(0, 30)
         log.info(
             f"paper_loop.watchdog_sleeping wait_secs={wait_secs:.0f} "
-            f"next_run={datetime.now(timezone.utc) + timedelta(seconds=wait_secs)}"
+            f"next_run={datetime.now(UTC) + timedelta(seconds=wait_secs)}"
         )
         time.sleep(wait_secs)
 

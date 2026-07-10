@@ -11,12 +11,14 @@ SEC58.H6 — Log rotation verification + disk monitoring:
   - compression: gz (disk efficiency)
   - disk monitor: warn at 80%, crit at 95% usage
 """
+
 from __future__ import annotations
 
 import json
 import os
 import shutil
 import sys
+from datetime import UTC
 from pathlib import Path
 
 from loguru import logger as _logger
@@ -24,8 +26,14 @@ from loguru import logger as _logger
 from .settings import get_settings
 
 _REDACT_KEYS = {
-    "api_key", "api_secret", "password", "token", "secret",
-    "anthropic_api_key", "telegram_bot_token", "youtube_api_key",
+    "api_key",
+    "api_secret",
+    "password",
+    "token",
+    "secret",
+    "anthropic_api_key",
+    "telegram_bot_token",
+    "youtube_api_key",
 }
 
 
@@ -47,8 +55,7 @@ def _json_sink(message) -> None:
     # FIX 2026-05-26 (L1): tüm log timestamps UTC. Önceden record["time"]
     # local timezone'du; futures_daemon UTC ile karışıyordu (post-mortem
     # zorlaşıyordu).
-    from datetime import timezone as _tz
-    ts_utc = record["time"].astimezone(_tz.utc) if record["time"].tzinfo else record["time"]
+    ts_utc = record["time"].astimezone(UTC) if record["time"].tzinfo else record["time"]
     payload = {
         "ts": ts_utc.isoformat(),
         "level": record["level"].name,
@@ -70,7 +77,7 @@ def _get_disk_usage(path: Path) -> tuple[float, float]:
     try:
         stat = shutil.disk_usage(path)
         usage_pct = (stat.used / stat.total) * 100.0
-        free_gb = stat.free / (1024 ** 3)
+        free_gb = stat.free / (1024**3)
         return usage_pct, free_gb
     except Exception:
         return 0.0, 0.0  # fallback
@@ -121,11 +128,22 @@ def configure() -> None:
                 sys.stderr,
                 level=s.log_level,
                 format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-                       "<level>{level: <8}</level> | "
-                       "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
-                       "{message}",
+                "<level>{level: <8}</level> | "
+                "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+                "{message}",
                 enqueue=True,
             )
+
+    # Tests and isolated workers can disable the process-wide file sink. The
+    # production default remains unchanged.
+    disable_file_log = os.getenv("PA_DISABLE_FILE_LOG", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if disable_file_log:
+        return
 
     # Dosya log — SEC58.H6 rotation verification
     log_file: Path = s.logs_dir / "app.log"

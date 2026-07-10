@@ -45,6 +45,15 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(ROOT / ".env", override=False)
 
+from price_action.runtime_paths import resolve_runtime_root  # noqa: E402
+
+RUNTIME_ROOT = resolve_runtime_root(ROOT)
+DATA_DIR = RUNTIME_ROOT / "data"
+LOGS_DIR = RUNTIME_ROOT / "logs"
+MARKET_DB = (
+    Path(os.environ.get("DUCKDB_PATH", str(DATA_DIR / "market.duckdb"))).expanduser().resolve()
+)
+
 import ccxt  # noqa: E402
 import yaml  # noqa: E402
 
@@ -70,23 +79,23 @@ from scripts.paper_trade_daily import init_journal, scan_signals  # noqa: E402
 # yazıyordu → DuckDB lock conflict, journal init fail, kritik veri kaybı riski.
 _BOT_NAME = os.environ.get("PA_BOT_NAME", "").lower().strip()
 if _BOT_NAME == "atlas":
-    JOURNAL = ROOT / "data" / "futures_journal_atlas.duckdb"
+    JOURNAL = DATA_DIR / "futures_journal_atlas.duckdb"
     RISK_YAML = ROOT / "configs" / "risk_atlas_v203.yaml"
-    BREAKER_STATE = ROOT / "logs" / "risk" / "futures_breaker_state_atlas.json"
+    BREAKER_STATE = LOGS_DIR / "risk" / "futures_breaker_state_atlas.json"
 elif _BOT_NAME == "phoenix":
-    JOURNAL = ROOT / "data" / "futures_journal_phoenix.duckdb"
+    JOURNAL = DATA_DIR / "futures_journal_phoenix.duckdb"
     RISK_YAML = ROOT / "configs" / "risk_phoenix_v204.yaml"
-    BREAKER_STATE = ROOT / "logs" / "risk" / "futures_breaker_state_phoenix.json"
+    BREAKER_STATE = LOGS_DIR / "risk" / "futures_breaker_state_phoenix.json"
 elif _BOT_NAME and _BOT_NAME not in ("default", ""):
     # Generic: PA_BOT_NAME=rsi2 → futures_journal_rsi2.duckdb
     # RISK_YAML burada placeholder (15m daemon PA_15M_CONFIG'ten okuyor, bu sadece 1d için)
-    JOURNAL = ROOT / "data" / f"futures_journal_{_BOT_NAME}.duckdb"
+    JOURNAL = DATA_DIR / f"futures_journal_{_BOT_NAME}.duckdb"
     RISK_YAML = ROOT / "configs" / "risk_balanced.yaml"
-    BREAKER_STATE = ROOT / "logs" / "risk" / f"futures_breaker_state_{_BOT_NAME}.json"
+    BREAKER_STATE = LOGS_DIR / "risk" / f"futures_breaker_state_{_BOT_NAME}.json"
 else:
-    JOURNAL = ROOT / "data" / "futures_journal.duckdb"
+    JOURNAL = DATA_DIR / "futures_journal.duckdb"
     RISK_YAML = ROOT / "configs" / "risk_balanced.yaml"
-    BREAKER_STATE = ROOT / "logs" / "risk" / "futures_breaker_state.json"
+    BREAKER_STATE = LOGS_DIR / "risk" / "futures_breaker_state.json"
 BREAKER_STATE.parent.mkdir(parents=True, exist_ok=True)
 print(
     f"[futures_trade_daily] BOT={_BOT_NAME or 'default'} | journal={JOURNAL.name} | risk={RISK_YAML.name}"
@@ -705,9 +714,7 @@ def submit_to_futures(
     risk_officer = load_risk_officer(yaml_path=RISK_YAML, breaker_state_path=BREAKER_STATE)
     open_sym_names = [p.get("symbol", "") for p in state.get("positions", []) or []]
     return_universe = sorted({*SYMBOLS, *(s for s in open_sym_names if s)})
-    returns_df = build_returns_df(
-        return_universe, days=90, market_db=ROOT / "data" / "market.duckdb"
-    )
+    returns_df = build_returns_df(return_universe, days=90, market_db=MARKET_DB)
     account = build_futures_account_state(state, journal_path=JOURNAL)
     breaker_snap = risk_officer.breaker.snapshot(account)
     print(

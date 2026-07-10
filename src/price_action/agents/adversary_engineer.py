@@ -51,7 +51,7 @@ class AdversaryEngineerAgent(LLMAgentBase):
         return p
 
     def _configs_dir(self) -> Path:
-        return self.settings.reports_dir.parent / "configs"
+        return self.settings.configs_dir
 
     def _load_periods_config(self) -> dict[str, Any]:
         """`configs/adversarial_periods.yaml` oku.

@@ -183,6 +183,9 @@ markers = [
     "slow: yavaş test (>5s)",
     "integration: dış servis gerektirir",
     "live: gerçek borsa çağırır (CI'da skip)",
+    "network: açık ağ erişimi gerektirir",
+    "ops: aktif runtime artefaktlarını doğrular",
+    "subprocess: steril ortamda alt süreç başlatır",
 ]
 
 [tool.coverage.run]

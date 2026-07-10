@@ -129,7 +129,7 @@ class AuditAgentBase(LLMAgentBase):
         return p
 
     def _repo_root(self) -> Path:
-        return self.settings.reports_dir.parent
+        return self.settings.repo_root
 
     # ------------------------------------------------------------------
     # Findings register (append-only; son satır = güncel durum)

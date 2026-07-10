@@ -13,10 +13,13 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 PY = ROOT / ".venv" / "bin" / "python"
 
 
+@pytest.mark.subprocess
 def test_script_direct_invocation_resolves_scripts_package():
     """Script-direct sys.path semantiğinde (repo kökü YOK) header fix'i
     scripts paketini çözülebilir yapmalı. importlib ile __file__ doğru,

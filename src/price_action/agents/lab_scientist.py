@@ -141,7 +141,7 @@ class LabScientistAgent(LLMAgentBase):
         try:
             import yaml
 
-            cfg_path = self.settings.reports_dir.parent / "configs" / "lab_gates.yaml"
+            cfg_path = self.settings.configs_dir / "lab_gates.yaml"
             if not cfg_path.exists():
                 return {}
             data = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}

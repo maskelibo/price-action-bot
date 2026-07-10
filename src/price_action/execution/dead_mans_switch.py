@@ -39,12 +39,14 @@ from typing import Any
 import duckdb
 
 from price_action.execution.heartbeat_watchdog import HeartbeatWatchdog
+from price_action.runtime_paths import RuntimePaths
 
 ROOT = (
     Path(__file__).resolve().parents[3]
 )  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
-DEFAULT_DB = ROOT / "data" / "idempotency.duckdb"
-KILL_SWITCH_PATH = ROOT / "logs" / "kill_switch.json"
+_RUNTIME_PATHS = RuntimePaths.from_env(ROOT)
+DEFAULT_DB = _RUNTIME_PATHS.data / "idempotency.duckdb"
+KILL_SWITCH_PATH = _RUNTIME_PATHS.kill_switch
 
 HEARTBEAT_INTERVAL_SEC = 60
 WATCHDOG_INTERVAL_SEC = 30
@@ -450,7 +452,7 @@ class DeadMansSwitch:
             print(line, file=sys.stderr)
         # Log dosyasına da yaz
         try:
-            log_file = ROOT / "logs" / f"{self.service_name}_dms.log"
+            log_file = _RUNTIME_PATHS.logs / f"{self.service_name}_dms.log"
             log_file.parent.mkdir(parents=True, exist_ok=True)
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(line + "\n")

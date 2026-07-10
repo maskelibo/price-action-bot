@@ -94,17 +94,27 @@ sys.path.insert(0, str(ROOT / "src"))
 # FIX 2026-06-03: daemon doğrudan (swap script'siz) restart edilebilsin diye .env'i
 # kendi yükle — testnet API anahtarları buradan gelir. override=False: açıkça set
 # edilmiş env (launch komutu / setdefault) kazanır.
-try:
-    from dotenv import load_dotenv as _load_dotenv
+if os.environ.get("PA_TESTING", "").strip().lower() not in {"1", "true", "yes", "on"}:
+    try:
+        from dotenv import load_dotenv as _load_dotenv
 
-    _load_dotenv(ROOT / ".env", override=False)
-except Exception:
-    pass
+        _load_dotenv(ROOT / ".env", override=False)
+    except Exception:
+        pass
+
+from price_action.runtime_paths import resolve_runtime_root  # noqa: E402
+
+RUNTIME_ROOT = resolve_runtime_root(ROOT)
+MARKET_DB = (
+    Path(os.environ.get("DUCKDB_PATH", str(RUNTIME_ROOT / "data" / "market.duckdb")))
+    .expanduser()
+    .resolve()
+)
 
 # ── Logging (before daemon import) ───────────────────────────────────────────
-LOG_FILE = ROOT / "logs" / "futures_daemon_v13.log"
+LOG_FILE = RUNTIME_ROOT / "logs" / "futures_daemon_v13.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-PID_FILE = ROOT / "logs" / "v13_daemon.pid"
+PID_FILE = RUNTIME_ROOT / "logs" / "v13_daemon.pid"
 
 
 def _vlog(msg: str) -> None:
@@ -153,21 +163,21 @@ try:
         close_side = "SELL" if side == "long" else "BUY"
 
         # BASELINE fractions
-        TP1_FRAC = 0.30  # BASELINE: 30% at TP1 (was 25%)
-        TP2_FRAC = 0.30  # BASELINE: 30% at TP2 (was 25%)
+        tp1_frac = 0.30  # BASELINE: 30% at TP1 (was 25%)
+        tp2_frac = 0.30  # BASELINE: 30% at TP2 (was 25%)
         # Runner 40% = remaining (was 50%)
 
-        qty_tp1 = qty * TP1_FRAC
-        qty_tp2 = qty * TP2_FRAC
+        qty_tp1 = qty * tp1_frac
+        qty_tp2 = qty * tp2_frac
 
         try:
             if entry_price is not None and entry_price > 0:
                 sl_dist = abs(entry_price - sl_price)
-                tp2_R = 1.5
+                tp2_r = 1.5
                 if side == "long":
-                    tp2_price = entry_price + tp2_R * sl_dist
+                    tp2_price = entry_price + tp2_r * sl_dist
                 else:
-                    tp2_price = entry_price - tp2_R * sl_dist
+                    tp2_price = entry_price - tp2_r * sl_dist
 
                 qty1_str = exchange.amount_to_precision(symbol, qty_tp1)
                 qty2_str = exchange.amount_to_precision(symbol, qty_tp2)
@@ -257,7 +267,7 @@ def _load_htf_1d(sym: str):
         import duckdb
         import pandas as pd
 
-        db_path = ROOT / "data" / "market.duckdb"
+        db_path = MARKET_DB
         if not db_path.exists():
             return None
         # FIX 2026-06-03 (HTF fail-open kök neden): iki bug üst üste binmişti.
@@ -346,10 +356,7 @@ def _htf_filter_ok(sig: dict) -> bool:
         close = float(last_row["close"])
         ema50 = float(last_row["ema50"])
 
-        if side == "long":
-            aligned = close > ema50
-        else:
-            aligned = close < ema50
+        aligned = close > ema50 if side == "long" else close < ema50
 
         return aligned
     except Exception as _f_err:
@@ -437,7 +444,8 @@ def _init_exchange_truth_db() -> None:
     try:
         import duckdb
 
-        db_path = ROOT / "data" / "v13_exchange_truth.duckdb"
+        db_path = RUNTIME_ROOT / "data" / "v13_exchange_truth.duckdb"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
         con = duckdb.connect(str(db_path))
         con.execute("""
             CREATE TABLE IF NOT EXISTS v13_equity_snapshots (

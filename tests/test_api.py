@@ -1,21 +1,37 @@
 """FastAPI smoke testleri — TestClient ile."""
+
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client(monkeypatch, tmp_path):
     monkeypatch.setenv("PA_ADMIN_TOKEN", "test-token-secret")
     # Settings cache'i temizle
     from price_action.settings import get_settings
 
     get_settings.cache_clear()  # type: ignore[attr-defined]
 
-    from price_action.api.server import create_app
+    from price_action.analytics import journal as journal_module
+    from price_action.api import server
 
-    app = create_app()
+    class _EmptyJournal:
+        def query_trades(self, *args, **kwargs):
+            return pd.DataFrame()
+
+        def query_open_positions(self):
+            return pd.DataFrame()
+
+        def query_pending_signals(self, *args, **kwargs):
+            return pd.DataFrame()
+
+    monkeypatch.setattr(server, "_state_file", lambda: tmp_path / "kill_switch.json")
+    monkeypatch.setattr(journal_module, "Journal", _EmptyJournal)
+
+    app = server.create_app()
     return TestClient(app)
 
 

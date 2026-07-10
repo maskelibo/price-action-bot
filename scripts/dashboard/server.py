@@ -23,6 +23,10 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
+from price_action.runtime_paths import resolve_runtime_root  # noqa: E402
+
+RUNTIME_ROOT = resolve_runtime_root(ROOT)
+
 # NOT: 'scripts/dashboard.py' (eski Streamlit) ile 'scripts/dashboard/' dizini isim
 # çakışıyor → paket import'u yerine collect.py'yi doğrudan dosyadan yükle.
 import importlib.util  # noqa: E402
@@ -38,7 +42,7 @@ import uvicorn  # noqa: E402
 from fastapi import Body, FastAPI, HTTPException  # noqa: E402
 from fastapi.responses import HTMLResponse, JSONResponse  # noqa: E402
 
-SNAP_PATH = ROOT / "data" / "dashboard" / "snapshot.json"
+SNAP_PATH = RUNTIME_ROOT / "data" / "dashboard" / "snapshot.json"
 REFRESH_SEC = 120
 PORT = int(os.getenv("PA_DASHBOARD_PORT", "8787"))
 
@@ -51,7 +55,7 @@ PORT = int(os.getenv("PA_DASHBOARD_PORT", "8787"))
 # Halt güvenli-taraf (yalnız durdurur) AMA auth'suz = DoS yüzeyi. Bu yüzden
 # TOKEN-GUARD fail-closed: PA_DASHBOARD_ADMIN_TOKEN set DEĞİLSE endpoint 403 —
 # yeni saldırı yüzeyi AÇMAZ, Principal token verince gerçek durdurma yolu olur.
-KILL_SWITCH_PATH = ROOT / "logs" / "kill_switch.json"
+KILL_SWITCH_PATH = RUNTIME_ROOT / "logs" / "kill_switch.json"
 _ADMIN_TOKEN = os.getenv("PA_DASHBOARD_ADMIN_TOKEN", "").strip()
 _BODY_OPT = Body(default=None)  # B008: modül-seviyesi singleton (arg-default çağrısı yasak)
 

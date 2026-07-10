@@ -25,10 +25,12 @@ from pathlib import Path
 
 import duckdb
 
+from price_action.runtime_paths import RuntimePaths
+
 ROOT = (
     Path(__file__).resolve().parents[3]
 )  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
-DEFAULT_DB = ROOT / "data" / "idempotency.duckdb"
+DEFAULT_DB = RuntimePaths.from_env(ROOT).data / "idempotency.duckdb"
 
 CLIENT_ID_PREFIX = "PA_"
 MAX_CLIENT_ID_LEN = 36  # Binance max clientOrderId

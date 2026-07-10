@@ -1,14 +1,25 @@
 """Merkezi konfigürasyon — pydantic-settings + .env."""
+
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+from price_action.runtime_paths import REPO_ROOT, RuntimePaths
+
+ROOT_DIR = REPO_ROOT
+
+
+def _mutable_paths() -> RuntimePaths:
+    """Resolve mutable paths while preserving existing ROOT_DIR test seams."""
+    if ROOT_DIR != REPO_ROOT:
+        return RuntimePaths(ROOT_DIR)
+    return RuntimePaths.from_env()
 
 
 class Settings(BaseSettings):
@@ -20,6 +31,11 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    def __init__(self, **values: Any) -> None:
+        if os.environ.get("PA_TESTING", "").strip().lower() in {"1", "true", "yes", "on"}:
+            values.setdefault("_env_file", None)
+        super().__init__(**values)
 
     # --- LLM ---
     anthropic_api_key: str = ""
@@ -46,7 +62,7 @@ class Settings(BaseSettings):
     # çalışan kod `get_postgres_dsn()` üzerinden geçecek + boşsa ValueError.
     postgres_password: str = ""
 
-    duckdb_path: Path = ROOT_DIR / "data" / "market.duckdb"
+    duckdb_path: Path = Field(default_factory=lambda: _mutable_paths().data / "market.duckdb")
     # FIX 2026-05-28 (depo-ayirma): Ingest yazıcısı için ayrı DuckDB dosyası.
     # KÖK SORUN: CEO daemon market.duckdb'yi PA_DUCKDB_READ_ONLY=true açıyor
     # (silent-fail fix); ama saatlik OHLCV ingest AYNI process'te yazmak istiyor
@@ -55,9 +71,11 @@ class Settings(BaseSettings):
     # FILE-kopya snapshot ile market.duckdb tazeленir. Tüketiciler (regime/lab/
     # backtest/drift) hâlâ duckdb_path (market.duckdb) okur — single source of
     # truth korunur, paylaşılan değiştirilebilir dosya çakışması yok olur.
-    ingest_duckdb_path: Path = ROOT_DIR / "data" / "market_ingest.duckdb"
-    parquet_root: Path = ROOT_DIR / "data" / "parquet"
-    chroma_path: Path = ROOT_DIR / "knowledge" / "index"
+    ingest_duckdb_path: Path = Field(
+        default_factory=lambda: _mutable_paths().data / "market_ingest.duckdb"
+    )
+    parquet_root: Path = Field(default_factory=lambda: _mutable_paths().data / "parquet")
+    chroma_path: Path = Field(default_factory=lambda: _mutable_paths().knowledge / "index")
 
     # --- Telegram / RAG ---
     telegram_bot_token: str = ""
@@ -86,28 +104,32 @@ class Settings(BaseSettings):
 
     # --- Yollar ---
     @property
+    def repo_root(self) -> Path:
+        return ROOT_DIR
+
+    @property
     def configs_dir(self) -> Path:
-        return ROOT_DIR / "configs"
+        return self.repo_root / "configs"
 
     @property
     def memory_dir(self) -> Path:
-        return ROOT_DIR / "memory"
+        return _mutable_paths().memory
 
     @property
     def knowledge_dir(self) -> Path:
-        return ROOT_DIR / "knowledge"
+        return _mutable_paths().knowledge
 
     @property
     def reports_dir(self) -> Path:
-        return ROOT_DIR / "reports"
+        return _mutable_paths().reports
 
     @property
     def logs_dir(self) -> Path:
-        return ROOT_DIR / "logs"
+        return _mutable_paths().logs
 
     @property
     def agents_rules_dir(self) -> Path:
-        return ROOT_DIR / "agents"
+        return self.repo_root / "agents"
 
     @property
     def is_live(self) -> bool:
@@ -137,6 +159,8 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    if os.environ.get("PA_TESTING", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return Settings(_env_file=None)
     return Settings()
 
 

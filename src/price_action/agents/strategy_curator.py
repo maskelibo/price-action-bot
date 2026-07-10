@@ -17,17 +17,18 @@ HARD LIMITS (.claude/agents/strategy_curator.md §Hard Limits):
 - Cool-down ihlali YOK (`cooldown_weeks_after_retire: 12`)
 - Recency bias YOK — minimum 3 hafta consecutive decay + n_trades ≥ 30
 """
+
 from __future__ import annotations
 
 import math
-from datetime import datetime, timedelta, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, ClassVar, Iterable, Sequence
+from typing import Any, ClassVar
 
 from price_action.logging_config import logger
 
 from .base import LLMAgentBase
-
 
 # ---------------------------------------------------------------------------
 # Module-level helpers (testable without instantiating the agent)
@@ -102,7 +103,7 @@ def _calc_alpha_decay_slope(
     # Residual std error → slope SE
     resid = y - (slope * x + intercept)
     df = max(len(y) - 2, 1)
-    sigma_r = math.sqrt(float((resid ** 2).sum()) / df)
+    sigma_r = math.sqrt(float((resid**2).sum()) / df)
     slope_se = sigma_r / math.sqrt(ss_xx)
     return {
         "slope": float(slope),
@@ -133,16 +134,16 @@ def _calc_diversity_entropy(corr_matrix: Any) -> dict[str, float]:
     except Exception:  # pragma: no cover
         return {"entropy": math.nan, "entropy_normalized": math.nan, "n_strategies": 0}
 
-    C = np.asarray(corr_matrix, dtype=float)
-    if C.ndim != 2 or C.shape[0] != C.shape[1]:
+    corr = np.asarray(corr_matrix, dtype=float)
+    if corr.ndim != 2 or corr.shape[0] != corr.shape[1]:
         return {"entropy": math.nan, "entropy_normalized": math.nan, "n_strategies": 0}
-    n = C.shape[0]
+    n = corr.shape[0]
     if n < 2:
         return {"entropy": 0.0, "entropy_normalized": 0.0, "n_strategies": n}
 
     # Eigen-decomposition (positive semi-definite varsay; numerik düzeltme)
     try:
-        eigvals = np.linalg.eigvalsh(C)
+        eigvals = np.linalg.eigvalsh(corr)
     except Exception:
         return {"entropy": math.nan, "entropy_normalized": math.nan, "n_strategies": n}
 
@@ -153,11 +154,11 @@ def _calc_diversity_entropy(corr_matrix: Any) -> dict[str, float]:
         return {"entropy": 0.0, "entropy_normalized": 0.0, "n_strategies": n}
     p = eigvals / total
     # Shannon entropy
-    H = -float((p * np.log(p)).sum())
-    H_norm = H / math.log(n) if n > 1 else 0.0
+    entropy = -float((p * np.log(p)).sum())
+    entropy_normalized = entropy / math.log(n) if n > 1 else 0.0
     return {
-        "entropy": float(H),
-        "entropy_normalized": float(H_norm),
+        "entropy": float(entropy),
+        "entropy_normalized": float(entropy_normalized),
         "n_strategies": int(n),
     }
 
@@ -194,8 +195,8 @@ class StrategyCuratorAgent(LLMAgentBase):
     name: ClassVar[str] = "strategy_curator"
     default_model: ClassVar[str] = ""  # boş → settings.claude_model_default (Opus)
     allowed_tools: ClassVar[tuple[str, ...]] = (
-        "read_file",     # configs/*.yaml + futures_journal*.duckdb
-        "sql_query",     # DuckDB SELECT (read-only)
+        "read_file",  # configs/*.yaml + futures_journal*.duckdb
+        "sql_query",  # DuckDB SELECT (read-only)
         "write_report",  # reports/curator/*.md
     )
 
@@ -214,8 +215,7 @@ class StrategyCuratorAgent(LLMAgentBase):
         return p
 
     def _root_dir(self) -> Path:
-        # settings.reports_dir.parent = project root
-        return self.settings.reports_dir.parent
+        return self.settings.repo_root
 
     def _lifecycle_config_path(self) -> Path:
         return self._root_dir() / "configs" / "strategy_lifecycle.yaml"
@@ -261,6 +261,7 @@ class StrategyCuratorAgent(LLMAgentBase):
             return defaults
         try:
             import yaml
+
             data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
             # Defaults ile shallow merge — eksik anahtarlar default'tan gelir
             merged = {**defaults}
@@ -297,6 +298,7 @@ class StrategyCuratorAgent(LLMAgentBase):
                 continue
             try:
                 import yaml
+
                 raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
                 portfolio = raw.get("strategy_portfolio", {}) or {}
                 enabled = portfolio.get("enabled", True)
@@ -305,7 +307,7 @@ class StrategyCuratorAgent(LLMAgentBase):
                     continue
                 strategies = portfolio.get("strategies", []) or []
                 # YAML comments zaten parser'da uçar; sadece string elemanları al
-                out[rel] = [str(s) for s in strategies if s and isinstance(s, (str, bytes))]
+                out[rel] = [str(s) for s in strategies if s and isinstance(s, str | bytes)]
             except Exception as exc:
                 logger.warning(
                     "curator.active_config_parse_fail",
@@ -417,11 +419,9 @@ class StrategyCuratorAgent(LLMAgentBase):
             )
             return {}
 
-    def _collect_all_strategy_returns(
-        self, since_days: int = 30
-    ) -> dict[str, list[float]]:
+    def _collect_all_strategy_returns(self, since_days: int = 30) -> dict[str, list[float]]:
         """Tüm journal'lardan birleşik per-strategy returns."""
-        since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=since_days)
+        since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=since_days)
         combined: dict[str, list[float]] = {}
         for jp in self._list_journal_paths():
             per = self._read_strategy_returns(jp, since=since)
@@ -519,7 +519,9 @@ class StrategyCuratorAgent(LLMAgentBase):
             "existing_sharpe": float(existing_sharpe),
             "with_new_sharpe": float(with_new_sharpe),
             "marginal_pct": float(marginal_pct),
-            "correlation_to_book": float(corr_to_book) if not math.isnan(corr_to_book) else math.nan,
+            "correlation_to_book": float(corr_to_book)
+            if not math.isnan(corr_to_book)
+            else math.nan,
             "new_strategy_id": new_strategy_id,
         }
 
@@ -551,7 +553,11 @@ class StrategyCuratorAgent(LLMAgentBase):
         present = [s for s in active if len(active_returns.get(s, [])) >= 2]
 
         corr_matrix: Any = []
-        entropy_info = {"entropy": math.nan, "entropy_normalized": math.nan, "n_strategies": len(present)}
+        entropy_info = {
+            "entropy": math.nan,
+            "entropy_normalized": math.nan,
+            "n_strategies": len(present),
+        }
         warnings: list[str] = []
 
         if np is not None and len(present) >= 2:
@@ -576,11 +582,9 @@ class StrategyCuratorAgent(LLMAgentBase):
                                     f"{present[i]} <-> {present[j]}: corr={c:.3f} > {max_pair_corr}"
                                 )
                 except Exception as exc:
-                    logger.warning(
-                        "curator.corr_calc_fail", extra={"err": str(exc)[:200]}
-                    )
+                    logger.warning("curator.corr_calc_fail", extra={"err": str(exc)[:200]})
 
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
 
         # Body
         body_lines = [
@@ -605,16 +609,20 @@ class StrategyCuratorAgent(LLMAgentBase):
             "",
             "## Pairwise correlation matrix",
         ]
-        if np is not None and len(present) >= 2 and isinstance(corr_matrix, (list, tuple)) is False:
+        if np is not None and len(present) >= 2 and not isinstance(corr_matrix, list | tuple):
             body_lines.append("```")
             header = "          " + "  ".join(f"{s[:8]:>8s}" for s in present)
             body_lines.append(header)
             for i, s in enumerate(present):
-                row_vals = "  ".join(f"{float(corr_matrix[i, j]):>+8.3f}" for j in range(len(present)))
+                row_vals = "  ".join(
+                    f"{float(corr_matrix[i, j]):>+8.3f}" for j in range(len(present))
+                )
                 body_lines.append(f"{s[:8]:>8s}  {row_vals}")
             body_lines.append("```")
         else:
-            body_lines.append("_(insufficient data — need ≥2 active strategies with ≥2 trades each)_")
+            body_lines.append(
+                "_(insufficient data — need ≥2 active strategies with ≥2 trades each)_"
+            )
 
         body_lines += ["", "## Warnings"]
         if warnings:
@@ -756,9 +764,12 @@ class StrategyCuratorAgent(LLMAgentBase):
             # consecutive_weeks_neg_slope — bu MVP'de yalnızca trace placeholder
             # (gerçek üretim: son 3 review doc'tan history okur). Default 3 →
             # slope < threshold ise RETIRE; daha az ise PROBATION'a düşürürüz.
-            consecutive_w = 3 if decay.get("slope", 0.0) and decay["slope"] < float(
-                ad_cfg.get("sharpe_slope_threshold", -0.001)
-            ) else 0
+            consecutive_w = (
+                3
+                if decay.get("slope", 0.0)
+                and decay["slope"] < float(ad_cfg.get("sharpe_slope_threshold", -0.001))
+                else 0
+            )
             verdict, reason = self._retirement_verdict(s, decay, consecutive_w, cfg)
             decay_rows.append(
                 {
@@ -808,7 +819,7 @@ class StrategyCuratorAgent(LLMAgentBase):
         )
         commentary = await self.run(prompt)
 
-        iso = datetime.now(timezone.utc).isocalendar()
+        iso = datetime.now(UTC).isocalendar()
         week_label = f"{iso.year}-W{iso.week:02d}"
 
         # Body
@@ -878,6 +889,6 @@ class StrategyCuratorAgent(LLMAgentBase):
 __all__ = [
     "StrategyCuratorAgent",
     "_calc_alpha_decay_slope",
-    "_calc_diversity_entropy",
     "_annualized_sharpe",
+    "_calc_diversity_entropy",
 ]

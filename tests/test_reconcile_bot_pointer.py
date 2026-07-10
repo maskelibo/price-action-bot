@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -50,6 +52,7 @@ def test_reconcile_default_still_resolves(monkeypatch):
     assert "futures_journal" in rj._JOURNAL.name
 
 
+@pytest.mark.ops
 def test_live_journal_matches_exchange_precondition():
     """Deploy ön-koşulu belgesi: v15p2 journal açık kayıtları borsayla mutabık
     olmalı (fix güvenli = 0 orphan). Bu test journal'ın VAR ve okunabilir

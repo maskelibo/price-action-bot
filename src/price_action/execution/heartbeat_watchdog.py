@@ -13,12 +13,13 @@ Timeout triggers:
   - file missing → timeout (first write hasn't happened yet, daemon starting)
   - file mtime > timeout → last touch was > timeout ago
 """
+
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
-from typing import Optional
+
+from price_action.runtime_paths import RuntimePaths
 
 
 class HeartbeatWatchdog:
@@ -38,8 +39,8 @@ class HeartbeatWatchdog:
         if heartbeat_file:
             self._heartbeat_file = Path(heartbeat_file)
         else:
-            root = Path(__file__).resolve().parents[3]  # G24 fix: Price Action kökü (eskiden parents[4]=projeler — proje dışı)
-            self._heartbeat_file = root / "data" / f"dms_heartbeat_{service_name}.txt"
+            repo_root = Path(__file__).resolve().parents[3]
+            self._heartbeat_file = RuntimePaths.from_env(repo_root).heartbeat(service_name)
 
         # Ensure parent dir exists
         self._heartbeat_file.parent.mkdir(parents=True, exist_ok=True)

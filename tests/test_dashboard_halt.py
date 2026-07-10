@@ -64,13 +64,13 @@ def test_halt_writes_kill_switch_with_valid_token(monkeypatch, tmp_path):
 def test_daemon_reads_same_path_as_dashboard_writes(monkeypatch, tmp_path):
     """Zincir bütünlüğü: dashboard'ın yazdığı yol = daemon'ın okuduğu yol.
 
-    Daemon: KILL_SWITCH_PATH = ROOT/logs/kill_switch.json (bot-name'den bağımsız).
-    Dashboard: aynı ROOT/logs/kill_switch.json. Source-pin (çevre bağımsız).
+    Daemon ve dashboard aynı PA_RUNTIME_ROOT/logs/kill_switch.json yolunu kullanır.
+    Source-pin ile iki tarafın da aynı override sözleşmesine bağlı kaldığını doğrula.
     """
     daemon_src = (ROOT / "scripts" / "futures_daemon.py").read_text(encoding="utf-8")
     dash_src = (ROOT / "scripts" / "dashboard" / "server.py").read_text(encoding="utf-8")
-    assert 'KILL_SWITCH_PATH = ROOT / "logs" / "kill_switch.json"' in daemon_src
-    assert 'KILL_SWITCH_PATH = ROOT / "logs" / "kill_switch.json"' in dash_src
+    assert 'KILL_SWITCH_PATH = LOGS_DIR / "kill_switch.json"' in daemon_src
+    assert 'KILL_SWITCH_PATH = RUNTIME_ROOT / "logs" / "kill_switch.json"' in dash_src
 
 
 def test_resume_clears_halt(monkeypatch, tmp_path):

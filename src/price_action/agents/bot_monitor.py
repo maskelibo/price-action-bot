@@ -160,7 +160,7 @@ class BotMonitorAgent(LLMAgentBase):
 
     def _config_path(self) -> Path:
         # ROOT_DIR / configs / bot_kill_criteria.yaml
-        return self.settings.reports_dir.parent / "configs" / "bot_kill_criteria.yaml"
+        return self.settings.configs_dir / "bot_kill_criteria.yaml"
 
     def _resolve_journal_path(self, journal: str | Path) -> Path:
         """Config'teki journal path göreceliyse ROOT_DIR'a göre çöz."""
