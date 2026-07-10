@@ -23,6 +23,14 @@
 
 ## 1. 🔴 YÜKSEK ÖNCELİK — risk/güvenlik KARARLARI (fail-open → fail-closed sınıfı)
 
+> **✅ GÜNCELLEME (10 Tem, aynı gün — commit `2a54956`):** Principal "düzelt ama
+> yeni hata çıkarma" onayıyla **1-7 KAPANDI** (fail-closed + parite-kanıtlı,
+> 11 test + 622 regresyon): p1c halt-koruma · sl_pct_min anahtar-eksik→1.0 ·
+> breaker bozuk-state→24h süreli halt · DMS init-fail→SystemExit (3 site; DR9
+> alarmı güvence) · kaldıraç _LEV_HARD_CAP hiyerarşisi · breaker_monitor ARŞİV ·
+> pyramid default False. **Yalnız #8 açık** (sistemik tasarım mini-projesi).
+> Canlı daemon satırları sonraki doğal restart'ta devreye girer.
+
 Her biri davranış değiştirir; tek tek tasarım + test-first ister. Önerilen sıra bu.
 
 1. **p1c_walker halt fail-open** — `p1c_walker.py:297` halt `release_at` parse
