@@ -170,6 +170,32 @@ def build_targets(o: pd.DataFrame) -> pd.DataFrame:
     return t
 
 
+def _target_horizon_bars(target_col: str) -> int:
+    """'fwd_24h' → 24 (1h grid: h saat = h bar). Ayrıştırılamazsa 1 (de-overlap yok)."""
+    try:
+        return max(int("".join(ch for ch in target_col if ch.isdigit())), 1)
+    except (ValueError, TypeError):
+        return 1
+
+
+def _deoverlapped_p(ic: float, n_raw: int, h_bars: int) -> float:
+    """Örtüşen forward-return için ETKİN-N Spearman iki-yanlı p-değeri.
+
+    FIX 2026-07-10 (P2 feature-sweep p-şişmesi): fwd_4h/24h/72h target'ları ÖRTÜŞEN
+    — komşu satırlar h-1/h bar paylaşır; feature'lar da rolling/ffill autokorele.
+    scipy'nin i.i.d. p'si ham n≈31k ile deflate → |IC|>0.011 mikroskopik p → %74
+    FDR-pass (crypto getiri tahmininde istatistiksel imkânsız). Etkin örneklem
+    n_eff = n_raw // h_bars (bağımsız blok sayısı); Spearman t = ic*sqrt((n_eff-2)/
+    (1-ic²)), p = 2*t.sf(|t|, n_eff-2). n_eff<=2 veya |ic|>=1 → p=1.0 (güvenli).
+    Nokta-tahmin ic'ye DOKUNULMAZ; yalnız p düzelir → daha az ama dürüst aday.
+    """
+    n_eff = int(n_raw) // max(int(h_bars), 1)
+    if n_eff <= 2 or abs(ic) >= 1.0:
+        return 1.0
+    t = ic * np.sqrt((n_eff - 2) / (1.0 - ic * ic))
+    return float(2.0 * stats.t.sf(abs(t), n_eff - 2))
+
+
 def sweep_symbol(sym: str, feats: pd.DataFrame, tgts: pd.DataFrame) -> list[dict]:
     """Tüm (feature, target) çiftleri için IS/OOS Spearman IC."""
     out = []
@@ -185,10 +211,13 @@ def sweep_symbol(sym: str, feats: pd.DataFrame, tgts: pd.DataFrame) -> list[dict
             is_df, oos_df = pair.iloc[:k], pair.iloc[k:]
             if len(oos_df) < 100:
                 continue
-            ic_is, p_is = stats.spearmanr(is_df.iloc[:, 0], is_df.iloc[:, 1])
+            ic_is, _p_iid = stats.spearmanr(is_df.iloc[:, 0], is_df.iloc[:, 1])
             ic_oos, _ = stats.spearmanr(oos_df.iloc[:, 0], oos_df.iloc[:, 1])
             if np.isnan(ic_is) or np.isnan(ic_oos):
                 continue
+            # scipy'nin i.i.d. p'si yerine örtüşen-target etkin-N p'si (P2 fix):
+            # _p_iid deflate; _deoverlapped_p gerçek anlamlılığı verir.
+            p_is = _deoverlapped_p(float(ic_is), len(is_df), _target_horizon_bars(tc))
             out.append(
                 {
                     "symbol": sym,
@@ -205,14 +234,22 @@ def sweep_symbol(sym: str, feats: pd.DataFrame, tgts: pd.DataFrame) -> list[dict
 
 
 def bh_fdr(results: list[dict], alpha: float = FDR_ALPHA) -> list[dict]:
-    """Benjamini-Hochberg: p_is üzerinden FDR; geçenlere fdr_pass=True."""
+    """Benjamini-Yekutieli: bağımlı/korele p'ler için FDR; geçenlere fdr_pass=True.
+
+    FIX 2026-07-10 (P2): testler ağır korele (3 iç-içe örtüşen target/feature +
+    tüm semboller BTC ile ko-hareket) → düz BH'nin bağımsızlık/PRDS varsayımı
+    bozuk. BY, eşiği harmonik sayı H_m ile bölerek bağımlılık altında FDR
+    garantisini geri verir. Monoton sıkılaştırma → BH'nin reddettiğini asla kabul
+    etmez (güvenli). FDR_ALPHA ve OOS kapısı DEĞİŞMEZ (eşik gevşetme YASAK).
+    """
     if not results:
         return results
     ps = sorted((r["p_is"], i) for i, r in enumerate(results))
     m = len(ps)
+    h_m = sum(1.0 / k for k in range(1, m + 1))  # BY harmonic düzeltmesi
     thresh_idx = -1
     for rank, (p, _) in enumerate(ps, start=1):
-        if p <= alpha * rank / m:
+        if p <= alpha * rank / (m * h_m):
             thresh_idx = rank
     passing = (
         {i for _, (p, i) in zip(range(thresh_idx), ps, strict=False)} if thresh_idx > 0 else set()

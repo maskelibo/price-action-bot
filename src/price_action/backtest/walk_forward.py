@@ -2,25 +2,33 @@
 
 `agents/researcher.md` SOP-3: rolling 3y train / 6m test, step 3m.
 """
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from price_action.logging_config import logger
-from price_action.strategies.base import Strategy, StrategyManifest
+from price_action.strategies.base import StrategyManifest
+
+# metrics.compute_kpis ppy=365'i ZORLAR (günlük base) ve n_obs=günlük bar sayısı.
+# Sharpe t-testinin per-period sharpe'ı için yıllık sharpe bu değere bölünmeli;
+# aksi halde sqrt(365)≈19.1× t-şişmesi olur (P2 lab-istatistik fix). Bu sabit
+# metrics.compute_kpis'in zorladığı ppy ile SENKRON kalmalı.
+_WF_ANNUALIZATION_PPY = 365.0
 
 
 # =====================================================================
 # Multiple testing correction
 # =====================================================================
+
 
 def multiple_testing_correction(
     pvalues: list[float],
@@ -59,6 +67,7 @@ def multiple_testing_correction(
 # Result schema
 # =====================================================================
 
+
 class FoldResult(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -86,6 +95,7 @@ class WFResult(BaseModel):
 # =====================================================================
 # WalkForward
 # =====================================================================
+
 
 class WalkForward:
     """Rolling walk-forward + Optuna optimizasyonu."""
@@ -128,17 +138,13 @@ class WalkForward:
         with Path(strategy_yaml).open("r", encoding="utf-8") as f:
             base_manifest_raw = yaml.safe_load(f)
         if param_space is None:
-            param_space = (
-                base_manifest_raw.get("walk_forward", {}).get("parameter_space", {}) or {}
-            )
+            param_space = base_manifest_raw.get("walk_forward", {}).get("parameter_space", {}) or {}
 
         folds = self._build_folds(start, end)
         fold_results: list[FoldResult] = []
         n_trials_total = 0
         for f_id, (tr_s, tr_e, te_s, te_e) in enumerate(folds):
-            self._log.bind(fold=f_id, train=(tr_s, tr_e), test=(te_s, te_e)).info(
-                "wf.fold.start"
-            )
+            self._log.bind(fold=f_id, train=(tr_s, tr_e), test=(te_s, te_e)).info("wf.fold.start")
             best_params, train_kpis, n_trials = self._optimize_fold(
                 base_manifest_raw=base_manifest_raw,
                 universe=universe,
@@ -218,7 +224,7 @@ class WalkForward:
             kpis = self._evaluate(base_manifest_raw, {}, universe, tr_s, tr_e)
             return {}, kpis, 1
 
-        def objective(trial: "optuna.Trial") -> float:
+        def objective(trial: optuna.Trial) -> float:
             params: dict[str, Any] = {}
             for key, spec in param_space.items():
                 t = spec.get("type", "float")
@@ -323,7 +329,12 @@ class WalkForward:
         for f in folds:
             sr = f.test_kpis.get("sharpe", 0.0)
             n = max(f.test_kpis.get("n_obs", 1.0), 1.0)
-            t = sr * np.sqrt(n)
+            # FIX 2026-07-10 (P2 lab-istatistik, WF p-değeri 19× şişme): sr YILLIK
+            # (compute_kpis ppy=365 zorlar), n GÜNLÜK bar sayısı. Sharpe t-testi
+            # PER-PERIOD sharpe ister; yıllık sr'yi doğrudan koymak annualization
+            # sqrt'ini İKİ KEZ uygular → t sqrt(365)=19.1× şişer → tüm p→0 → FDR
+            # her şeyi "anlamlı" onaylar. Doğru: t = (sr/sqrt(ppy))*sqrt(n)=sr*sqrt(n/ppy).
+            t = sr * np.sqrt(n / _WF_ANNUALIZATION_PPY)
             # 1-sided: P(Z > t)
             from math import erf, sqrt
 
