@@ -439,3 +439,184 @@ def test_call_cli_uses_pa_claude_cli_env(
     # agent._client is already a str path so that's used, not PA_CLAUDE_CLI in _call_cli
     # (PA_CLAUDE_CLI is only used in _ensure_client). The cmd[0] should be agent._client.
     assert captured[0][0] == "/usr/local/bin/claude"
+
+
+# ---------------------------------------------------------------------------
+# C1 (KALAN_ISLER #15) — allowed_tools RUNTIME enforcement smoke testleri
+#
+# Sözleşme: her somut ajanın allowed_tools ClassVar'ı CLI komutuna
+# --allowedTools olarak AYNEN geçer. Yazma-yetenekli soyut tool'u (write*)
+# olmayan ajanlar (audit_* ailesi) acceptEdits ALMAZ → -p modunda Write/Edit
+# otomatik red. Fail-safe: PA_AGENT_TOOL_ENFORCE=0 → eski davranış.
+# LLM/subprocess YOK — saf komut-kurucu (_build_cli_cmd) + mock subprocess.
+# ---------------------------------------------------------------------------
+
+from price_action.agents import (
+    AdversaryEngineerAgent,
+    AnalystAgent,
+    AuditChiefAgent,
+    AuditDataAgent,
+    AuditExecutionAgent,
+    AuditOpsAgent,
+    AuditResearchAgent,
+    AuditRiskAgent,
+    BotMonitorAgent,
+    CEOAgent,
+    DataEngineerAgent,
+    LabScientistAgent,
+    MarketScoutAgent,
+    OpsAgent,
+    ResearcherAgent,
+    RiskOfficerAgent,
+    StrategyCuratorAgent,
+)
+from price_action.agents.base import _build_cli_cmd
+
+_CONCRETE_AGENT_CLASSES = [
+    AdversaryEngineerAgent,
+    AnalystAgent,
+    AuditChiefAgent,
+    AuditDataAgent,
+    AuditExecutionAgent,
+    AuditOpsAgent,
+    AuditResearchAgent,
+    AuditRiskAgent,
+    BotMonitorAgent,
+    CEOAgent,
+    DataEngineerAgent,
+    LabScientistAgent,
+    MarketScoutAgent,
+    OpsAgent,
+    ResearcherAgent,
+    RiskOfficerAgent,
+    StrategyCuratorAgent,
+]
+
+
+def _allowed_tools_value(cmd: list) -> str:
+    """cmd içindeki --allowedTools değerini döndür (yoksa fail)."""
+    assert "--allowedTools" in cmd, f"--allowedTools yok: {cmd}"
+    return cmd[cmd.index("--allowedTools") + 1]
+
+
+def _permission_mode(cmd: list) -> str:
+    assert "--permission-mode" in cmd, f"--permission-mode yok: {cmd}"
+    return cmd[cmd.index("--permission-mode") + 1]
+
+
+@pytest.mark.parametrize("cls", _CONCRETE_AGENT_CLASSES, ids=lambda c: c.__name__)
+def test_cli_cmd_contains_allowed_tools_verbatim(
+    cls: type, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Her somut ajan: ClassVar allowed_tools CLI'a AYNEN geçer (uydurma liste yok)."""
+    monkeypatch.delenv("PA_AGENT_TOOL_ENFORCE", raising=False)  # default=açık
+    assert cls.allowed_tools, f"{cls.__name__}.allowed_tools boş — sözleşme eksik"
+    cmd = _build_cli_cmd("claude", "test-model", "sys", cls.allowed_tools)
+    assert _allowed_tools_value(cmd) == ",".join(cls.allowed_tools)
+    # Hiçbir ajan CLI'ın gerçek Write/Edit tool'unu allowlist'e almaz —
+    # soyut isimler (read_file, write_report...) CLI tool adlarıyla çakışmaz.
+    for arg in cmd:
+        assert arg != "Write" and arg != "Edit"
+    tokens = _allowed_tools_value(cmd).split(",")
+    assert "Write" not in tokens and "Edit" not in tokens
+
+
+@pytest.mark.parametrize("cls", _CONCRETE_AGENT_CLASSES, ids=lambda c: c.__name__)
+def test_cli_cmd_permission_mode_matches_write_contract(
+    cls: type, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """write* sözleşmesi olmayan ajan (audit_*) acceptEdits ALMAZ; yazıcılar alır."""
+    monkeypatch.delenv("PA_AGENT_TOOL_ENFORCE", raising=False)
+    cmd = _build_cli_cmd("claude", "test-model", "sys", cls.allowed_tools)
+    can_write = any(t.startswith("write") for t in cls.allowed_tools)
+    if can_write:
+        assert _permission_mode(cmd) == "acceptEdits"
+    else:
+        # Read-only sözleşme: -p (print) modunda default mode → Write/Edit
+        # onay istemi kurulamaz, CLI otomatik reddeder.
+        assert _permission_mode(cmd) == "default"
+        assert "acceptEdits" not in cmd
+
+
+def test_audit_family_is_readonly_by_classvar() -> None:
+    """audit_* sınıfları write* soyut tool taşımaz (independence by construction)."""
+    for cls in (
+        AuditChiefAgent,
+        AuditDataAgent,
+        AuditExecutionAgent,
+        AuditOpsAgent,
+        AuditResearchAgent,
+        AuditRiskAgent,
+    ):
+        assert not any(t.startswith("write") for t in cls.allowed_tools), cls.__name__
+
+
+def test_enforce_env_zero_restores_legacy_cmd(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FAIL-SAFE: PA_AGENT_TOOL_ENFORCE=0 → kısıt yok, acceptEdits geri (eski davranış)."""
+    monkeypatch.setenv("PA_AGENT_TOOL_ENFORCE", "0")
+    cmd = _build_cli_cmd("claude", "m", "sys", AuditChiefAgent.allowed_tools)
+    assert "--allowedTools" not in cmd
+    assert _permission_mode(cmd) == "acceptEdits"
+    # Eski komutla birebir aynı iskelet:
+    assert cmd == [
+        "claude", "-p", "--output-format=json", "--model", "m",
+        "--permission-mode", "acceptEdits", "--append-system-prompt", "sys",
+    ]
+
+
+def test_empty_allowed_tools_means_no_restriction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """allowed_tools boş/tanımsız → kısıt EKLENMEZ (eski davranış), enforcement açıkken bile."""
+    monkeypatch.setenv("PA_AGENT_TOOL_ENFORCE", "1")
+    for empty in ((), None):
+        cmd = _build_cli_cmd("claude", "m", "sys", empty)
+        assert "--allowedTools" not in cmd
+        assert _permission_mode(cmd) == "acceptEdits"
+
+
+def test_call_cli_passes_allowed_tools_through_subprocess(
+    env: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Entegrasyon (mock subprocess): _call_cli gerçek yolda kısıtı komuta koyar."""
+    monkeypatch.delenv("PA_AGENT_TOOL_ENFORCE", raising=False)
+    store = MemoryStore(base_dir=env["memdir"])
+    agent = CEOAgent(memory_store=store)
+    agent._client = "/usr/local/bin/claude"
+    agent._client_kind = "cli"
+
+    captured: list = []
+
+    def capture_run(cmd: list, **kw: Any) -> subprocess.CompletedProcess:
+        captured.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=_GOOD_JSON, stderr="")
+
+    monkeypatch.setattr("subprocess.run", capture_run)
+    agent._call_cli("sys", "user", 4096, 0.2)
+
+    cmd = captured[0]
+    assert _allowed_tools_value(cmd) == ",".join(CEOAgent.allowed_tools)
+    assert _permission_mode(cmd) == "acceptEdits"  # ceo write_report taşıyor
+
+
+def test_call_cli_audit_agent_gets_no_acceptedits(
+    env: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Entegrasyon (mock subprocess): read-only denetçi acceptEdits ALMAZ."""
+    monkeypatch.delenv("PA_AGENT_TOOL_ENFORCE", raising=False)
+    store = MemoryStore(base_dir=env["memdir"])
+    agent = AuditChiefAgent(memory_store=store)
+    agent._client = "/usr/local/bin/claude"
+    agent._client_kind = "cli"
+
+    captured: list = []
+
+    def capture_run(cmd: list, **kw: Any) -> subprocess.CompletedProcess:
+        captured.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=_GOOD_JSON, stderr="")
+
+    monkeypatch.setattr("subprocess.run", capture_run)
+    agent._call_cli("sys", "user", 4096, 0.2)
+
+    cmd = captured[0]
+    assert _allowed_tools_value(cmd) == ",".join(AuditChiefAgent.allowed_tools)
+    assert _permission_mode(cmd) == "default"
+    assert "acceptEdits" not in cmd

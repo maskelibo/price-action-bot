@@ -141,6 +141,10 @@ ignore = ["E501", "RUF001", "RUF002", "RUF003"]
 "scripts/futures_daemon.py" = ["E402", "E731", "N806", "N811", "N814", "SIM105", "SIM118"]
 "scripts/truth_report.py" = ["RUF005"]
 "tests/audit/test_audit_findings.py" = ["F841", "N812"]
+# C1 (2026-07-10): dosya ilk kez lint'e girdi — pre-existing ihlaller
+# (LLMError isimli testler N802, os-skip importu E402/I001, mock artıkları
+# F401/F841); davranış-nötr muaf. Yeni C1 testleri bu kodları ihlal etmiyor.
+"tests/test_agents_cli.py" = ["E402", "I001", "F401", "F841", "N802"]
 # Save-4 (2026-07-07): dashboard ilk kez git'e girdi — pre-existing muaf.
 "scripts/dashboard/collect.py" = ["E402"]
 "scripts/dashboard/server.py" = ["SIM105"]

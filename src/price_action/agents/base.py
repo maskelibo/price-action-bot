@@ -242,6 +242,62 @@ def _find_claude_cli() -> str | None:
     return shutil.which("claude")
 
 
+# ----------------------------------------------------------------------
+# C1 (KALAN_ISLER #15, 2026-07-10): ajan tool sözleşmesinin RUNTIME
+# enforcement'ı. Önceden "ALLOWED TOOLS" yalnız persona/system-prompt
+# METNİydi — CLI subprocess her ajanda Write/Edit dahil tüm tool'ları
+# `--permission-mode acceptEdits` ile otomatik onaylıyordu (read-only
+# denetçi ajanlar dahil). Şimdi:
+#   * allowed_tools ClassVar'ı `--allowedTools` olarak CLI'a geçirilir
+#     (sözleşme izi; sınıf listesine GÜVENilir, ajan-adı bazlı el listesi yok).
+#   * Yazma-yetenekli soyut tool'u ("write" öneki, ör. write_report) OLMAYAN
+#     ajanlarda acceptEdits KALDIRILIR → `-p` (non-interactive print) modunda
+#     onay istemi kurulamayacağı için Write/Edit çağrıları CLI tarafından
+#     otomatik REDdedilir = gerçek read-only (audit_* ailesi; bkz.
+#     audit_base.py "READ-ONLY tool seti — independence by construction").
+#   * FAIL-SAFE: PA_AGENT_TOOL_ENFORCE=0 tek env ile eski davranışa döner;
+#     allowed_tools boş/tanımsızsa kısıt EKLENMEZ (eski davranış).
+# ----------------------------------------------------------------------
+
+
+def _tool_enforce_enabled() -> bool:
+    """PA_AGENT_TOOL_ENFORCE env bayrağı — default "1" (açık)."""
+    return os.getenv("PA_AGENT_TOOL_ENFORCE", "1").strip().lower() not in ("0", "false", "no")
+
+
+def _build_cli_cmd(
+    cli_path: str,
+    model: str,
+    system_prompt: str,
+    allowed_tools: tuple[str, ...] | list[str] | None = None,
+) -> list[str]:
+    """claude CLI arg listesini kur — saf fonksiyon (LLM'siz test edilebilir, C1).
+
+    Enforcement kapalıysa (PA_AGENT_TOOL_ENFORCE=0) veya ``allowed_tools``
+    boşsa eski davranış birebir korunur: acceptEdits + kısıt yok.
+
+    FIX 2026-05-26 (Faz 13.A) tarihçesi: acceptEdits, CLI subprocess'in
+    Write/Edit tool'ları sandbox classifier'ınca bloklanması yüzünden
+    eklenmişti (Researcher hipotez üretiyor ama dosyaya yazamıyordu).
+    C1 sonrası acceptEdits yalnız yazma-yetenekli sözleşmesi olan ajanlarda
+    kalır; Researcher/Analyst vb. (write_report) etkilenmez.
+    """
+    tools = tuple(allowed_tools or ())
+    enforce = _tool_enforce_enabled() and bool(tools)
+    # Sözleşmede yazma-yetenekli soyut tool var mı? (write_report vb.)
+    can_write = any(t.startswith("write") for t in tools)
+    cmd = [cli_path, "-p", "--output-format=json", "--model", model]
+    if enforce and not can_write:
+        # Read-only sözleşme: default mode + -p → Write/Edit otomatik red.
+        cmd += ["--permission-mode", "default"]
+    else:
+        cmd += ["--permission-mode", "acceptEdits"]
+    if enforce:
+        cmd += ["--allowedTools", ",".join(tools)]
+    cmd += ["--append-system-prompt", system_prompt]
+    return cmd
+
+
 try:  # pragma: no cover - prometheus opsiyonel
     from price_action.api.prometheus_metrics import (
         llm_calls_total as PA_LLM_CALLS,  # noqa: N812
@@ -680,6 +736,9 @@ class LLMAgentBase(abc.ABC):  # noqa: B024 — bilinçli: abstract metotsuz orta
                 model=self.model,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                # C1: agent_sdk yolu allowed_tools'u zaten geçiriyor (defansif
+                # şema; gerçek claude_agent_sdk 'Client' taşımıyorsa aşağıda
+                # anthropic'e düşülür — anthropic yolunda tool YOK, kısıt gereksiz).
                 allowed_tools=list(self.allowed_tools),
                 mcp_servers=self.mcp_servers,
                 timeout=60.0,
@@ -730,24 +789,12 @@ class LLMAgentBase(abc.ABC):  # noqa: B024 — bilinçli: abstract metotsuz orta
                 extra={"requested": timeout_s, "clamped_to": 1800},
             )
             timeout_s = 1800.0
-        # FIX 2026-05-26 (Faz 13.A): permission-mode acceptEdits.
-        # Önceden CLI subprocess Write/Edit tool'ları sandbox classifier
-        # tarafından bloklanıyordu — Researcher hipotez üretiyor ama
-        # dosyaya yazamıyordu ("Yazma izni reddedildi" log'da görünüyor).
-        # Çözüm: --permission-mode acceptEdits → tool çağrıları otomatik
-        # onaylanır (agent zaten kendi memory/reports dizinine yazıyor,
-        # ek risk yok).
-        cmd = [
-            cli_path,
-            "-p",
-            "--output-format=json",
-            "--model",
-            self.model,
-            "--permission-mode",
-            "acceptEdits",
-            "--append-system-prompt",
-            system_prompt,
-        ]
+        # C1 (KALAN_ISLER #15): komut kurulumu saf fonksiyona taşındı —
+        # allowed_tools sözleşmesi RUNTIME'da CLI'a geçirilir (--allowedTools),
+        # read-only ajanlarda acceptEdits kaldırılır. Tarihçe (FIX 2026-05-26
+        # Faz 13.A acceptEdits gerekçesi) ve fail-safe (PA_AGENT_TOOL_ENFORCE)
+        # _build_cli_cmd docstring'inde.
+        cmd = _build_cli_cmd(cli_path, self.model, system_prompt, self.allowed_tools)
         try:
             proc = subprocess.run(
                 cmd,
