@@ -78,6 +78,40 @@ def _wait_for_fill(
     return last_status
 
 
+def _maker_limit_price(
+    exchange: Any,
+    symbol: str,
+    side: str,
+    target_price: float,
+    best_bid: float | None,
+    best_ask: float | None,
+) -> float:
+    """Post-only maker limit fiyatı — market'i cross ETMEYEN passive fiyat.
+
+    FIX 2026-07-10 (maker kalibrasyonu): eskiden post-only limit target_price'a
+    (=last-trade fiyatı) konuyordu — passive offset YOK → yarı zaman book'u cross
+    → Binance -5022 reject → taker fallback (maker payı ~%21). Passive tarafa koy:
+      buy  → best_bid  (< best_ask, cross etmez)
+      sell → best_ask  (> best_bid)
+    tick'e yuvarla. bid/ask eksik/geçersiz/ters (stale) → target_price'a döner
+    (eski davranış = SIFIR regresyon; cross olursa -5022 → market fallback, drop yok).
+    ÖNEMLİ: slippage baseline DEĞİL — çağıran target_price'ı ayrı gate baseline
+    olarak korur; buraya maker fiyatı geçilirse 25bps kapı kendini baypas eder.
+    """
+    try:
+        bid = float(best_bid) if best_bid is not None else 0.0
+        ask = float(best_ask) if best_ask is not None else 0.0
+    except (TypeError, ValueError):
+        return target_price
+    if bid <= 0 or ask <= 0 or bid >= ask:
+        return target_price  # geçersiz/ters/stale book → güvenli fallback
+    px = bid if side.lower() in ("buy", "long") else ask
+    try:
+        return float(exchange.price_to_precision(symbol, px))
+    except Exception:
+        return px
+
+
 def place_post_only_with_fallback(
     exchange: Any,
     symbol: str,
@@ -85,6 +119,8 @@ def place_post_only_with_fallback(
     qty: float,
     target_price: float,
     *,
+    best_bid: float | None = None,
+    best_ask: float | None = None,
     fallback_after_sec: int = 30,
     slippage_limit_bps: float = 25.0,
     client_order_id: str | None = None,
@@ -121,6 +157,9 @@ def place_post_only_with_fallback(
     partial_filled = 0.0
 
     # ===== FAZ 1: Post-only limit =====
+    # Maker limit fiyatı: cross etmeyen passive fiyat (bid/ask verildiyse; yoksa
+    # target_price = eski davranış). Slippage baseline target_price'da DEĞİŞMEDEN kalır.
+    _maker_px = _maker_limit_price(exchange, symbol, side, target_price, best_bid, best_ask)
     post_only_params = {**params, "timeInForce": "PO", "postOnly": True}
     order_id: str | None = None
     try:
@@ -129,7 +168,7 @@ def place_post_only_with_fallback(
             type="limit",
             side=side,
             amount=qty,
-            price=target_price,
+            price=_maker_px,
             params=post_only_params,
         )
         order_id = str(order.get("id", ""))

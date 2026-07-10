@@ -2851,6 +2851,11 @@ def run_15m_mode(once: bool = False) -> None:
                                             side=_order_side,
                                             qty=_qty,
                                             target_price=_cur_px,
+                                            # maker kalibrasyonu: passive bid/ask ile
+                                            # post-only cross etmesin (target_price
+                                            # slippage baseline olarak kalır)
+                                            best_bid=_ticker.get("bid"),
+                                            best_ask=_ticker.get("ask"),
                                             fallback_after_sec=_15m_po_timeout,
                                             slippage_limit_bps=_15m_slip_limit,
                                             client_order_id=_coid,
