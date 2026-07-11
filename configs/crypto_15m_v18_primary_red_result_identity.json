@@ -1,0 +1,39 @@
+{
+  "schema_version": "crypto-15m-v18-primary-red-result-identity-v1",
+  "status": "SEALED_RED_NO_PRIMARY_CELL_PASSED_REPORT_SERIALIZATION_FAILED_CLOSED",
+  "live_or_paper_authorized": false,
+  "locked_source_commit": "ace422eb070e25a4bd3f2e11e61cd96090ad0e9f",
+  "runtime_git_commit": "5bd77cbd99a357aa53bb19857c622882f510a0c2",
+  "primary_bundle_manifest": {
+    "path": "reports/research/crypto_15m_v18_primary_bundle/manifest.json",
+    "bytes": 38835,
+    "sha256": "a63ffa22d6420384ecc48fec4cb8e21aac17ceab21cc24bfa9f316836621838a",
+    "schema_version": "crypto-15m-v18-primary-bundle-manifest-v1",
+    "evidence_eligible": true,
+    "manifest_published_last": true
+  },
+  "decision_artifact": {
+    "path": "reports/research/crypto_15m_v18_primary_red_incident_2026-07-11.json",
+    "bytes": 4629,
+    "sha256": "c362860ad37438120734f51bd8399e192ea1254242070359f16cbf0a81fc8c77",
+    "canonical_primary_report_evidence_eligible": false
+  },
+  "markdown_artifact": {
+    "path": "reports/research/CRYPTO_15M_V18_PRIMARY_RED_INCIDENT_2026-07-11.md",
+    "bytes": 4154,
+    "sha256": "fbd58066bfa8d9e4ad7712178994a8eafdc4ba66fa0f4aa270bfa9c7309cc572"
+  },
+  "decision": {
+    "verdict": "RED_NO_PRIMARY_CELL_PASSED",
+    "locked_winner": null,
+    "ranking": [],
+    "true_loso_required": false,
+    "true_loso_executed": false
+  },
+  "serialization_failure": {
+    "strict_json_rejected_nonfinite_concentration_values": true,
+    "nonfinite_field_count": 16,
+    "decision_or_ranking_changed": false,
+    "canonical_primary_report_published": false
+  }
+}

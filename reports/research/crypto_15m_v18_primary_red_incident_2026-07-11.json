@@ -1,0 +1,111 @@
+{
+  "schema_version": "crypto-15m-v18-primary-red-serialization-incident-v1",
+  "created_at_utc": "2026-07-11T20:37:27Z",
+  "status": "RED_NO_PRIMARY_CELL_PASSED_CANONICAL_REPORT_SERIALIZATION_FAILED_CLOSED",
+  "primary_bundle_evidence_eligible": true,
+  "canonical_primary_report_evidence_eligible": false,
+  "canonical_primary_report_published": false,
+  "historical_feasibility_only": true,
+  "paper_authorized": false,
+  "live_deployment_authorized": false,
+  "true_loso_executed": false,
+  "decision": {
+    "verdict": "RED_NO_PRIMARY_CELL_PASSED",
+    "locked_winner": null,
+    "ranking": [],
+    "remaining_required_evidence": []
+  },
+  "primary_bundle_manifest": {
+    "path": "reports/research/crypto_15m_v18_primary_bundle/manifest.json",
+    "schema_version": "crypto-15m-v18-primary-bundle-manifest-v1",
+    "bytes": 38835,
+    "sha256": "a63ffa22d6420384ecc48fec4cb8e21aac17ceab21cc24bfa9f316836621838a",
+    "status": "COMPLETE",
+    "evidence_eligible": true,
+    "shards": 12,
+    "manifest_published_last": true
+  },
+  "source_governance": {
+    "locked_source_commit": "ace422eb070e25a4bd3f2e11e61cd96090ad0e9f",
+    "runtime_git_commit": "5bd77cbd99a357aa53bb19857c622882f510a0c2",
+    "locked_commit_blobs_match": true,
+    "scoped_source_clean": true,
+    "baseline_runtime_exact_match": true
+  },
+  "baseline_H": {
+    "trimmed_mean_monthly_pct": -5.39,
+    "median_monthly_pct": -5.01,
+    "negative_months": 36,
+    "worst_month_pct": -12.31,
+    "full_max_mtm_drawdown_pct": 98.27
+  },
+  "candidate_H_pseudo_oos": {
+    "C1_VSA_ONLY": {
+      "closed_trades": 1773,
+      "trimmed_mean_monthly_pct": -4.323838220948677,
+      "median_monthly_pct": -3.9645652076902165,
+      "bootstrap_90pct_lower_bound_pct": -4.786174295252519,
+      "negative_months": 36,
+      "months_below_minus_1pct": 35,
+      "worst_month_pct": -7.956049442714133,
+      "max_mtm_drawdown_pct": 79.74377261079317,
+      "primary_gate_passed": false,
+      "failed_gate_count": 25
+    },
+    "C2_GRIMES_ONLY": {
+      "closed_trades": 1797,
+      "trimmed_mean_monthly_pct": -2.9353656254743914,
+      "median_monthly_pct": -2.674570873670756,
+      "bootstrap_90pct_lower_bound_pct": -3.4686338499496205,
+      "negative_months": 36,
+      "months_below_minus_1pct": 33,
+      "worst_month_pct": -8.502291553261662,
+      "max_mtm_drawdown_pct": 68.53211985004054,
+      "primary_gate_passed": false,
+      "failed_gate_count": 25
+    },
+    "C3_DUAL_HTF50": {
+      "closed_trades": 1828,
+      "trimmed_mean_monthly_pct": -3.7525020653057077,
+      "median_monthly_pct": -3.7446050172726615,
+      "bootstrap_90pct_lower_bound_pct": -4.2816604349166045,
+      "negative_months": 36,
+      "months_below_minus_1pct": 34,
+      "worst_month_pct": -8.462718443753577,
+      "max_mtm_drawdown_pct": 75.91832630567785,
+      "primary_gate_passed": false,
+      "failed_gate_count": 25
+    },
+    "C4_VSA_HTF50": {
+      "closed_trades": 962,
+      "trimmed_mean_monthly_pct": -2.531802878950662,
+      "median_monthly_pct": -2.4983118880925144,
+      "bootstrap_90pct_lower_bound_pct": -2.8279305176778777,
+      "negative_months": 36,
+      "months_below_minus_1pct": 30,
+      "worst_month_pct": -5.291946837790293,
+      "max_mtm_drawdown_pct": 60.524547939296546,
+      "primary_gate_passed": false,
+      "failed_gate_count": 24
+    }
+  },
+  "serialization_incident": {
+    "exception": "ValueError: Out of range float values are not JSON compliant: inf",
+    "cause": "All four candidates had zero positive H monthly PnL, so positive-PnL concentration shares were mathematically undefined and represented as +inf.",
+    "nonfinite_field_count": 16,
+    "affected_metric_fields_per_candidate": [
+      "metrics.H.best_month_positive_pnl_share",
+      "metrics.H.best_3_month_positive_pnl_share",
+      "primary_gates.checks.concentration.best_month.value",
+      "primary_gates.checks.concentration.best_3_months.value"
+    ],
+    "gate_behavior": "Each non-finite concentration value already failed closed before ranking.",
+    "decision_effect": "none; every candidate failed many independent return, drawdown, walk-forward, economic, direction, concentration, and multiple-testing gates",
+    "canonical_report_files_created": false
+  },
+  "limitations": [
+    "This incident artifact is a conservative decision record, not the missing canonical evidence-eligible primary report.",
+    "The immutable primary bundle remains eligible raw evidence, but the canonical report publication contract failed closed.",
+    "No candidate may advance to true LOSO, prospective shadow, paper, or live deployment from this run."
+  ]
+}

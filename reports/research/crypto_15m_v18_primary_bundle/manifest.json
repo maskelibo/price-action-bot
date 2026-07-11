@@ -1,0 +1,901 @@
+{
+  "baseline_evidence_artifacts": {
+    "execution_git_commit": "ace422eb070e25a4bd3f2e11e61cd96090ad0e9f",
+    "identity_payload_sha256": "2360f349f5d4415da6254d8c9c96104327472059813969b64f587e48c98ff9e4",
+    "raw_artifact": {
+      "bytes": 467627943,
+      "path": "reports/research/crypto_15m_v15p2_fair_baseline_v2_raw.json",
+      "sha256": "710abbdb8f0e8ec407c10918aa66f1325c006a816fc1487e7c3f02a462adae73"
+    },
+    "raw_payload_sha256": "82d93b0a9e647e93922ffcb6628e74024fff6992f12bb588f74708afad555a56",
+    "report_artifact": {
+      "bytes": 359603,
+      "path": "reports/research/crypto_15m_v15p2_fair_baseline_v2_report.json",
+      "sha256": "4aa20832b1c0c07c49c01d7c469512f4092c3742a119e15bf2afcf2c50c25fd5"
+    },
+    "runtime_versions": {
+      "duckdb": "1.5.3",
+      "loguru": "0.7.3",
+      "numba": "0.61.2",
+      "numpy": "2.2.6",
+      "pandas": "3.0.3",
+      "pydantic": "2.13.4",
+      "pydantic_settings": "2.14.2",
+      "python": "3.12.13",
+      "python_dotenv": "1.2.2",
+      "python_implementation": "CPython",
+      "pyyaml": "6.0.3",
+      "requirements_lock_sha256": "30c4321e616138e342d8c67143eff43b490566e594a86d4277c1445c90b261f5",
+      "scipy": "1.17.1",
+      "statsmodels": "0.14.6"
+    }
+  },
+  "baseline_result_identity": {
+    "bytes": 1820,
+    "path": "configs/crypto_15m_v15p2_fair_baseline_v2_result_identity.json",
+    "sha256": "59bc99eff824ca1204ca5f0ffdd019340b0a67e936c4e5801926ebd74517132d"
+  },
+  "candidate_order": [
+    "C1_VSA_ONLY",
+    "C2_GRIMES_ONLY",
+    "C3_DUAL_HTF50",
+    "C4_VSA_HTF50"
+  ],
+  "evidence_eligible": true,
+  "execution_lock": {
+    "bytes": 6069,
+    "path": "configs/crypto_15m_v18_execution_lock.json",
+    "sha256": "fd78acce542d2e6b74501c7bc56a396449d7fafa993d7507095c1c75c24837b0"
+  },
+  "generation_counts": {
+    "baseline_signal_generations": 1,
+    "candidate_adapter_generations": 1,
+    "funding_snapshot_loads": 1,
+    "independent_engine_replays": 12,
+    "market_snapshot_loads": 1
+  },
+  "input_hashes": {
+    "baseline_decisions_sha256": "6beb8120af46267d32fc671ed41b9628f7148c722b3327bee476ae129510e5e0",
+    "baseline_intents_sha256": "7575c46a429588164af1b665aa5c804eebeb6c8d4129e4c86b12c596750e781b",
+    "candidate_batches_sha256": {
+      "C1_VSA_ONLY": "45c34db088eafda621d430c9241d5375939473a9359114160ada206da5e576b5",
+      "C2_GRIMES_ONLY": "0b15cd48e835d49495ce2edc5fc3acf72e3ce47d4efc5fab6724472995e89c5c",
+      "C3_DUAL_HTF50": "e56f8a06f089d2dd95d7d4ab69d5e61a293b8990908d44c2f8687394d0a04242",
+      "C4_VSA_HTF50": "bd48cf27249d6333c0547918598ffd572b1427556c662b907c24e3378a086b73"
+    },
+    "daily_returns_sha256": "2d1c99221cf07a4a57dc365bb853bb478202214d5cdb0a814390ad74957c1f3e",
+    "engine_frames_sha256_by_symbol": {
+      "ADA/USDT": "b2ff66f0ec04f173e90494278dfc38e61906f1c833b4699aa3f5420e976976a0",
+      "ALGO/USDT": "3ff291e2c2b17e81a918b73042450fa80297a6298d52b56b3c25e5b0a42579c3",
+      "ATOM/USDT": "cbfd1c97d5af77d01a58b339fa54b60a8bc0b2467cc99c21329d928ee42f8fc2",
+      "AVAX/USDT": "98449c6f6db848427a12d4f623b4865a42684b4600f743717ba2e66a73771936",
+      "BNB/USDT": "d493f77dd1555318cfe46686df650929b8e79c4dda5ea2906e2901c78f6a09c3",
+      "DOGE/USDT": "8a2ad01ff9f0391ed143a34632a3dcf192be4de93d79a5ed4a34526c8793ca12",
+      "DOT/USDT": "cacabf280d22e2fc97b52baf66732613b77afc3f35a4a6fc187a802aa4fd9413",
+      "ETH/USDT": "c1d6f42978c9716131daaefa74b172ca9ae2c8d18a2c75034170c9f28c62e233",
+      "FIL/USDT": "8d25b115798e789f8fa438db851bb5596b3f260d279c8a68f61b8c3427a0b262",
+      "LINK/USDT": "88184eabdafc171b6b9035c123fb32d20087bc6ed8d6aa0b70c6cc0cf0e00849",
+      "NEAR/USDT": "56d5a11d0e244d2dc6255ca6c93cfd119f1d9979d10d70d9499139d56c0fb149",
+      "SOL/USDT": "163854a5703c5a686c0cc3ee5b6aabbb5736e84ed109449b5dbdaf3dc1c0706c",
+      "ZEC/USDT": "1b5c6b2ca3801a497c8d23a9d039b6e11477c45b83c8ad518941b4f06b875682"
+    },
+    "funding_events_sha256": "00b858472cc7bc71e77dc37d423b75c098fa2b74e30b50e2f43a6ebb33358b39"
+  },
+  "lineage": {
+    "fair_baseline_v2_contract": {
+      "bytes": 39694,
+      "configured_path": "configs/crypto_15m_v15p2_fair_baseline_v2_prereg.yaml",
+      "name": "fair_baseline_v2_contract",
+      "resolved_path": "/Users/peyman/price-action-bot/configs/crypto_15m_v15p2_fair_baseline_v2_prereg.yaml",
+      "sha256": "7a6180312bcbb1b1f9644d26dbce8bd8ac57ea4eb13fc0aa783025f069ddd511",
+      "status": "VERIFIED"
+    },
+    "fair_baseline_v2_program_source": {
+      "bytes": 74553,
+      "configured_path": "src/price_action/lab/crypto_15m_v15p2_program.py",
+      "name": "fair_baseline_v2_program_source",
+      "resolved_path": "/Users/peyman/price-action-bot/src/price_action/lab/crypto_15m_v15p2_program.py",
+      "sha256": "d925ef902d33b01ab7b22487e304ec6a724fb14153a32b73f538c63d79879bcb",
+      "status": "VERIFIED"
+    },
+    "fair_baseline_v2_report_source": {
+      "bytes": 135566,
+      "configured_path": "src/price_action/lab/crypto_15m_v15p2_report.py",
+      "name": "fair_baseline_v2_report_source",
+      "resolved_path": "/Users/peyman/price-action-bot/src/price_action/lab/crypto_15m_v15p2_report.py",
+      "sha256": "0417ea087627251cd056655e83a72d7e8b38624c3158763258c830ca0e599f9f",
+      "status": "VERIFIED"
+    },
+    "inherited_fair_policy_contract": {
+      "bytes": 33623,
+      "configured_path": "configs/crypto_15m_v15p2_fair_baseline_prereg.yaml",
+      "name": "inherited_fair_policy_contract",
+      "resolved_path": "/Users/peyman/price-action-bot/configs/crypto_15m_v15p2_fair_baseline_prereg.yaml",
+      "sha256": "695fb5b7a07fc0bb54c0a69b10f0893d246926a4339a17b5e8705802800f9c22",
+      "status": "VERIFIED"
+    },
+    "v3_build_evidence": {
+      "bytes": 1095568,
+      "configured_path": "data/backups/20260711_v15p2_v3_usdm/build_evidence.json",
+      "name": "v3_build_evidence",
+      "resolved_path": "/Users/peyman/price-action-bot/data/backups/20260711_v15p2_v3_usdm/build_evidence.json",
+      "sha256": "1ac74ceb61c197fad4bc27783eadaed4e88504e3a751257d8c735bc9eece9b34",
+      "status": "VERIFIED"
+    },
+    "v3_protocol": {
+      "bytes": 8125,
+      "configured_path": "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_protocol.json",
+      "name": "v3_protocol",
+      "resolved_path": "/Users/peyman/price-action-bot/configs/crypto_15m_v15p2_usdm_snapshot_v3_build_protocol.json",
+      "sha256": "e6995f2fa22158d9133b9d3a45caeb0ba3de01ad70e77239d99bb13331bef3c8",
+      "status": "VERIFIED"
+    },
+    "v3_success_identity": {
+      "bytes": 14258,
+      "configured_path": "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_attempt_001_success_identity.json",
+      "name": "v3_success_identity",
+      "resolved_path": "/Users/peyman/price-action-bot/configs/crypto_15m_v15p2_usdm_snapshot_v3_build_attempt_001_success_identity.json",
+      "sha256": "8e73f05d87106ea9df635e3ae0d3996ec5679da48f83bff77856b065059972d3",
+      "status": "VERIFIED"
+    }
+  },
+  "live_or_paper_authorized": false,
+  "locked_source_commit": "ace422eb070e25a4bd3f2e11e61cd96090ad0e9f",
+  "manifest_published_last": true,
+  "preregistration": {
+    "bytes": 28471,
+    "path": "configs/crypto_15m_v18_challenger_prereg.yaml",
+    "sha256": "190150932ba519cb85eef231b26cb8887ddbb946e870bf0ecaa1baf3c35889f5"
+  },
+  "program_schema_version": "crypto-15m-v18-primary-run-v1",
+  "replay_order": [
+    {
+      "candidate_id": "C1_VSA_ONLY",
+      "scenario": "B"
+    },
+    {
+      "candidate_id": "C1_VSA_ONLY",
+      "scenario": "C2"
+    },
+    {
+      "candidate_id": "C1_VSA_ONLY",
+      "scenario": "H"
+    },
+    {
+      "candidate_id": "C2_GRIMES_ONLY",
+      "scenario": "B"
+    },
+    {
+      "candidate_id": "C2_GRIMES_ONLY",
+      "scenario": "C2"
+    },
+    {
+      "candidate_id": "C2_GRIMES_ONLY",
+      "scenario": "H"
+    },
+    {
+      "candidate_id": "C3_DUAL_HTF50",
+      "scenario": "B"
+    },
+    {
+      "candidate_id": "C3_DUAL_HTF50",
+      "scenario": "C2"
+    },
+    {
+      "candidate_id": "C3_DUAL_HTF50",
+      "scenario": "H"
+    },
+    {
+      "candidate_id": "C4_VSA_HTF50",
+      "scenario": "B"
+    },
+    {
+      "candidate_id": "C4_VSA_HTF50",
+      "scenario": "C2"
+    },
+    {
+      "candidate_id": "C4_VSA_HTF50",
+      "scenario": "H"
+    }
+  ],
+  "runtime_git_commit": "5bd77cbd99a357aa53bb19857c622882f510a0c2",
+  "runtime_postflight": {
+    "duckdb": "1.5.3",
+    "loguru": "0.7.3",
+    "numba": "0.61.2",
+    "numpy": "2.2.6",
+    "pandas": "3.0.3",
+    "pydantic": "2.13.4",
+    "pydantic_settings": "2.14.2",
+    "python": "3.12.13",
+    "python_dotenv": "1.2.2",
+    "python_implementation": "CPython",
+    "pyyaml": "6.0.3",
+    "requirements_lock_sha256": "30c4321e616138e342d8c67143eff43b490566e594a86d4277c1445c90b261f5",
+    "scipy": "1.17.1",
+    "statsmodels": "0.14.6"
+  },
+  "runtime_preflight": {
+    "duckdb": "1.5.3",
+    "loguru": "0.7.3",
+    "numba": "0.61.2",
+    "numpy": "2.2.6",
+    "pandas": "3.0.3",
+    "pydantic": "2.13.4",
+    "pydantic_settings": "2.14.2",
+    "python": "3.12.13",
+    "python_dotenv": "1.2.2",
+    "python_implementation": "CPython",
+    "pyyaml": "6.0.3",
+    "requirements_lock_sha256": "30c4321e616138e342d8c67143eff43b490566e594a86d4277c1445c90b261f5",
+    "scipy": "1.17.1",
+    "statsmodels": "0.14.6"
+  },
+  "scenario_order": [
+    "B",
+    "C2",
+    "H"
+  ],
+  "schema_version": "crypto-15m-v18-primary-bundle-manifest-v1",
+  "shards": [
+    {
+      "bytes": 112775435,
+      "candidate_id": "C1_VSA_ONLY",
+      "path": "C1_VSA_ONLY__B.json",
+      "payload_sha256": "1fc8b578ed1283f92183a67c53bc7f2ea16e45a5cc792f40af745e489298f33e",
+      "scenario": "B",
+      "sha256": "fb5bc71d07b20ea8dff5954fc54df0da131bdcab56104623d2e5a8f4b7f70f19"
+    },
+    {
+      "bytes": 111356898,
+      "candidate_id": "C1_VSA_ONLY",
+      "path": "C1_VSA_ONLY__C2.json",
+      "payload_sha256": "917b870906503392a25bf3339f965153b10e656a3a41701530bbf78d9e6c4616",
+      "scenario": "C2",
+      "sha256": "a1ec869d672d02115b71961db9333802c0610719679322efe61145f78c7bcaa5"
+    },
+    {
+      "bytes": 111388461,
+      "candidate_id": "C1_VSA_ONLY",
+      "path": "C1_VSA_ONLY__H.json",
+      "payload_sha256": "002a9cbc9548121a526589bace52e95cf0dc766f4e5df4ffb769223ac29015e1",
+      "scenario": "H",
+      "sha256": "5865f6fe337c8dd70c603c759997821e75f0049f6b3c56c528ddf62d584cb33a"
+    },
+    {
+      "bytes": 109677500,
+      "candidate_id": "C2_GRIMES_ONLY",
+      "path": "C2_GRIMES_ONLY__B.json",
+      "payload_sha256": "b90eec24f29b4e97d173b3e05d4ea67ff2671d17b70aa1e612a21ccfb9cf678a",
+      "scenario": "B",
+      "sha256": "8f08d170099df91155b5eb3505159df3da98a012b6b90973fe514c774c260c5a"
+    },
+    {
+      "bytes": 109140323,
+      "candidate_id": "C2_GRIMES_ONLY",
+      "path": "C2_GRIMES_ONLY__C2.json",
+      "payload_sha256": "2e7a3fb33488e07f6641c8d4f6c08c988944bdb3d070a5af99719419f5c022fe",
+      "scenario": "C2",
+      "sha256": "078844f2c1460fe576be44035cac3150a910753f9cca8086c493edf783b42057"
+    },
+    {
+      "bytes": 109316563,
+      "candidate_id": "C2_GRIMES_ONLY",
+      "path": "C2_GRIMES_ONLY__H.json",
+      "payload_sha256": "55c690f662bb2a79255415faf1f6dc9a157501d5af2cf8c2979d1f643123f054",
+      "scenario": "H",
+      "sha256": "0551a1ac8708eae56c73689857b2b5d068bb3f250ee6b9070eeac6026b7f6df7"
+    },
+    {
+      "bytes": 113082456,
+      "candidate_id": "C3_DUAL_HTF50",
+      "path": "C3_DUAL_HTF50__B.json",
+      "payload_sha256": "420499764b3bce66186631131102c3d842519004785898e6ed9bb5715cc1a63d",
+      "scenario": "B",
+      "sha256": "f2f86aac905ed97060b56b983198ebe384b2ac04fccded142c685c561784ddd8"
+    },
+    {
+      "bytes": 112250048,
+      "candidate_id": "C3_DUAL_HTF50",
+      "path": "C3_DUAL_HTF50__C2.json",
+      "payload_sha256": "48464ff6d0740fe79a78c944f5c8b8940c4e006cc0a7860ebffd43e9230c2ec5",
+      "scenario": "C2",
+      "sha256": "f54d60c787d6eb7114b360d3db2fdee8f5665a42210cc6887626cbb633642e77"
+    },
+    {
+      "bytes": 112188763,
+      "candidate_id": "C3_DUAL_HTF50",
+      "path": "C3_DUAL_HTF50__H.json",
+      "payload_sha256": "98dfb7c09992d8a0c15755ad78edf3df2c2fefba71c37b421e91a9ca4b811f3d",
+      "scenario": "H",
+      "sha256": "fe03c03c78d399a01cd945ced91c218154b81fd82d0c75ff77d438a67a030711"
+    },
+    {
+      "bytes": 95073136,
+      "candidate_id": "C4_VSA_HTF50",
+      "path": "C4_VSA_HTF50__B.json",
+      "payload_sha256": "5930d76079d12583c244e92488fd1c7167bb415309e599d18eb063c5c0741137",
+      "scenario": "B",
+      "sha256": "386faa1f3b8fd4d9abe3bf5e62105a59929a021db9b3d985073fdc6605ff0078"
+    },
+    {
+      "bytes": 94683150,
+      "candidate_id": "C4_VSA_HTF50",
+      "path": "C4_VSA_HTF50__C2.json",
+      "payload_sha256": "4a6148ec0c0d1c21a92946b7f7b1cb7a060984a69950d98685be17bcd649747e",
+      "scenario": "C2",
+      "sha256": "1635a9239679b1cc1eb83700c1b2c743a35cb89c97e89abd65dfd0c6c398cb61"
+    },
+    {
+      "bytes": 94767149,
+      "candidate_id": "C4_VSA_HTF50",
+      "path": "C4_VSA_HTF50__H.json",
+      "payload_sha256": "278c8216c03529382c0777ae3ef4f5f7a2e7298cbd2493697156759a94031bd6",
+      "scenario": "H",
+      "sha256": "bde27742f73f394778a39c0ae469858ab9e3dd8693a12c58bc3c04efcab32c84"
+    }
+  ],
+  "snapshots": {
+    "funding": {
+      "bytes": 17575936,
+      "configured_path": "data/backups/20260711/funding.duckdb",
+      "name": "funding",
+      "resolved_path": "/Users/peyman/price-action-bot/data/backups/20260711/funding.duckdb",
+      "sha256": "35be9ebae8f9468a6bae819054008cb4c2338ae0eb923910584dea1adc0c6b96",
+      "status": "VERIFIED"
+    },
+    "market": {
+      "bytes": 181415936,
+      "configured_path": "data/backups/20260711_v15p2_v3_usdm/market.duckdb",
+      "name": "market",
+      "resolved_path": "/Users/peyman/price-action-bot/data/backups/20260711_v15p2_v3_usdm/market.duckdb",
+      "sha256": "50e5b240e6babeb3b7ceadc0ae007ededc0ae589cba931e3603d233cec693eb8",
+      "status": "VERIFIED"
+    }
+  },
+  "source_postflight": {
+    "locked_commit_blob_identities": {
+      "configs/crypto_15m_v15p2_fair_baseline_v2_prereg.yaml": {
+        "bytes": 39694,
+        "path": "configs/crypto_15m_v15p2_fair_baseline_v2_prereg.yaml",
+        "sha256": "7a6180312bcbb1b1f9644d26dbce8bd8ac57ea4eb13fc0aa783025f069ddd511"
+      },
+      "configs/crypto_15m_v18_challenger_prereg.yaml": {
+        "bytes": 28471,
+        "path": "configs/crypto_15m_v18_challenger_prereg.yaml",
+        "sha256": "190150932ba519cb85eef231b26cb8887ddbb946e870bf0ecaa1baf3c35889f5"
+      },
+      "configs/risk_phoenix_scalp_15m_v15p2.yaml": {
+        "bytes": 34199,
+        "path": "configs/risk_phoenix_scalp_15m_v15p2.yaml",
+        "sha256": "78025a394aecb807c32aeba737823bd565f0f19e72ec133352d63f697036ea82"
+      },
+      "requirements-lock.txt": {
+        "bytes": 3731,
+        "path": "requirements-lock.txt",
+        "sha256": "30c4321e616138e342d8c67143eff43b490566e594a86d4277c1445c90b261f5"
+      },
+      "src/price_action/__init__.py": {
+        "bytes": 103,
+        "path": "src/price_action/__init__.py",
+        "sha256": "1751590a8c4c18e8bda74d8f65ed0ad2750582df9c6264af76b36a4abb8a1dfc"
+      },
+      "src/price_action/contracts.py": {
+        "bytes": 7523,
+        "path": "src/price_action/contracts.py",
+        "sha256": "2482bc8bb10872da1117ef03a05aed2f0eeaaca79069bcac4e0a7c25527edd04"
+      },
+      "src/price_action/lab/__init__.py": {
+        "bytes": 700,
+        "path": "src/price_action/lab/__init__.py",
+        "sha256": "96adf8f152fde4dec43a858da5c169d8c71f7d1c39de083c2e04a6307d3f8139"
+      },
+      "src/price_action/lab/crypto_15m_pairs_validation.py": {
+        "bytes": 58684,
+        "path": "src/price_action/lab/crypto_15m_pairs_validation.py",
+        "sha256": "9f0eae0bb08f45ceacdb7a3bb9c48ceb1b2f1b3469d21bd2bf572e11ecf6a95b"
+      },
+      "src/price_action/lab/crypto_15m_snapshot_io.py": {
+        "bytes": 14274,
+        "path": "src/price_action/lab/crypto_15m_snapshot_io.py",
+        "sha256": "7c9feef9b3243d96865527423113178c555f9caa79e50aa739b9340643886e7b"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_engine.py": {
+        "bytes": 81461,
+        "path": "src/price_action/lab/crypto_15m_v15p2_engine.py",
+        "sha256": "f3be34d0831fba2f9a4122e972121794194e312cef533915d472c3df729c96fd"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_program.py": {
+        "bytes": 74553,
+        "path": "src/price_action/lab/crypto_15m_v15p2_program.py",
+        "sha256": "d925ef902d33b01ab7b22487e304ec6a724fb14153a32b73f538c63d79879bcb"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_report.py": {
+        "bytes": 135566,
+        "path": "src/price_action/lab/crypto_15m_v15p2_report.py",
+        "sha256": "0417ea087627251cd056655e83a72d7e8b38624c3158763258c830ca0e599f9f"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_signals.py": {
+        "bytes": 46154,
+        "path": "src/price_action/lab/crypto_15m_v15p2_signals.py",
+        "sha256": "121f5d05c0722250b1f56ccd84ea655be1f9832080051645fb0a19f471883001"
+      },
+      "src/price_action/lab/crypto_15m_v18_program.py": {
+        "bytes": 74444,
+        "path": "src/price_action/lab/crypto_15m_v18_program.py",
+        "sha256": "08709d31be66cd9a86ec8477f75e8083c7be2960c1c32e727dfc4793ff225a0d"
+      },
+      "src/price_action/lab/crypto_15m_v18_report.py": {
+        "bytes": 98266,
+        "path": "src/price_action/lab/crypto_15m_v18_report.py",
+        "sha256": "7767860e188e2faa5a7f5baafead405807a182d79ad29d93ad8aed0b6db8fe8a"
+      },
+      "src/price_action/lab/crypto_15m_v18_signals.py": {
+        "bytes": 20689,
+        "path": "src/price_action/lab/crypto_15m_v18_signals.py",
+        "sha256": "ce457a44bde9e8b2e99d429c634734a4e4f5670c5b70c016ff512fbc03c2b2ee"
+      },
+      "src/price_action/lab/crypto_15m_v18_validation.py": {
+        "bytes": 46593,
+        "path": "src/price_action/lab/crypto_15m_v18_validation.py",
+        "sha256": "403af243ef7391d98fa5616d6fcb487515dd5346bbfb487df729df7a73576dd1"
+      },
+      "src/price_action/lab/crypto_15m_validation.py": {
+        "bytes": 38943,
+        "path": "src/price_action/lab/crypto_15m_validation.py",
+        "sha256": "6227e9f1e4d3f979dbc539ec0ee2b0e7507437a61962194c5d37a52083b6d9e9"
+      },
+      "src/price_action/logging_config.py": {
+        "bytes": 4879,
+        "path": "src/price_action/logging_config.py",
+        "sha256": "403023e0bb9d736aa43d9d03fc75f72df985bb569a32d8809d80577bcd90f007"
+      },
+      "src/price_action/runtime_paths.py": {
+        "bytes": 1648,
+        "path": "src/price_action/runtime_paths.py",
+        "sha256": "c97cbdd32b28c5deb8f89edbda2aaf3cfd0bd0a3d887c5d9d30bc541cba7b078"
+      },
+      "src/price_action/settings.py": {
+        "bytes": 6149,
+        "path": "src/price_action/settings.py",
+        "sha256": "2d2cb583dec1074616712aabe7f59669d537266c7ac38fde67c3cf2759811b33"
+      },
+      "src/price_action/strategies/__init__.py": {
+        "bytes": 335,
+        "path": "src/price_action/strategies/__init__.py",
+        "sha256": "ed7dbf0ccf54226833c2a2c073590abae60f29f18969f9bac31389433a908bed"
+      },
+      "src/price_action/strategies/base.py": {
+        "bytes": 11179,
+        "path": "src/price_action/strategies/base.py",
+        "sha256": "56131288ab54d57b3054b01f4230a86ccf69f4439f78e065fb149fee58a0f1e8"
+      },
+      "src/price_action/strategies/classic_pa.py": {
+        "bytes": 20542,
+        "path": "src/price_action/strategies/classic_pa.py",
+        "sha256": "9c7b93f1aa95a371cdd428c260ffd21dac07fe4fb3767cbe7a1500b8aec71aea"
+      },
+      "src/price_action/strategies/grimes_abc_pullback.py": {
+        "bytes": 18329,
+        "path": "src/price_action/strategies/grimes_abc_pullback.py",
+        "sha256": "b46a7c86aee2df9c4b243132cc78e837c8d767c1d6df2bf1485a29157b1bbcd1"
+      },
+      "src/price_action/strategies/vsa_climax_test.py": {
+        "bytes": 32099,
+        "path": "src/price_action/strategies/vsa_climax_test.py",
+        "sha256": "2de255a5b84ffce6fdaae5ef88bd95fad35c528fb8eed3fe8c90ff5fe71c321b"
+      }
+    },
+    "locked_commit_blobs_match": true,
+    "locked_commit_is_runtime_ancestor": true,
+    "locked_source_commit": "ace422eb070e25a4bd3f2e11e61cd96090ad0e9f",
+    "runtime_git_commit": "5bd77cbd99a357aa53bb19857c622882f510a0c2",
+    "scoped_source_clean": true,
+    "scoped_source_status": [],
+    "source_identities": {
+      "configs/crypto_15m_v15p2_fair_baseline_v2_prereg.yaml": {
+        "bytes": 39694,
+        "path": "configs/crypto_15m_v15p2_fair_baseline_v2_prereg.yaml",
+        "sha256": "7a6180312bcbb1b1f9644d26dbce8bd8ac57ea4eb13fc0aa783025f069ddd511"
+      },
+      "configs/crypto_15m_v18_challenger_prereg.yaml": {
+        "bytes": 28471,
+        "path": "configs/crypto_15m_v18_challenger_prereg.yaml",
+        "sha256": "190150932ba519cb85eef231b26cb8887ddbb946e870bf0ecaa1baf3c35889f5"
+      },
+      "configs/risk_phoenix_scalp_15m_v15p2.yaml": {
+        "bytes": 34199,
+        "path": "configs/risk_phoenix_scalp_15m_v15p2.yaml",
+        "sha256": "78025a394aecb807c32aeba737823bd565f0f19e72ec133352d63f697036ea82"
+      },
+      "requirements-lock.txt": {
+        "bytes": 3731,
+        "path": "requirements-lock.txt",
+        "sha256": "30c4321e616138e342d8c67143eff43b490566e594a86d4277c1445c90b261f5"
+      },
+      "src/price_action/__init__.py": {
+        "bytes": 103,
+        "path": "src/price_action/__init__.py",
+        "sha256": "1751590a8c4c18e8bda74d8f65ed0ad2750582df9c6264af76b36a4abb8a1dfc"
+      },
+      "src/price_action/contracts.py": {
+        "bytes": 7523,
+        "path": "src/price_action/contracts.py",
+        "sha256": "2482bc8bb10872da1117ef03a05aed2f0eeaaca79069bcac4e0a7c25527edd04"
+      },
+      "src/price_action/lab/__init__.py": {
+        "bytes": 700,
+        "path": "src/price_action/lab/__init__.py",
+        "sha256": "96adf8f152fde4dec43a858da5c169d8c71f7d1c39de083c2e04a6307d3f8139"
+      },
+      "src/price_action/lab/crypto_15m_pairs_validation.py": {
+        "bytes": 58684,
+        "path": "src/price_action/lab/crypto_15m_pairs_validation.py",
+        "sha256": "9f0eae0bb08f45ceacdb7a3bb9c48ceb1b2f1b3469d21bd2bf572e11ecf6a95b"
+      },
+      "src/price_action/lab/crypto_15m_snapshot_io.py": {
+        "bytes": 14274,
+        "path": "src/price_action/lab/crypto_15m_snapshot_io.py",
+        "sha256": "7c9feef9b3243d96865527423113178c555f9caa79e50aa739b9340643886e7b"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_engine.py": {
+        "bytes": 81461,
+        "path": "src/price_action/lab/crypto_15m_v15p2_engine.py",
+        "sha256": "f3be34d0831fba2f9a4122e972121794194e312cef533915d472c3df729c96fd"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_program.py": {
+        "bytes": 74553,
+        "path": "src/price_action/lab/crypto_15m_v15p2_program.py",
+        "sha256": "d925ef902d33b01ab7b22487e304ec6a724fb14153a32b73f538c63d79879bcb"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_report.py": {
+        "bytes": 135566,
+        "path": "src/price_action/lab/crypto_15m_v15p2_report.py",
+        "sha256": "0417ea087627251cd056655e83a72d7e8b38624c3158763258c830ca0e599f9f"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_signals.py": {
+        "bytes": 46154,
+        "path": "src/price_action/lab/crypto_15m_v15p2_signals.py",
+        "sha256": "121f5d05c0722250b1f56ccd84ea655be1f9832080051645fb0a19f471883001"
+      },
+      "src/price_action/lab/crypto_15m_v18_program.py": {
+        "bytes": 74444,
+        "path": "src/price_action/lab/crypto_15m_v18_program.py",
+        "sha256": "08709d31be66cd9a86ec8477f75e8083c7be2960c1c32e727dfc4793ff225a0d"
+      },
+      "src/price_action/lab/crypto_15m_v18_report.py": {
+        "bytes": 98266,
+        "path": "src/price_action/lab/crypto_15m_v18_report.py",
+        "sha256": "7767860e188e2faa5a7f5baafead405807a182d79ad29d93ad8aed0b6db8fe8a"
+      },
+      "src/price_action/lab/crypto_15m_v18_signals.py": {
+        "bytes": 20689,
+        "path": "src/price_action/lab/crypto_15m_v18_signals.py",
+        "sha256": "ce457a44bde9e8b2e99d429c634734a4e4f5670c5b70c016ff512fbc03c2b2ee"
+      },
+      "src/price_action/lab/crypto_15m_v18_validation.py": {
+        "bytes": 46593,
+        "path": "src/price_action/lab/crypto_15m_v18_validation.py",
+        "sha256": "403af243ef7391d98fa5616d6fcb487515dd5346bbfb487df729df7a73576dd1"
+      },
+      "src/price_action/lab/crypto_15m_validation.py": {
+        "bytes": 38943,
+        "path": "src/price_action/lab/crypto_15m_validation.py",
+        "sha256": "6227e9f1e4d3f979dbc539ec0ee2b0e7507437a61962194c5d37a52083b6d9e9"
+      },
+      "src/price_action/logging_config.py": {
+        "bytes": 4879,
+        "path": "src/price_action/logging_config.py",
+        "sha256": "403023e0bb9d736aa43d9d03fc75f72df985bb569a32d8809d80577bcd90f007"
+      },
+      "src/price_action/runtime_paths.py": {
+        "bytes": 1648,
+        "path": "src/price_action/runtime_paths.py",
+        "sha256": "c97cbdd32b28c5deb8f89edbda2aaf3cfd0bd0a3d887c5d9d30bc541cba7b078"
+      },
+      "src/price_action/settings.py": {
+        "bytes": 6149,
+        "path": "src/price_action/settings.py",
+        "sha256": "2d2cb583dec1074616712aabe7f59669d537266c7ac38fde67c3cf2759811b33"
+      },
+      "src/price_action/strategies/__init__.py": {
+        "bytes": 335,
+        "path": "src/price_action/strategies/__init__.py",
+        "sha256": "ed7dbf0ccf54226833c2a2c073590abae60f29f18969f9bac31389433a908bed"
+      },
+      "src/price_action/strategies/base.py": {
+        "bytes": 11179,
+        "path": "src/price_action/strategies/base.py",
+        "sha256": "56131288ab54d57b3054b01f4230a86ccf69f4439f78e065fb149fee58a0f1e8"
+      },
+      "src/price_action/strategies/classic_pa.py": {
+        "bytes": 20542,
+        "path": "src/price_action/strategies/classic_pa.py",
+        "sha256": "9c7b93f1aa95a371cdd428c260ffd21dac07fe4fb3767cbe7a1500b8aec71aea"
+      },
+      "src/price_action/strategies/grimes_abc_pullback.py": {
+        "bytes": 18329,
+        "path": "src/price_action/strategies/grimes_abc_pullback.py",
+        "sha256": "b46a7c86aee2df9c4b243132cc78e837c8d767c1d6df2bf1485a29157b1bbcd1"
+      },
+      "src/price_action/strategies/vsa_climax_test.py": {
+        "bytes": 32099,
+        "path": "src/price_action/strategies/vsa_climax_test.py",
+        "sha256": "2de255a5b84ffce6fdaae5ef88bd95fad35c528fb8eed3fe8c90ff5fe71c321b"
+      }
+    }
+  },
+  "source_preflight": {
+    "locked_commit_blob_identities": {
+      "configs/crypto_15m_v15p2_fair_baseline_v2_prereg.yaml": {
+        "bytes": 39694,
+        "path": "configs/crypto_15m_v15p2_fair_baseline_v2_prereg.yaml",
+        "sha256": "7a6180312bcbb1b1f9644d26dbce8bd8ac57ea4eb13fc0aa783025f069ddd511"
+      },
+      "configs/crypto_15m_v18_challenger_prereg.yaml": {
+        "bytes": 28471,
+        "path": "configs/crypto_15m_v18_challenger_prereg.yaml",
+        "sha256": "190150932ba519cb85eef231b26cb8887ddbb946e870bf0ecaa1baf3c35889f5"
+      },
+      "configs/risk_phoenix_scalp_15m_v15p2.yaml": {
+        "bytes": 34199,
+        "path": "configs/risk_phoenix_scalp_15m_v15p2.yaml",
+        "sha256": "78025a394aecb807c32aeba737823bd565f0f19e72ec133352d63f697036ea82"
+      },
+      "requirements-lock.txt": {
+        "bytes": 3731,
+        "path": "requirements-lock.txt",
+        "sha256": "30c4321e616138e342d8c67143eff43b490566e594a86d4277c1445c90b261f5"
+      },
+      "src/price_action/__init__.py": {
+        "bytes": 103,
+        "path": "src/price_action/__init__.py",
+        "sha256": "1751590a8c4c18e8bda74d8f65ed0ad2750582df9c6264af76b36a4abb8a1dfc"
+      },
+      "src/price_action/contracts.py": {
+        "bytes": 7523,
+        "path": "src/price_action/contracts.py",
+        "sha256": "2482bc8bb10872da1117ef03a05aed2f0eeaaca79069bcac4e0a7c25527edd04"
+      },
+      "src/price_action/lab/__init__.py": {
+        "bytes": 700,
+        "path": "src/price_action/lab/__init__.py",
+        "sha256": "96adf8f152fde4dec43a858da5c169d8c71f7d1c39de083c2e04a6307d3f8139"
+      },
+      "src/price_action/lab/crypto_15m_pairs_validation.py": {
+        "bytes": 58684,
+        "path": "src/price_action/lab/crypto_15m_pairs_validation.py",
+        "sha256": "9f0eae0bb08f45ceacdb7a3bb9c48ceb1b2f1b3469d21bd2bf572e11ecf6a95b"
+      },
+      "src/price_action/lab/crypto_15m_snapshot_io.py": {
+        "bytes": 14274,
+        "path": "src/price_action/lab/crypto_15m_snapshot_io.py",
+        "sha256": "7c9feef9b3243d96865527423113178c555f9caa79e50aa739b9340643886e7b"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_engine.py": {
+        "bytes": 81461,
+        "path": "src/price_action/lab/crypto_15m_v15p2_engine.py",
+        "sha256": "f3be34d0831fba2f9a4122e972121794194e312cef533915d472c3df729c96fd"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_program.py": {
+        "bytes": 74553,
+        "path": "src/price_action/lab/crypto_15m_v15p2_program.py",
+        "sha256": "d925ef902d33b01ab7b22487e304ec6a724fb14153a32b73f538c63d79879bcb"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_report.py": {
+        "bytes": 135566,
+        "path": "src/price_action/lab/crypto_15m_v15p2_report.py",
+        "sha256": "0417ea087627251cd056655e83a72d7e8b38624c3158763258c830ca0e599f9f"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_signals.py": {
+        "bytes": 46154,
+        "path": "src/price_action/lab/crypto_15m_v15p2_signals.py",
+        "sha256": "121f5d05c0722250b1f56ccd84ea655be1f9832080051645fb0a19f471883001"
+      },
+      "src/price_action/lab/crypto_15m_v18_program.py": {
+        "bytes": 74444,
+        "path": "src/price_action/lab/crypto_15m_v18_program.py",
+        "sha256": "08709d31be66cd9a86ec8477f75e8083c7be2960c1c32e727dfc4793ff225a0d"
+      },
+      "src/price_action/lab/crypto_15m_v18_report.py": {
+        "bytes": 98266,
+        "path": "src/price_action/lab/crypto_15m_v18_report.py",
+        "sha256": "7767860e188e2faa5a7f5baafead405807a182d79ad29d93ad8aed0b6db8fe8a"
+      },
+      "src/price_action/lab/crypto_15m_v18_signals.py": {
+        "bytes": 20689,
+        "path": "src/price_action/lab/crypto_15m_v18_signals.py",
+        "sha256": "ce457a44bde9e8b2e99d429c634734a4e4f5670c5b70c016ff512fbc03c2b2ee"
+      },
+      "src/price_action/lab/crypto_15m_v18_validation.py": {
+        "bytes": 46593,
+        "path": "src/price_action/lab/crypto_15m_v18_validation.py",
+        "sha256": "403af243ef7391d98fa5616d6fcb487515dd5346bbfb487df729df7a73576dd1"
+      },
+      "src/price_action/lab/crypto_15m_validation.py": {
+        "bytes": 38943,
+        "path": "src/price_action/lab/crypto_15m_validation.py",
+        "sha256": "6227e9f1e4d3f979dbc539ec0ee2b0e7507437a61962194c5d37a52083b6d9e9"
+      },
+      "src/price_action/logging_config.py": {
+        "bytes": 4879,
+        "path": "src/price_action/logging_config.py",
+        "sha256": "403023e0bb9d736aa43d9d03fc75f72df985bb569a32d8809d80577bcd90f007"
+      },
+      "src/price_action/runtime_paths.py": {
+        "bytes": 1648,
+        "path": "src/price_action/runtime_paths.py",
+        "sha256": "c97cbdd32b28c5deb8f89edbda2aaf3cfd0bd0a3d887c5d9d30bc541cba7b078"
+      },
+      "src/price_action/settings.py": {
+        "bytes": 6149,
+        "path": "src/price_action/settings.py",
+        "sha256": "2d2cb583dec1074616712aabe7f59669d537266c7ac38fde67c3cf2759811b33"
+      },
+      "src/price_action/strategies/__init__.py": {
+        "bytes": 335,
+        "path": "src/price_action/strategies/__init__.py",
+        "sha256": "ed7dbf0ccf54226833c2a2c073590abae60f29f18969f9bac31389433a908bed"
+      },
+      "src/price_action/strategies/base.py": {
+        "bytes": 11179,
+        "path": "src/price_action/strategies/base.py",
+        "sha256": "56131288ab54d57b3054b01f4230a86ccf69f4439f78e065fb149fee58a0f1e8"
+      },
+      "src/price_action/strategies/classic_pa.py": {
+        "bytes": 20542,
+        "path": "src/price_action/strategies/classic_pa.py",
+        "sha256": "9c7b93f1aa95a371cdd428c260ffd21dac07fe4fb3767cbe7a1500b8aec71aea"
+      },
+      "src/price_action/strategies/grimes_abc_pullback.py": {
+        "bytes": 18329,
+        "path": "src/price_action/strategies/grimes_abc_pullback.py",
+        "sha256": "b46a7c86aee2df9c4b243132cc78e837c8d767c1d6df2bf1485a29157b1bbcd1"
+      },
+      "src/price_action/strategies/vsa_climax_test.py": {
+        "bytes": 32099,
+        "path": "src/price_action/strategies/vsa_climax_test.py",
+        "sha256": "2de255a5b84ffce6fdaae5ef88bd95fad35c528fb8eed3fe8c90ff5fe71c321b"
+      }
+    },
+    "locked_commit_blobs_match": true,
+    "locked_commit_is_runtime_ancestor": true,
+    "locked_source_commit": "ace422eb070e25a4bd3f2e11e61cd96090ad0e9f",
+    "runtime_git_commit": "5bd77cbd99a357aa53bb19857c622882f510a0c2",
+    "scoped_source_clean": true,
+    "scoped_source_status": [],
+    "source_identities": {
+      "configs/crypto_15m_v15p2_fair_baseline_v2_prereg.yaml": {
+        "bytes": 39694,
+        "path": "configs/crypto_15m_v15p2_fair_baseline_v2_prereg.yaml",
+        "sha256": "7a6180312bcbb1b1f9644d26dbce8bd8ac57ea4eb13fc0aa783025f069ddd511"
+      },
+      "configs/crypto_15m_v18_challenger_prereg.yaml": {
+        "bytes": 28471,
+        "path": "configs/crypto_15m_v18_challenger_prereg.yaml",
+        "sha256": "190150932ba519cb85eef231b26cb8887ddbb946e870bf0ecaa1baf3c35889f5"
+      },
+      "configs/risk_phoenix_scalp_15m_v15p2.yaml": {
+        "bytes": 34199,
+        "path": "configs/risk_phoenix_scalp_15m_v15p2.yaml",
+        "sha256": "78025a394aecb807c32aeba737823bd565f0f19e72ec133352d63f697036ea82"
+      },
+      "requirements-lock.txt": {
+        "bytes": 3731,
+        "path": "requirements-lock.txt",
+        "sha256": "30c4321e616138e342d8c67143eff43b490566e594a86d4277c1445c90b261f5"
+      },
+      "src/price_action/__init__.py": {
+        "bytes": 103,
+        "path": "src/price_action/__init__.py",
+        "sha256": "1751590a8c4c18e8bda74d8f65ed0ad2750582df9c6264af76b36a4abb8a1dfc"
+      },
+      "src/price_action/contracts.py": {
+        "bytes": 7523,
+        "path": "src/price_action/contracts.py",
+        "sha256": "2482bc8bb10872da1117ef03a05aed2f0eeaaca79069bcac4e0a7c25527edd04"
+      },
+      "src/price_action/lab/__init__.py": {
+        "bytes": 700,
+        "path": "src/price_action/lab/__init__.py",
+        "sha256": "96adf8f152fde4dec43a858da5c169d8c71f7d1c39de083c2e04a6307d3f8139"
+      },
+      "src/price_action/lab/crypto_15m_pairs_validation.py": {
+        "bytes": 58684,
+        "path": "src/price_action/lab/crypto_15m_pairs_validation.py",
+        "sha256": "9f0eae0bb08f45ceacdb7a3bb9c48ceb1b2f1b3469d21bd2bf572e11ecf6a95b"
+      },
+      "src/price_action/lab/crypto_15m_snapshot_io.py": {
+        "bytes": 14274,
+        "path": "src/price_action/lab/crypto_15m_snapshot_io.py",
+        "sha256": "7c9feef9b3243d96865527423113178c555f9caa79e50aa739b9340643886e7b"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_engine.py": {
+        "bytes": 81461,
+        "path": "src/price_action/lab/crypto_15m_v15p2_engine.py",
+        "sha256": "f3be34d0831fba2f9a4122e972121794194e312cef533915d472c3df729c96fd"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_program.py": {
+        "bytes": 74553,
+        "path": "src/price_action/lab/crypto_15m_v15p2_program.py",
+        "sha256": "d925ef902d33b01ab7b22487e304ec6a724fb14153a32b73f538c63d79879bcb"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_report.py": {
+        "bytes": 135566,
+        "path": "src/price_action/lab/crypto_15m_v15p2_report.py",
+        "sha256": "0417ea087627251cd056655e83a72d7e8b38624c3158763258c830ca0e599f9f"
+      },
+      "src/price_action/lab/crypto_15m_v15p2_signals.py": {
+        "bytes": 46154,
+        "path": "src/price_action/lab/crypto_15m_v15p2_signals.py",
+        "sha256": "121f5d05c0722250b1f56ccd84ea655be1f9832080051645fb0a19f471883001"
+      },
+      "src/price_action/lab/crypto_15m_v18_program.py": {
+        "bytes": 74444,
+        "path": "src/price_action/lab/crypto_15m_v18_program.py",
+        "sha256": "08709d31be66cd9a86ec8477f75e8083c7be2960c1c32e727dfc4793ff225a0d"
+      },
+      "src/price_action/lab/crypto_15m_v18_report.py": {
+        "bytes": 98266,
+        "path": "src/price_action/lab/crypto_15m_v18_report.py",
+        "sha256": "7767860e188e2faa5a7f5baafead405807a182d79ad29d93ad8aed0b6db8fe8a"
+      },
+      "src/price_action/lab/crypto_15m_v18_signals.py": {
+        "bytes": 20689,
+        "path": "src/price_action/lab/crypto_15m_v18_signals.py",
+        "sha256": "ce457a44bde9e8b2e99d429c634734a4e4f5670c5b70c016ff512fbc03c2b2ee"
+      },
+      "src/price_action/lab/crypto_15m_v18_validation.py": {
+        "bytes": 46593,
+        "path": "src/price_action/lab/crypto_15m_v18_validation.py",
+        "sha256": "403af243ef7391d98fa5616d6fcb487515dd5346bbfb487df729df7a73576dd1"
+      },
+      "src/price_action/lab/crypto_15m_validation.py": {
+        "bytes": 38943,
+        "path": "src/price_action/lab/crypto_15m_validation.py",
+        "sha256": "6227e9f1e4d3f979dbc539ec0ee2b0e7507437a61962194c5d37a52083b6d9e9"
+      },
+      "src/price_action/logging_config.py": {
+        "bytes": 4879,
+        "path": "src/price_action/logging_config.py",
+        "sha256": "403023e0bb9d736aa43d9d03fc75f72df985bb569a32d8809d80577bcd90f007"
+      },
+      "src/price_action/runtime_paths.py": {
+        "bytes": 1648,
+        "path": "src/price_action/runtime_paths.py",
+        "sha256": "c97cbdd32b28c5deb8f89edbda2aaf3cfd0bd0a3d887c5d9d30bc541cba7b078"
+      },
+      "src/price_action/settings.py": {
+        "bytes": 6149,
+        "path": "src/price_action/settings.py",
+        "sha256": "2d2cb583dec1074616712aabe7f59669d537266c7ac38fde67c3cf2759811b33"
+      },
+      "src/price_action/strategies/__init__.py": {
+        "bytes": 335,
+        "path": "src/price_action/strategies/__init__.py",
+        "sha256": "ed7dbf0ccf54226833c2a2c073590abae60f29f18969f9bac31389433a908bed"
+      },
+      "src/price_action/strategies/base.py": {
+        "bytes": 11179,
+        "path": "src/price_action/strategies/base.py",
+        "sha256": "56131288ab54d57b3054b01f4230a86ccf69f4439f78e065fb149fee58a0f1e8"
+      },
+      "src/price_action/strategies/classic_pa.py": {
+        "bytes": 20542,
+        "path": "src/price_action/strategies/classic_pa.py",
+        "sha256": "9c7b93f1aa95a371cdd428c260ffd21dac07fe4fb3767cbe7a1500b8aec71aea"
+      },
+      "src/price_action/strategies/grimes_abc_pullback.py": {
+        "bytes": 18329,
+        "path": "src/price_action/strategies/grimes_abc_pullback.py",
+        "sha256": "b46a7c86aee2df9c4b243132cc78e837c8d767c1d6df2bf1485a29157b1bbcd1"
+      },
+      "src/price_action/strategies/vsa_climax_test.py": {
+        "bytes": 32099,
+        "path": "src/price_action/strategies/vsa_climax_test.py",
+        "sha256": "2de255a5b84ffce6fdaae5ef88bd95fad35c528fb8eed3fe8c90ff5fe71c321b"
+      }
+    }
+  },
+  "status": "COMPLETE"
+}
