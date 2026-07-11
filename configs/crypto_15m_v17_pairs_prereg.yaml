@@ -24,7 +24,7 @@ pre_result_amendments:
     change: >-
       Before any v17 snapshot result, the H turnover formula and final
       lexicographic candidate-ID tie-break were fixed. Execute mode was also
-      bound to the canonical preregistration contents, clean-source preflight,
+      bound to the canonical repo preregistration path and contents, clean-source preflight,
       and unchanged source/snapshot postflight verification. Candidate cells
       and every return, stability, drawdown and acceptance threshold remain
       unchanged.
@@ -500,7 +500,7 @@ provenance_required:
   - snapshot_size_and_sha256_postflight_match
 
 execution_governance:
-  execute_prereg_must_semantically_equal_canonical_repo_prereg: true
+  execute_prereg_must_be_canonical_repo_path_and_contents: true
   source_clean_preflight_before_snapshot_access: true
   postflight_source_commit_and_file_hashes_must_match_preflight: true
   postflight_snapshot_size_and_sha256_must_match_preflight: true

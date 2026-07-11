@@ -148,7 +148,7 @@ son bağdır. Turnover payı, pencere içindeki iki-leg entry ve closed-exit fil
 notionalları ile cutoff'taki accrued terminal liquidation notionalının toplamıdır;
 payda aynı penceredeki her H 15m NAV gözleminin aritmetik ortalamasıdır.
 
-Execute modu sonuçtan önce canonical repo prereg içeriğiyle semantik eşitlik ve
+Execute modu sonuçtan önce canonical repo prereg yolunu/içeriğini ve
 temiz research source ister. Replay sonrasında aynı commit/file hashleri ile iki
 snapshot'ın byte+SHA değerleri yeniden doğrulanmadan evidence döndürülemez.
 
