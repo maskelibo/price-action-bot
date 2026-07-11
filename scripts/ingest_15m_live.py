@@ -33,8 +33,12 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from price_action.data.ingest_ccxt import _snapshot_ingest_to_consumer  # noqa: E402
 from price_action.data.quality import run_quality_checks, write_daily_manifest  # noqa: E402
-from price_action.data.store import OHLCVStore  # noqa: E402
+from price_action.data.store import (  # noqa: E402
+    OHLCVStore,
+    checkpoint_and_close_pool_for_path,
+)
 from price_action.logging_config import logger  # noqa: E402
 from price_action.settings import get_settings  # noqa: E402
 
@@ -202,43 +206,69 @@ def main() -> None:  # pragma: no cover - integration
     # DEPO-AYIRMA (2026-05-29): market.duckdb'ye DİREKT YAZMA (lock contention =
     # DMS-kill incident). ingest, market_ingest.duckdb'ye yazar (force_write=True
     # → PA_DUCKDB_READ_ONLY env bypass). Tüketici (daemon) market.duckdb'yi RO okur;
-    # scheduler `market_snapshot` job (:05) atomik file-replace ile market.duckdb'yi
-    # tazeler. Bu script SADECE writer; snapshot scheduler'ın işi.
+    # Başarılı tam ingest sonunda writer CHECKPOINT+close edilir ve aynı güvenli
+    # helper ile consumer atomik tazelenir. Scheduler :05 job'u bağımsız saatlik
+    # backstop olarak kalır; kısmi/başarısız ingest ASLA publish edilmez.
     s = get_settings()
     store = OHLCVStore(path=s.ingest_duckdb_path, force_write=True)
     quality_reports = []
     errors: list[str] = []
+    checkpoint_error: str | None = None
+    # One sequential rate limiter/market cache per venue for the whole run.
+    # The old symbol loop built 19 independent Binance clients, defeating
+    # CCXT's process-local limiter and repeatedly loading exchange metadata.
+    venue_exchanges: dict[str, Any] = {}
 
-    for symbol in SYMBOLS:
-        written = 0
-        last_exc: Exception | None = None
+    try:
+        for symbol in SYMBOLS:
+            written = 0
+            last_exc: Exception | None = None
 
-        for venue in VENUE_PRIORITY:
-            try:
-                exchange = _build_exchange(venue)
-                written = ingest_symbol_15m(symbol, store, exchange, venue)  # noqa: F841 — log içinde raporlanıyor
-                # Quality check — anomali işaretle, ham veri koru.
-                df = store.read(symbol, TF, venue=venue)
-                if not df.empty:
-                    qr = run_quality_checks(df, venue=venue, symbol=symbol, timeframe=TF)
-                    quality_reports.append(qr)
-                last_exc = None
-                break  # Başarılı, fallback gerekmez.
-            except Exception as exc:
-                last_exc = exc
-                logger.bind(venue=venue, symbol=symbol, tf=TF, err=str(exc)).warning(
-                    "ingest15m.venue_fail_try_fallback"
-                )
+            for venue in VENUE_PRIORITY:
+                try:
+                    exchange = venue_exchanges.get(venue)
+                    if exchange is None:
+                        exchange = _build_exchange(venue)
+                        venue_exchanges[venue] = exchange
+                    written = ingest_symbol_15m(
+                        symbol,
+                        store,
+                        exchange,
+                        venue,
+                    )
+                    if written <= 0:
+                        raise RuntimeError("venue hiç kapanmış 15m satırı yazmadı")
+                    # Quality check — anomali işaretle, ham veri koru.
+                    df = store.read(symbol, TF, venue=venue)
+                    if not df.empty:
+                        qr = run_quality_checks(df, venue=venue, symbol=symbol, timeframe=TF)
+                        quality_reports.append(qr)
+                    last_exc = None
+                    break  # Başarılı, fallback gerekmez.
+                except Exception as exc:
+                    last_exc = exc
+                    logger.bind(venue=venue, symbol=symbol, tf=TF, err=str(exc)).warning(
+                        "ingest15m.venue_fail_try_fallback"
+                    )
 
-        if last_exc is not None:
-            # Her iki venue da başarısız → fail loud.
-            msg = f"FAIL LOUD: {symbol} {TF} — tüm venue'lar başarısız: {last_exc}"
-            logger.bind(symbol=symbol, tf=TF).error(msg)
-            errors.append(msg)
+            if last_exc is not None:
+                # Her iki venue da başarısız → fail loud.
+                msg = f"FAIL LOUD: {symbol} {TF} — tüm venue'lar başarısız: {last_exc}"
+                logger.bind(symbol=symbol, tf=TF).error(msg)
+                errors.append(msg)
 
-    # Quality manifest güncelle.
-    if quality_reports:
-        write_daily_manifest(quality_reports)
+        # Quality manifest güncelle.
+        if quality_reports:
+            write_daily_manifest(quality_reports)
+    finally:
+        # The live process owns this writer pool. Detach it, require a durable
+        # checkpoint and close before any source bytes are copied. Unexpected
+        # exceptions and cancellation also pass through this cleanup boundary.
+        try:
+            checkpoint_and_close_pool_for_path(s.ingest_duckdb_path)
+        except Exception as exc:
+            checkpoint_error = str(exc)[:300]
+            logger.bind(err=checkpoint_error).error("ingest15m.checkpoint_close_fail")
 
     elapsed = time.perf_counter() - t0
     logger.bind(
@@ -248,12 +278,24 @@ def main() -> None:  # pragma: no cover - integration
         elapsed_s=round(elapsed, 2),
     ).info("ingest15m.run_complete")
 
-    if errors:
-        # Fail loud — cron job bunu yakalar, alert gönderir.
-        print(f"[INGEST-15M] FAIL: {len(errors)} sembol başarısız:\n" + "\n".join(errors))
+    if errors or checkpoint_error is not None:
+        # Fail loud and preserve the previous consumer. Publishing a partial
+        # symbol set or a source without a proven checkpoint is forbidden.
+        detail = list(errors)
+        if checkpoint_error is not None:
+            detail.append(f"CHECKPOINT/CLOSE FAIL: {checkpoint_error}")
+        print(f"[INGEST-15M] FAIL: publish edilmedi ({len(detail)} hata):\n" + "\n".join(detail))
         sys.exit(1)
 
-    print(f"[INGEST-15M] OK: {len(SYMBOLS)} sembol {elapsed:.1f}s")
+    snap = _snapshot_ingest_to_consumer(s.ingest_duckdb_path, s.duckdb_path)
+    if not snap["snapshotted"]:
+        print(f"[INGEST-15M] FAIL: consumer snapshot yayınlanmadı: {snap['error']}")
+        sys.exit(1)
+
+    print(
+        f"[INGEST-15M] OK: {len(SYMBOLS)} sembol {elapsed:.1f}s "
+        f"snapshot={snap['bytes']}B newest={snap['newest_bar']}"
+    )
 
 
 if __name__ == "__main__":

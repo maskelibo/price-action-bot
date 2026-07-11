@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <!-- DR1 dış dead-man bekçisi: 5 dk'da bir sağlık-koşullu healthchecks.io ping.
-         HEALTHCHECKS_PING_URL .env'de yoksa script inert (sessiz çıkar).
+         HEALTHCHECKS_PING_URL .env'de yoksa script inert kalır ve WARN satırı yazar.
          Reboot'ta bu job da ölür (gui domain) → ping kesilir → dış alarm. Tasarım bu. -->
     <key>Label</key><string>com.priceaction.healthping</string>
     <key>ProgramArguments</key>

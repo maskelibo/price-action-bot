@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -23,7 +24,7 @@ import pandas as pd
 import typer
 
 from price_action.data.quality import run_quality_checks, write_daily_manifest
-from price_action.data.store import OHLCVStore
+from price_action.data.store import OHLCVStore, checkpoint_and_close_pool_for_path
 from price_action.data.universe import build_universe
 from price_action.logging_config import logger
 from price_action.settings import get_settings
@@ -284,83 +285,189 @@ def _resolve_symbols(symbols_csv: str | None) -> list[tuple[str, str]]:
     return [(i.venue, i.symbol) for i in instruments]
 
 
-def _snapshot_ingest_to_consumer(ingest_path, consumer_path) -> dict[str, Any]:
-    """Atomik FILE-kopya snapshot: market_ingest.duckdb → market.duckdb.
+def _snapshot_file_fingerprint(path) -> dict[str, int | bool]:
+    """Return an lstat fingerprint without following symlinks."""
 
-    FIX 2026-05-28 (depo-ayirma): Ingest, ayrı yazılabilir dosyaya
-    (market_ingest.duckdb) yazar. Tüketiciler (CEO daemon read-only env)
-    market.duckdb okur. Bu fonksiyon, ingest'in bittiği anda kaynak dosyayı
-    HEDEF'e atomik olarak kopyalar.
+    import os
+    import stat
+    from pathlib import Path
 
-    NEDEN DUCKDB WRITE DEĞİL SAF FILE-KOPYA: read-only env içindeki process
-    market.duckdb'ye DuckDB-write açamaz ("Cannot DELETE on read-only").
-    Ama dosya sistemi seviyesinde kopya + os.replace HER process'te çalışır
-    (file permission var). Tüketici conn'lar dosyayı RO açtığı için, atomik
-    replace sırasında ya eski ya yeni tam dosyayı görürler — yarım asla.
-
-    Adımlar:
-      1. WAL flush garantisi: kaynağı CHECKPOINT'li kapat (run_hourly sonu).
-      2. Mevcut market.duckdb → market.duckdb.bak (yedek).
-      3. market_ingest.duckdb → market.duckdb.snap.tmp (FILE kopya).
-      4. os.replace(tmp, market.duckdb) — atomik (POSIX rename).
-
-    Returns:
-        {"snapshotted": bool, "bytes": int, "newest_bar": str|None, "error": str|None}
-    """
-    import os as _os
-    import shutil as _shutil
-    from pathlib import Path as _Path
-
-    ingest_path = _Path(ingest_path)
-    consumer_path = _Path(consumer_path)
-    result: dict[str, Any] = {"snapshotted": False, "bytes": 0, "newest_bar": None, "error": None}
+    candidate = Path(path)
     try:
-        if not ingest_path.exists():
-            result["error"] = f"ingest_path yok: {ingest_path}"
-            logger.bind(**result).error("ingest.snapshot_no_source")
-            return result
+        info = os.lstat(candidate)
+    except FileNotFoundError:
+        return {
+            "exists": False,
+            "inode": 0,
+            "is_regular": False,
+            "is_symlink": False,
+            "mtime_ns": 0,
+            "size": 0,
+        }
+    return {
+        "exists": True,
+        "inode": int(info.st_ino),
+        "is_regular": stat.S_ISREG(info.st_mode),
+        "is_symlink": stat.S_ISLNK(info.st_mode),
+        "mtime_ns": int(info.st_mtime_ns),
+        "size": int(info.st_size),
+    }
 
-        # 2) .bak yedek (mevcut market.duckdb varsa)
-        if consumer_path.exists():
-            bak_path = consumer_path.with_suffix(consumer_path.suffix + ".bak")
-            try:
-                _shutil.copy2(consumer_path, bak_path)
-            except Exception as bak_exc:  # pragma: no cover - defensive
-                logger.bind(err=str(bak_exc)).warning("ingest.snapshot_bak_fail")
 
-        # 3) FILE kopya → temp (aynı dizinde ki os.replace atomik olsun)
-        tmp_path = consumer_path.with_suffix(consumer_path.suffix + ".snap.tmp")
+def _snapshot_source_pair_fingerprint(path) -> dict[str, dict[str, int | bool]]:
+    """Fingerprint the source DB and WAL as one consistency boundary."""
+
+    from pathlib import Path
+
+    source = Path(path)
+    pair = {
+        "db": _snapshot_file_fingerprint(source),
+        "wal": _snapshot_file_fingerprint(Path(f"{source}.wal")),
+    }
+    db = pair["db"]
+    wal = pair["wal"]
+    if not db["exists"] or not db["is_regular"] or db["is_symlink"] or db["size"] <= 0:
+        raise RuntimeError(f"SNAPSHOT_SOURCE_INVALID db={db}")
+    if wal["exists"]:
+        raise RuntimeError(f"SNAPSHOT_SOURCE_WAL_PRESENT wal={wal}")
+    return pair
+
+
+def _validate_read_only_snapshot(path) -> tuple[int, str | None]:
+    """Open the temporary DB read-only and validate its canonical OHLCV table."""
+
+    import duckdb
+
+    con = duckdb.connect(str(path), read_only=True)
+    try:
+        table = con.execute(
+            """SELECT COUNT(*)
+               FROM information_schema.tables
+               WHERE table_schema = 'main'
+                 AND table_name = 'ohlcv'
+                 AND table_type = 'BASE TABLE'"""
+        ).fetchone()
+        if table is None or int(table[0]) != 1:
+            raise RuntimeError("SNAPSHOT_VALIDATE_FAIL canonical ohlcv table missing")
+        row = con.execute("SELECT COUNT(*), MAX(ts) FROM ohlcv").fetchone()
+        if row is None or int(row[0]) <= 0:
+            raise RuntimeError("SNAPSHOT_VALIDATE_FAIL ohlcv table empty")
+        return int(row[0]), str(row[1]) if row[1] is not None else None
+    finally:
+        con.close()
+
+
+def _snapshot_ingest_to_consumer(ingest_path, consumer_path) -> dict[str, Any]:
+    """Publish a validated, race-detected ingest snapshot atomically.
+
+    The caller that owns the writer must checkpoint and close its pool first.
+    The hourly backstop may race another writer, so the source DB+WAL lstat
+    fingerprint is compared before and after copy/validation. Any mutation,
+    WAL, invalid temporary DB, or competing publisher preserves the existing
+    consumer. Only a fully validated same-directory temporary file reaches
+    ``os.replace``.
+    """
+
+    import fcntl
+    import os
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    source = Path(ingest_path)
+    consumer = Path(consumer_path)
+    result: dict[str, Any] = {
+        "snapshotted": False,
+        "bytes": 0,
+        "newest_bar": None,
+        "rows": 0,
+        "error": None,
+    }
+    tmp_path: Path | None = None
+    backup_tmp: Path | None = None
+    lock_file = None
+    try:
+        consumer.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = consumer.parent / f".{consumer.name}.snapshot.lock"
+        lock_file = lock_path.open("a+b")
         try:
-            _shutil.copy2(ingest_path, tmp_path)
-            # 4) atomik replace
-            _os.replace(tmp_path, consumer_path)
-        except Exception:
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-            except OSError:
-                pass
-            raise
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError(f"SNAPSHOT_PUBLISH_BUSY lock={lock_path}") from exc
 
-        result["snapshotted"] = True
-        result["bytes"] = consumer_path.stat().st_size
-        # newest bar bilgi amaçlı (RO oku, ayrı conn — pool kirletme)
+        before = _snapshot_source_pair_fingerprint(source)
+        fd, raw_tmp = tempfile.mkstemp(
+            prefix=f".{consumer.name}.snapshot.",
+            suffix=".duckdb",
+            dir=consumer.parent,
+        )
+        os.close(fd)
+        tmp_path = Path(raw_tmp)
+        shutil.copyfile(source, tmp_path)
+        if tmp_path.stat().st_size != int(before["db"]["size"]):
+            raise RuntimeError(
+                "SNAPSHOT_COPY_SIZE_MISMATCH "
+                f"expected={before['db']['size']} actual={tmp_path.stat().st_size}"
+            )
+        with tmp_path.open("rb") as copied:
+            os.fsync(copied.fileno())
+
+        rows, newest_bar = _validate_read_only_snapshot(tmp_path)
+        after = _snapshot_source_pair_fingerprint(source)
+        if after != before:
+            raise RuntimeError(f"SNAPSHOT_SOURCE_CHANGED before={before} after={after}")
+
+        # Keep the previous consumer as a cheap same-filesystem hard-link. A
+        # backup failure is warning-only because the validated temp still makes
+        # publication safe; the original consumer remains until os.replace.
+        if consumer.is_file():
+            bak_path = consumer.with_suffix(consumer.suffix + ".bak")
+            backup_tmp = consumer.parent / f".{consumer.name}.bak.{os.getpid()}"
+            try:
+                backup_tmp.unlink(missing_ok=True)
+                os.link(consumer, backup_tmp)
+                os.replace(backup_tmp, bak_path)
+                backup_tmp = None
+            except Exception as backup_exc:  # pragma: no cover - filesystem defensive path
+                logger.bind(err=str(backup_exc)[:200]).warning("ingest.snapshot_bak_fail")
+
+        snapshot_bytes = tmp_path.stat().st_size
+        os.replace(tmp_path, consumer)
+        tmp_path = None
+        result.update(
+            {
+                "snapshotted": True,
+                "bytes": snapshot_bytes,
+                "newest_bar": newest_bar,
+                "rows": rows,
+            }
+        )
         try:
-            import duckdb as _ddb
-
-            _c = _ddb.connect(str(consumer_path), read_only=True)
+            directory_fd = os.open(consumer.parent, os.O_RDONLY)
             try:
-                _row = _c.execute("SELECT MAX(ts) FROM ohlcv").fetchone()
-                if _row and _row[0] is not None:
-                    result["newest_bar"] = str(_row[0])
+                os.fsync(directory_fd)
             finally:
-                _c.close()
-        except Exception:
-            pass
-        logger.bind(**{k: result[k] for k in ("bytes", "newest_bar")}).info("ingest.snapshot_done")
+                os.close(directory_fd)
+        except OSError as fsync_exc:  # publication already happened; report truthfully
+            logger.bind(err=str(fsync_exc)[:200]).warning("ingest.snapshot_dir_fsync_fail")
+        logger.bind(
+            bytes=result["bytes"],
+            newest_bar=result["newest_bar"],
+            rows=result["rows"],
+        ).info("ingest.snapshot_done")
     except Exception as exc:
-        result["error"] = str(exc)[:300]
+        result["error"] = str(exc)[:500]
         logger.bind(err=result["error"]).error("ingest.snapshot_fail")
+    finally:
+        for artifact in (tmp_path, backup_tmp):
+            if artifact is not None:
+                with suppress(OSError):
+                    artifact.unlink(missing_ok=True)
+        if lock_file is not None:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            finally:
+                lock_file.close()
     return result
 
 
@@ -405,42 +512,81 @@ async def run_hourly() -> dict[str, Any]:
     # depo-ayirma: ayrı yazılabilir dosya + read-only env bypass
     store = OHLCVStore(path=s.ingest_duckdb_path, force_write=True)
     n_done = 0
-    for v, sy in pairs:
-        for t in timeframes:
-            try:
-                # Sync ingest_symbol — async loop'u bloklamamak için thread'e at
-                stat = await asyncio.to_thread(
-                    ingest_symbol,
-                    venue=v,
-                    symbol=sy,
-                    timeframe=t,
-                    years=s.pa_backtest_years,
-                    store=store,
-                )
-                logger.bind(**stat.__dict__).info("ingest.symbol_done")
-                n_done += 1
-            except Exception as exc:
-                logger.bind(venue=v, symbol=sy, tf=t, err=str(exc)[:200]).warning(
-                    "ingest.symbol_fail"
-                )
-
-    # Atomik snapshot: market_ingest.duckdb → market.duckdb (tüketiciler tazelensin)
-    snap = await asyncio.to_thread(
-        _snapshot_ingest_to_consumer, s.ingest_duckdb_path, s.duckdb_path
-    )
-    # FIX 2026-05-30: saatlik ingest bitti → market_ingest write-lock'unu bırak.
-    # CEO uzun-ömürlü; pooled conn açık kalırsa ingest15m (5dk launchd) lock
-    # çakışıp exit 1 verir. Kapatınca lock serbest, conn lazily yeniden açılır.
+    failures: list[str] = []
+    checkpoint_error: str | None = None
+    # Reuse one sequential CCXT limiter/market cache per venue.  Constructing
+    # a client for every symbol×timeframe caused repeated exchange metadata
+    # loads and made the hourly job's effective rate budget fragmented.
+    exchange_by_venue: dict[str, Any] = {}
     try:
-        from price_action.data.store import close_pool_for_path
+        for v, sy in pairs:
+            for t in timeframes:
+                try:
+                    exchange = exchange_by_venue.get(v)
+                    if exchange is None:
+                        exchange = _build_ccxt(v, market_type="future")
+                        exchange_by_venue[v] = exchange
+                    # Sync ingest_symbol — async loop'u bloklamamak için thread'e at
+                    stat = await asyncio.to_thread(
+                        ingest_symbol,
+                        venue=v,
+                        symbol=sy,
+                        timeframe=t,
+                        years=s.pa_backtest_years,
+                        store=store,
+                        exchange=exchange,
+                    )
+                    logger.bind(**stat.__dict__).info("ingest.symbol_done")
+                    if stat.error is not None:
+                        failures.append(f"{v}:{sy}:{t}: {stat.error}")
+                    else:
+                        n_done += 1
+                except Exception as exc:
+                    failures.append(f"{v}:{sy}:{t}: {exc}")
+                    logger.bind(venue=v, symbol=sy, tf=t, err=str(exc)[:200]).warning(
+                        "ingest.symbol_fail"
+                    )
+    finally:
+        # Detach the long-lived CEO writer pool, issue a strict CHECKPOINT and
+        # close the handle before any filesystem snapshot. Cancellation also
+        # passes through this boundary and therefore cannot leak the lock.
+        try:
+            await asyncio.to_thread(
+                checkpoint_and_close_pool_for_path,
+                s.ingest_duckdb_path,
+            )
+        except Exception as exc:
+            checkpoint_error = str(exc)[:300]
+            logger.bind(err=checkpoint_error).error("ingest.checkpoint_close_fail")
 
-        await asyncio.to_thread(close_pool_for_path, s.ingest_duckdb_path)
-    except Exception as exc:  # pragma: no cover
-        logger.warning("ingest.pool_close_fail", extra={"err": str(exc)[:200]})
+    if failures or checkpoint_error is not None:
+        reasons: list[str] = []
+        if failures:
+            reasons.append(f"SNAPSHOT_SUPPRESSED_PARTIAL_INGEST failures={len(failures)}")
+        if checkpoint_error is not None:
+            reasons.append(f"SNAPSHOT_SUPPRESSED_CHECKPOINT_CLOSE error={checkpoint_error}")
+        reason = "; ".join(reasons)
+        snap: dict[str, Any] = {
+            "snapshotted": False,
+            "bytes": 0,
+            "newest_bar": None,
+            "rows": 0,
+            "error": reason,
+        }
+        logger.bind(err=reason).error("ingest.snapshot_suppressed")
+    else:
+        # Successful ingest boundary only: publish through the validated,
+        # fingerprinted atomic helper used by the independent hourly backstop.
+        snap = await asyncio.to_thread(
+            _snapshot_ingest_to_consumer,
+            s.ingest_duckdb_path,
+            s.duckdb_path,
+        )
     return {
         "symbols": len(pairs),
         "tfs": len(timeframes),
         "ingested": n_done,
+        "errors": failures,
         "snapshot": snap,
     }
 

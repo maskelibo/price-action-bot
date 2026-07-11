@@ -49,6 +49,11 @@
          sessizce geri alınırdı → araştırma fabrikasının lobotomisi. -->
     <key>PA_RESEARCH_AUTOPILOT</key>
     <string>1</string>
+    <!-- Binance private REST has one owner: the live trade daemon. CEO jobs
+         that accidentally request account/position/income data fail closed
+         before credentials/client/network. Public market research continues. -->
+    <key>PA_DISABLE_PRIVATE_EXCHANGE_API</key>
+    <string>1</string>
   </dict>
 
   <!-- Boot anında ve load anında çalıştır -->

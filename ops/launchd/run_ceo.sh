@@ -43,6 +43,10 @@ export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 export PA_LLM_USE_CLI="true"
 export PA_RUN_MODE="${PA_RUN_MODE:-paper}"
 export PA_CEO_PUSH_TELEGRAM="true"
+# The live 15m daemon is the sole owner of Binance private REST quota.
+# CEO jobs remain useful (research/reports/local audits), but any accidental
+# account/positions/income read fails before credentials or network are used.
+export PA_DISABLE_PRIVATE_EXCHANGE_API="1"
 export TZ="UTC"
 # CEO morning brief büyük context (~25k token) → Opus call 3-4dk sürebilir.
 # Default 180sn timeout retry zincirine girer → 9dk boşa. 300sn (5dk) güvenli.
@@ -73,6 +77,7 @@ echo "  TELEGRAM_BOT_TOKEN=$([[ -n "${TELEGRAM_BOT_TOKEN:-}" ]] && echo "SET" ||
 echo "  TELEGRAM_CHAT_ID=$([[ -n "${TELEGRAM_CHAT_ID:-}" ]] && echo "SET" || echo "MISSING")"
 echo "  ANTHROPIC_API_KEY=$([[ -n "${ANTHROPIC_API_KEY:-}" ]] && echo "SET" || echo "MISSING")"
 echo "  PA_RUN_MODE=${PA_RUN_MODE}"
+echo "  PA_DISABLE_PRIVATE_EXCHANGE_API=${PA_DISABLE_PRIVATE_EXCHANGE_API}"
 
 # 6) Exec — wrapper süreci python ile yer değiştirir (launchd PID python'ı gözler)
 exec "${ROOT}/.venv/bin/python" -m price_action.orchestrator.ceo_loop --mode daily --telegram

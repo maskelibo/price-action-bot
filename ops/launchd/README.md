@@ -1,8 +1,13 @@
 # ops/launchd/
 
-> **⚠️ BAYAT DOKÜMAN (2026-05 çağı) — güncelleme 2026-07-10 (D22+D15):**
-> Canlı trading servisi **`com.priceaction.futures_v15p2`** (`run_futures_v15p2.sh` → `futures_daemon_v14.py` wrapper); yanında `com.priceaction.healthping` + ceo/ingest15m/liqcollector/dashboard/dbbackup/logrotate çalışır.
+> **⚠️ 2026-05 TARİHSEL BÖLÜMLERİ VAR — güncel durum 2026-07-11:**
+> Canlı trading servisi **`com.priceaction.futures_v15p2`** (`run_futures_v15p2.sh` → `futures_daemon_v14.py` wrapper). Yardımcı servislerin gerçek loaded/running durumu her zaman `launchctl print gui/$(id -u)/<label>` ile ayrı ayrı kanıtlanır.
 > **EMEKLİ plist'ler: `futures15m` (+`_v11`/`_v63`), `futures5m`, v14 dönemi script'leri — ASLA `cp`+`load` ETMEYİN.** KeepAlive'lı emekli plist reboot'ta dirilir → split-brain çift-daemon (2× yaşandı; bkz memory "champion-15m-launchd-keepalive" dersi). Aşağıdaki §3 tarihsel arşivdir, uygulamayın.
+
+> **DR DURUMU (2026-07-11): DEGRADED.** `com.priceaction.healthping` kurulu
+> olsa da `HEALTHCHECKS_PING_URL` yoksa INERT/WARN'dır; Mac-dışı alarm yoktur.
+> Repo-kontrollü şifreli off-site backup/restore kanıtı da henüz yoktur. Bu iki
+> kalem `docs/OPERATIONS_PENDING_2026-07-11.md` kapanmadan "DR hazır" denmez.
 
 macOS launchd plist'leri — Mac mini'nin boot anında otomatik başlattığı servisler.
 
@@ -11,10 +16,31 @@ macOS launchd plist'leri — Mac mini'nin boot anında otomatik başlattığı s
 | Plist | Servis | Yükleme durumu | Komutu |
 |---|---|---|---|
 | `com.priceaction.futures_v15p2.plist` | `run_futures_v15p2.sh` (CANLI trading bot, v15p2) | **YÜKLÜ (canlı)** | — |
-| `com.priceaction.healthping.plist` | health ping | **YÜKLÜ** | — |
-| `com.priceaction.ceo.plist` | `pa-ceo --mode daily --telegram` (orchestrator) | **YÜKLÜ** | aşağıda §2 |
+| `com.priceaction.healthping.plist` | health ping | **YÜKLÜ, INERT (URL yok)** | dış credential bekliyor |
+| `com.priceaction.e13_shadow_tick.plist` | yerel E13 ATR-trail eşlenik kanıt toplayıcı | **YÜKLÜ; scheduler sağlıklı** | 300 sn interval, son launchd exit `0`; emir/ağ çağrısı yok |
+| `com.priceaction.ceo.plist` | `pa-ceo --mode daily --telegram` (orchestrator) | **INTENTIONALLY UNLOADED** — 418 incident + eski trade PID | guarded deploy sırası §2 |
 | `com.priceaction.futures15m.plist` (+`_v11`/`_v63`) | eski 15m daemon | **EMEKLİ (15 Haz 2026, 3-adım bootout)** — yükleme! | §3 TARİHSEL |
 | `com.priceaction.futures5m.plist` | eski 5m daemon | **EMEKLİ (30 Haz 2026, 0 fill)** — yükleme! | — |
+
+> **E13 saha kanıtı (11 Temmuz 2026):** kontrollü policy migration sonrası
+> `com.priceaction.e13_shadow_tick` launchd'ye yüklendi; `StartInterval=300`,
+> ilk saha kanıtında `runs=12`, `last exit code=0`; manuel ingest→consumer
+> snapshotı `newest_bar=2026-07-11T01:45:00Z`, `bytes=1637363712` ve sonraki
+> `2026-07-11T02:06:53.878478Z` tick'i `status=OK` verdi. Kalıcı akış
+> hardening'i sonrasında kick/restart yapılmadan gelen doğal ingest run `766`,
+> `2026-07-11T02:17:41Z` anında doğrulanmış atomik snapshot yayınladı:
+> `newest_bar=2026-07-11T02:00:00Z`, `bytes=1637363712`, `rows=10611632`;
+> source/consumer `COUNT(*)` ve `MAX(ts)` birebir eşleşti, WAL/geçici kopya
+> kalmadı. Bunun ardından E13 doğal run `15`,
+> `2026-07-11T02:21:55.200552Z` tick'inde `status=OK`, `fail_closed=false`,
+> `bars_applied=1`, `open_shadow_trades=1`, `issues=[]`, policy
+> `fb2d4db2…a96d77d`, `exchange_calls=0`, `network_calls=0` verdi.
+> Daha eski tick'lerde yerel market snapshotı son kapanmış bara yetişmediğinde
+> görülen `HOLD_LOCAL_EVIDENCE_GAPS` satırları fail-closed davranış kanıtıdır;
+> scheduler çökmesi değildir. Son gerçek payload her zaman
+> `tail -1 logs/launchd/e13_shadow_tick.stdout.log` ile kontrol edilir. Restore
+> scripti E13'ü yalnız restore öncesinde loaded yakaladıysa geri başlatır;
+> sırf plist repoda var diye koşulsuz başlatmaz.
 
 ## §1 launchd nedir?
 
@@ -24,7 +50,15 @@ Logs: `~/Library/Logs/com.priceaction.*` ve `logs/launchd/*.log`
 
 ## §2 CEO orchestrator — yükleme
 
-**Bu plist `pa-ceo --mode daily --telegram` çalıştırır.** Mac mini boot olunca otomatik başlar; crash olursa 30sn sonra restart eder.
+**Bu plist `pa-ceo --mode daily --telegram` çalıştırır.** Mac mini boot olunca
+otomatik başlar; crash olursa en az 60sn throttle ile restart eder.
+
+> **11 Temmuz 418 kapısı:** plist ve wrapper
+> `PA_DISABLE_PRIVATE_EXCHANGE_API=1` taşır; CEO içindeki account/position/income
+> yolları credential/client/network öncesi fail-closed olur. Buna rağmen job,
+> açık pozisyon taşıyan eski v15p2 PID'i güvenli restart edilip ilk temiz
+> `POS_CHECK + RATE_BUDGET` barı görülene kadar **load edilmez**. Araştırma/rapor
+> faydası bu incident sınırını genişletmez.
 
 ### İlk kurulum (bir kez)
 
@@ -100,6 +134,7 @@ plutil -lint ops/launchd/com.priceaction.ceo.plist
 # 4) Manuel çalıştır (kullanıcı uid altında)
 cd ~/price-action-bot
 PYTHONPATH=src PA_LLM_USE_CLI=true PA_CEO_PUSH_TELEGRAM=true \
+  PA_DISABLE_PRIVATE_EXCHANGE_API=1 \
   .venv/bin/python -m price_action.orchestrator.ceo_loop --mode once --telegram
 ```
 

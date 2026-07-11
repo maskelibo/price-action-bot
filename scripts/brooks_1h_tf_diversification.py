@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import subprocess
 import sys
 from pathlib import Path
 from statistics import mean, pstdev
@@ -102,7 +103,12 @@ def shuffle_p(tr, n=5000):
 
 def main():
     raw = yaml.safe_load(YAML.read_text())
-    git = os.popen("git -C %s rev-parse --short HEAD" % ROOT).read().strip()
+    git = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
     base_cfg = bp.build_cfg(raw)
 
     print("=" * 104)

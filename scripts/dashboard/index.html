@@ -156,6 +156,7 @@
   .empty{color:var(--mute);font-size:13px;padding:22px;text-align:center}
   .loading{text-align:center;padding:120px;color:var(--dim);font-size:14px}
   .err{background:var(--red-bg);border:1px solid #5a2530;color:#ffb3bd;padding:12px 16px;border-radius:12px;font-size:13px;margin-bottom:15px}
+  .warnbox{background:var(--amber-bg);border:1px solid #59491c;color:#ffe39a;padding:12px 16px;border-radius:12px;font-size:13px;margin-bottom:15px}
   .footer{text-align:center;color:var(--mute);font-size:11px;margin-top:26px;letter-spacing:.02em}
   .scroll{max-height:560px;overflow:auto;margin:-2px}
 
@@ -223,12 +224,12 @@
   </aside>
   <div class="main">
     <div class="topbar">
-      <div><div class="tb-title" id="tbTitle">Genel Bakış</div><div class="tb-sub" id="tbSub">borsa-truth · canlı</div></div>
+      <div><div class="tb-title" id="tbTitle">Genel Bakış</div><div class="tb-sub" id="tbSub">kalıcı yerel kanıt</div></div>
       <div class="spacer"></div>
       <span class="clock" id="clock">—</span>
       <button class="refresh" onclick="manualRefresh()"><span id="refIcon">⟳</span> Yenile</button>
     </div>
-    <div class="content"><div id="root"><div class="loading">İlk veri toplanıyor… (borsa income API ~15-20 sn)</div></div></div>
+    <div class="content"><div id="root"><div class="loading">Kalıcı yerel kanıt okunuyor…</div></div></div>
   </div>
 </div>
 
@@ -237,30 +238,38 @@ const $=(s)=>document.querySelector(s);
 let DATA=null, lastErr=null;
 let activeTab=(location.hash.slice(1)||'overview');
 const TABS=[
-  {id:'overview', label:'Genel Bakış',        icon:'📊', sub:'borsa-truth · canlı özet'},
-  {id:'open',     label:'Açık Pozisyonlar',   icon:'📈', sub:'anlık pozisyonlar'},
+  {id:'overview', label:'Genel Bakış',        icon:'📊', sub:'kalıcı yerel kanıt özeti'},
+  {id:'open',     label:'Açık Pozisyonlar',   icon:'📈', sub:'son doğrulanmış yerel kanıt'},
   {id:'history',  label:'Geçmiş Pozisyonlar',  icon:'🗂️', sub:'kapanan işlemler & istatistik'},
   {id:'audit',    label:'İç Denetim',          icon:'🛡️', sub:'3. savunma hattı · SLA'},
   {id:'org',      label:'Organizasyon',        icon:'🏛️', sub:'şema · akış · agent kimlikleri'},
   {id:'system',   label:'Sistem',              icon:'⚙️', sub:'daemon · bot · yapılan işler'},
 ];
 
-function money(v,dec=2){if(v==null||isNaN(v))return '—';return (v>=0?'+':'')+Number(v).toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec});}
-function plain(v,dec=2){if(v==null||isNaN(v))return '—';return Number(v).toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec});}
+function finite(v){return v!=null&&Number.isFinite(Number(v));}
+function money(v,dec=2){if(!finite(v))return '—';return (v>=0?'+':'')+Number(v).toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec});}
+function plain(v,dec=2){if(!finite(v))return '—';return Number(v).toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec});}
 function cls(v){return v>0?'pos':(v<0?'neg':'muted');}
-function esc(s){return (s||'').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));}
+function esc(s){return String(s||'').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));}
 function clock(){const d=new Date(Date.now()+new Date().getTimezoneOffset()*60000+3*3600000);$('#clock').textContent=d.toLocaleTimeString('tr-TR',{hour12:false})+' · TR';}
 setInterval(clock,1000);clock();
 async function manualRefresh(){$('#refIcon').classList.add('spin');try{await fetch('/api/refresh');}catch(e){}setTimeout(load,1800);setTimeout(()=>$('#refIcon').classList.remove('spin'),4200);}
 
 function panel(title,tag,col,bodyHtml){return `<div class="panel ${col}"><h2>${title}${tag?`<span class="tag">${tag}</span>`:''}</h2><div class="body">${bodyHtml}</div></div>`;}
 function kpi(label,val,sub,c){return `<div class="kpi"><div class="k-label">${label}</div><div class="k-val num ${c||''}">${val}</div><div class="k-sub">${sub||''}</div></div>`;}
+function pnlNotices(p){
+  let h='';
+  if(p.error) h+=`<div class="err">PnL kanıtı: ${esc(p.error)}</div>`;
+  const warnings=Array.isArray(p.warnings)?p.warnings:[];
+  if(warnings.length) h+=`<div class="warnbox">⚠ ${warnings.map(esc).join('<br>⚠ ')}</div>`;
+  return h;
+}
 
 function renderNav(){
   const a=DATA?DATA.audit||{open:0}:{open:0}, p=DATA?DATA.pnl||{}:{};
   $('#nav').innerHTML=TABS.map(t=>{
     let b='';
-    if(t.id==='open'&&p.ok) b=`<span class="ni-badge">${p.n_pos}</span>`;
+    if(t.id==='open'&&p.ok&&p.positions_ok) b=`<span class="ni-badge">${p.n_pos}</span>`;
     if(t.id==='history'&&p.ok&&p.closed_stats) b=`<span class="ni-badge">${p.closed_stats.n}</span>`;
     if(t.id==='audit') b=`<span class="ni-badge ${a.overdue>0?'alert':''}">${a.open}</span>`;
     return `<div class="nav-item ${t.id===activeTab?'active':''}" onclick="switchTab('${t.id}')"><span class="ni-ic">${t.icon}</span><span>${t.label}</span>${b}</div>`;
@@ -273,8 +282,8 @@ window.addEventListener('hashchange',()=>{const t=location.hash.slice(1);if(t&&t
 
 // ───────── TAB: Genel Bakış ─────────
 function viewOverview(){
-  const p=DATA.pnl; let h='';
-  if(!p.ok) return `<div class="err">PnL alınamadı: ${esc(p.error||'?')}</div>`;
+  const p=DATA.pnl; let h=pnlNotices(p);
+  if(!p.ok) return h||'<div class="err">PnL kanıtı kullanılamıyor</div>';
   h+=`<div class="flow">
     <div class="fstep"><div class="fl">💰 Yatırılan Sermaye</div><div class="fv num">$${plain(p.start_equity,0)}</div><div class="fs">v14 başlangıç · ${p.anchor_tr}</div></div>
     <div class="arr">→</div>
@@ -283,14 +292,14 @@ function viewOverview(){
     <div class="fstep"><div class="fl">${p.total_pnl>=0?'📈':'📉'} Net Kâr / Zarar</div><div class="fv num ${cls(p.total_pnl)}">$${money(p.total_pnl)}</div><div class="fs ${cls(p.total_pnl)}">${money(p.total_pnl_pct)}% · ${p.total_pnl>=0?'kârda':'zararda'}</div></div>
   </div>`;
   h+='<div class="kpis">';
-  h+=kpi('NET Realized (TÜM)','$'+money(p.net_realized),`${p.n_closes} kapanış · fee dahil`,cls(p.net_realized));
-  h+=kpi('TEMİZ Edge','$'+money(p.clean_net),`${p.clean_n} kapanış · champion sonrası`,cls(p.clean_net));
-  h+=kpi('Açık Kâr/Zarar','$'+money(p.unrealized),`${p.n_pos} pozisyon · ${p.n_pos_green} yeşil`,cls(p.unrealized));
-  h+=kpi('Komisyon + Funding','$'+money(p.commission+p.funding),`maliyet · fee $${money(p.commission)}`,'');
+  h+=kpi('Journal Realized (TÜM)','$'+money(p.realized_pnl),`${p.n_closes} kapanış · fee/funding kapsamı belirsiz`,cls(p.realized_pnl));
+  h+=kpi('TEMİZ Journal PnL','$'+money(p.clean_realized),`${p.clean_n} kapanış · champion sonrası`,cls(p.clean_realized));
+  h+=kpi('Açık Kâr/Zarar','$'+money(p.unrealized),p.positions_ok?`${p.n_pos} pozisyon · ${p.n_pos_green} yeşil`:'pozisyon kanıtı degraded',cls(p.unrealized));
+  h+=kpi('Fill Komisyon Kanıtı','$'+money(p.commission),'ayrı kanıt · Journal PnL’ye eklenmez','');
   h+='</div>';
   const bs=DATA.botstats||{},a=DATA.audit||{},sy=DATA.system||{};
   const quick=`<div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
-    <div class="stat"><div class="s-val">${p.n_pos}</div><div class="s-label">Açık pozisyon</div></div>
+    <div class="stat"><div class="s-val">${p.positions_ok?p.n_pos:'—'}</div><div class="s-label">Açık pozisyon</div></div>
     <div class="stat"><div class="s-val ${a.overdue>0?'neg':''}">${a.open}</div><div class="s-label">Audit açık bulgu</div></div>
     <div class="stat"><div class="s-val">${bs.scans||0}</div><div class="s-label">15m tarama</div></div>
     <div class="stat"><div class="s-val">${sy.disk_free||'—'}</div><div class="s-label">Disk boş</div></div></div>`;
@@ -303,7 +312,7 @@ function viewOverview(){
         <div class="att-val ${cls(x.net)}">$${money(x.net)} <span class="dim">·${x.n}</span></div></div>`;}
   } else dly='<div class="empty">veri yok</div>';
   h+='<div class="grid">';
-  h+=panel('📅 Günlük Performans','income/gün · net','col-7',dly);
+  h+=panel('📅 Günlük Journal PnL','kayıt/gün · kapsam belirsiz','col-7',dly);
   h+=panel('⚡ Hızlı Bakış','','col-5',quick);
   h+='</div>';
   return h;
@@ -312,9 +321,11 @@ function viewOverview(){
 // ───────── TAB: Açık Pozisyonlar ─────────
 function viewOpen(){
   const p=DATA.pnl;
-  if(!p.ok) return `<div class="err">PnL alınamadı: ${esc(p.error||'?')}</div>`;
+  const notice=pnlNotices(p);
+  if(!p.ok) return notice||'<div class="err">PnL kanıtı kullanılamıyor</div>';
   let body;
-  if(!p.positions.length) body=`<div class="empty">açık pozisyon yok</div>`;
+  if(!p.positions_ok) body='<div class="empty">pozisyon kanıtı güvenilir değil — sıfır pozisyon varsayılmadı</div>';
+  else if(!p.positions.length) body=`<div class="empty">açık pozisyon yok</div>`;
   else{
     body=`<table><thead><tr><th>Sembol</th><th>Yön</th><th>Tutar ($)</th><th>Giriş</th><th>Son Fiyat</th><th>Miktar</th><th>Açık K/Z</th><th>%</th></tr></thead><tbody>`;
     for(const x of p.positions)
@@ -325,31 +336,32 @@ function viewOpen(){
     body+='</tbody></table>';
     if(DATA.botstats&&DATA.botstats.pos_check) body+=`<div class="posbox">⏱ canlı bot: ${esc(DATA.botstats.pos_check)}</div>`;
   }
-  const expo=p.pos_notional_total||0, expoPct=p.wallet?(expo/p.wallet*100):0;
-  let h='<div class="kpis" style="grid-template-columns:repeat(4,1fr)">';
-  h+=kpi('Açık Pozisyon',p.n_pos,`${p.n_pos_green} yeşil · ${p.n_pos-p.n_pos_green} kırmızı`,'');
-  h+=kpi('Yatırılan Tutar','$'+plain(expo,0),`cüzdanın %${plain(expoPct,0)} kadarı`,'');
-  h+=kpi('Toplam Açık K/Z','$'+money(p.unrealized),'LAST fiyattan',cls(p.unrealized));
-  h+=kpi('Kullanılan Margin','$'+plain(p.pos_margin_total,0),`boşta $${plain(p.available,0)}`,'');
+  const expo=p.positions_ok?p.pos_notional_total:null, expoPct=(p.positions_ok&&p.wallet)?(expo/p.wallet*100):null;
+  let h=notice+'<div class="kpis" style="grid-template-columns:repeat(4,1fr)">';
+  h+=kpi('Açık Pozisyon',p.positions_ok?p.n_pos:'—',p.positions_ok?`${p.n_pos_green} yeşil · ${p.n_pos-p.n_pos_green} kırmızı`:'kanıt degraded','');
+  h+=kpi('Yatırılan Tutar',finite(expo)?'$'+plain(expo,0):'—',finite(expoPct)?`cüzdanın %${plain(expoPct,0)} kadarı`:'pozisyon kanıtı yok','');
+  h+=kpi('Toplam Açık K/Z','$'+money(p.unrealized),p.positions_ok?'son yerel fiyat kanıtı':'snapshot toplamı; pozisyon ayrıntısı degraded',cls(p.unrealized));
+  h+=kpi('Kullanılan Margin',finite(p.pos_margin_total)?'$'+plain(p.pos_margin_total,0):'—',`POS_CHECK kanıtında yok · kullanılabilir $${plain(p.available,0)}`,'');
   h+='</div>';
-  h+=`<div class="grid">${panel('🟢 Açık Pozisyonlar','borsa-truth','col-12',body)}</div>`;
+  h+=`<div class="grid">${panel('🟢 Açık Pozisyonlar','kalıcı yerel POS_CHECK','col-12',body)}</div>`;
   return h;
 }
 
 // ───────── TAB: Geçmiş Pozisyonlar ─────────
 function viewHistory(){
   const p=DATA.pnl;
-  if(!p.ok) return `<div class="err">PnL alınamadı: ${esc(p.error||'?')}</div>`;
+  const notice=pnlNotices(p);
+  if(!p.ok) return notice||'<div class="err">PnL kanıtı kullanılamıyor</div>';
   const s=p.closed_stats||{};
-  const realizedGross=(s.gross_win||0)+(s.gross_loss||0);
+  const journalRealized=(s.gross_win||0)+(s.gross_loss||0);
   const fee=s.total_commission||0;
-  let h='<div class="kpis" style="grid-template-columns:repeat(3,1fr)">';
+  let h=notice+'<div class="kpis" style="grid-template-columns:repeat(3,1fr)">';
   h+=kpi('Toplam İşlem',s.n||0,`${s.wins||0} kazanan · ${s.losses||0} kaybeden`,'');
   h+=kpi('Başarı Oranı',(s.win_rate||0)+'%','win rate',(s.win_rate>=50?'pos':'neg'));
   h+=kpi('Profit Factor',s.profit_factor!=null?s.profit_factor:'—',`ort kazanç $${money(s.avg_win)} / kayıp $${money(s.avg_loss)}`,(s.profit_factor>=1?'pos':'neg'));
   h+=kpi('En İyi / En Kötü','$'+money(s.best),`en kötü $${money(s.worst)}`,'');
-  h+=kpi('Realized (fee hariç)','$'+money(realizedGross),`brüt +$${plain(s.gross_win)} / $${plain(s.gross_loss)}`,cls(realizedGross));
-  h+=kpi('💸 Ödenen Komisyon','$'+money(fee),`net (fee sonrası) $${money(realizedGross+fee)}`,'neg');
+  h+=kpi('Journal Realized','$'+money(journalRealized),`kazanç +$${plain(s.gross_win)} / kayıp $${plain(s.gross_loss)} · fee kapsamı belirsiz`,cls(journalRealized));
+  h+=kpi('💸 Fill Komisyon Kanıtı','$'+money(fee),'ayrı kanıt · Journal PnL’ye eklenmez','neg');
   h+='</div>';
   let att='';
   const aa=p.all_attribution||[];
@@ -362,15 +374,14 @@ function viewHistory(){
   let tbl;
   const ct=p.closed_trades||[];
   if(!ct.length) tbl='<div class="empty">kapanış yok</div>';
-  else{tbl='<div class="scroll"><table><thead><tr><th>Zaman (TR)</th><th>Sembol</th><th>Dönem</th><th>Realized</th><th>Komisyon</th><th>Net</th></tr></thead><tbody>';
+  else{tbl='<div class="scroll"><table><thead><tr><th>Zaman (TR)</th><th>Sembol</th><th>Dönem</th><th>Journal Realized</th><th>Eşlenen Fill Fee</th></tr></thead><tbody>';
     for(const c of ct) tbl+=`<tr><td class="muted">${c.tr}</td><td class="sym">${c.symbol}</td>
       <td><span class="chip ${c.clean?'clean':'contam'}">${c.clean?'temiz':'eski'}</span></td>
       <td class="num ${cls(c.pnl)}">$${money(c.pnl)}</td>
-      <td class="num neg">${money(c.comm,3)}</td>
-      <td class="num ${cls(c.net)}">$${money(c.net)}</td></tr>`;
+      <td class="num neg">${money(c.comm,3)}</td></tr>`;
     tbl+='</tbody></table></div>';}
   h+=`<div class="grid">
-    ${panel('📊 Sembol Bazlı Katkı (tüm dönem)','','col-5',att)}
+    ${panel('📊 Sembol Bazlı Journal PnL (tüm dönem)','','col-5',att)}
     ${panel('🗂️ İşlem Geçmişi','son '+ct.length,'col-7',tbl)}
   </div>`;
   return h;
@@ -457,21 +468,23 @@ function viewSystem(){
   for(const d of (DATA.daemons||[]))
     dm+=`<div class="drow"><span class="dot ${d.status}"></span>
       <div class="meta"><div class="dl-title">${d.desc}</div>
-      <div class="dl-sub">${d.pid?('PID '+d.pid+(d.uptime?' · '+d.uptime.trim():'')):'çalışmıyor'}</div></div>
+      <div class="dl-sub">${d.detail?esc(d.detail):(d.pid?('PID '+d.pid+(d.uptime?' · '+d.uptime.trim():'')):'çalışmıyor')}</div></div>
       <div class="dl-right muted">${d.log_age_min!=null?(d.log_age_min+'dk önce'):''}</div></div>`;
   dm+='</div>';
   const botAct=`<div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
     <div class="stat"><div class="s-val">${bs.scans||0}</div><div class="s-label">15m tarama</div></div>
     <div class="stat"><div class="s-val ${(bs.entries||0)>0?'pos':''}">${bs.entries||0}</div><div class="s-label">Entry</div></div>
     <div class="stat"><div class="s-val muted">${bs.widestop_rej||0}</div><div class="s-label">Widestop red</div></div>
-    <div class="stat"><div class="s-val muted">${bs.risk_rej||0}</div><div class="s-label">Risk red</div></div></div>`;
+    <div class="stat"><div class="s-val muted">${bs.risk_rej||0}</div><div class="s-label">Risk red</div></div>
+    <div class="stat"><div class="s-val ${(bs.rate_limit||{}).recent_48h?'neg':'pos'}">${(bs.rate_limit||{}).events||0}</div><div class="s-label">418 / -1003</div></div>
+    <div class="stat"><div class="s-val ${(bs.rate_limit||{}).active?'neg':'muted'}">${(bs.rate_limit||{}).active?'AKTİF':'—'}</div><div class="s-label">REST ban</div></div></div>`;
   let commits='';
   const w=DATA.worklog||[];
   if(!w.length)commits='<div class="empty">git geçmişi yok</div>';
   else for(const c of w) commits+=`<div class="commit"><span class="h">${c.hash}</span><span class="m">${esc(c.msg)}</span><span class="w">${esc(c.when)}</span></div>`;
   return `<div class="grid">
     ${panel('⚙️ Daemon Sağlığı',sy.disk_free?('disk '+sy.disk_free+' boş'):'','col-6',dm)}
-    ${panel('🤖 Bot Aktivite (v14)',bs.last_scan_tr?('son '+bs.last_scan_tr+' UTC'):'','col-6',botAct)}
+    ${panel('🤖 Bot Aktivite (v15p2)',bs.last_scan_tr?('son '+bs.last_scan_tr+' UTC'):'','col-6',botAct)}
     ${panel('📋 Yapılan İşler (son commitler)','','col-12',commits)}
   </div>`;
 }
@@ -482,7 +495,7 @@ function renderView(){
   let h='<div class="view">';
   if(lastErr) h+=`<div class="err">⚠ ${esc(lastErr)}</div>`;
   h+=(VIEWS[activeTab]||viewOverview)();
-  h+=`<div class="footer">borsa-truth · TR saat · son toplama: ${esc(DATA.generated_tr||'')} · otomatik yenileme 25 sn</div></div>`;
+  h+=`<div class="footer">kalıcı yerel kanıt · TR saat · son toplama: ${esc(DATA.generated_tr||'')} · otomatik yenileme 25 sn</div></div>`;
   $('#root').innerHTML=h;
 }
 

@@ -1,5 +1,17 @@
 # KALAN İŞLER — Kapanış Sprinti Sonrası Defter (2026-07-10)
 
+> **11 Temmuz üst-notu — bu dosyanın “kod tarafında açık iş kalmadı” sonucu
+> artık güncel değildir.** Sonraki bağımsız execution/rate/DR incelemesi çoklu
+> protection-fill lifecycle'ı, pending-entry WAL silme yarışı, deterministik
+> fill çatışması, DMS'in 20 saniyelik private REST polling'i, cooldown sırasında
+> acil-flatten retry tüketimi ve ingest→consumer snapshot gecikmesi buldu.
+> Disk düzeltmeleri ve testleri 11 Temmuz tesliminde yer alır; açık pozisyonlar
+> nedeniyle trade-daemon deployu ve 48 saatlik 418 kanıtı beklemektedir. Güncel
+> karar/kapanış kaynakları:
+> `docs/OPERATIONS_DECISIONS_2026-07-11.md`,
+> `docs/OPERATIONS_PENDING_2026-07-11.md` ve
+> `memory/shared/incidents/INC-2026-07-11-binance-testnet-rate-ban.md`.
+
 > **🏁 NİHAİ DURUM (10 Tem gece):** #6/C1 (`29936e3`) + #7/CVE 8-of-9 (`0417651`,
 > A/B-kanıtlı + canlı venv + restart) + #8/DEGRADED_READ (`b07745c`) + #4/retention-3g
 > (`ad4aaab`, disk %85→%82) KAPANDI. **Kod tarafında AÇIK İŞ KALMADI.** Kalanlar:

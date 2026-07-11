@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+import subprocess
 import sys
 from pathlib import Path
 from statistics import mean
@@ -687,7 +688,12 @@ def split(trades):
 def main() -> None:
     df = add_indicators(load_ohlcv())
     dhash = data_hash(df)
-    git_hash = os.popen("git -C %s rev-parse --short HEAD" % ROOT).read().strip()
+    git_hash = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
     print("=" * 92)
     print("BROOKS TRAP-FAMILY (A1/A2/A3) + DYNAMIC-EXIT RE-TESTS (B1/B2) — EUR/USD 4H honest cost")
     print("=" * 92)

@@ -6,8 +6,9 @@
   <string>com.priceaction.dbbackup</string>
 
   <!--
-    FIX 2026-05-28 (audit-A9): otomatik DuckDB backup — günlük 03:00 TR (00:00 UTC).
-    3 günlük rolling backup (PA_BACKUP_RETENTION_DAYS=3 env ezer; script default 7 — D16 çelişkisi yorum-tarafı düzeltildi 2026-07-10; retention DEĞERİ kararı Principal'de). scripts/backup_duckdb.sh çalıştırır.
+    FIX 2026-05-28 (audit-A9): otomatik DuckDB backup — günlük 00:00 TR (önceki gün 21:00 UTC).
+    Tarih adına göre en yeni 3 backup tutulur (PA_BACKUP_RETENTION_DAYS=3;
+    script'in manuel/envsiz default'u da 3). scripts/backup_duckdb.sh çalıştırır.
 
     Load:    launchctl bootstrap gui/501 ~/Library/LaunchAgents/com.priceaction.dbbackup.plist
     Unload:  launchctl bootout gui/501 ~/Library/LaunchAgents/com.priceaction.dbbackup.plist
@@ -32,7 +33,7 @@
     <string>3</string>
   </dict>
 
-  <!-- Gece 03:00 TR = 00:00 UTC (low-traffic, ingest sonrası) -->
+  <!-- Yerel saatle gece 00:00 TR = önceki gün 21:00 UTC (low-traffic) -->
   <key>StartCalendarInterval</key>
   <dict>
     <key>Hour</key>

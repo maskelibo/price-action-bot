@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import os
 import pickle
+import subprocess
 import sys
 from pathlib import Path
 from statistics import mean, pstdev
@@ -272,7 +273,12 @@ def main():
     trades = d["trades"]
     selected = d["selected"]
     raw = yaml.safe_load((ROOT / "configs" / "risk_forex.yaml").read_text())
-    git = os.popen(f"git -C {ROOT} rev-parse --short HEAD").read().strip()
+    git = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
     with open(PKL, "rb") as f:
         dhash = hashlib.sha256(f.read()).hexdigest()[:16]
 

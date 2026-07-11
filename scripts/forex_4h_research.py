@@ -25,6 +25,7 @@ import hashlib
 import json
 import math
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -377,7 +378,12 @@ def main() -> None:
     dhash = data_hash(df)
     qg = data_quality_gate(df)
 
-    git_hash = os.popen("git -C %s rev-parse --short HEAD" % ROOT).read().strip()
+    git_hash = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
 
     print("=" * 78)
     print("HYP-2026-05-29-forex-4h-pa — EUR/USD 4H mean-reversion PA bundle")

@@ -60,6 +60,8 @@ dependencies = [
     "yt-dlp>=2026.6.9",
     "trafilatura>=1.12",
     "beautifulsoup4>=4.12",
+    # CVE floor 2026-07-11: 2.8.3 has two fixable selector-complexity DoS advisories.
+    "soupsieve>=2.8.4",
     "httpx>=0.27",
     "feedparser>=6.0",
 
@@ -91,8 +93,10 @@ dependencies = [
     "starlette>=1.3.1",         # HIGH GHSA-82w8-qh3p-5jfq +5 (form-DoS, method-dispatch; FastAPI tabanı)
     "aiohttp>=3.14.1",          # 12 advisory (pipelining DoS, cookie leak, digest-auth redirect)
     "python-multipart>=0.0.31", # HIGH GHSA-5rvq-cxj2-64vf (querystring DoS)
-    # torch: LOW (jit.script) — OSV 2.13.0'ı temiz raporluyor; sentence-transformers
-    # transitive'i. Floor bilinçli KONULMADI (ağır paket, LOW sev) — lock'ta yönet.
+    # torch 2.10.0: PYSEC-2026-139 + CVE-2025-3000 için 2026-07-11 itibarıyla
+    # fix sürümü yayımlanmadı. Yalnız sentence-transformers transitifidir; repo
+    # torch.load/jit/pt2 çağırmaz ve dışarıdan model artefaktı kabul etmez.
+    # Fix çıkınca lock yükselt; çözülmüş gibi floor uydurma.
 ]
 
 [project.optional-dependencies]

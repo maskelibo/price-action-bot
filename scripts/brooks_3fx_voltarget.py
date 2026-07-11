@@ -28,6 +28,7 @@ Usage: .venv/bin/python scripts/brooks_3fx_voltarget.py [--full-grid]
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import argparse
 from pathlib import Path
@@ -288,7 +289,12 @@ def main():
     ap.add_argument("--full-grid", action="store_true")
     args = ap.parse_args()
 
-    git = os.popen("git -C %s rev-parse --short HEAD" % ROOT).read().strip()
+    git = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
     print("=" * 100)
     print("brooks 3-FX PORTFOLIO — VOL-TARGETING + CONCURRENCY CAP + RISK-PARITY")
     print("=" * 100)

@@ -94,7 +94,7 @@ def _connect_write_with_retry(
         raise last_exc
 
 
-def close_pool_for_path(path: str) -> None:
+def close_pool_for_path(path: str | Path) -> None:
     """Belirli bir path'in pooled bağlantılarını kapat → cross-process lock bırak.
 
     FIX 2026-05-30: CEO (uzun-ömürlü) run_hourly market_ingest.duckdb'yi
@@ -102,16 +102,62 @@ def close_pool_for_path(path: str) -> None:
     ingest15m (5dk) hiç yazamıyordu. run_hourly/snapshot bitince bu path'i
     kapatarak lock'u serbest bırakırız; bir sonraki erişimde lazily yeniden açılır.
     """
+    # Pool keys are always strings (see ``OHLCVStore._conn``). Callers mostly
+    # receive ``Path`` values from Settings; failing to normalize here left the
+    # real writer handle in the pool and therefore kept the cross-process lock.
+    pool_key = str(Path(path))
     with _POOL_GUARD:
-        conns = _CONN_POOL.pop(path, [])
-        _CONN_LOCKS.pop(path, None)
-        _POOL_RR_INDEX.pop(path, None)
+        conns = _CONN_POOL.pop(pool_key, [])
+        _CONN_LOCKS.pop(pool_key, None)
+        _POOL_RR_INDEX.pop(pool_key, None)
     for con in conns:
         try:
             con.close()
         except Exception as _cl_err:  # pragma: no cover
             # log-only: pooled close fail → olası writer-lock leak artık görünür
-            logger.warning("store.pool_close_fail", extra={"path": path, "err": str(_cl_err)[:120]})
+            logger.warning(
+                "store.pool_close_fail",
+                extra={"path": pool_key, "err": str(_cl_err)[:120]},
+            )
+
+
+def checkpoint_and_close_pool_for_path(path: str | Path) -> None:
+    """Checkpoint and strictly close a writer pool before filesystem snapshot.
+
+    The pool entry is detached first, so no new caller can receive a handle that
+    is being closed. A later caller may create a fresh connection and DuckDB's
+    cross-process lock/retry rules still apply. Checkpoint or close errors are
+    surfaced to the caller; publishing a consumer snapshot after either error
+    would falsely claim a durable ingest boundary.
+    """
+
+    pool_key = str(Path(path))
+    with _POOL_GUARD:
+        conns = _CONN_POOL.pop(pool_key, [])
+        locks = _CONN_LOCKS.pop(pool_key, [])
+        _POOL_RR_INDEX.pop(pool_key, None)
+
+    errors: list[str] = []
+    for index, con in enumerate(conns):
+        lock = locks[index] if index < len(locks) else threading.RLock()
+        with lock:
+            try:
+                con.execute("CHECKPOINT")
+            except Exception as exc:
+                errors.append(f"checkpoint[{index}]: {exc}")
+            try:
+                con.close()
+            except Exception as exc:  # pragma: no cover - DuckDB defensive path
+                errors.append(f"close[{index}]: {exc}")
+
+    if errors:
+        detail = "; ".join(errors)
+        logger.error(
+            "store.checkpoint_close_fail",
+            extra={"path": pool_key, "err": detail[:300]},
+        )
+        raise RuntimeError(f"writer checkpoint/close failed for {pool_key}: {detail}")
+    logger.bind(path=pool_key, connections=len(conns)).info("store.checkpoint_close_done")
 
 
 def _get_pooled_connection(

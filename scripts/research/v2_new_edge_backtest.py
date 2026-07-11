@@ -289,7 +289,9 @@ def regime_diagnostic(closes: pd.DataFrame):
 def main():
     print(f"# v2 NEW EDGE backtest  git={git_hash()}  TF={TF}  syms={len(UNIVERSE)}")
     closes, opens = load_panel()
-    dh = hashlib.md5(pd.util.hash_pandas_object(closes).values.tobytes()).hexdigest()[:10]
+    dh = hashlib.md5(
+        pd.util.hash_pandas_object(closes).values.tobytes(), usedforsecurity=False
+    ).hexdigest()[:10]
     print(f"# aligned daily rows={len(closes)}  {closes.index[0].date()}->{closes.index[-1].date()}  data_hash={dh}")
 
     # ---------- CANDIDATE 1: XS momentum sweep ----------
