@@ -991,6 +991,25 @@ def _top_trade_removal(episodes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _json_safe_monthly_statistics(statistics: Mapping[str, Any]) -> dict[str, Any]:
+    """Encode undefined positive-PnL shares as null while gates stay fail-closed.
+
+    ``monthly_return_statistics`` deliberately returns ``+inf`` when total
+    positive monthly PnL is zero.  That sentinel is useful for a comparison
+    gate (it cannot pass a finite maximum), but strict JSON forbids it.  The
+    report representation therefore uses ``None`` for only those two
+    denominator-zero diagnostics; :func:`_gate` already treats ``None`` as a
+    failed check.
+    """
+
+    normalized = dict(statistics)
+    for key in ("best_month_positive_pnl_share", "best_3_month_positive_pnl_share"):
+        value = normalized.get(key)
+        if isinstance(value, int | float) and not math.isfinite(float(value)):
+            normalized[key] = None
+    return normalized
+
+
 def _candidate_metrics(
     candidate_id: str,
     validated: Mapping[str, Mapping[str, Any]],
@@ -1008,7 +1027,9 @@ def _candidate_metrics(
     h_returns = [float(row["return_pct"]) for row in h_pseudo["monthly"]]
     h_pnl = [float(row["pnl"]) for row in h_pseudo["monthly"]]
     c2_returns = [float(row["return_pct"]) for row in c2_pseudo["monthly"]]
-    h_statistics = monthly_return_statistics(h_returns, monthly_pnl=h_pnl)
+    h_statistics = _json_safe_monthly_statistics(
+        monthly_return_statistics(h_returns, monthly_pnl=h_pnl)
+    )
     c2_statistics = monthly_return_statistics(c2_returns)
     h_statistics["block_bootstrap_90pct_lower_bound_pct"] = block_bootstrap_lower_bound_pct(
         h_returns,

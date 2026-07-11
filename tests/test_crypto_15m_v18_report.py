@@ -281,6 +281,29 @@ def test_top_trade_removal_is_additive_and_uses_ceil_five_percent() -> None:
     assert result["net_after_top_5pct_removed"] == sum(range(1, 20))
 
 
+def test_undefined_positive_pnl_shares_serialize_as_null_and_fail_closed() -> None:
+    normalized = report._json_safe_monthly_statistics(
+        {
+            "best_month_positive_pnl_share": float("inf"),
+            "best_3_month_positive_pnl_share": float("inf"),
+            "trimmed_mean_monthly_pct": -2.0,
+        }
+    )
+    metrics = _passing_metrics()
+    metrics["H"].update(normalized)
+
+    gates = report._pre_loso_gates(metrics, _prereg())
+
+    assert normalized == {
+        "best_month_positive_pnl_share": None,
+        "best_3_month_positive_pnl_share": None,
+        "trimmed_mean_monthly_pct": -2.0,
+    }
+    assert gates["checks"]["concentration.best_month"]["passed"] is False
+    assert gates["checks"]["concentration.best_3_months"]["passed"] is False
+    assert '"best_month_positive_pnl_share": null' in report.deterministic_json(normalized)
+
+
 def test_bundle_path_escape_and_symlink_are_rejected(tmp_path: Path) -> None:
     root = tmp_path / "bundle"
     root.mkdir()
