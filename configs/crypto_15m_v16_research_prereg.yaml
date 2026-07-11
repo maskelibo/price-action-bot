@@ -1,0 +1,255 @@
+schema_version: crypto-15m-v16-prereg-v1
+status: PREREGISTERED_NO_RESULTS_SEEN
+created_at_utc: "2026-07-11T03:35:09Z"
+parent_git_commit: d71bc0e8f86e69a66015b2fdbd44a3c7424501cd
+live_deployment_authorized: false
+promotion_eligible: false
+
+objective:
+  timeframe: 15m
+  market: binance_usdm_research_proxy
+  direction: long_short
+  target_is_a_frozen_gate_not_an_optimizer: true
+  target_monthly_return_pct: [10.0, 15.0]
+  target_max_drawdown_pct: 15.0
+  target_note: >-
+    Return above 15% receives no additional selection score. Stability and
+    drawdown decide ties. Backtest is a hypothesis; matched live fills are proof.
+
+snapshots:
+  market:
+    path: data/backups/20260711/market.duckdb
+    sha256: 071768300daea9170d29bd5e35cc94795b8a500614d6e5ac4b127e459416652d
+    bytes: 1636839424
+    table: ohlcv
+    venue: binance
+    timeframe: 15m
+  funding:
+    path: data/backups/20260711/funding.duckdb
+    sha256: 35be9ebae8f9468a6bae819054008cb4c2338ae0eb923910584dea1adc0c6b96
+    bytes: 17575936
+    table: funding_rates
+  mutable_live_databases_forbidden: true
+
+universe:
+  symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - ADA/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - DOT/USDT
+    - DOGE/USDT
+    - XRP/USDT
+    - ZEC/USDT
+    - NEAR/USDT
+    - FIL/USDT
+    - XLM/USDT
+    - TRX/USDT
+    - ATOM/USDT
+    - AAVE/USDT
+    - ALGO/USDT
+  excluded_static_symbol: UNI/USDT
+  survivorship_warning: >-
+    instruments is empty and the universe is not delisting-inclusive. Historical
+    evidence is FEASIBILITY_NOT_PROMOTION until point-in-time membership exists.
+  holdout_selection:
+    method: >-
+      Development-period median close*volume quartiles; choose the lowest
+      sha256(market_snapshot_sha256 + '|' + symbol) within each quartile.
+    liquidity_window_utc: ["2023-03-01T00:00:00Z", "2023-06-01T00:00:00Z"]
+    holdout_symbols: [XLM/USDT, AAVE/USDT, TRX/USDT, BTC/USDT]
+    btc_reference_remains_available_when_held_out: true
+
+time_protocol:
+  complete_months_utc: ["2021-06-01T00:00:00Z", "2026-06-01T00:00:00Z"]
+  development: ["2021-06-01T00:00:00Z", "2023-06-01T00:00:00Z"]
+  expanding_walk_forward:
+    - ["2023-06-01T00:00:00Z", "2023-12-01T00:00:00Z"]
+    - ["2023-12-01T00:00:00Z", "2024-06-01T00:00:00Z"]
+    - ["2024-06-01T00:00:00Z", "2024-12-01T00:00:00Z"]
+    - ["2024-12-01T00:00:00Z", "2025-06-01T00:00:00Z"]
+    - ["2025-06-01T00:00:00Z", "2025-12-01T00:00:00Z"]
+    - ["2025-12-01T00:00:00Z", "2026-06-01T00:00:00Z"]
+  pseudo_oos_months: 36
+  historical_oos_is_not_independent: true
+  genuine_prospective_cutoff_utc: "2026-07-11T03:35:09Z"
+  purge_open_positions_across_fold: false
+  carry_positions_and_state_across_fold: true
+  gap_policy:
+    max_contiguous_gap_minutes: 30
+    warmup_bars_after_gap: 500
+    open_position_action: pessimistic_exit_at_first_tradable_open
+
+execution_contract:
+  decision: completed_signal_bar_close
+  earliest_entry: next_contiguous_15m_bar_open
+  one_position_per_symbol: true
+  intrabar_tie: stop_first
+  gap_stop_fill: worse_of_open_or_stop
+  full_position_exit_only: true
+  partial_take_profit: false
+  pyramid: false
+  risk_per_trade_pct: 0.50
+  max_symbol_notional_pct_equity: 15.0
+  max_positions: 6
+  max_same_side_positions: 3
+  max_leverage: 3.0
+  dd_throttle:
+    threshold_pct: 6.0
+    risk_multiplier: 0.50
+  costs_bps_per_leg:
+    fee: 4.0
+    spread_and_slippage: 20.0
+    impact: 4.5
+  base_round_trip_cost_bps: 57.0
+  funding: observed_event_cashflow
+  cost_scenarios:
+    B: {cost_multiplier: 1.0, funding_multiplier: 1.0, positive_pnl_multiplier: 1.0, negative_pnl_multiplier: 1.0}
+    C2: {cost_multiplier: 2.0, funding_multiplier: 2.0, positive_pnl_multiplier: 1.0, negative_pnl_multiplier: 1.0}
+    H: {cost_multiplier: 1.0, funding_multiplier: 1.0, positive_pnl_multiplier: 0.50, negative_pnl_multiplier: 1.25}
+
+candidate_cells:
+  - id: T1_RESIDUAL_TREND_1W
+    family: residual_cross_sectional_trend
+    beta_lookback_bars: 2688
+    formation_bars: 672
+    rebalance: monday_00_00_utc
+    hold_bars: 672
+    long_k: 3
+    short_k: 3
+    stop_atr_period: 96
+    stop_atr_multiple: 4.0
+    funding_role: realized_cost_only
+  - id: T2_RESIDUAL_TREND_2W
+    family: residual_cross_sectional_trend
+    beta_lookback_bars: 2688
+    formation_bars: 1344
+    rebalance: monday_00_00_utc
+    hold_bars: 672
+    long_k: 3
+    short_k: 3
+    stop_atr_period: 96
+    stop_atr_multiple: 4.0
+    funding_role: realized_cost_only
+  - id: T4_RESIDUAL_TREND_4W
+    family: residual_cross_sectional_trend
+    beta_lookback_bars: 2688
+    formation_bars: 2688
+    rebalance: monday_00_00_utc
+    hold_bars: 672
+    long_k: 3
+    short_k: 3
+    stop_atr_period: 96
+    stop_atr_multiple: 4.0
+    funding_role: realized_cost_only
+  - id: M1_FUNDING_RESIDUAL_REVERSION_4H_Z2
+    family: funding_confirmed_residual_reversion
+    beta_lookback_bars: 2688
+    residual_formation_bars: 96
+    residual_z_lookback_bars: 2880
+    residual_abs_z_min: 2.0
+    decision_times_utc: ["00:00", "08:00", "16:00"]
+    hold_bars: 16
+    long_k: 2
+    short_k: 2
+    stop_atr_period: 96
+    stop_atr_multiple: 3.0
+    funding_confirmation: same_direction_crowding_sign
+  - id: M2_FUNDING_RESIDUAL_REVERSION_8H_Z2
+    family: funding_confirmed_residual_reversion
+    beta_lookback_bars: 2688
+    residual_formation_bars: 96
+    residual_z_lookback_bars: 2880
+    residual_abs_z_min: 2.0
+    decision_times_utc: ["00:00", "08:00", "16:00"]
+    hold_bars: 32
+    long_k: 2
+    short_k: 2
+    stop_atr_period: 96
+    stop_atr_multiple: 3.0
+    funding_confirmation: same_direction_crowding_sign
+  - id: M3_FUNDING_RESIDUAL_REVERSION_4H_Z2P5
+    family: funding_confirmed_residual_reversion
+    beta_lookback_bars: 2688
+    residual_formation_bars: 96
+    residual_z_lookback_bars: 2880
+    residual_abs_z_min: 2.5
+    decision_times_utc: ["00:00", "08:00", "16:00"]
+    hold_bars: 16
+    long_k: 2
+    short_k: 2
+    stop_atr_period: 96
+    stop_atr_multiple: 3.0
+    funding_confirmation: same_direction_crowding_sign
+
+selection:
+  batch_trial_count: 6
+  rank_metric: H_trimmed_mean_monthly_return_capped_at_15pct
+  tie_breakers: [lower_H_max_drawdown, fewer_H_negative_months, lower_cost_turnover]
+  thresholds_may_not_be_relaxed_after_results: true
+  combination_test_requires_new_preregistration: true
+
+hard_gates:
+  sample:
+    pseudo_oos_months: 36
+    minimum_closed_trades: 360
+    minimum_long_trades: 60
+    minimum_short_trades: 60
+    missing_month_return_pct: 0.0
+  H_return:
+    trimmed_mean_monthly_pct_min: 10.0
+    median_monthly_pct_min: 8.0
+    block_bootstrap_90pct_lower_bound_pct_min: 6.0
+  H_stability:
+    negative_months_max: 4
+    months_below_minus_1pct_max: 3
+    worst_month_pct_min: -6.0
+  C2_return:
+    trimmed_mean_monthly_pct_min: 8.0
+    median_monthly_pct_min: 6.0
+    total_return_must_be_positive: true
+  drawdown:
+    B_max_mtm_pct: 15.0
+    C2_H_max_mtm_pct: 20.0
+    max_recovery_months: 6
+  walk_forward:
+    positive_folds_min: 5
+    total_folds: 6
+    worst_six_month_fold_pct_min: -5.0
+    oos_to_is_trimmed_return_ratio_min: 0.50
+    oos_to_is_drawdown_ratio_max: 1.50
+  concentration:
+    best_month_positive_pnl_share_max: 0.15
+    best_3_month_positive_pnl_share_max: 0.35
+    mean_after_best_3_months_removed_pct_min: 7.0
+    top_5pct_trades_positive_pnl_share_max: 0.65
+    net_after_top_5pct_trades_removed_must_be_positive: true
+    single_symbol_marginal_share_max: 0.20
+    top_3_symbol_marginal_share_max: 0.50
+    effective_symbol_count_min: 6
+    all_leave_one_symbol_out_positive: true
+  holdout:
+    C2_total_return_must_be_positive: true
+    development_return_retention_min: 0.40
+    positive_holdout_symbols_min: 3
+    holdout_symbols_total: 4
+    max_drawdown_pct: 25.0
+  direction:
+    long_C2_net_must_be_positive: true
+    short_C2_net_must_be_positive: true
+  multiple_testing:
+    paired_block_months: 3
+    bootstrap_iterations: 20000
+    holm_fwer_adjusted_p_max: 0.05
+    deflated_sharpe_min: 0.95
+    probability_backtest_overfit_max: 0.20
+
+fair_baseline:
+  required_before_better_than_v15p2_claim: true
+  same_snapshot_engine_costs_and_live_exit: true
+  better_rule_1: H_trimmed_return_at_least_max_10pct_or_v15p2_plus_1p5pp_and_DD_no_more_than_1pp_worse
+  better_rule_2: H_return_within_1pp_of_v15p2_and_DD_at_least_25pct_lower
+  negative_months_and_worst_month_may_not_be_worse: true
