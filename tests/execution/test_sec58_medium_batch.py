@@ -6,15 +6,14 @@ M4  — returns_df TTL cache: 15 dk hit, TTL expire, reset, thread-safe.
 M6  — Adaptive leverage retry: margin error → cascade 3x → 2x → 1x.
 L2  — Pyramid DB persistence: upsert / load_all / delete / startup recovery.
 """
+
 from __future__ import annotations
 
 import sys
-import tempfile
 import threading
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -22,14 +21,11 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from price_action.execution.pyramid_router import (
+from price_action.execution.pyramid_router import (  # noqa: E402
     PyramidLeg,
     PyramidPosition,
     PyramidRouter,
-    _make_client_order_id,
-    build_position_from_signal,
 )
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Ortak fixture helpers
@@ -37,33 +33,38 @@ from price_action.execution.pyramid_router import (
 
 ENTRY_PRICE = 65_000.0
 SL_PRICE = 63_700.0
-INITIAL_R = abs(ENTRY_PRICE - SL_PRICE)   # 1300.0
+INITIAL_R = abs(ENTRY_PRICE - SL_PRICE)  # 1300.0
 TRIG_LEG2 = ENTRY_PRICE + 1.0 * INITIAL_R  # 66_300
-TS = datetime(2026, 5, 18, 12, 0, 0, tzinfo=timezone.utc)
+TS = datetime(2026, 5, 18, 12, 0, 0, tzinfo=UTC)
 
 
 def _make_position(extra_legs: list[PyramidLeg] | None = None) -> PyramidPosition:
     entry_leg = PyramidLeg(
-        leg_num=1, leg_state="FILLED", leg_qty=0.01,
-        leg_price=ENTRY_PRICE, client_order_id="PA_test123456789_L1",
-        fill_price=ENTRY_PRICE, filled_at=TS,
+        leg_num=1,
+        leg_state="FILLED",
+        leg_qty=0.01,
+        leg_price=ENTRY_PRICE,
+        client_order_id="PA_testtesttest_L1",
+        fill_price=ENTRY_PRICE,
+        filled_at=TS,
     )
     pos = PyramidPosition(
-        parent_position_id="test123456789_base",
-        symbol="BTC/USDT", side="LONG",
-        entry_price=ENTRY_PRICE, sl_price=SL_PRICE, initial_R=INITIAL_R,
+        parent_position_id="testtesttest_base",
+        symbol="BTC/USDT",
+        side="LONG",
+        entry_price=ENTRY_PRICE,
+        sl_price=SL_PRICE,
+        initial_R=INITIAL_R,
         legs=[entry_leg],
         pyramid_triggers=[1.0, 1.5],
         pyramid_sizes=[0.50, 0.30],
     )
-    for leg in (extra_legs or []):
+    for leg in extra_legs or []:
         pos.legs.append(leg)
     return pos
 
 
-def _make_router(
-    exchange=None, idem=None, slippage=None, post_only_enabled=False
-) -> PyramidRouter:
+def _make_router(exchange=None, idem=None, slippage=None, post_only_enabled=False) -> PyramidRouter:
     if exchange is None:
         exchange = MagicMock()
     if idem is None:
@@ -87,18 +88,24 @@ def _make_router(
 # M2 — Orphan order race condition tests
 # =============================================================================
 
+
 class TestM2OrphanRaceCondition:
     """Pyramid leg-1 SL hit + leg-2 PENDING concurrent simulate — 0 orphan."""
 
     def test_sl_hit_while_leg2_pending_no_orphan(self):
         """SL hit geldiğinde PENDING leg-2 CANCELED olmalı (tek thread)."""
         ex = MagicMock()
-        pos = _make_position([
-            PyramidLeg(
-                leg_num=2, leg_state="PENDING", leg_qty=0.005,
-                leg_price=TRIG_LEG2, client_order_id="PA_test123456789_L2",
-            )
-        ])
+        pos = _make_position(
+            [
+                PyramidLeg(
+                    leg_num=2,
+                    leg_state="PENDING",
+                    leg_qty=0.005,
+                    leg_price=TRIG_LEG2,
+                    client_order_id="PA_testtesttest_L2",
+                )
+            ]
+        )
         router = _make_router(exchange=ex)
         router.on_position_check(pos, SL_PRICE - 100.0, TS)
         leg2 = pos.leg_for_num(2)
@@ -109,13 +116,18 @@ class TestM2OrphanRaceCondition:
         """SL hit geldiğinde SUBMITTED leg-2 exchange.cancel_order çağrılmalı."""
         ex = MagicMock()
         ex.cancel_order.return_value = {"status": "canceled"}
-        pos = _make_position([
-            PyramidLeg(
-                leg_num=2, leg_state="SUBMITTED", leg_qty=0.005,
-                leg_price=TRIG_LEG2, client_order_id="PA_test123456789_L2",
-                exchange_order_id="EX_999",
-            )
-        ])
+        pos = _make_position(
+            [
+                PyramidLeg(
+                    leg_num=2,
+                    leg_state="SUBMITTED",
+                    leg_qty=0.005,
+                    leg_price=TRIG_LEG2,
+                    client_order_id="PA_testtesttest_L2",
+                    exchange_order_id="EX_999",
+                )
+            ]
+        )
         router = _make_router(exchange=ex)
         router.on_position_check(pos, SL_PRICE - 1.0, TS)
         ex.cancel_order.assert_called_once_with("EX_999", "BTC/USDT")
@@ -126,16 +138,24 @@ class TestM2OrphanRaceCondition:
         ex = MagicMock()
         ex.cancel_order.return_value = {"status": "canceled"}
         ex.create_market_order.return_value = {
-            "id": "X", "status": "closed", "average": TRIG_LEG2, "filled": 0.005
+            "id": "X",
+            "status": "closed",
+            "average": TRIG_LEG2,
+            "filled": 0.005,
         }
 
-        pos = _make_position([
-            PyramidLeg(
-                leg_num=2, leg_state="SUBMITTED", leg_qty=0.005,
-                leg_price=TRIG_LEG2, client_order_id="PA_test123456789_L2",
-                exchange_order_id="EX_CONCURRENT",
-            )
-        ])
+        pos = _make_position(
+            [
+                PyramidLeg(
+                    leg_num=2,
+                    leg_state="SUBMITTED",
+                    leg_qty=0.005,
+                    leg_price=TRIG_LEG2,
+                    client_order_id="PA_testtesttest_L2",
+                    exchange_order_id="EX_CONCURRENT",
+                )
+            ]
+        )
 
         router = _make_router(exchange=ex)
         errors: list[str] = []
@@ -158,9 +178,9 @@ class TestM2OrphanRaceCondition:
         assert leg2 is not None
         assert leg2.leg_state == "CANCELED", f"Expected CANCELED, got {leg2.leg_state}"
         # cancel_order en fazla 1 kez çağrılmalı (idempotent — lock korur)
-        assert ex.cancel_order.call_count == 1, (
-            f"cancel_order {ex.cancel_order.call_count}x çağrıldı (orphan!)"
-        )
+        assert (
+            ex.cancel_order.call_count == 1
+        ), f"cancel_order {ex.cancel_order.call_count}x çağrıldı (orphan!)"
         # create_market_order HİÇ çağrılmamalı (SL → trigger detect skip)
         ex.create_market_order.assert_not_called()
 
@@ -168,8 +188,10 @@ class TestM2OrphanRaceCondition:
         """100x concurrent on_position_check(trigger) — leg-2 tek kez submit."""
         ex = MagicMock()
         ex.create_market_order.return_value = {
-            "id": "TRIG_X", "status": "closed",
-            "average": TRIG_LEG2, "filled": 0.005,
+            "id": "TRIG_X",
+            "status": "closed",
+            "average": TRIG_LEG2,
+            "filled": 0.005,
         }
         idem = MagicMock()
         idem.is_seen.return_value = False  # hiç görülmedi
@@ -198,21 +220,26 @@ class TestM2OrphanRaceCondition:
         # create_market_order sadece 1 kez çağrılmalı ya da idem.is_seen True dönmeli.
         # Test amacı: duplicate order YOK.
         # İlk submit sonrası leg_state SUBMITTED/FILLED → sonrakiler _leg_already_handled=True.
-        assert ex.create_market_order.call_count <= 1, (
-            f"create_market_order {ex.create_market_order.call_count}x çağrıldı (DUPLICATE!)"
-        )
+        assert (
+            ex.create_market_order.call_count <= 1
+        ), f"create_market_order {ex.create_market_order.call_count}x çağrıldı (DUPLICATE!)"
 
     def test_sl_hit_cancel_fails_gracefully_no_raise(self):
         """exchange.cancel_order hata verse bile leg CANCELED, exception yutulur."""
         ex = MagicMock()
         ex.cancel_order.side_effect = Exception("Order already canceled")
-        pos = _make_position([
-            PyramidLeg(
-                leg_num=2, leg_state="SUBMITTED", leg_qty=0.005,
-                leg_price=TRIG_LEG2, client_order_id="PA_test123456789_L2",
-                exchange_order_id="EX_GONE",
-            )
-        ])
+        pos = _make_position(
+            [
+                PyramidLeg(
+                    leg_num=2,
+                    leg_state="SUBMITTED",
+                    leg_qty=0.005,
+                    leg_price=TRIG_LEG2,
+                    client_order_id="PA_testtesttest_L2",
+                    exchange_order_id="EX_GONE",
+                )
+            ]
+        )
         router = _make_router(exchange=ex)
         # exception raise etmemeli
         router.on_position_check(pos, SL_PRICE - 1.0, TS)
@@ -221,13 +248,19 @@ class TestM2OrphanRaceCondition:
     def test_filled_leg_never_canceled_on_sl(self):
         """FILLED leg SL'de dokunulmaz (zaten kapanmış)."""
         ex = MagicMock()
-        pos = _make_position([
-            PyramidLeg(
-                leg_num=2, leg_state="FILLED", leg_qty=0.005,
-                leg_price=TRIG_LEG2, client_order_id="PA_test123456789_L2",
-                fill_price=TRIG_LEG2, exchange_order_id="EX_FILLED",
-            )
-        ])
+        pos = _make_position(
+            [
+                PyramidLeg(
+                    leg_num=2,
+                    leg_state="FILLED",
+                    leg_qty=0.005,
+                    leg_price=TRIG_LEG2,
+                    client_order_id="PA_testtesttest_L2",
+                    fill_price=TRIG_LEG2,
+                    exchange_order_id="EX_FILLED",
+                )
+            ]
+        )
         router = _make_router(exchange=ex)
         router.on_position_check(pos, SL_PRICE - 100.0, TS)
         assert pos.leg_for_num(2).leg_state == "FILLED"
@@ -238,6 +271,7 @@ class TestM2OrphanRaceCondition:
 # M4 — returns_df TTL cache tests
 # =============================================================================
 
+
 class TestM4ReturnsDfTTLCache:
     """build_returns_df() TTL cache: hit, expire, thread-safe."""
 
@@ -245,24 +279,34 @@ class TestM4ReturnsDfTTLCache:
     def _clear_cache(self):
         """Her test öncesi cache sıfırla."""
         from scripts.lib.risk_integration import reset_returns_df_cache
+
         reset_returns_df_cache()
         yield
         reset_returns_df_cache()
 
     def _make_mock_returns(self, symbols: list[str]):
         """Dummy DataFrame (2 kolon, 90 satır)."""
-        import pandas as pd
         import numpy as np
+        import pandas as pd
+
         rng = np.random.default_rng(42)
         data = {s: rng.normal(0, 0.01, 90) for s in symbols}
-        return pd.DataFrame(data)
+        index = pd.date_range(
+            end=pd.Timestamp.now(tz="UTC").floor("D") - pd.Timedelta(days=1),
+            periods=90,
+            freq="D",
+        )
+        return pd.DataFrame(data, index=index)
 
     def test_cache_hit_returns_same_data(self, tmp_path):
         """İkinci çağrı cache'ten geldi — doğrudan cache insert + read."""
-        import pandas as pd
         import time as _time
+
+        import pandas as pd
+
         from scripts.lib.risk_integration import (
-            build_returns_df, _RETURNS_DF_CACHE,
+            _RETURNS_DF_CACHE,
+            build_returns_df,
         )
 
         dummy = self._make_mock_returns(["BTC/USDT"])
@@ -270,7 +314,8 @@ class TestM4ReturnsDfTTLCache:
         _RETURNS_DF_CACHE[_cache_key] = (_time.monotonic(), dummy)
 
         result = build_returns_df(
-            ["BTC/USDT"], days=90,
+            ["BTC/USDT"],
+            days=90,
             market_db=tmp_path / "market.duckdb",
         )
         # Cache hit → result == dummy (kopya)
@@ -278,10 +323,14 @@ class TestM4ReturnsDfTTLCache:
 
     def test_cache_miss_on_ttl_expire(self, tmp_path):
         """TTL aşıldıysa cache miss → expired key silinir, DB sorgusu tetiklenir."""
-        import pandas as pd
         import time as _time
+
+        import pandas as pd
+
         from scripts.lib.risk_integration import (
-            build_returns_df, _RETURNS_DF_CACHE, _RETURNS_DF_TTL_SEC,
+            _RETURNS_DF_CACHE,
+            _RETURNS_DF_TTL_SEC,
+            build_returns_df,
         )
 
         dummy = self._make_mock_returns(["ETH/USDT"])
@@ -292,7 +341,8 @@ class TestM4ReturnsDfTTLCache:
         # build_returns_df çağırınca cache miss → DB'ye gidecek ama test DB yok → empty df
         # price_action.data.store içinde lazy import kullanılıyor; boş DB → empty rows → empty df
         result = build_returns_df(
-            ["ETH/USDT"], days=90,
+            ["ETH/USDT"],
+            days=90,
             market_db=tmp_path / "market.duckdb",  # boş/yeni DB
         )
         # Boş DB → empty df döner
@@ -302,9 +352,11 @@ class TestM4ReturnsDfTTLCache:
 
     def test_cache_key_includes_symbols_order_invariant(self, tmp_path):
         """Farklı sıradaki aynı semboller aynı cache key'e düşmeli."""
-        from scripts.lib.risk_integration import _RETURNS_DF_CACHE
-        import pandas as pd
         import time as _time
+
+        import pandas as pd
+
+        from scripts.lib.risk_integration import _RETURNS_DF_CACHE
 
         # Manuel key oluştur: her iki sıralamayla
         syms_a = ["BTC/USDT", "ETH/USDT"]
@@ -319,16 +371,20 @@ class TestM4ReturnsDfTTLCache:
         _RETURNS_DF_CACHE[key_a] = (_time.monotonic(), dummy)
 
         from scripts.lib.risk_integration import build_returns_df
+
         result = build_returns_df(
-            syms_b, days=90,   # ters sıra
+            syms_b,
+            days=90,  # ters sıra
             market_db=tmp_path / "market.duckdb",
         )
         pd.testing.assert_frame_equal(result, dummy)
 
     def test_cache_thread_safe_no_corruption(self, tmp_path):
         """20 thread eş zamanlı cache read/write — bozulma yok."""
-        import pandas as pd
         import time as _time
+
+        import pandas as pd
+
         from scripts.lib.risk_integration import _RETURNS_DF_CACHE, build_returns_df
 
         dummy = self._make_mock_returns(["SOL/USDT"])
@@ -342,7 +398,8 @@ class TestM4ReturnsDfTTLCache:
         def _read():
             try:
                 df = build_returns_df(
-                    ["SOL/USDT"], days=90,
+                    ["SOL/USDT"],
+                    days=90,
                     market_db=tmp_path / "market.duckdb",
                 )
                 with lock:
@@ -364,8 +421,7 @@ class TestM4ReturnsDfTTLCache:
 
     def test_empty_symbols_bypasses_cache(self, tmp_path):
         """Boş sembol listesi → empty df, cache bypass (key oluşmaz)."""
-        import pandas as pd
-        from scripts.lib.risk_integration import build_returns_df, _RETURNS_DF_CACHE
+        from scripts.lib.risk_integration import _RETURNS_DF_CACHE, build_returns_df
 
         before = len(_RETURNS_DF_CACHE)
         result = build_returns_df([], days=90, market_db=tmp_path / "market.duckdb")
@@ -375,7 +431,7 @@ class TestM4ReturnsDfTTLCache:
     def test_reset_clears_all_entries(self, tmp_path):
         """reset_returns_df_cache() tüm cache'i temizler."""
         import time as _time
-        import pandas as pd
+
         from scripts.lib.risk_integration import _RETURNS_DF_CACHE, reset_returns_df_cache
 
         dummy = self._make_mock_returns(["ADA/USDT"])
@@ -391,15 +447,17 @@ class TestM4ReturnsDfTTLCache:
 # M6 — Adaptive leverage retry tests
 # =============================================================================
 
+
 class TestM6AdaptiveLeverageRetry:
     """_submit_order_with_adaptive_leverage: margin error cascade + non-margin raise."""
 
     @pytest.fixture(autouse=True)
     def _import(self):
         from scripts.futures_trade_daily import (
-            _submit_order_with_adaptive_leverage,
             _is_margin_error,
+            _submit_order_with_adaptive_leverage,
         )
+
         self.submit_fn = _submit_order_with_adaptive_leverage
         self.is_margin = _is_margin_error
 
@@ -414,8 +472,10 @@ class TestM6AdaptiveLeverageRetry:
         ex.set_leverage.side_effect = _set_lev
 
         _base_order = order_return or {
-            "id": "OK_ORDER", "status": "closed",
-            "average": 65_000.0, "filled": 0.01,
+            "id": "OK_ORDER",
+            "status": "closed",
+            "average": 65_000.0,
+            "filled": 0.01,
         }
 
         def _market_order(sym, side, qty):
@@ -439,11 +499,12 @@ class TestM6AdaptiveLeverageRetry:
         """İlk denemede başarılı → cascade yok, leverage_used = base_lev."""
         ex = MagicMock()
         ex.create_market_order.return_value = {
-            "id": "X", "status": "closed", "average": 65_000.0, "filled": 0.01
+            "id": "X",
+            "status": "closed",
+            "average": 65_000.0,
+            "filled": 0.01,
         }
-        order, lev_used, method = self.submit_fn(
-            ex, "BTC/USDT", "buy", 0.01, 3
-        )
+        order, lev_used, method = self.submit_fn(ex, "BTC/USDT", "buy", 0.01, 3)
         assert lev_used == 3
         assert method == "market_only"
         assert order["id"] == "X"
@@ -468,9 +529,7 @@ class TestM6AdaptiveLeverageRetry:
 
         ex.create_market_order.side_effect = _market_order
 
-        order, lev_used, method = self.submit_fn(
-            ex, "BTC/USDT", "buy", 0.01, 3
-        )
+        order, lev_used, _method = self.submit_fn(ex, "BTC/USDT", "buy", 0.01, 3)
         assert lev_used == 2
         assert order["id"] == "FALLBACK_2X"
         # setup_leverage 2 kez çağrıldı: 3x (fail) + 2x (success)
@@ -495,9 +554,7 @@ class TestM6AdaptiveLeverageRetry:
 
         ex.create_market_order.side_effect = _market_order
 
-        order, lev_used, method = self.submit_fn(
-            ex, "BTC/USDT", "buy", 0.01, 3
-        )
+        order, lev_used, _method = self.submit_fn(ex, "BTC/USDT", "buy", 0.01, 3)
         assert lev_used == 1
         assert order["id"] == "1X_ORDER"
         assert _attempts == [3, 2, 1]
@@ -530,7 +587,7 @@ class TestM6AdaptiveLeverageRetry:
         ex = MagicMock()
         ex.create_market_order.side_effect = Exception("insufficient margin")
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="insufficient margin"):
             self.submit_fn(ex, "BTC/USDT", "buy", 0.01, 1)
 
         assert ex.set_leverage.call_count == 1
@@ -564,24 +621,33 @@ class TestM6AdaptiveLeverageRetry:
 # L2 — Pyramid DB persistence tests
 # =============================================================================
 
+
 class TestL2PyramidStore:
     """PyramidStore: upsert / load_all / delete / recovery."""
 
     @pytest.fixture
     def store(self, tmp_path):
         from price_action.execution.pyramid_store import PyramidStore
+
         return PyramidStore(db_path=tmp_path / "pyramid_test.duckdb")
 
     def _make_pyr_pos(self, pos_id: str = "pos_abc123") -> PyramidPosition:
         entry_leg = PyramidLeg(
-            leg_num=1, leg_state="FILLED", leg_qty=0.01,
-            leg_price=ENTRY_PRICE, client_order_id=f"PA_{pos_id}_L1",
-            fill_price=ENTRY_PRICE, filled_at=TS,
+            leg_num=1,
+            leg_state="FILLED",
+            leg_qty=0.01,
+            leg_price=ENTRY_PRICE,
+            client_order_id=f"PA_{pos_id}_L1",
+            fill_price=ENTRY_PRICE,
+            filled_at=TS,
         )
         return PyramidPosition(
             parent_position_id=pos_id,
-            symbol="BTC/USDT", side="LONG",
-            entry_price=ENTRY_PRICE, sl_price=SL_PRICE, initial_R=INITIAL_R,
+            symbol="BTC/USDT",
+            side="LONG",
+            entry_price=ENTRY_PRICE,
+            sl_price=SL_PRICE,
+            initial_R=INITIAL_R,
             legs=[entry_leg],
             pyramid_triggers=[1.0, 1.5],
             pyramid_sizes=[0.50, 0.30],
@@ -612,11 +678,16 @@ class TestL2PyramidStore:
     def test_load_all_returns_legs(self, store):
         """load_all() tüm leg'leri yüklemeli."""
         pos = self._make_pyr_pos("pos_legs")
-        pos.legs.append(PyramidLeg(
-            leg_num=2, leg_state="SUBMITTED", leg_qty=0.005,
-            leg_price=TRIG_LEG2, client_order_id="PA_pos_legs_L2",
-            exchange_order_id="EX_123",
-        ))
+        pos.legs.append(
+            PyramidLeg(
+                leg_num=2,
+                leg_state="SUBMITTED",
+                leg_qty=0.005,
+                leg_price=TRIG_LEG2,
+                client_order_id="PA_pos_legs_L2",
+                exchange_order_id="EX_123",
+            )
+        )
         store.upsert_position(pos)
 
         loaded = store.load_all()["pos_legs"]
@@ -667,15 +738,21 @@ class TestL2PyramidStore:
     def test_startup_recovery(self, tmp_path):
         """Restart: aynı DB'yi yeni PyramidStore ile aç → pozisyon yükleniyor."""
         from price_action.execution.pyramid_store import PyramidStore
+
         db = tmp_path / "recover.duckdb"
 
         # İlk session: pozisyon kaydet
         store1 = PyramidStore(db_path=db)
         pos = self._make_pyr_pos("pos_recover")
-        pos.legs.append(PyramidLeg(
-            leg_num=2, leg_state="PENDING", leg_qty=0.005,
-            leg_price=TRIG_LEG2, client_order_id="PA_pos_recover_L2",
-        ))
+        pos.legs.append(
+            PyramidLeg(
+                leg_num=2,
+                leg_state="PENDING",
+                leg_qty=0.005,
+                leg_price=TRIG_LEG2,
+                client_order_id="PA_pos_recover_L2",
+            )
+        )
         store1.upsert_position(pos)
 
         # İkinci session (restart simülasyonu)
@@ -693,14 +770,24 @@ class TestL2PyramidStore:
     def test_delete_closed_legs_keeps_pending(self, store):
         """delete_closed_legs: CANCELED/REJECTED sil, PENDING/SUBMITTED koru."""
         pos = self._make_pyr_pos("pos_dclean")
-        pos.legs.append(PyramidLeg(
-            leg_num=2, leg_state="PENDING", leg_qty=0.005,
-            leg_price=TRIG_LEG2, client_order_id="PA_pos_dclean_L2",
-        ))
-        pos.legs.append(PyramidLeg(
-            leg_num=3, leg_state="CANCELED", leg_qty=0.003,
-            leg_price=TRIG_LEG2 + 600, client_order_id="PA_pos_dclean_L3",
-        ))
+        pos.legs.append(
+            PyramidLeg(
+                leg_num=2,
+                leg_state="PENDING",
+                leg_qty=0.005,
+                leg_price=TRIG_LEG2,
+                client_order_id="PA_pos_dclean_L2",
+            )
+        )
+        pos.legs.append(
+            PyramidLeg(
+                leg_num=3,
+                leg_state="CANCELED",
+                leg_qty=0.003,
+                leg_price=TRIG_LEG2 + 600,
+                client_order_id="PA_pos_dclean_L3",
+            )
+        )
         store.upsert_position(pos)
 
         store.delete_closed_legs("pos_dclean")

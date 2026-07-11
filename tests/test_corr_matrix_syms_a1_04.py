@@ -1,8 +1,9 @@
 """A1-04 korelasyon-gate körlüğü — kapanış sprinti 2026-07-10 (dalga-5 HIGH).
 
 Daemon returns_df matrisini YALNIZ o barda sinyal üreten sembollerle kuruyordu;
-açık pozisyon sembolü matriste yoksa correlation_gate (True, 1.0) dönüyordu =
-yeni sinyal, mevcut pozisyonlarla korelasyonu HİÇ ölçülmeden geçiyordu
+açık pozisyon sembolü matriste yoksa eski correlation_gate fail-open dönüyordu =
+yeni sinyal, mevcut pozisyonlarla korelasyonu HİÇ ölçülmeden geçiyordu. Güncel
+gate bu savunma hattı kaçırılsa bile eksik sembolü fail-closed reddeder
 (daemon-özel körlük; script yolu tüm-evrenle doğru çalışıyor).
 
 Fix: _corr_matrix_syms saf fonksiyonu (evren ∪ sinyal) + döngü-içi
@@ -51,8 +52,7 @@ def test_scan_symbol_outside_universe_kept():
 
 
 def test_gate_blind_regression_demo():
-    """ESKİ körlüğü belgeleyen çift assert: pozisyon sembolü matriste yokken
-    gate (True, 1.0) döner (fail-open); matristeyken gerçek korelasyon ölçülür."""
+    """Eksik pozisyon sembolü fail-closed; tam matriste korelasyon ölçülür."""
     import numpy as np
     import pandas as pd
 
@@ -64,8 +64,14 @@ def test_gate_blind_regression_demo():
     class _Pos:
         symbol = "ETH/USDT"
 
-    # (a) ETH matriste YOK → gate kör: (True, 1.0)
-    df_blind = pd.DataFrame({"BTC/USDT": base})
+    index = pd.date_range(
+        end=pd.Timestamp.now(tz="UTC").floor("D") - pd.Timedelta(days=1),
+        periods=90,
+        freq="D",
+    )
+
+    # (a) ETH matriste YOK → repaired gate fail-closed.
+    df_blind = pd.DataFrame({"BTC/USDT": base}, index=index)
     ok, factor = correlation_gate(
         symbol="BTC/USDT",
         open_positions=[_Pos()],
@@ -73,10 +79,13 @@ def test_gate_blind_regression_demo():
         max_corr=0.7,
         hard_block_at=0.9,
     )
-    assert (ok, factor) == (True, 1.0)  # körlük belgesi (fix bunun OLUŞMASINI önler)
+    assert (ok, factor) == (False, 0.0)
 
     # (b) ETH matriste VAR ve yüksek korele → gate gerçekten ölçer (blok/yarım)
-    df_full = pd.DataFrame({"BTC/USDT": base, "ETH/USDT": base + rng.normal(0, 0.001, 90)})
+    df_full = pd.DataFrame(
+        {"BTC/USDT": base, "ETH/USDT": base + rng.normal(0, 0.001, 90)},
+        index=index,
+    )
     ok2, factor2 = correlation_gate(
         symbol="BTC/USDT",
         open_positions=[_Pos()],

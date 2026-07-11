@@ -14,6 +14,8 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+import duckdb
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
@@ -124,6 +126,47 @@ def test_wrapper_reads_seeded_journal(tmp_path):
     ml, ms = realized_pnl_month_by_side_futures(db)
     assert ml == 0.0
     assert ms is not None and abs(ms - (-42.0)) < 1e-6
+
+
+def test_daily_wrapper_uses_partial_only_journal_without_wallet_fallback(tmp_path):
+    from scripts.lib.risk_integration import realized_pnl_today_futures
+
+    now = NOW
+    db = _seed_journal(tmp_path, closes=[], partials=[("long", -17.5, now)])
+    con = duckdb.connect(str(db))
+    con.execute(
+        """
+        CREATE TABLE futures_equity_snapshots (
+            ts TIMESTAMP,
+            wallet_balance DOUBLE
+        )
+        """
+    )
+    con.execute(
+        "INSERT INTO futures_equity_snapshots VALUES (?, ?), (?, ?)",
+        [now.replace(hour=0, minute=1), 10000.0, now, 12000.0],
+    )
+    con.close()
+
+    # Journal partial is authoritative; the +$2,000 wallet delta must not leak
+    # into the realized-only daily breaker feed.
+    assert realized_pnl_today_futures(db, now=now) == -17.5
+
+
+def test_daily_wrapper_uses_utc_wallet_delta_only_when_journal_day_is_empty(tmp_path):
+    from scripts.lib.risk_integration import realized_pnl_today_futures
+
+    now = NOW
+    db = _seed_journal(tmp_path, closes=[])
+    con = duckdb.connect(str(db))
+    con.execute("CREATE TABLE futures_equity_snapshots (ts TIMESTAMP, wallet_balance DOUBLE)")
+    con.execute(
+        "INSERT INTO futures_equity_snapshots VALUES (?, ?), (?, ?)",
+        [now.replace(hour=0, minute=1), 10000.0, now, 10025.0],
+    )
+    con.close()
+
+    assert realized_pnl_today_futures(db, now=now) == 25.0
 
 
 # ── Breaker katmanı (uçtan uca eşik) ─────────────────────────────────────────

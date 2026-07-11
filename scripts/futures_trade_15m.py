@@ -108,6 +108,7 @@ TF = "15m"
 # ── Paralel scan config (SEC55.A) ─────────────────────────────────────────────
 _DEFAULT_PARALLEL_WORKERS = 8
 _SCAN_SYMBOL_TIMEOUT_SEC = 180  # AVWAP worst-case budget
+_STRATEGY_WARMUP_BARS = 500
 
 # FIX 2026-05-28 (audit-FIX-VER3-2): per-scan read_fail counter (thread-safe).
 # scan_signals_15m başında reset, _scan_symbol fail'lerinde artar, sonunda
@@ -163,6 +164,37 @@ def _get_parallel_workers() -> int:
         return max(1, val)
     except (ValueError, TypeError):
         return _DEFAULT_PARALLEL_WORKERS
+
+
+def _completed_strategy_window(
+    frame: pd.DataFrame,
+    target_bar_close: pd.Timestamp | datetime,
+    *,
+    window_bars: int = _STRATEGY_WARMUP_BARS,
+) -> pd.DataFrame:
+    """Return the exact completed-bar window observed by the repaired scanner.
+
+    OHLCV timestamps are bar-open labels.  The row whose timestamp equals
+    ``target_bar_close`` is therefore the newly forming bar and must be removed
+    *before* taking the rolling window.  Taking ``tail(500)`` first silently
+    produced 499 completed bars whenever canonical ingest already contained the
+    forming candle.
+
+    This helper is pure: it neither mutates ``frame`` nor reads wall-clock or IO.
+    Callers fail closed when the returned window is shorter than ``window_bars``
+    or is not exactly contiguous.
+    """
+
+    if isinstance(window_bars, bool) or int(window_bars) <= 0:
+        raise ValueError("window_bars must be a positive integer")
+    if not isinstance(frame, pd.DataFrame) or "ts" not in frame.columns:
+        raise ValueError("frame must be a DataFrame with a ts column")
+    target = pd.Timestamp(target_bar_close)
+    target = target.tz_localize("UTC") if target.tzinfo is None else target.tz_convert("UTC")
+    timestamps = pd.to_datetime(frame["ts"], utc=True, errors="raise")
+    ordered = frame.assign(ts=timestamps).sort_values("ts").reset_index(drop=True)
+    completed = ordered.loc[ordered["ts"] < target]
+    return completed.tail(int(window_bars)).reset_index(drop=True).copy()
 
 
 _BOT_NAME = os.environ.get("PA_BOT_NAME", "phoenix").lower()
@@ -340,17 +372,6 @@ def _scan_symbol(sym: str, target_bar_close: pd.Timestamp) -> list[dict]:
 
     df = df.sort_values("ts").reset_index(drop=True)
 
-    # === SEC57 FIX (2026-05-18 15:00 IST): warm-up window slicing — 100x speedup ===
-    # Daemon her tick'te 5y tüm 175K bar tarıyordu (31.7s/sym × 10 sym = 317s sequential)
-    # Sadece son bar sinyali için 500 bar yeterli (EMA200 + AVWAP60 + S/R200 lookback
-    # max ~200, 1.5× buffer = 300, güvenli = 500). %99.8 hesap boşa gidiyordu.
-    # Beklenen: per-sym 31.7s → 0.3s, total bar_close → pozisyon ~9s (hedef 5-10s).
-    # Kill criteria: sinyal sayısı %30+ saparsa STRATEGY_WARMUP_BARS=1000'e yükselt.
-    STRATEGY_WARMUP_BARS = 500
-    if len(df) > STRATEGY_WARMUP_BARS:
-        df = df.tail(STRATEGY_WARMUP_BARS).reset_index(drop=True)
-    # === END SEC57 FIX ===
-
     df["symbol"] = sym
     df["venue"] = "binance"
     df["timeframe"] = TF
@@ -381,8 +402,21 @@ def _scan_symbol(sym: str, target_bar_close: pd.Timestamp) -> list[dict]:
     # forming candle'dır. 7 Tem ampirik kanıt: karar barı hacmi 9.5 vs
     # gerçek kapanış 2450 (260×). Kesin kural: karar barının açılışı
     # target_bar_close - 15dk'dır, forming bar asla geçemez → strict `<`.
-    df_filtered = df[df["ts"] < target_bar_close]
-    if df_filtered.empty:
+    df_filtered = _completed_strategy_window(
+        df,
+        target_bar_close,
+        window_bars=_STRATEGY_WARMUP_BARS,
+    )
+    if len(df_filtered) != _STRATEGY_WARMUP_BARS:
+        logger.bind(
+            symbol=sym,
+            bars=len(df_filtered),
+            required=_STRATEGY_WARMUP_BARS,
+        ).warning("scan15m.insufficient_completed_warmup")
+        return sym_signals
+    _window_ts = pd.DatetimeIndex(df_filtered["ts"])
+    if not (_window_ts[1:] - _window_ts[:-1] == pd.Timedelta(minutes=15)).all():
+        logger.bind(symbol=sym).warning("scan15m.noncontiguous_warmup_fail_closed")
         return sym_signals
 
     last_bar_ts = df_filtered["ts"].iloc[-1]
@@ -708,8 +742,7 @@ def run_15m(dry_run: bool = False) -> None:
                 rejected += 1
                 print(f"  [REJECT-RISK] {sym:<12} {s['strategy']:<30} {reject_reason}")
                 con.execute(
-                    "INSERT INTO futures_15m_signals VALUES "
-                    "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO futures_15m_signals VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         sig_id,
                         s["ts"],
@@ -745,8 +778,7 @@ def run_15m(dry_run: bool = False) -> None:
                     f"  [SKIP-MARGIN] {sym} need=${margin:.2f}, have=${state['available_balance']:.2f}"
                 )
                 con.execute(
-                    "INSERT INTO futures_15m_signals VALUES "
-                    "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO futures_15m_signals VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         sig_id,
                         s["ts"],
@@ -785,7 +817,7 @@ def run_15m(dry_run: bool = False) -> None:
             )
 
             con.execute(
-                "INSERT INTO futures_15m_signals VALUES " "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO futures_15m_signals VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     sig_id,
                     s["ts"],
@@ -833,7 +865,7 @@ def run_15m(dry_run: bool = False) -> None:
             rejected += 1
             print(f"  [ERR] {sym}: {type(exc).__name__}: {str(exc)[:100]}")
             con.execute(
-                "INSERT INTO futures_15m_signals VALUES " "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO futures_15m_signals VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     sig_id,
                     s["ts"],

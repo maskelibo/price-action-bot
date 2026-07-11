@@ -19,7 +19,7 @@ from __future__ import annotations
 import contextlib
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +53,41 @@ def reset_returns_df_cache() -> None:
     """Test fixture'larında kullanılır — cache'i boşalt."""
     with _RETURNS_DF_LOCK:
         _RETURNS_DF_CACHE.clear()
+
+
+def _utc_day_cutoff() -> pd.Timestamp:
+    """Return the forming UTC day's opening instant.
+
+    Kept behind a tiny helper so the midnight cache-boundary behaviour can be
+    tested without changing the public ``build_returns_df`` contract.
+    """
+    return pd.Timestamp(datetime.now(UTC)).floor("D")
+
+
+def _valid_cached_returns(
+    value: pd.DataFrame,
+    *,
+    symbols: tuple[str, ...],
+    days: int,
+    cutoff: pd.Timestamp,
+) -> bool:
+    """Validate a cached matrix against the *current* completed-day window."""
+    if value.shape != (days, len(symbols)) or tuple(value.columns) != symbols:
+        return False
+    try:
+        index = pd.DatetimeIndex(value.index)
+        values = value.to_numpy(dtype=float)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if index.tz is None or index.has_duplicates or not np.isfinite(values).all():
+        return False
+    expected = pd.date_range(
+        cutoff - pd.Timedelta(days=days),
+        cutoff - pd.Timedelta(days=1),
+        freq="D",
+        tz="UTC",
+    )
+    return index.tz_convert("UTC").equals(expected)
 
 
 # =====================================================================
@@ -139,9 +174,12 @@ def build_returns_df(
     timeframe: str = "1d",
     venue: str = "binance",
 ) -> pd.DataFrame:
-    """Açık pozisyonlar + adayı için son N gün daily log-return matrix.
+    """Açık pozisyonlar + adayı için exact N UTC-gün daily log-return matrix.
 
-    Boş DataFrame dönerse correlation_gate konservatif (factor=1.0) davranır.
+    Her sembolde, bugünkü UTC gününden hemen önce biten N+1 exact daily close
+    gerekir. Bunlardan exact N log-return üretilir. Eksik gün/kolon, forming
+    current-day bar, duplicate, nonpositive veya nonfinite değer boş DataFrame
+    döndürür; correlation gate açık pozisyon varken bunu fail-closed reddeder.
 
     SEC58 CRIT-2 FIX (2026-05-18):
     Eski implementasyon `duckdb.connect(read_only=True)` açıyordu. Windows'ta
@@ -162,20 +200,40 @@ def build_returns_df(
     (sorted symbols, days, db path, timeframe, venue). TTL=900s.
     Thread-safe: _RETURNS_DF_LOCK RLock. Cache miss → DB sorgu → cache set.
     """
-    if not symbols:
+    if not symbols or days <= 0 or timeframe != "1d":
         return pd.DataFrame()
+    requested_symbols = tuple(sorted(set(symbols)))
+    cutoff = _utc_day_cutoff()
+    required_close_index = pd.date_range(
+        cutoff - pd.Timedelta(days=days + 1),
+        cutoff - pd.Timedelta(days=1),
+        freq="D",
+        tz="UTC",
+    )
 
     # M4: TTL cache lookup
-    _cache_key = (tuple(sorted(symbols)), int(days), str(market_db), timeframe, venue)
+    _cache_key = (requested_symbols, int(days), str(market_db), timeframe, venue)
     with _RETURNS_DF_LOCK:
         _hit = _RETURNS_DF_CACHE.get(_cache_key)
         if _hit is not None:
             _cached_at, _cached_df = _hit
-            if time.monotonic() - _cached_at < _RETURNS_DF_TTL_SEC:
+            _cache_age = time.monotonic() - _cached_at
+            if (
+                0.0 <= _cache_age < _RETURNS_DF_TTL_SEC
+                and _valid_cached_returns(
+                    _cached_df,
+                    symbols=requested_symbols,
+                    days=days,
+                    cutoff=cutoff,
+                )
+                and _utc_day_cutoff() == cutoff
+            ):
                 return _cached_df.copy()
-            else:
-                # TTL aşıldı — eski kaydı temizle
-                del _RETURNS_DF_CACHE[_cache_key]
+            # TTL aşıldı, monotonic timestamp geçersiz veya UTC gün
+            # penceresi değişti — eski kaydı temizle. Son durum özellikle
+            # 23:59'da kurulan cache'in 00:00 sonrası eski 90 günü vermesini
+            # önler.
+            del _RETURNS_DF_CACHE[_cache_key]
 
         # OHLCVStore pool: path başına singleton R/W connection, RLock-guarded.
         # read_only=False olduğu için daemon'ın mevcut bağlantısıyla çakışmaz.
@@ -183,17 +241,23 @@ def build_returns_df(
             from price_action.data.store import OHLCVStore
 
             store = OHLCVStore(duckdb_path=Path(market_db))
-            ph = ", ".join(["?"] * len(symbols))
+            ph = ", ".join(["?"] * len(requested_symbols))
             with store._conn() as con:
                 rows = con.execute(
                     f"""
                     SELECT symbol, ts, close
                     FROM ohlcv
                     WHERE venue = ? AND timeframe = ? AND symbol IN ({ph})
-                      AND ts >= now() - INTERVAL {int(days) + 5} DAY
+                      AND ts >= ? AND ts < ?
                     ORDER BY symbol, ts
                     """,
-                    [venue, timeframe, *symbols],
+                    [
+                        venue,
+                        timeframe,
+                        *requested_symbols,
+                        required_close_index[0].to_pydatetime(),
+                        cutoff.to_pydatetime(),
+                    ],
                 ).fetchall()
         except Exception:
             # OHLCVStore import fail veya query fail → konservatif davran
@@ -203,11 +267,43 @@ def build_returns_df(
             return pd.DataFrame()
 
         df = pd.DataFrame(rows, columns=["symbol", "ts", "close"])
-        df = df.pivot(index="ts", columns="symbol", values="close").sort_index()
-        if df.empty:
-            return df
-        rets = np.log(df / df.shift(1)).dropna(how="all")
-        result = rets.tail(days)
+        df["ts"] = pd.to_datetime(df["ts"], utc=True, errors="coerce")
+        if (
+            df["ts"].isna().any()
+            or df.duplicated(["symbol", "ts"]).any()
+            or len(df) != len(required_close_index) * len(requested_symbols)
+            or not df["ts"].isin(required_close_index).all()
+        ):
+            return pd.DataFrame()
+        try:
+            closes = df.pivot(index="ts", columns="symbol", values="close").sort_index()
+        except (KeyError, ValueError):
+            return pd.DataFrame()
+        closes = closes.reindex(index=required_close_index, columns=requested_symbols)
+        try:
+            close_values = closes.to_numpy(dtype=float)
+        except (TypeError, ValueError, OverflowError):
+            return pd.DataFrame()
+        if (
+            closes.shape != (days + 1, len(requested_symbols))
+            or not np.isfinite(close_values).all()
+            or (close_values <= 0.0).any()
+        ):
+            return pd.DataFrame()
+        result = np.log(closes / closes.shift(1)).iloc[1:]
+        if not _valid_cached_returns(
+            result,
+            symbols=requested_symbols,
+            days=days,
+            cutoff=cutoff,
+        ):
+            return pd.DataFrame()
+
+        # Query UTC midnight'i geçtiyse eski cutoff'a ait sonucu yayınlama.
+        # Bir sonraki çağrı yeni exact pencereyi kurar; açık pozisyonda
+        # boş matris correlation gate tarafından fail-closed ele alınır.
+        if _utc_day_cutoff() != cutoff:
+            return pd.DataFrame()
 
         # M4: cache'e yaz
         _RETURNS_DF_CACHE[_cache_key] = (time.monotonic(), result.copy())
@@ -219,32 +315,50 @@ def build_returns_df(
 # =====================================================================
 
 
-def realized_pnl_today_futures(journal_path: str | Path) -> float:
+def realized_pnl_today_futures(
+    journal_path: str | Path,
+    *,
+    now: datetime | None = None,
+) -> float:
     """futures_journal'dan bugün için realized PnL (USDT).
 
     SEC26.B-4 (E1 RISK fix):
-    Önce `futures_trades_closed` (TradeJournal) tablosundan SUM oku — gerçek
-    kapanan trade'lerin toplamı. Açık pozisyon unrealized dalgalanması daily
-    PnL'i kirletmez → DD breaker doğru tetiklenir.
+    Önce TradeJournal'ın ayrık `futures_trades_closed` final dilimleri ile
+    `futures_partial_closes` dilimlerinin SUM'ını oku. Açık pozisyon unrealized
+    dalgalanması daily PnL'i kirletmez → DD breaker doğru tetiklenir.
 
-    Tablo yok / boş ise LEGACY fallback: equity_snapshots delta (yanlış ama
-    backward-compat — henüz hiç trade kapatılmadıysa eski davranış).
+    Final veya partial journal satırı yoksa LEGACY fallback: equity_snapshots
+    delta (yanlış ama backward-compat — henüz hiç dilim kapanmadıysa eski
+    davranış).
     """
     p = Path(journal_path)
     if not p.exists():
         return 0.0
+    now = now or datetime.now(UTC)
+    now = now.replace(tzinfo=UTC) if now.tzinfo is None else now.astimezone(UTC)
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0).replace(tzinfo=None)
+    day_end = day_start + timedelta(days=1)
 
-    # === Primary: futures_trades_closed (SEC26.B-4) ===
+    # === Primary: final + partial TradeJournal dilimleri (SEC26.B-4) ===
     try:
         from price_action.execution.trade_journal import TradeJournal
 
         # Schema ensure (idempotent CREATE IF NOT EXISTS)
         tj = TradeJournal(db_path=str(p))
-        # Bugün için en az 1 kapanmış trade var mı?
+        # Bugün için en az bir final VEYA partial kapanış dilimi var mı?  Final
+        # tablosunu tek başına saymak, TP1/TP2 gerçekleşmiş fakat runner henüz
+        # açıkken journal PnL'ini atıp wallet-delta fallback'ına düşüyordu.
         con = duckdb.connect(str(p), read_only=True)
         try:
             cnt_row = con.execute(
-                "SELECT COUNT(*) FROM futures_trades_closed WHERE ts_close::DATE = CURRENT_DATE"
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM futures_trades_closed
+                     WHERE ts_close >= ? AND ts_close < ?)
+                  + (SELECT COUNT(*) FROM futures_partial_closes
+                     WHERE ts_close >= ? AND ts_close < ?)
+                """,
+                [day_start, day_end, day_start, day_end],
             ).fetchone()
             cnt_today = int(cnt_row[0]) if cnt_row else 0
         except Exception:
@@ -252,40 +366,24 @@ def realized_pnl_today_futures(journal_path: str | Path) -> float:
         finally:
             con.close()
         if cnt_today > 0:
-            return tj.get_realized_pnl_today()
-        # cnt_today == 0 → bugün hiç trade kapanmadı, legacy fallback'a düş
+            return tj.get_realized_pnl_today(now=now)
+        # cnt_today == 0 → bugün hiç final/partial dilim kapanmadı, legacy fallback'a düş
     except Exception:
         pass  # TradeJournal load fail → legacy
 
     # === Legacy fallback: equity_snapshots delta ===
     try:
         con = duckdb.connect(str(p), read_only=True)
-        rows = con.execute(
-            """
-            SELECT MIN(wallet_balance), MAX(wallet_balance), wallet_balance,
-                   FIRST_VALUE(wallet_balance) OVER (ORDER BY ts)
-            FROM futures_equity_snapshots
-            WHERE ts::DATE = CURRENT_DATE
-            """
-        ).fetchone()
-    except Exception:
-        return 0.0
-    finally:
-        with contextlib.suppress(Exception):
-            con.close()
-    if not rows:
-        return 0.0
-    try:
-        con = duckdb.connect(str(p), read_only=True)
         first_last = con.execute(
             """
             WITH t AS (
                 SELECT wallet_balance, ts FROM futures_equity_snapshots
-                WHERE ts::DATE = CURRENT_DATE ORDER BY ts
+                WHERE ts >= ? AND ts < ? ORDER BY ts
             )
             SELECT (SELECT wallet_balance FROM t ORDER BY ts DESC LIMIT 1)
                  - (SELECT wallet_balance FROM t ORDER BY ts ASC LIMIT 1)
-            """
+            """,
+            [day_start, day_end],
         ).fetchone()
         return float(first_last[0]) if first_last and first_last[0] is not None else 0.0
     except Exception:
@@ -344,7 +442,7 @@ def count_consecutive_losses(
     journal_path: str | Path,
     *,
     lookback_days: int = 30,
-    n_max: int = 20,
+    n_max: int | None = None,
 ) -> int:
     """Son N kapanmış trade'in ardışık loss sayısı.
 
@@ -360,7 +458,9 @@ def count_consecutive_losses(
     Args:
         journal_path: futures_journal.duckdb yolu
         lookback_days: maks geriye bakış penceresi (default 30g)
-        n_max: query LIMIT (default 20, lab.py'da counter <=3 hızla resetlenir)
+        n_max: optional legacy query LIMIT. Default None reads the complete
+            lookback window so the consumed-watermark can re-trigger after
+            each new loss batch without saturating at an arbitrary row count.
 
     Returns:
         Ardışık loss sayısı (0 = streak yok veya tablo boş).
@@ -377,12 +477,17 @@ def count_consecutive_losses(
         """).fetchone()
         if not tbl_exists or tbl_exists[0] == 0:
             return 0
+        limit_clause = ""
+        if n_max is not None:
+            if int(n_max) <= 0:
+                return 0
+            limit_clause = f"LIMIT {int(n_max)}"
         rows = con.execute(
             f"""
-            SELECT win FROM futures_trades_closed
+            SELECT realized_pnl_usdt FROM futures_trades_closed
             WHERE ts_close >= now() - INTERVAL '{int(lookback_days)} DAY'
             ORDER BY ts_close DESC
-            LIMIT {int(n_max)}
+            {limit_clause}
             """
         ).fetchall()
     except Exception:
@@ -393,11 +498,11 @@ def count_consecutive_losses(
 
     counter = 0
     for row in rows:
-        win = row[0]
-        if win is False:
+        realized_pnl = row[0]
+        if realized_pnl is not None and float(realized_pnl) < 0.0:
             counter += 1
         else:
-            break  # win → streak kırılır
+            break  # win veya exact breakeven → streak kırılır
     return counter
 
 
@@ -547,14 +652,14 @@ def build_spot_account_state(
 
 
 __all__ = [
-    "load_risk_officer",
-    "build_signal_from_scan",
-    "build_returns_df",
-    "reset_returns_df_cache",
     "build_futures_account_state",
+    "build_returns_df",
+    "build_signal_from_scan",
     "build_spot_account_state",
+    "count_consecutive_losses",
+    "load_risk_officer",
     "realized_pnl_month_by_side_futures",
     "realized_pnl_today_futures",
     "realized_pnl_today_spot",
-    "count_consecutive_losses",
+    "reset_returns_df_cache",
 ]

@@ -736,6 +736,16 @@ class RiskOfficer:
 
         method = str(cfg.position_sizing.get("method", "fixed_fractional"))
         price = float(market_price if market_price is not None else _entry_price(signal))
+        stop_is_not_protective = (signal.direction == "long" and signal.sl_price >= price) or (
+            signal.direction == "short" and signal.sl_price <= price
+        )
+        if stop_is_not_protective:
+            return Reject(
+                signal=signal,
+                rejected_by="risk",
+                reason="stop_on_wrong_side",
+                detail={"market_price": price, "stop_price": signal.sl_price},
+            )
         sl_dist_dollar = abs(price - signal.sl_price)
         if sl_dist_dollar <= 0:
             return Reject(signal=signal, rejected_by="risk", reason="invalid_sl_distance")

@@ -2,6 +2,7 @@
 
 Her gate `(allow, reason_or_factor)` döner. RiskOfficer tarafından çağırılır.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
 # =====================================================================
 # Liquidity gate
 # =====================================================================
+
 
 def liquidity_gate(
     *,
@@ -43,6 +45,7 @@ def liquidity_gate(
 # =====================================================================
 # Leverage gate
 # =====================================================================
+
 
 def leverage_gate(
     *,
@@ -73,6 +76,7 @@ def leverage_gate(
 # =====================================================================
 # Concentration gate
 # =====================================================================
+
 
 def concentration_gate(
     *,
@@ -116,6 +120,7 @@ def concentration_gate(
 # Correlation gate
 # =====================================================================
 
+
 def correlation_gate(
     *,
     symbol: str,
@@ -125,41 +130,90 @@ def correlation_gate(
     hard_block_at: float = 0.9,
     reduction_factor: float = 0.5,
 ) -> tuple[bool, float]:
-    """Açık pozisyonlarla 90-günlük korelasyona göre size faktörü.
+    """Açık pozisyonlarla exact 90 UTC-gün korelasyona göre size faktörü.
 
     Döner: (allow, factor)
-      - corr > hard_block_at → (False, 0)
+      - corr >= hard_block_at → (False, 0)
       - corr > max_corr → (True, reduction_factor)
       - değilse → (True, 1.0)
 
-    `returns_df` yoksa konservatif: (True, 1.0). Data layer'ı entegrasyonu
-    sağlandığında doldurulur.
+    Açık pozisyon yoksa korelasyon ölçmeye gerek yoktur. Açık pozisyon varken
+    boş/eksik/stale/nonfinite/undefined matris fail-closed `(False, 0.0)` döner;
+    eski fail-open yol gizli konsantrasyona izin veriyordu.
     """
-    if not open_positions or returns_df is None or returns_df.empty:
+    if not open_positions:
         return True, 1.0
-    if symbol not in returns_df.columns:
-        return True, 1.0
+    if (
+        not isinstance(returns_df, pd.DataFrame)
+        or returns_df.empty
+        or not returns_df.columns.is_unique
+        or symbol not in returns_df.columns
+    ):
+        return False, 0.0
 
-    open_syms = [p.symbol for p in open_positions if p.symbol in returns_df.columns]
-    if not open_syms:
-        return True, 1.0
+    try:
+        thresholds = np.asarray([max_corr, hard_block_at, reduction_factor], dtype=float)
+    except (TypeError, ValueError, OverflowError):
+        return False, 0.0
+    max_corr, hard_block_at, reduction_factor = (float(value) for value in thresholds)
+    if (
+        not np.isfinite(thresholds).all()
+        or not 0.0 <= max_corr <= 1.0
+        or not 0.0 <= hard_block_at <= 1.0
+        or not 0.0 <= reduction_factor <= 1.0
+    ):
+        return False, 0.0
 
-    # Son 90 günü kullan
-    recent = returns_df.tail(90).dropna(how="all")
-    if len(recent) < 20:
-        # Yeterli geçmiş yoksa konservatif: pozisyon yarıya
-        return True, reduction_factor
+    try:
+        open_syms = [p.symbol for p in open_positions]
+    except (AttributeError, TypeError):
+        return False, 0.0
+    try:
+        missing_open_symbol = any(
+            open_symbol not in returns_df.columns for open_symbol in open_syms
+        )
+    except (TypeError, ValueError):
+        return False, 0.0
+    if missing_open_symbol:
+        return False, 0.0
+
+    if len(returns_df) != 90:
+        return False, 0.0
+    recent = returns_df
+    try:
+        index = pd.DatetimeIndex(recent.index)
+    except (TypeError, ValueError, OverflowError):
+        return False, 0.0
+    if index.tz is None or index.has_duplicates:
+        return False, 0.0
+    index = index.tz_convert("UTC")
+    cutoff = pd.Timestamp.now(tz="UTC").floor("D")
+    expected_index = pd.date_range(
+        cutoff - pd.Timedelta(days=90),
+        cutoff - pd.Timedelta(days=1),
+        freq="D",
+        tz="UTC",
+    )
+    if len(recent) != 90 or not index.equals(expected_index):
+        return False, 0.0
 
     sym_ret = recent[symbol]
     max_obs = 0.0
     for s in open_syms:
-        r = recent[s]
-        joined = pd.concat([sym_ret, r], axis=1).dropna()
-        if len(joined) < 20:
-            continue
-        c = float(joined.iloc[:, 0].corr(joined.iloc[:, 1]))
-        if np.isnan(c):
-            continue
+        try:
+            r = recent[s]
+            pair = pd.concat([sym_ret, r], axis=1)
+            pair_values = pair.to_numpy(dtype=float)
+        except (TypeError, ValueError, OverflowError):
+            return False, 0.0
+        if pair.shape != (90, 2) or not np.isfinite(pair_values).all():
+            return False, 0.0
+        if np.std(pair_values[:, 0]) == 0.0 or np.std(pair_values[:, 1]) == 0.0:
+            return False, 0.0
+        with np.errstate(divide="ignore", invalid="ignore"):
+            c = float(np.corrcoef(pair_values[:, 0], pair_values[:, 1])[0, 1])
+        if not np.isfinite(c):
+            return False, 0.0
         max_obs = max(max_obs, abs(c))
 
     if max_obs >= hard_block_at:

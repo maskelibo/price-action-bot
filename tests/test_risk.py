@@ -1,7 +1,8 @@
 """Risk testleri — sizing, breaker, korelasyon."""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
@@ -23,10 +24,10 @@ from price_action.risk.sizing import (
     kelly_capped,
 )
 
-
 # =====================================================================
 # fixtures
 # =====================================================================
+
 
 @pytest.fixture
 def risk_config() -> dict:
@@ -81,9 +82,10 @@ def make_signal():
     Notional hesabı: risk %1 × 10k = 100 USDT; SL %8 → notional 1250 USDT
     (= equity'nin %12.5'i, max_per_symbol_pct %20'nin altında).
     """
+
     def _make(symbol: str = "BTC/USDT", direction: str = "long", score: float = 2.0) -> Signal:
         return Signal(
-            ts=datetime(2024, 6, 1, tzinfo=timezone.utc),
+            ts=datetime(2024, 6, 1, tzinfo=UTC),
             venue="binance",
             symbol=symbol,
             timeframe="1d",
@@ -95,12 +97,14 @@ def make_signal():
             suggested_size_atr=4.0,
             metadata={"atr14": 2.0},
         )
+
     return _make
 
 
 # =====================================================================
 # Sizing primitives
 # =====================================================================
+
 
 def test_fixed_fractional_basic():
     notional = fixed_fractional(equity=10_000, risk_pct=0.01, sl_distance_pct=0.02)
@@ -134,6 +138,7 @@ def test_atr_normalized_size():
 # Breaker
 # =====================================================================
 
+
 def test_breaker_triggers_on_daily_loss(tmp_path, risk_config):
     state_path = tmp_path / "br.json"
     breaker = DDBreaker(risk_config["drawdown_breakers"], state_path=state_path)
@@ -162,12 +167,19 @@ def test_breaker_consecutive_losses(tmp_path, risk_config):
 # Gates
 # =====================================================================
 
+
 def test_correlation_gate_hard_block():
+    index = pd.date_range(
+        end=pd.Timestamp.now(tz="UTC").floor("D") - pd.Timedelta(days=1),
+        periods=90,
+        freq="D",
+    )
     df = pd.DataFrame(
         {
-            "BTC/USDT": np.linspace(0.001, 0.05, 60),
-            "ETH/USDT": np.linspace(0.001, 0.05, 60),  # Mükemmel pozitif korelasyon
-        }
+            "BTC/USDT": np.linspace(0.001, 0.05, 90),
+            "ETH/USDT": np.linspace(0.001, 0.05, 90),  # Mükemmel pozitif korelasyon
+        },
+        index=index,
     )
     pos = Position(
         venue="binance",
@@ -178,9 +190,9 @@ def test_correlation_gate_hard_block():
         current_price=101,
         unrealized_pnl_usdt=0.0,
         realized_pnl_usdt=0.0,
-        opened_at=datetime.now(timezone.utc),
+        opened_at=datetime.now(UTC),
         strategy_id="test",
-        last_updated=datetime.now(timezone.utc),
+        last_updated=datetime.now(UTC),
     )
     allow, factor = correlation_gate(
         symbol="BTC/USDT",
@@ -197,12 +209,18 @@ def test_correlation_gate_hard_block():
 
 def test_correlation_gate_reduction_band():
     rng = np.random.default_rng(7)
-    base = rng.normal(0, 0.01, 60)
+    base = rng.normal(0, 0.01, 90)
+    index = pd.date_range(
+        end=pd.Timestamp.now(tz="UTC").floor("D") - pd.Timedelta(days=1),
+        periods=90,
+        freq="D",
+    )
     df = pd.DataFrame(
         {
             "BTC/USDT": base,
-            "ETH/USDT": 0.75 * base + rng.normal(0, 0.005, 60),  # ~0.7-0.85 corr
-        }
+            "ETH/USDT": 0.75 * base + rng.normal(0, 0.005, 90),  # ~0.7-0.85 corr
+        },
+        index=index,
     )
     pos = Position(
         venue="binance",
@@ -213,9 +231,9 @@ def test_correlation_gate_reduction_band():
         current_price=101,
         unrealized_pnl_usdt=0,
         realized_pnl_usdt=0,
-        opened_at=datetime.now(timezone.utc),
+        opened_at=datetime.now(UTC),
         strategy_id="test",
-        last_updated=datetime.now(timezone.utc),
+        last_updated=datetime.now(UTC),
     )
     allow, factor = correlation_gate(
         symbol="BTC/USDT",
@@ -231,6 +249,120 @@ def test_correlation_gate_reduction_band():
     assert factor in (0.5, 1.0)
 
 
+def test_correlation_gate_fails_closed_on_incomplete_or_stale_history():
+    index = pd.date_range(
+        end=pd.Timestamp.now(tz="UTC").floor("D") - pd.Timedelta(days=1),
+        periods=90,
+        freq="D",
+    )
+    rng = np.random.default_rng(17)
+    complete = pd.DataFrame(
+        {
+            "BTC/USDT": rng.normal(0.0, 0.01, 90),
+            "ETH/USDT": rng.normal(0.0, 0.01, 90),
+        },
+        index=index,
+    )
+    pos = Position(
+        venue="binance",
+        symbol="ETH/USDT",
+        side="long",
+        quantity=1.0,
+        entry_price=100.0,
+        current_price=100.0,
+        unrealized_pnl_usdt=0.0,
+        realized_pnl_usdt=0.0,
+        opened_at=datetime.now(UTC),
+        strategy_id="test",
+        last_updated=datetime.now(UTC),
+    )
+    missing_day = complete.drop(index=complete.index[-10])
+    missing_column = complete.drop(columns=["ETH/USDT"])
+    nonfinite = complete.copy()
+    nonfinite.iloc[-1, 1] = np.nan
+    stale = complete.copy()
+    stale.index = stale.index - pd.Timedelta(days=1)
+
+    for invalid in (pd.DataFrame(), missing_day, missing_column, nonfinite, stale):
+        assert correlation_gate(
+            symbol="BTC/USDT",
+            open_positions=[pos],
+            returns_df=invalid,
+        ) == (False, 0.0)
+
+
+def test_correlation_gate_fails_closed_on_undefined_or_malformed_pair():
+    index = pd.date_range(
+        end=pd.Timestamp.now(tz="UTC").floor("D") - pd.Timedelta(days=1),
+        periods=90,
+        freq="D",
+    )
+    rng = np.random.default_rng(19)
+    complete = pd.DataFrame(
+        {
+            "BTC/USDT": rng.normal(0.0, 0.01, 90),
+            "ETH/USDT": rng.normal(0.0, 0.01, 90),
+        },
+        index=index,
+    )
+    pos = Position(
+        venue="binance",
+        symbol="ETH/USDT",
+        side="long",
+        quantity=1.0,
+        entry_price=100.0,
+        current_price=100.0,
+        unrealized_pnl_usdt=0.0,
+        realized_pnl_usdt=0.0,
+        opened_at=datetime.now(UTC),
+        strategy_id="test",
+        last_updated=datetime.now(UTC),
+    )
+    constant_pair = complete.copy()
+    constant_pair["ETH/USDT"] = 0.0
+    duplicate_index = complete.copy()
+    duplicate_index.index = [*list(index[:-1]), index[-2]]
+    duplicate_columns = pd.concat(
+        [complete[["BTC/USDT"]], complete[["BTC/USDT"]], complete[["ETH/USDT"]]],
+        axis=1,
+    )
+    nonnumeric = complete.astype(object)
+    nonnumeric.iloc[-1, 1] = "not-a-return"
+    naive_index = complete.copy()
+    naive_index.index = naive_index.index.tz_localize(None)
+    extra_row = pd.concat(
+        [
+            pd.DataFrame(
+                {"BTC/USDT": [0.0], "ETH/USDT": [0.0]},
+                index=[index[0] - pd.Timedelta(days=1)],
+            ),
+            complete,
+        ]
+    )
+
+    for invalid in (
+        constant_pair,
+        duplicate_index,
+        duplicate_columns,
+        nonnumeric,
+        naive_index,
+        extra_row,
+    ):
+        assert correlation_gate(
+            symbol="BTC/USDT",
+            open_positions=[pos],
+            returns_df=invalid,
+        ) == (False, 0.0)
+
+
+def test_correlation_gate_allows_no_open_positions_without_history():
+    assert correlation_gate(
+        symbol="BTC/USDT",
+        open_positions=[],
+        returns_df=None,
+    ) == (True, 1.0)
+
+
 def test_concentration_gate_per_symbol_cap():
     pos = Position(
         venue="binance",
@@ -241,9 +373,9 @@ def test_concentration_gate_per_symbol_cap():
         current_price=100,
         unrealized_pnl_usdt=0,
         realized_pnl_usdt=0,
-        opened_at=datetime.now(timezone.utc),
+        opened_at=datetime.now(UTC),
         strategy_id="t",
-        last_updated=datetime.now(timezone.utc),
+        last_updated=datetime.now(UTC),
     )
     ok, reason = concentration_gate(
         symbol="BTC/USDT",
@@ -294,6 +426,7 @@ def test_liquidity_gate_block_on_volume_ratio():
 # RiskOfficer end-to-end
 # =====================================================================
 
+
 def test_risk_officer_accepts_basic_signal(risk_config, make_signal, tmp_path):
     breaker = DDBreaker(risk_config["drawdown_breakers"], state_path=tmp_path / "br.json")
     ro = RiskOfficer(risk_config, breaker=breaker)
@@ -306,14 +439,36 @@ def test_risk_officer_accepts_basic_signal(risk_config, make_signal, tmp_path):
     assert out.notional_usdt > 100  # type: ignore[union-attr]
 
 
+@pytest.mark.parametrize(
+    ("direction", "stop_price"),
+    [("long", 101.0), ("short", 99.0)],
+)
+def test_risk_officer_rejects_nonprotective_stop_side(
+    risk_config, make_signal, tmp_path, direction, stop_price
+):
+    breaker = DDBreaker(risk_config["drawdown_breakers"], state_path=tmp_path / "br.json")
+    officer = RiskOfficer(risk_config, breaker=breaker)
+    signal = make_signal(direction=direction).model_copy(update={"sl_price": stop_price})
+
+    result = officer.evaluate(
+        signal,
+        AccountState(equity_usdt=10_000, free_margin_usdt=10_000),
+        market_price=100.0,
+        atr=2.0,
+    )
+
+    assert result.reason == "stop_on_wrong_side"  # type: ignore[union-attr]
+
+
 def test_risk_officer_rejects_when_breaker_active(risk_config, make_signal, tmp_path):
-    from datetime import datetime as _dt, timezone as _tz
+    from datetime import datetime as _dt
+
     breaker = DDBreaker(risk_config["drawdown_breakers"], state_path=tmp_path / "br.json")
     ro = RiskOfficer(risk_config, breaker=breaker)
     sig = make_signal()
     # SEC26.B-4: daily_pnl realized_pnl_today'den. -%5 daily_loss_pct için
     # realized_pnl_today >= 0.05 * daily_anchor_equity gerekli.
-    today = _dt.now(_tz.utc).date().isoformat()
+    today = _dt.now(UTC).date().isoformat()
     breaker.state.last_reset_daily = today
     breaker.state.last_reset_weekly = today
     breaker.state.last_reset_monthly = today
@@ -343,15 +498,13 @@ def test_risk_officer_rejects_max_open_positions(risk_config, make_signal, tmp_p
             current_price=100,
             unrealized_pnl_usdt=0,
             realized_pnl_usdt=0,
-            opened_at=datetime.now(timezone.utc),
+            opened_at=datetime.now(UTC),
             strategy_id="t",
-            last_updated=datetime.now(timezone.utc),
+            last_updated=datetime.now(UTC),
         )
         for i in range(8)
     ]
-    acct = AccountState(
-        equity_usdt=100_000, free_margin_usdt=100_000, open_positions=open_pos
-    )
+    acct = AccountState(equity_usdt=100_000, free_margin_usdt=100_000, open_positions=open_pos)
     sig = make_signal()
     out = ro.evaluate(sig, acct, market_price=100.0, atr=2.0)
     assert not hasattr(out, "quantity")
