@@ -62,7 +62,7 @@ def test_resume_write_does_not_require_redundant_prewrite_approval() -> None:
 def test_resume_write_selects_recent_templates_dynamically() -> None:
     text = RESUME_SKILL.read_text(encoding="utf-8")
 
-    assert 'find . -maxdepth 1 -type f -name \'RESUME_*.md\'' in text
+    assert "find . -maxdepth 1 -type f -name 'RESUME_*.md'" in text
     assert "sort -V | tail -n 2" in text
     assert "en güncel —" not in text
 

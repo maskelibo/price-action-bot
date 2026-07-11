@@ -12,11 +12,12 @@ Coverage:
 
 No live LLM call — `PA_LLM_DRY_RUN=true`.
 """
+
 from __future__ import annotations
 
 import asyncio
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,6 @@ from price_action.agents.strategy_curator import (
     _calc_diversity_entropy,
 )
 from price_action.memory import MemoryStore
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -127,6 +127,7 @@ def curator_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, An
 
     monkeypatch.setenv("PA_LLM_DRY_RUN", "true")
     from price_action import settings as _settings_mod
+
     _settings_mod.get_settings.cache_clear()
     monkeypatch.setattr(_settings_mod, "ROOT_DIR", root)
     return {"root": root, "rules_dir": rules_dir}
@@ -143,26 +144,35 @@ def agent(curator_env: dict[str, Any]) -> StrategyCuratorAgent:
 # ---------------------------------------------------------------------------
 
 
-def _decaying_returns(n: int = 200, start_mu: float = 0.005, end_mu: float = -0.005, seed: int = 7) -> list[float]:
+def _decaying_returns(
+    n: int = 200, start_mu: float = 0.005, end_mu: float = -0.005, seed: int = 7
+) -> list[float]:
     """Drift mu from start_mu to end_mu over n samples — alpha decay simülasyonu."""
     import numpy as np
+
     rng = np.random.default_rng(seed)
     mus = np.linspace(start_mu, end_mu, n)
     noise = rng.normal(0.0, 0.01, size=n)
     return (mus + noise).tolist()
 
 
-def _growing_returns(n: int = 200, start_mu: float = -0.002, end_mu: float = 0.006, seed: int = 11) -> list[float]:
+def _growing_returns(
+    n: int = 200, start_mu: float = -0.002, end_mu: float = 0.006, seed: int = 11
+) -> list[float]:
     """Drift mu from start_mu to end_mu (improving edge)."""
     import numpy as np
+
     rng = np.random.default_rng(seed)
     mus = np.linspace(start_mu, end_mu, n)
     noise = rng.normal(0.0, 0.01, size=n)
     return (mus + noise).tolist()
 
 
-def _stable_returns(n: int = 200, mu: float = 0.003, sigma: float = 0.01, seed: int = 13) -> list[float]:
+def _stable_returns(
+    n: int = 200, mu: float = 0.003, sigma: float = 0.01, seed: int = 13
+) -> list[float]:
     import numpy as np
+
     rng = np.random.default_rng(seed)
     return rng.normal(mu, sigma, size=n).tolist()
 
@@ -245,7 +255,7 @@ def test_diversity_entropy_uncorrelated_vs_correlated() -> None:
     assert perfect["entropy_normalized"] < 0.05
 
     # Mixed: 2 clusters of perfectly correlated strategies → middle entropy
-    C = np.array(
+    corr = np.array(
         [
             [1.0, 0.95, 0.0, 0.0],
             [0.95, 1.0, 0.0, 0.0],
@@ -253,7 +263,7 @@ def test_diversity_entropy_uncorrelated_vs_correlated() -> None:
             [0.0, 0.0, 0.95, 1.0],
         ]
     )
-    mixed = _calc_diversity_entropy(C)
+    mixed = _calc_diversity_entropy(corr)
     assert 0.3 < mixed["entropy_normalized"] < 0.95
 
 
@@ -285,7 +295,9 @@ def test_marginal_sharpe_calc(curator_env: dict[str, Any], agent: StrategyCurato
     assert out["with_new_sharpe"] >= out["existing_sharpe"] - 0.5  # ufak gürültü toleransı
 
 
-def test_marginal_sharpe_empty_book(curator_env: dict[str, Any], agent: StrategyCuratorAgent) -> None:
+def test_marginal_sharpe_empty_book(
+    curator_env: dict[str, Any], agent: StrategyCuratorAgent
+) -> None:
     """Book boş + yeni returns → existing=0, with_new = yeni Sharpe."""
     new_returns = _stable_returns(n=120, mu=0.004, sigma=0.011, seed=31)
     out = asyncio.run(
@@ -320,7 +332,7 @@ def test_retirement_decision_flow(curator_env: dict[str, Any], agent: StrategyCu
     # Insufficient data — n < min_sample_size (30) yetersiz
     short = _stable_returns(n=15, mu=0.001, sigma=0.005, seed=43)
     short_decay = _calc_alpha_decay_slope(short, window_days=90)
-    verdict_s, reason_s = agent._retirement_verdict("short_strat", short_decay, 0, cfg)
+    verdict_s, _reason_s = agent._retirement_verdict("short_strat", short_decay, 0, cfg)
     assert verdict_s == "INSUFFICIENT_DATA"
 
 
@@ -337,7 +349,7 @@ def test_onboarding_decision_flow(curator_env: dict[str, Any], agent: StrategyCu
     good_marginal = {
         "existing_sharpe": 1.2,
         "with_new_sharpe": 1.4,
-        "marginal_pct": 0.166,   # +16.6%
+        "marginal_pct": 0.166,  # +16.6%
         "correlation_to_book": 0.35,
     }
     verdict, reason = agent._onboarding_verdict(good_candidate, good_marginal, cfg)
@@ -352,7 +364,7 @@ def test_onboarding_decision_flow(curator_env: dict[str, Any], agent: StrategyCu
     weak_marginal = {
         "existing_sharpe": 1.2,
         "with_new_sharpe": 1.21,
-        "marginal_pct": 0.008,   # %0.8 → eşik altı (%5)
+        "marginal_pct": 0.008,  # %0.8 → eşik altı (%5)
         "correlation_to_book": 0.4,
     }
     verdict_w, reason_w = agent._onboarding_verdict(weak_cand, weak_marginal, cfg)
@@ -369,7 +381,7 @@ def test_onboarding_decision_flow(curator_env: dict[str, Any], agent: StrategyCu
         "existing_sharpe": 1.2,
         "with_new_sharpe": 1.35,
         "marginal_pct": 0.125,
-        "correlation_to_book": 0.85,   # > 0.7 cap
+        "correlation_to_book": 0.85,  # > 0.7 cap
     }
     verdict_c, _reason_c = agent._onboarding_verdict(correlated_cand, correlated_marginal, cfg)
     assert verdict_c == "REJECT"
@@ -413,7 +425,7 @@ def test_daily_correlation_update_writes_doc(
             )
             """
         )
-        base = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=20)
+        base = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=20)
         # 30 trade per active strategy
         strategies = ["vsa_climax_test", "brooks_failed_breakout"]
         rows = []
@@ -437,9 +449,7 @@ def test_daily_correlation_update_writes_doc(
                     ]
                 )
         for r in rows:
-            con.execute(
-                "INSERT INTO futures_trades_closed VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", r
-            )
+            con.execute("INSERT INTO futures_trades_closed VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", r)
         con.commit()
     finally:
         con.close()
