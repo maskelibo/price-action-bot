@@ -1,0 +1,19 @@
+{
+  "capability": "paper_broker",
+  "implementation_artifacts": [
+    {
+      "path": "src/price_action/forex/paper_broker.py",
+      "sha256": "c4b60ac94feee7c13d203ee51100b4aa47b53b8141a9efad5f67217744b2e45b"
+    },
+    {
+      "path": "src/price_action/lab/forex_readiness.py",
+      "sha256": "94e656e8bbfef637dbb48de6833f5c51cf09855a7b7110c04e1b1414da6c084f"
+    }
+  ],
+  "live_authorized": false,
+  "order_authorized": false,
+  "paper_only": true,
+  "ready": true,
+  "schema_version": "forex-capability-v1",
+  "testnet_authorized": false
+}

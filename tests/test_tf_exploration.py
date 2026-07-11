@@ -17,12 +17,11 @@ from __future__ import annotations
 
 import pickle
 import stat
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 import yaml
-
 from scripts.bot_factory import (
     generate_bot,
     init_journal_schema,
@@ -33,6 +32,7 @@ from scripts.bot_factory import (
 from scripts.tf_exploration_runner import (
     _build_recommendation,
     _normalize_for_score,
+    align_common_comparison_sample,
     calc_tf_metrics,
     composite_score,
     explore_tf,
@@ -46,7 +46,7 @@ from scripts.tf_exploration_runner import (
 def _make_trade(
     *,
     entry_ts: datetime,
-    R: float,
+    r_value: float,
     strategy: str = "vsa_climax_test",
     symbol: str = "BTC/USDT",
     side: str = "long",
@@ -55,8 +55,8 @@ def _make_trade(
     return {
         "entry_ts": entry_ts,
         "exit_ts": entry_ts + timedelta(hours=1),
-        "R": float(R),
-        "peak_R": max(0.0, float(R)),
+        "R": float(r_value),
+        "peak_R": max(0.0, float(r_value)),
         "conf": conf,
         "symbol": symbol,
         "strategy": strategy,
@@ -72,17 +72,17 @@ def _make_pool(
     strategy: str,
     start: datetime,
     step_hours: int,
-    R_seq: list[float] | None = None,
+    r_values: list[float] | None = None,
 ) -> list[dict]:
-    """n trade üret. R_seq verilirse cycle eder, yoksa +0.3/-0.5 alternates."""
-    if R_seq is None:
-        R_seq = [0.3, -0.5, 0.8, -0.2, 1.2, -0.7, 0.5, -0.3]
+    """n trade üret. r_values verilirse cycle eder, yoksa varsayılanı kullanır."""
+    if r_values is None:
+        r_values = [0.3, -0.5, 0.8, -0.2, 1.2, -0.7, 0.5, -0.3]
     pool = []
     for i in range(n):
-        R = R_seq[i % len(R_seq)]
+        r_value = r_values[i % len(r_values)]
         pool.append(_make_trade(
             entry_ts=start + timedelta(hours=i * step_hours),
-            R=R,
+            r_value=r_value,
             strategy=strategy,
         ))
     return pool
@@ -92,25 +92,25 @@ def _make_pool(
 def synth_pools(tmp_path: Path) -> dict[str, Path]:
     """Sentetik mini pool .pkl dosyaları (5m ve 15m) — tmp_path altında."""
     paths = {}
-    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2024, 1, 1, tzinfo=UTC)
 
     # 5m pool — 200 trade, çoğunlukla küçük R'ler (Sharpe pozitif).
     pool_5m = _make_pool(
         n=200, strategy="vsa_climax_test",
         start=start, step_hours=1,
-        R_seq=[0.4, -0.3, 0.6, -0.4, 0.5, -0.2, 0.3, -0.1],
+        r_values=[0.4, -0.3, 0.6, -0.4, 0.5, -0.2, 0.3, -0.1],
     )
     # 15m pool — 100 trade, biraz farklı dağılım (daha iyi recovery).
     pool_15m = _make_pool(
         n=100, strategy="vsa_climax_test",
         start=start, step_hours=4,
-        R_seq=[0.5, -0.3, 1.0, -0.4, 0.8, -0.5, 0.6, -0.2],
+        r_values=[0.5, -0.3, 1.0, -0.4, 0.8, -0.5, 0.6, -0.2],
     )
     # Bonus: bir miktar engulfing_continuation trade ekle (drop_strategies test).
     pool_5m += [
         _make_trade(
             entry_ts=start + timedelta(hours=i),
-            R=2.0,
+            r_value=2.0,
             strategy="engulfing_continuation",
         )
         for i in range(5)
@@ -263,10 +263,10 @@ def test_calc_tf_metrics_empty():
 
 
 def test_calc_tf_metrics_basic():
-    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2024, 1, 1, tzinfo=UTC)
     trades = [
-        _make_trade(entry_ts=start + timedelta(hours=i), R=R)
-        for i, R in enumerate([1.0, -0.5, 1.0, -0.5, 1.0])
+        _make_trade(entry_ts=start + timedelta(hours=i), r_value=r_value)
+        for i, r_value in enumerate([1.0, -0.5, 1.0, -0.5, 1.0])
     ]
     m = calc_tf_metrics(trades)
     assert m["n_trades"] == 5
@@ -284,18 +284,81 @@ def test_recommendation_no_pool():
     assert "NEEDS_MORE_DATA" in rec
 
 
-def test_recommendation_deploy_new_tf():
-    """Aktif olmayan TF best ve threshold üstünde → DEPLOY önerisi."""
-    tf_results = {"1h": {"status": "OK", "composite": 0.85}}
+def test_recommendation_marks_new_tf_as_candidate_not_deploy():
+    """Ham ekran doğrudan deploy yetkisi vermez."""
+    tf_results = {
+        "15m": {"status": "OK", "composite": 0.40},
+        "1h": {"status": "OK", "composite": 0.85},
+    }
     rec = _build_recommendation("1h", tf_results, {"composite_min": 0.70})
-    assert "DEPLOY 1h" in rec
+    assert "CANDIDATE 1h" in rec
+    assert "deploy ETME" in rec
+
+
+def test_recommendation_requires_baseline_evidence():
+    tf_results = {"1h": {"status": "OK", "composite": 0.85}}
+
+    rec = _build_recommendation("1h", tf_results, {"composite_min": 0.70})
+
+    assert "NEEDS_MORE_DATA" in rec
+    assert "baseline" in rec
 
 
 def test_recommendation_stay_active_tf():
-    """Best TF zaten aktif (5m/15m) → STAY."""
-    tf_results = {"5m": {"status": "OK", "composite": 0.85}}
-    rec = _build_recommendation("5m", tf_results, {"composite_min": 0.70})
+    """Best TF configured baseline ise STAY."""
+    tf_results = {"15m": {"status": "OK", "composite": 0.85}}
+    rec = _build_recommendation("15m", tf_results, {"composite_min": 0.70})
     assert "STAY" in rec
+
+
+def test_recommendation_enforces_baseline_gain():
+    tf_results = {
+        "15m": {"status": "OK", "composite": 0.75},
+        "4h": {"status": "OK", "composite": 0.80},
+    }
+
+    rec = _build_recommendation(
+        "4h",
+        tf_results,
+        {"composite_min": 0.70, "baseline_tf": "15m", "vs_baseline_min_gain_pct": 0.10},
+    )
+
+    assert "STAY 15m" in rec
+    assert "6.7%" in rec
+
+
+def test_common_sample_uses_symbol_and_date_intersection():
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    baseline = [
+        _make_trade(entry_ts=start + timedelta(days=day), r_value=0.1, symbol=symbol)
+        for symbol in ("BTC/USDT", "ETH/USDT")
+        for day in range(10)
+    ]
+    candidate = [
+        _make_trade(entry_ts=start + timedelta(days=day), r_value=0.2, symbol=symbol)
+        for symbol in ("BTC/USDT", "SOL/USDT")
+        for day in range(-5, 15)
+    ]
+
+    aligned, provenance = align_common_comparison_sample(
+        {"15m": baseline, "30m": candidate}
+    )
+
+    assert provenance["common_symbols"] == ["BTC/USDT"]
+    assert provenance["entry_start"].startswith("2024-01-01")
+    assert provenance["entry_end"].startswith("2024-01-10")
+    assert len(aligned["15m"]) == 10
+    assert len(aligned["30m"]) == 10
+    assert {row["symbol"] for rows in aligned.values() for row in rows} == {"BTC/USDT"}
+
+
+def test_common_sample_fails_without_symbol_overlap():
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    baseline = [_make_trade(entry_ts=start, r_value=0.1, symbol="BTC/USDT")]
+    candidate = [_make_trade(entry_ts=start, r_value=0.2, symbol="SOL/USDT")]
+
+    with pytest.raises(ValueError, match="no common symbols"):
+        align_common_comparison_sample({"15m": baseline, "30m": candidate})
 
 
 # ---------------------------------------------------------------------------

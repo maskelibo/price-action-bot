@@ -16,7 +16,8 @@ Spec (Faz 10):
     - Pool subset (drop_strategies hariç)
     - Per-TF metrics: n_trades/yr, mean_R, sum_R, Sharpe-like, MaxDD, WR, recovery
     - Composite score (configs/tf_expansion_targets.yaml ağırlıkları)
-    - Best TF + deploy recommendation (DEPLOY / STAY / NEEDS_MORE_DATA)
+    - Ortak sembol + ortak tarih penceresinde adil TF karşılaştırması
+    - Best TF + research recommendation (CANDIDATE / STAY / NEEDS_MORE_DATA)
 """
 from __future__ import annotations
 
@@ -24,9 +25,9 @@ import argparse
 import math
 import pickle
 import sys
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable
 
 import yaml
 
@@ -58,8 +59,8 @@ def _to_utc(ts) -> datetime:
     """UTC-aware datetime'a normalize et."""
     if isinstance(ts, datetime):
         if ts.tzinfo is None:
-            return ts.replace(tzinfo=timezone.utc)
-        return ts.astimezone(timezone.utc)
+            return ts.replace(tzinfo=UTC)
+        return ts.astimezone(UTC)
     # pandas.Timestamp gibi nesneler
     if hasattr(ts, "to_pydatetime"):
         return _to_utc(ts.to_pydatetime())
@@ -86,6 +87,88 @@ def filter_strategy_subset(
         t for t in pool
         if t.get("strategy") == strategy and t.get("strategy") not in drop
     ]
+
+
+def align_common_comparison_sample(
+    subsets: dict[str, list[dict]],
+) -> tuple[dict[str, list[dict]], dict]:
+    """Align TF samples to one symbol universe and entry-time window.
+
+    Pool builders are not guaranteed to cover the same symbols or dates.  A
+    rank across unmatched pools rewards the larger/newer pool rather than the
+    timeframe.  Every comparable TF is therefore restricted to the symbol
+    intersection and the overlapping entry-time interval.  Malformed research
+    rows fail closed instead of being converted to zero-return observations.
+    """
+    if not subsets:
+        raise ValueError("no strategy samples available for comparison")
+
+    prepared: dict[str, list[tuple[dict, str, datetime]]] = {}
+    symbol_sets: list[set[str]] = []
+    for tf, trades in subsets.items():
+        if not trades:
+            raise ValueError(f"{tf}: empty strategy sample")
+        rows: list[tuple[dict, str, datetime]] = []
+        symbols: set[str] = set()
+        for index, trade in enumerate(trades):
+            if not isinstance(trade, dict):
+                raise ValueError(f"{tf}: non-dict trade at index {index}")
+            symbol = trade.get("symbol")
+            if not isinstance(symbol, str) or not symbol.strip():
+                raise ValueError(f"{tf}: invalid symbol at index {index}")
+            if "entry_ts" not in trade:
+                raise ValueError(f"{tf}: missing entry_ts at index {index}")
+            try:
+                entry_ts = _to_utc(trade["entry_ts"])
+                r_value = float(trade["R"])
+            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f"{tf}: malformed trade at index {index}: {exc}") from exc
+            if not math.isfinite(r_value):
+                raise ValueError(f"{tf}: non-finite R at index {index}")
+            clean_symbol = symbol.strip()
+            rows.append((trade, clean_symbol, entry_ts))
+            symbols.add(clean_symbol)
+        prepared[tf] = rows
+        symbol_sets.append(symbols)
+
+    common_symbols = set.intersection(*symbol_sets)
+    if not common_symbols:
+        raise ValueError("TF samples have no common symbols")
+
+    common_rows: dict[str, list[tuple[dict, str, datetime]]] = {
+        tf: [row for row in rows if row[1] in common_symbols]
+        for tf, rows in prepared.items()
+    }
+    if any(not rows for rows in common_rows.values()):
+        raise ValueError("at least one TF has no rows in the common symbol universe")
+
+    comparison_start = max(min(row[2] for row in rows) for rows in common_rows.values())
+    comparison_end = min(max(row[2] for row in rows) for rows in common_rows.values())
+    if comparison_start > comparison_end:
+        raise ValueError("TF samples have no overlapping entry-time window")
+
+    aligned: dict[str, list[dict]] = {}
+    counts: dict[str, dict[str, int]] = {}
+    for tf, rows in common_rows.items():
+        selected = [row[0] for row in rows if comparison_start <= row[2] <= comparison_end]
+        if not selected:
+            raise ValueError(f"{tf}: no trades remain after common-sample alignment")
+        aligned[tf] = selected
+        counts[tf] = {
+            "raw_strategy_trades": len(subsets[tf]),
+            "common_symbol_trades": len(rows),
+            "aligned_trades": len(selected),
+        }
+
+    provenance = {
+        "method": "symbol_intersection_and_overlapping_entry_window",
+        "common_symbols": sorted(common_symbols),
+        "n_common_symbols": len(common_symbols),
+        "entry_start": comparison_start.isoformat(),
+        "entry_end": comparison_end.isoformat(),
+        "counts": counts,
+    }
+    return aligned, provenance
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +319,7 @@ def explore_tf(
             'strategy': str,
             'tf_results': {tf: {status, metrics, normalized, composite, rank}},
             'best_tf': str | None,
-            'recommendation': str,  # DEPLOY <tf> | STAY | NEEDS_MORE_DATA
+            'recommendation': str,  # CANDIDATE <tf> | STAY | NEEDS_MORE_DATA
         }
     """
     config = _load_config(config_path)
@@ -244,6 +327,7 @@ def explore_tf(
     thresholds = config.get("deploy_thresholds", {})
 
     tf_results: dict[str, dict] = {}
+    raw_subsets: dict[str, list[dict]] = {}
     for tf in tf_list:
         path = pool_paths.get(tf)
         if path is None or not Path(path).exists():
@@ -270,10 +354,10 @@ def explore_tf(
                     "pool_path": str(path),
                 }
                 continue
-            metrics = calc_tf_metrics(subset)
+            raw_subsets[tf] = subset
             tf_results[tf] = {
                 "status": "OK",
-                "metrics": metrics,
+                "metrics": None,
                 "normalized": None,  # _normalize_for_score doldurur
                 "composite": 0.0,
                 "rank": None,
@@ -288,6 +372,19 @@ def explore_tf(
                 "rank": None,
                 "pool_path": str(path),
             }
+
+    comparison: dict | None = None
+    if raw_subsets:
+        try:
+            aligned_subsets, comparison = align_common_comparison_sample(raw_subsets)
+        except (TypeError, ValueError) as exc:
+            error = f"ERROR: unsafe comparison sample: {exc}"
+            for tf in raw_subsets:
+                tf_results[tf]["status"] = error
+        else:
+            for tf, subset in aligned_subsets.items():
+                tf_results[tf]["metrics"] = calc_tf_metrics(subset)
+                tf_results[tf]["sample"] = comparison["counts"][tf]
 
     # Composite + rank
     flat = [{"tf": tf, **info} for tf, info in tf_results.items()]
@@ -320,6 +417,7 @@ def explore_tf(
         "recommendation": recommendation,
         "weights": weights,
         "thresholds": thresholds,
+        "comparison_sample": comparison,
     }
 
 
@@ -328,12 +426,26 @@ def _build_recommendation(
     tf_results: dict,
     thresholds: dict,
 ) -> str:
-    """DEPLOY | STAY | NEEDS_MORE_DATA önerisi."""
+    """Ham TF ekranından güvenli aday önerisi üret.
+
+    Bu katman IS/OOS, walk-forward, shuffle, symbol-out veya adversarial
+    kapıları çalıştırmaz. Bu nedenle hiçbir sonuç doğrudan ``DEPLOY`` olamaz;
+    eşikleri geçen yeni TF yalnızca robustness hattına ``CANDIDATE`` olur.
+    """
     if best_tf is None:
         return "NEEDS_MORE_DATA: hiçbir TF için pool yok ya da geçerli trade bulunamadı."
 
     best_score = tf_results[best_tf]["composite"]
     composite_min = float(thresholds.get("composite_min", 0.70))
+    baseline_tf = str(thresholds.get("baseline_tf", "15m"))
+    min_gain = float(thresholds.get("vs_baseline_min_gain_pct", 0.10))
+    baseline = tf_results.get(baseline_tf, {})
+
+    if best_tf != baseline_tf and baseline.get("status") != "OK":
+        return (
+            f"NEEDS_MORE_DATA: güvenli aday karşılaştırması için {baseline_tf} "
+            "baseline pool'u ve ortak örneklem gerekli."
+        )
 
     if best_score < composite_min:
         return (
@@ -341,16 +453,31 @@ def _build_recommendation(
             f"threshold {composite_min:.2f}. Mevcut TF'leri koru."
         )
 
-    # Aktif (deployed) TF: 5m P1c (config'den okunabilir; şimdilik sabit).
-    active_tfs = {"5m", "15m"}
-    if best_tf in active_tfs:
+    if best_tf == baseline_tf:
         return (
             f"STAY {best_tf}: best TF zaten aktif (composite {best_score:.3f})."
         )
 
+    baseline_score = float(baseline.get("composite", 0.0))
+    if baseline_score > 0:
+        gain = (best_score - baseline_score) / baseline_score
+        if gain < min_gain:
+            return (
+                f"STAY {baseline_tf}: '{best_tf}' composite kazancı {gain:.1%} < "
+                f"gerekli {min_gain:.1%}."
+            )
+    else:
+        gain = float("inf")
+
+    comparison = (
+        f"; {baseline_tf} baseline'a göre kazanç {gain:.1%}"
+        if gain is not None and math.isfinite(gain)
+        else "; baseline karşılaştırması yok"
+    )
     return (
-        f"DEPLOY {best_tf}: composite {best_score:.3f} >= "
-        f"{composite_min:.2f}. Yeni bot iskelet için bot_factory.py kullan."
+        f"CANDIDATE {best_tf}: ham composite {best_score:.3f} >= "
+        f"{composite_min:.2f}{comparison}. IS/OOS + walk-forward + shuffle + "
+        "symbol-out + adversarial kapıları geçmeden deploy ETME."
     )
 
 
@@ -369,6 +496,7 @@ def _load_config(config_path: Path | None) -> dict:
             },
             "deploy_thresholds": {
                 "composite_min": 0.70,
+                "baseline_tf": "15m",
                 "vs_baseline_min_gain_pct": 0.10,
             },
         }
@@ -384,7 +512,7 @@ def render_markdown(result: dict) -> str:
     w = lines.append
     strategy = result["strategy"]
     weights = result.get("weights", {})
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
 
     w(f"# TF Exploration Report — `{strategy}`")
     w("")
@@ -392,6 +520,18 @@ def render_markdown(result: dict) -> str:
     w(f"**Best TF:** {result.get('best_tf') or 'N/A'}")
     w(f"**Recommendation:** {result['recommendation']}")
     w("")
+
+    comparison = result.get("comparison_sample")
+    if comparison:
+        w("## Fair Comparison Sample")
+        w("")
+        w(
+            f"- Common universe: {comparison['n_common_symbols']} symbols "
+            f"(`{', '.join(comparison['common_symbols'])}`)"
+        )
+        w(f"- Entry window: `{comparison['entry_start']}` → `{comparison['entry_end']}`")
+        w("- Method: symbol intersection + overlapping entry-time window (fail closed).")
+        w("")
 
     w("## Composite Score Weights")
     w("")
@@ -429,13 +569,14 @@ def render_markdown(result: dict) -> str:
     w("")
     w("## Notes")
     w("")
-    w("- `NO_POOL_DATA` TF'leri Faz 10.2'de pool builder ile doldurulacak")
-    w("  (`scripts/build_pool_<tf>.py` — bkz. `configs/tf_expansion_targets.yaml`).")
+    w("- `NO_POOL_DATA` TF'leri config'deki uygun pool builder ile doldurulacak.")
+    w("- Rank tablosundaki bütün OK TF'ler aynı sembol kesişimi ve aynı giriş")
+    w("  tarih penceresiyle hesaplanır; ham pool büyüklüğü skoru şişiremez.")
     w("- `Sharpe-like` = mean_R / std_R × sqrt(n_trades). Annual değil — trade")
     w("  ölçekli karşılaştırma için. Annualize için n/yr ayrı kolonda.")
     w("- `Recovery` = sum_R / maxdd_R. Calmar benzeri, R cinsinden.")
-    w("- Composite skor `composite_min` eşiğini aşarsa ve TF aktif değilse")
-    w("  `DEPLOY <tf>` önerisi çıkar — `bot_factory.py` ile iskelet üretilir.")
+    w("- Composite skor `composite_min` ve baseline-gain eşiklerini aşarsa")
+    w("  yalnızca `CANDIDATE <tf>` çıkar; robustness kapıları olmadan deploy edilmez.")
     w("")
 
     return "\n".join(lines) + "\n"

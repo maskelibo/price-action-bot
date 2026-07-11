@@ -23,7 +23,7 @@ def _utcnow() -> datetime:
 
 Direction = Literal["long", "short"]
 Mode = Literal["backtest", "paper", "live"]
-TF = Literal["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
+TF = Literal["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
 
 
 def stable_hash(payload: Any) -> str:

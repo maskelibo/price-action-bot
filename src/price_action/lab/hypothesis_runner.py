@@ -36,6 +36,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from price_action.lab.acceptance_gates import enforce_acceptance_contract
 from price_action.logging_config import logger
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -687,7 +688,7 @@ class HypothesisRunner:
             "strategy_class": class_name,
             "timeframe": tf,
             "tp_r": tp_r,
-            "n_trades_raw": int(len(trades_df)),
+            "n_trades_raw": len(trades_df),
             "n_taken": int(n_taken),
             "n_symbols_with_data": n_syms_with_data,
             "mean_R_after_fees": round(mean_r, 4),
@@ -774,6 +775,12 @@ class HypothesisRunner:
                 "reason": f"unknown type: {spec.hypothesis_type}",
             }
 
+        # FAZ-3: accept_gates are executable, fail-closed contract terms now.
+        # A historical bridge result may be a useful RESEARCH_GO, but it can
+        # never remain a bare GO or become promotion-eligible without typed
+        # gate evidence and a separate independent-OOS authorization artifact.
+        enforce_acceptance_contract(spec.accept_gates, run_result)
+
         out = {
             "hypothesis_id": spec.hypothesis_id,
             "source_path": spec.source_path,
@@ -781,7 +788,7 @@ class HypothesisRunner:
             # FAZ-2 damgası: bu anahtar varsa sonuç köprü-sonrası dünyadan —
             # run_all_pending eski DEFERRED/NOT_EXECUTABLE'ları bununla ayırt
             # edip bir kez yeniden dener (NO_DETECTOR dahil yenileri terminal).
-            "bridge_version": 1,
+            "bridge_version": 2,
             "spec": {
                 "type": spec.hypothesis_type,
                 "base_strategy": spec.base_strategy,

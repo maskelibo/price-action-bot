@@ -53,6 +53,9 @@ chroma.sqlite3
 # Memory runtime
 memory/**/runtime/
 memory/**/episodic/*.jsonl
+# OTONOMI feature factory append-only runtime queue; schema/code are tracked,
+# generated discoveries are local evidence and must not dirty Git nightly.
+memory/researcher/sweep_candidates_v2.jsonl
 
 # Inter-agent protocol — append-only message bus
 memory/protocol/inbox.jsonl

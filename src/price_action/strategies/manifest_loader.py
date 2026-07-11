@@ -42,6 +42,10 @@ _TF_ALIASES: dict[str, str] = {
     # 15 dakikaliklar
     "15min": "15m",
     "15minute": "15m",
+    # 30 dakikaliklar
+    "30m": "30m",
+    "30min": "30m",
+    "30minute": "30m",
     # 1 saatlikler
     "1h": "1h",
     "1hour": "1h",

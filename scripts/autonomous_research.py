@@ -26,8 +26,7 @@ import subprocess
 import sys
 import time
 import traceback
-from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -169,13 +168,13 @@ async def _agent_call(agent, prompt: str, model: str, *, max_tokens: int = 800) 
 
 async def _discuss_one_topic(slug: str, topic: str, model: str) -> dict:
     """Tek bir topic icin Researcher + Lab + Analyst + CEO turunu calistir."""
-    from price_action.agents.ceo import CEOAgent
-    from price_action.agents.researcher import ResearcherAgent
     from price_action.agents.analyst import AnalystAgent
+    from price_action.agents.ceo import CEOAgent
     from price_action.agents.lab_scientist import LabScientistAgent
+    from price_action.agents.researcher import ResearcherAgent
 
     print(f"\n=== TOPIC: {slug} — {topic} ===", flush=True)
-    out: dict = {"slug": slug, "topic": topic, "started": datetime.now(timezone.utc).isoformat()}
+    out: dict = {"slug": slug, "topic": topic, "started": datetime.now(UTC).isoformat()}
 
     # 1) Researcher — RAG kullanir
     researcher = ResearcherAgent()
@@ -208,7 +207,8 @@ async def _discuss_one_topic(slug: str, topic: str, model: str) -> dict:
         "- Hangi regime'larda kirilir? (bull/bear/range/high-vol)\n"
         "- Look-ahead/survivorship/data-snooping riski var mi?\n"
         "- Onerilen Bonferroni / multiple-comparison duzeltmesi.\n"
-        "Sayisal tabloyla cevap ver. Curve-fit suphesi yarat.\n\n"
+        "Sayisal tabloyla cevap ver. Curve-fit uretme; gozlenebilir curve-fit "
+        "kirmizi bayragi varsa kanitla ve adayi reddet.\n\n"
         f"--- HIPOTEZ ---\n{hypothesis_text}"
     )
     out["lab"] = await _agent_call(lab, lab_prompt, model, max_tokens=1200)
@@ -247,12 +247,12 @@ async def _discuss_one_topic(slug: str, topic: str, model: str) -> dict:
     out["ceo"] = await _agent_call(ceo, ceo_prompt, model, max_tokens=600)
     print(f"    {'OK' if out['ceo']['ok'] else 'FAIL'} dur={out['ceo'].get('dur_s')}s")
 
-    out["finished"] = datetime.now(timezone.utc).isoformat()
+    out["finished"] = datetime.now(UTC).isoformat()
     return out
 
 
 def _write_report(rounds: list[dict], yt_stats: dict, rss_stats: dict | None) -> Path:
-    s = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    s = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     reports_dir = ROOT / "reports" / "research"
     reports_dir.mkdir(parents=True, exist_ok=True)
     path = reports_dir / f"discussion-{s}.md"
@@ -314,14 +314,14 @@ async def main() -> int:
 
     model = os.getenv("PA_RESEARCH_MODEL", "claude-haiku-4-5")
     yt_per_channel = int(os.getenv("PA_YOUTUBE_PER_CHANNEL", "8"))
-    started = datetime.now(timezone.utc).isoformat()
+    started = datetime.now(UTC).isoformat()
     print(f"[research] started={started} model={model} yt_per_channel={yt_per_channel}", flush=True)
 
     # === A) YouTube ingest ===
     print("\n[research] A) YouTube ingest", flush=True)
     yt_stats = {"videos": 0, "added_chunks": 0}
     try:
-        from price_action.rag.ingest import load_seeds, ingest_items
+        from price_action.rag.ingest import ingest_items, load_seeds
 
         seeds = load_seeds()
         yt_items = _fetch_youtube_items(seeds, per_channel=yt_per_channel)
@@ -361,7 +361,7 @@ async def main() -> int:
     rss_stats = None  # ilk ingest'i ana terminalden yapmistik; bu run'da skip
     report_path = _write_report(rounds, yt_stats, rss_stats)
     print(f"[research] OK rapor: {report_path}", flush=True)
-    print(f"[research] finished={datetime.now(timezone.utc).isoformat()}", flush=True)
+    print(f"[research] finished={datetime.now(UTC).isoformat()}", flush=True)
     return 0
 
 

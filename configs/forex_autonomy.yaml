@@ -1,0 +1,51 @@
+schema_version: forex-autonomy-v1
+
+# This database is inspected with DuckDB read_only=True.  This gate never runs
+# ingest, opens a network connection, requests credentials, or submits orders.
+database:
+  path: data/forex_market.duckdb
+
+data:
+  # yfinance/Yahoo FX is permanently rejected by code because it previously
+  # produced proven-corrupt EUR/USD candles (open==close on most rows).
+  trusted_venues:
+    - histdata
+  required_series:
+    - {venue: histdata, symbol: EUR/USD, timeframe: 4h}
+    - {venue: histdata, symbol: GBP/USD, timeframe: 4h}
+    - {venue: histdata, symbol: USD/JPY, timeframe: 4h}
+  min_rows_per_series: 1000
+
+  # A local paper runner needs observed spread evidence.  The present historical
+  # DB does not have this column, so readiness correctly remains DEFER until a
+  # trusted, non-destructive data contract supplies it.
+  spread:
+    column: spread_bps
+    min_value: 0.0
+    max_value: 50.0
+
+  freshness:
+    max_market_age_bars: 2.0
+    grace_hours: 2.0
+    future_tolerance_hours: 1.0
+    market_hours:
+      friday_close_hour_utc: 22
+      sunday_open_hour_utc: 22
+
+# The two local implementations are content-pinned. Any source change makes
+# readiness fail until its reviewed SHA-256 contract is deliberately refreshed.
+# Feed remains false: no trusted fresh observed-spread feed exists yet.
+capabilities:
+  feed: false
+  paper_broker:
+    contract_file: configs/forex_capabilities/paper_broker.json
+  local_runner:
+    contract_file: configs/forex_capabilities/local_runner.json
+
+# Permanent legal/operational boundary.  READY only means “safe to run a local
+# simulation”; it never authorizes live, testnet, or exchange orders.
+policy:
+  permanent_mode: PAPER_ONLY
+  live_authorized: false
+  testnet_authorized: false
+  order_authorized: false

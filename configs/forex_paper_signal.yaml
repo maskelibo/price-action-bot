@@ -1,0 +1,39 @@
+schema_version: forex-paper-signal-config-v1
+mode: SIGNAL_ONLY_PAPER
+
+# The local adapter is simulation-only; these external-order locks have no CLI bypass.
+safety_locks:
+  permanent_paper_only: true
+  allow_order_submission: false
+  allow_network: false
+
+data:
+  market_db: data/forex_market.duckdb
+  venue: histdata
+  symbols: ["EUR/USD"]
+  timeframe: 4h
+  spread_column: spread_bps
+  # 72h permits the normal FX weekend gap but rejects a frozen monthly feed.
+  max_feed_age_hours: 72
+  min_history_bars: 250
+
+strategy:
+  name: equal_highs_sweep
+  atr_min_pct: 0.0008
+
+output:
+  # Deliberately separate from crypto journals, the market DB, and each other.
+  journal_db: data/forex_paper_signals.duckdb
+  broker_db: data/forex_paper_broker.duckdb
+  status_path: data/state/forex_paper_status.json
+
+readiness:
+  # This gate must return READY before either DuckDB journal can be mutated.
+  config: configs/forex_autonomy.yaml
+
+paper_broker:
+  # Synthetic USD notional only; there is no account, credential, or order path.
+  notional_usd: 1000
+
+# Reference only. The paper adapter uses fixed synthetic notional, not this live-risk preset.
+risk_reference: configs/risk_forex.yaml

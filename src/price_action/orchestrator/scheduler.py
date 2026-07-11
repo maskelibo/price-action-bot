@@ -1865,7 +1865,10 @@ async def _job_process_pending_entries() -> None:
             cwd=str(repo_root),
             capture_output=True,
             text=True,
-            timeout=30,
+            # Cron every 60s + max_instances=1. Leave cleanup headroom while
+            # allowing queue reconcile/protection/journal to finish. ACK
+            # identity is fsync'd before finalization if this timeout still hits.
+            timeout=55,
         )
         if result.returncode == 0:
             # Sadece "anlamlı" çıktıyı logla (read>0 olduğunda)
@@ -1939,7 +1942,6 @@ def _run_param_sweep_chunk_sync() -> None:
         from pathlib import Path
 
         import yaml
-
         from scripts.param_sweep_chunk_processor import process_chunk
 
         chunks_yaml = Path("configs/param_sweep_chunks.yaml")
@@ -2176,7 +2178,7 @@ async def _job_feature_sweep() -> None:
     """OTONOMI-1 (2026-07-07): feature × forward-return korelasyon taraması.
 
     scripts/feature_sweep.py subprocess olarak koşar (deterministik, LLM yok).
-    Spearman IC + BH-FDR + OOS onayı; adaylar sweep_candidates.jsonl'e.
+    1h/4h/1d taranır; v2 kayıtları yalnız descriptive hypothesis seed'idir.
     """
     try:
         import asyncio
@@ -2184,26 +2186,110 @@ async def _job_feature_sweep() -> None:
         from pathlib import Path
 
         repo_root = Path(__file__).resolve().parents[3]
+        # One process means one BY-FDR family across every selected timeframe;
+        # running each TF separately would under-correct multiple testing.
         result = await asyncio.to_thread(
             subprocess.run,
-            [str(repo_root / ".venv" / "bin" / "python"), "scripts/feature_sweep.py"],
+            [
+                str(repo_root / ".venv" / "bin" / "python"),
+                "scripts/feature_sweep.py",
+                "--tf",
+                "1h",
+                "--tf",
+                "4h",
+                "--tf",
+                "1d",
+            ],
             cwd=str(repo_root),
             capture_output=True,
             text=True,
-            timeout=1800,
+            timeout=3600,
         )
         tail = (result.stdout or "").strip().splitlines()[-1:] or [""]
+        outcome = {
+            "timeframes": ["1h", "4h", "1d"],
+            "rc": result.returncode,
+            "tail": tail[0][:200],
+            "stderr": (result.stderr or "")[-300:],
+        }
         logger.info(
             "scheduler.feature_sweep_done",
-            extra={"rc": result.returncode, "tail": tail[0][:200]},
+            extra={"outcome": outcome},
         )
         if result.returncode != 0:
             logger.warning(
                 "scheduler.feature_sweep_fail",
-                extra={"stderr": (result.stderr or "")[-300:]},
+                extra={"outcome": outcome},
             )
     except Exception as exc:
         logger.warning("scheduler.feature_sweep_fail", extra={"err": str(exc)[:200]})
+
+
+def _run_forex_paper_signal_sync(*, repo_root: Path | None = None) -> dict[str, Any]:
+    """Run the permanent-paper FX coordinator and verify its safety claims.
+
+    Exit code 3 is an expected fail-closed readiness deferral. Any malformed
+    output, unsafe capability flag, or unexpected return code is a scheduler
+    failure rather than a silent success.
+    """
+
+    import json
+    import subprocess
+
+    root = Path(repo_root or Path(__file__).resolve().parents[3]).resolve()
+    result = subprocess.run(
+        [str(root / ".venv" / "bin" / "python"), "scripts/forex_paper_signal.py"],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    try:
+        payload = json.loads(result.stdout)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("forex paper coordinator returned invalid JSON") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("forex paper coordinator JSON root must be an object")
+    if payload.get("permanent_paper_only") is not True:
+        raise RuntimeError("forex paper coordinator lost permanent-paper lock")
+    for key in ("order_path_enabled", "network_path_enabled", "deployment_evidence"):
+        if payload.get(key) is not False:
+            raise RuntimeError(f"unsafe forex paper capability: {key}")
+    verdict = str(payload.get("verdict", ""))
+    if result.returncode == 0 and verdict != "READY_LOCAL_PAPER":
+        raise RuntimeError(f"forex paper rc=0 with inconsistent verdict={verdict!r}")
+    if result.returncode == 3 and not verdict.startswith("DEFER_"):
+        raise RuntimeError(f"forex paper rc=3 with inconsistent verdict={verdict!r}")
+    if result.returncode == 3 and (
+        payload.get("journal_mutated") is not False
+        or payload.get("broker_db_mutated") is not False
+    ):
+        raise RuntimeError("deferred forex paper run reported unexpected database mutation")
+    if result.returncode not in {0, 3}:
+        detail = (result.stderr or result.stdout or "")[-500:]
+        raise RuntimeError(f"forex paper coordinator rc={result.returncode}: {detail}")
+    return {
+        "rc": result.returncode,
+        "verdict": verdict,
+        "blockers": payload.get("blockers", []),
+        "journal_mutated": payload.get("journal_mutated") is True,
+        "broker_db_mutated": payload.get("broker_db_mutated") is True,
+        "order_path_enabled": False,
+        "network_path_enabled": False,
+        "deployment_evidence": False,
+    }
+
+
+async def _job_forex_paper_signal() -> None:
+    """FAZ-5: readiness-gated local FX signal + paper broker tick."""
+
+    try:
+        import asyncio
+
+        outcome = await asyncio.to_thread(_run_forex_paper_signal_sync)
+        logger.info("scheduler.forex_paper_signal_done", extra={"outcome": outcome})
+    except Exception as exc:
+        logger.warning("scheduler.forex_paper_signal_fail", extra={"err": str(exc)[:500]})
 
 
 async def _job_funding_refresh() -> None:
@@ -2265,32 +2351,30 @@ async def _job_researcher_improvement_pulse() -> None:
         # olarak prompt'a gömer: önce piyasayı ölç, sonra hipotez yaz.
         sweep_context = ""
         try:
-            import json as _json
-            from pathlib import Path as _Path
+            from price_action.lab.feature_candidates import load_researcher_candidates
 
-            cand_path = _Path("memory/researcher/sweep_candidates.jsonl")
-            if cand_path.exists():
-                cands = [
-                    _json.loads(ln)
-                    for ln in cand_path.read_text().splitlines()[-200:]
-                    if ln.strip()
-                ]
-                cands.sort(key=lambda c: -abs(c.get("ic_oos", 0)))
-                top = cands[:12]
-                if top:
-                    rows = "\n".join(
-                        f"- {c['symbol']} | {c['feature']} -> {c['target']} | "
-                        f"IC_is={c['ic_is']:+.3f} IC_oos={c['ic_oos']:+.3f}"
-                        for c in top
-                    )
-                    sweep_context = (
-                        "\n\nFEATURE-SWEEP ADAYLARI (FDR+OOS onaylı, feature_sweep.py):\n"
-                        + rows
-                        + "\nBu istatistiksel ilişkilerden EKONOMİK RASYONELİ olan birini "
-                        "seç ve test edilebilir hipoteze dönüştür (pre-registration)."
-                    )
+            loaded = load_researcher_candidates()
+            top = loaded.candidates[:12]
+            logger.info(
+                "scheduler.feature_candidates_loaded",
+                extra={"summary": loaded.summary},
+            )
+            if top:
+                rows = "\n".join(
+                    f"- {c['symbol']} [{c['timeframe']}] | {c['feature']} -> {c['target']} | "
+                    f"IC_is={c['statistics']['ic_is']:+.3f} "
+                    f"IC_oos={c['statistics']['ic_oos']:+.3f}"
+                    for c in top
+                )
+                sweep_context = (
+                    "\n\nFEATURE-SWEEP V2 KEŞİFLERİ "
+                    "(DESCRIPTIVE_DISCOVERY; promotion_eligible=false):\n"
+                    + rows
+                    + "\nBunlardan ekonomik rasyoneli olan TEK ilişkiyi yeni ve bağımsız "
+                    "test edilebilir hipoteze dönüştür. Bu satırları OOS terfi kanıtı sayma."
+                )
         except Exception:  # pragma: no cover — sweep yoksa tema yine çalışır
-            pass
+            logger.warning("scheduler.feature_candidates_load_fail")
         themes = [
             "AILE-SWEEP: Feature-sweep adaylarından TEK hipotez üret."
             + (
@@ -2414,7 +2498,7 @@ async def _job_monthly_strategy_portfolio_review() -> None:
 
 
 async def _job_tf_exploration_chunk() -> None:
-    """Faz 10: TF exploration günlük chunk (1 strateji × 1 TF/gün)."""
+    """FAZ-3: one strategy across every canonical pool timeframe per day."""
     try:
         import asyncio
 
@@ -2423,34 +2507,227 @@ async def _job_tf_exploration_chunk() -> None:
         logger.warning("scheduler.tf_exploration_chunk_fail", extra={"err": str(exc)[:200]})
 
 
+async def _job_tf_shadow_promotion() -> None:
+    """FAZ-3/4: immutable independent-OOS evidence → signal-only spec.
+
+    The consumer is intentionally unable to start a process or contact an
+    exchange. Raw ``CANDIDATE`` and ``DESCRIPTIVE_SCREEN_PASS`` reports fail
+    its schema/authorization gate and are recorded as rejected evidence.
+    """
+    try:
+        import asyncio
+
+        from price_action.lab.tf_shadow_promotion import run_default_scan
+
+        report = await asyncio.to_thread(run_default_scan)
+        logger.info(
+            "scheduler.tf_shadow_promotion_done",
+            extra={
+                "counts": report["counts"],
+                "runtime_started": report["runtime_started"],
+                "exchange_order_path_enabled": report["exchange_order_path_enabled"],
+            },
+        )
+    except Exception as exc:
+        logger.warning("scheduler.tf_shadow_promotion_fail", extra={"err": str(exc)[:300]})
+
+
+def _run_tf_independent_oos_scan_sync(*, repo_root: Path | None = None) -> dict[str, Any]:
+    """Evaluate immutable preregistrations; RED discovery creates no work."""
+
+    from price_action.lab.tf_independent_oos import evaluate_preregistration
+
+    root = Path(repo_root or Path(__file__).resolve().parents[3]).resolve()
+    prereg_dir = root / "reports" / "tf_oos" / "prereg"
+    evidence_dir = root / "reports" / "tf_robustness"
+    status_dir = root / "reports" / "tf_oos" / "status"
+    artifacts: list[dict[str, Any]] = []
+    if prereg_dir.is_dir():
+        for preregistration in sorted(prereg_dir.glob("*-oos-prereg-*.json")):
+            try:
+                payload, output = evaluate_preregistration(
+                    preregistration_path=preregistration,
+                    repo_root=root,
+                    evidence_dir=evidence_dir,
+                    status_dir=status_dir,
+                )
+                artifacts.append(
+                    {
+                        "preregistration": str(preregistration.relative_to(root)),
+                        "status": payload.get("status", payload.get("verdict")),
+                        "output": str(output.relative_to(root)),
+                        "deployment_authorized": payload.get("deployment_authorized") is True,
+                    }
+                )
+            except Exception as exc:
+                artifacts.append(
+                    {
+                        "preregistration": str(preregistration.relative_to(root)),
+                        "status": "ERROR",
+                        "error": f"{type(exc).__name__}: {exc}"[:500],
+                        "deployment_authorized": False,
+                    }
+                )
+    return {
+        "schema_version": "tf-independent-oos-scan-v1",
+        "scanned": len(artifacts),
+        "authorized": sum(row["deployment_authorized"] for row in artifacts),
+        "errors": sum(row["status"] == "ERROR" for row in artifacts),
+        "artifacts": artifacts,
+        "exchange_io_performed": False,
+        "live_order_authorized": False,
+    }
+
+
+async def _job_tf_independent_oos() -> None:
+    """FAZ-3: finish prospective OOS before invoking shadow promotion.
+
+    Promotion used to have an independent 04:45 cron, five minutes after the
+    OOS scan.  A slow OOS run could therefore be overtaken by its consumer.
+    Keeping both steps in one scheduler instance makes completion, rather than
+    wall-clock guesswork, the ordering boundary.
+    """
+
+    try:
+        import asyncio
+
+        report = await asyncio.to_thread(_run_tf_independent_oos_scan_sync)
+        logger.info("scheduler.tf_independent_oos_done", extra=report)
+        await _job_tf_shadow_promotion()
+    except Exception as exc:
+        logger.warning("scheduler.tf_independent_oos_fail", extra={"err": str(exc)[:300]})
+
+
+async def _job_tf_signal_shadow() -> None:
+    """FAZ-4: tick authorized local signal shadows without exchange I/O."""
+
+    try:
+        import asyncio
+
+        from price_action.lab.tf_signal_shadow import run_default_scan
+
+        report = await asyncio.to_thread(run_default_scan)
+        rejected = sum(row.get("status") == "REJECTED" for row in report["results"])
+        errors = sum(
+            int((row.get("counts") or {}).get("errors", 0)) for row in report["results"]
+        )
+        logger.info(
+            "scheduler.tf_signal_shadow_done",
+            extra={
+                "configs_scanned": report["configs_scanned"],
+                "rejected": rejected,
+                "errors": errors,
+                "exchange_io_performed": report["exchange_io_performed"],
+                "order_path_enabled": report["order_path_enabled"],
+            },
+        )
+    except Exception as exc:
+        logger.warning("scheduler.tf_signal_shadow_fail", extra={"err": str(exc)[:300]})
+
+
+def _load_tf_exploration_schedule(
+    repo_root: Path,
+    *,
+    config_path: Path | None = None,
+) -> tuple[list[str], list[str], dict[str, Path]]:
+    """Load strategy, timeframe, and pool identity from one YAML contract."""
+
+    import re
+
+    import yaml
+
+    defaults = {
+        "strategies": [
+            "vsa_climax_test",
+            "brooks_failed_breakout",
+            "anchored_vwap_reversal",
+            "engulfing_continuation",
+        ],
+        "enabled_timeframes": ["5m", "15m", "30m", "1h", "4h"],
+    }
+    default_pools = {
+        "5m": "data/sec53_5m_pool_v11_vm20.pkl",
+        "15m": "data/sec53_15m_pool_v11.pkl",
+        "30m": "data/sec53_30m_pool_v11.pkl",
+        "1h": "data/sec53_1h_pool_v11.pkl",
+        "4h": "data/sec53_4h_pool_v11.pkl",
+    }
+    repo_root = Path(repo_root).resolve()
+    path = Path(config_path or repo_root / "configs" / "tf_expansion_targets.yaml")
+    if path.exists():
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("TF expansion config root must be a mapping")
+        exploration = payload.get("exploration")
+        rows = payload.get("target_tfs")
+        if not isinstance(exploration, dict) or not isinstance(rows, list):
+            raise ValueError("TF expansion config lacks exploration/target_tfs")
+        strategies = exploration.get("strategies")
+        timeframes = exploration.get("enabled_timeframes")
+        configured_pools = {
+            str(row.get("tf")): row.get("pool")
+            for row in rows
+            if isinstance(row, dict) and row.get("tf") is not None
+        }
+    else:
+        strategies = defaults["strategies"]
+        timeframes = defaults["enabled_timeframes"]
+        configured_pools = default_pools
+
+    if not isinstance(strategies, list) or not strategies:
+        raise ValueError("exploration.strategies must be a non-empty list")
+    if not isinstance(timeframes, list) or not timeframes:
+        raise ValueError("exploration.enabled_timeframes must be a non-empty list")
+    clean_strategies: list[str] = []
+    for strategy in strategies:
+        if not isinstance(strategy, str) or re.fullmatch(r"[a-z][a-z0-9_]{2,63}", strategy) is None:
+            raise ValueError(f"unsafe exploration strategy slug: {strategy!r}")
+        if strategy not in clean_strategies:
+            clean_strategies.append(strategy)
+
+    allowed_tfs = {"5m", "15m", "30m", "1h", "4h", "1d"}
+    clean_tfs: list[str] = []
+    pool_paths: dict[str, Path] = {}
+    for raw_tf in timeframes:
+        tf = str(raw_tf)
+        if tf not in allowed_tfs:
+            raise ValueError(f"unsupported exploration timeframe: {tf!r}")
+        raw_pool = configured_pools.get(tf)
+        if not isinstance(raw_pool, str) or not raw_pool or Path(raw_pool).is_absolute():
+            raise ValueError(f"{tf}: pool must be a repo-relative path")
+        resolved = (repo_root / raw_pool).resolve()
+        try:
+            resolved.relative_to(repo_root)
+        except ValueError as exc:
+            raise ValueError(f"{tf}: pool path escapes repository") from exc
+        if tf not in clean_tfs:
+            clean_tfs.append(tf)
+            pool_paths[tf] = resolved
+    return clean_strategies, clean_tfs, pool_paths
+
+
 def _run_tf_exploration_chunk_sync() -> None:
     """Sync wrapper — scripts/tf_exploration_runner.py."""
     try:
         from datetime import datetime as _dt
-        from datetime import timezone as _tz
-        from pathlib import Path
 
-        from price_action.settings import get_settings as _gs
         from scripts.tf_exploration_runner import explore_tf
 
+        from price_action.settings import get_settings as _gs
+
         s = _gs()
-        # Basit rotation: gün × strateji index
-        strategies = ["vsa_climax_test", "brooks_failed_breakout", "anchored_vwap_reversal"]
+        repo_root = s.reports_dir.parent
+        strategies, timeframes, pool_paths = _load_tf_exploration_schedule(repo_root)
+        # One configured strategy per day, across every configured timeframe.
         idx = _dt.now(UTC).day % len(strategies)
         strategy = strategies[idx]
-
-        # Pool paths
-        pool_paths = {
-            "5m": s.reports_dir.parent / "data" / "sec53_5m_pool_v11_vm20.pkl",
-            "15m": s.reports_dir.parent / "data" / "sec53_15m_pool_v11.pkl",
-        }
         out_dir = s.reports_dir / "tf_exploration"
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{strategy}-{_dt.now(UTC).date()}.md"
 
         result = explore_tf(
             strategy=strategy,
-            tf_list=["5m", "15m"],
+            tf_list=timeframes,
             pool_paths=pool_paths,
         )
         # FIX 2026-06-22: result önceden hesaplanıp atılıyordu — out_path hiç
@@ -2768,10 +3045,13 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     # Yerine feature_sweep (deterministik kanıt üretimi) + kanıt-temelli pulse
     # temaları geldi. Geri açma: satırı aç + PROGRAM_V2 aile-hedefli prompt şart.
     # ("researcher_5batch", "cron", "30 2 * * *", _job_researcher_5batch),  # Faz 12
-    # OTONOMI-1: feature × forward-return sweep (deterministik, LLM YOK).
-    # FDR+OOS onaylı adaylar memory/researcher/sweep_candidates.jsonl'e düşer;
-    # researcher_pulse tema-0 bunları hipoteze çevirir. Günlük 01:10 UTC.
+    # OTONOMI-1/FAZ-6: 1h/4h/1d × 100+ feature sweep (deterministik, LLM YOK).
+    # Strict v2 descriptive discoveries yalnız hipotez seed'i olur; legacy
+    # queue quarantined ve promotion yolu kapalıdır. Günlük 01:10 UTC.
     ("feature_sweep", "cron", "10 1 * * *", _job_feature_sweep),
+    # FAZ-5: 4h bar kapanışından sekiz dakika sonra yalnız yerel paper akışı.
+    # Readiness DEFER normaldir; feed/spread eksikken journal/broker DB yazılmaz.
+    ("forex_paper_signal", "cron", "8 */4 * * *", _job_forex_paper_signal),
     # FIX 2026-07-07 (V2): funding günlük tazeleme (35 gün bayattı, job yoktu)
     ("funding_refresh", "cron", "40 2 * * *", _job_funding_refresh),
     # FIX 2026-07-02 (fabrika yeniden-açılış, token disiplini): pulse 5×→2×/gün,
@@ -2782,7 +3062,20 @@ JOB_TABLE: tuple[tuple[str, str, str, Any], ...] = (
     ("researcher_pulse", "cron", "0 6,18 * * *", _job_researcher_improvement_pulse),
     ("lab_quick_scan", "cron", "25 0,6,12,18 * * *", _job_lab_quick_scan),
     ("adversary_daily_stress", "cron", "0 4 * * *", _job_adversary_daily_stress),  # Faz 9
-    ("tf_exploration_chunk", "cron", "30 4 * * *", _job_tf_exploration_chunk),  # Faz 10
+    ("tf_exploration_chunk", "cron", "30 4 * * *", _job_tf_exploration_chunk),  # FAZ-3
+    # Prospective, preregistered holdout gate. It is kept outside the expensive
+    # research-autopilot switch so an already frozen holdout is never orphaned.
+    # Its coroutine invokes promotion only after this scan has completed.
+    ("tf_independent_oos", "cron", "40 4 * * *", _job_tf_independent_oos),
+    # FAZ-3/4: TF rapor tüketicisi bağımsız cron değildir. OOS tamamlanınca
+    # _job_tf_independent_oos tarafından çağrılır; böylece yavaş OOS koşusunu
+    # geçemez. Only content-addressed independent OOS + explicit
+    # SIGNAL_ONLY_SHADOW authorization can create a spec; no process, launchd,
+    # testnet, or exchange action occurs here.
+    # Authorized configs are evaluated from local closed bars only. This tick
+    # cannot import an exchange client or submit/cancel an order, and it never
+    # starts a process/launchd service.
+    ("tf_signal_shadow", "cron", "11,26,41,56 * * * *", _job_tf_signal_shadow),
     # FIX 2026-07-07 (denetim D8/D9): signal_scan doğuştan ölüydü (hedef
     # run_daily_scan hiç var olmadı, sessiz no-op); execute_orders emekli 1d
     # pipeline zombisiydi (tüketicisiz dry-run, her gece). İkisi de kayıttan

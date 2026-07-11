@@ -268,6 +268,7 @@ class ProductionConfig:
     max_same_side_concurrent: int | None = None  # 4 = max 4 long VE 4 short ayni anda
 
     # Vol-target sizing (high-vol gunlerde kucuk pos, low-vol'de buyuk)
+    # Legacy name: this is stop-distance targeting, not independent ATR/realized vol.
     # vol_factor = target_atr_pct / sl_pct, clamped [min,max]
     vol_target_enabled: bool = False
     vol_target_atr_pct: float = 0.04  # %4 SL hedef (BTC normal)
@@ -1084,7 +1085,7 @@ def production_replay(
 
         # v1.6 sec15.4: VOL-CONDITIONAL adaptive risk override
         # Vol-targeting yapisina yakin ama farkli mekanik:
-        # vol_target -> per-trade SL'e gore size carpani (continuous).
+        # Legacy vol_target -> per-trade stop-distance size carpani (continuous).
         # vol_conditional_risk -> BTC market-wide ATR% bucket'ina gore risk_pct DEGISTIRIR.
         # NOT: confidence_risk_tiers ile cakistiginda vol-conditional cfg.risk_pct'e
         # default referans alir, conf-tier degerini OVERRIDE etmez (yalnizca cfg.risk_pct

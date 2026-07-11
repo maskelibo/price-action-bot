@@ -29,6 +29,33 @@ def _slug(s: str) -> str:
     return _SLUG.sub("-", s.lower()).strip("-")[:60] or "hypothesis"
 
 
+def _build_hypothesis_prompt(seed_topic: str, rag_block: str) -> str:
+    """Build the canonical pre-registration prompt without anti-persona text.
+
+    The former instruction literally asked the model to *create* curve-fit
+    suspicion.  That phrase was repeatedly classified by the research memory
+    as prompt injection and caused abort-document churn.  The replacement asks
+    for observable red flags and an explicit rejection, never manufacture.
+    """
+
+    return (
+        f"SOP-1 Hipotez Üretim. Seed konu: '{seed_topic}'.\n"
+        "Aşağıdaki RAG referanslarını kullan. Pre-registration formatına "
+        "uygun, ölçülebilir bir hipotez yaz. YAML frontmatter'da doc_id, "
+        "doc_type=hypothesis, agent_id=researcher, created_at, "
+        "status=PRE_REGISTERED ve confidence alanları; gövdede Hypothesis, "
+        "Null Hypothesis, Rationale and Sources, Dependent Variables, "
+        "Independent Variables, Accept Gates, Stop Criteria ve "
+        "Reproducibility başlıkları zorunludur. Accept Gates yalnız typed "
+        "metric comparator ifadeleri kullanır. Her sayısal iddia aynı satırda "
+        "bir [SRC-n] veya repo-relative `path` kaynağına bağlanır. "
+        "Sayısal dayanağı olmayan iddia yazma. Curve-fit üretme; parametre "
+        "sınırı, aşırı IS/OOS farkı veya çoklu-deneme gibi gözlenebilir "
+        "curve-fit kırmızı bayrakları varsa kanıtla ve hipotezi reddet.\n\n"
+        f"--- RAG REFERENCES ---\n{rag_block}"
+    )
+
+
 class ResearcherAgent(LLMAgentBase):
     name: ClassVar[str] = "researcher"
     default_model: ClassVar[str] = ""
@@ -147,14 +174,7 @@ class ResearcherAgent(LLMAgentBase):
             or "(RAG corpus boş veya hit yok)"
         )
 
-        prompt = (
-            f"SOP-1 Hipotez Üretim. Seed konu: '{seed_topic}'.\n"
-            "Aşağıdaki RAG referanslarını kullan. Pre-registration formatına "
-            "uygun, ölçülebilir bir hipotez yaz: iddia, gerekçe (RAG ref), "
-            "dependent vars, independent vars, beklenen p-value, stop criteria. "
-            "Sayı olmayan iddia yazma. Curve-fit şüphesi yarat.\n\n"
-            f"--- RAG REFERENCES ---\n{rag_block}"
-        )
+        prompt = _build_hypothesis_prompt(seed_topic, rag_block)
         text = await self.run(prompt)
         self.record_episodic(f"propose_hypothesis seed={seed_topic[:80]}", tags=["hypothesis"])
         return text

@@ -72,7 +72,17 @@ PARITY_REPORT = ROOT / "reports" / "research" / "pool_1h_parity.md"
 
 TF_SRC = "15m"
 TF_DST = "1h"
-BARS_PER_BUCKET = 4  # 4 × 15m = 1h; eksikse kova düşer (incomplete-bar kuralı)
+TARGET_BARS_PER_BUCKET = {
+    "30m": 2,
+    "1h": 4,
+    "4h": 16,
+}
+TARGET_PANDAS_FREQ = {
+    "30m": "30min",
+    "1h": "1h",
+    "4h": "4h",
+}
+BARS_PER_BUCKET = TARGET_BARS_PER_BUCKET[TF_DST]
 
 # sec53 pool'unun TOP-4 stratejisi (verify_sec53_pool.py EXPECTED_STRATEGIES)
 TOP4_STRATEGIES: list[tuple[str, str]] = [
@@ -128,22 +138,28 @@ def load_15m(symbol: str, db_path: Path = DB_PATH) -> pd.DataFrame:
     return df
 
 
-def resample_15m_to_1h(df_15m: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
-    """15m → 1h resample — futures_trade_30m45m._resample_5m_to kuralıyla.
+def resample_15m(df_15m: pd.DataFrame, target_tf: str) -> tuple[pd.DataFrame, dict]:
+    """15m barları desteklenen daha yüksek bir timeframe'e resample et.
 
-    resample("1h", label="left", closed="left"):
-      bar [14:00, 15:00) damgası 14:00 (bar-open) → lookahead yok.
-    agg: open=first, high=max, low=min, close=last, volume=sum.
-    INCOMPLETE-BAR DÜŞÜRME: kovadaki 15m bar sayısı < 4 ise kova atılır
-    (baş/son partial + orta-seri gap saatleri). İstatistikleri döner.
+    ``label='left', closed='left'`` ile damga bar-open zamanıdır; karar
+    bar kapanmadan görünmez. Hedef kovadaki 15m bar sayısı tam değilse kova
+    düşürülür. Bu, forming bar ve veri-gap'lerinin sahte OHLC üretmesini önler.
     """
+    if target_tf not in TARGET_BARS_PER_BUCKET:
+        raise ValueError(
+            f"Desteklenmeyen hedef timeframe: {target_tf!r}; "
+            f"beklenen={sorted(TARGET_BARS_PER_BUCKET)}"
+        )
+    bars_per_bucket = TARGET_BARS_PER_BUCKET[target_tf]
     if df_15m.empty:
         return pd.DataFrame(), {"n_src": 0, "n_buckets": 0, "n_complete": 0, "n_dropped": 0}
-    g = df_15m.set_index("ts").resample("1h", label="left", closed="left")
+    g = df_15m.set_index("ts").resample(
+        TARGET_PANDAS_FREQ[target_tf], label="left", closed="left"
+    )
     out = g.agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"})
     cnt = g["close"].count()
     n_buckets = int((cnt > 0).sum())
-    complete_mask = cnt == BARS_PER_BUCKET
+    complete_mask = cnt == bars_per_bucket
     out = out[complete_mask].dropna().reset_index()
     stats = {
         "n_src": len(df_15m),
@@ -154,8 +170,19 @@ def resample_15m_to_1h(df_15m: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     return out, stats
 
 
+def resample_15m_to_1h(df_15m: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Backward-compatible 1h wrapper used by the parity audit."""
+    return resample_15m(df_15m, "1h")
+
+
 # ── Pool gather (sec31 _gather_peakR_single'ın 1h portu) ─────────────────────
-def gather_cell(module_name: str, class_name: str, sym: str, df_1h: pd.DataFrame) -> list[dict]:
+def gather_cell(
+    module_name: str,
+    class_name: str,
+    sym: str,
+    df_tf: pd.DataFrame,
+    target_tf: str = TF_DST,
+) -> list[dict]:
     """Tek (strateji, sembol) hücresi — sec31_phoenix_scalp_15m_rolling ile aynı eşleme."""
     try:
         mod = __import__(
@@ -176,10 +203,10 @@ def gather_cell(module_name: str, class_name: str, sym: str, df_1h: pd.DataFrame
         print(f"  [SKIP] {module_name}/{sym}: import ({e})")
         return []
 
-    df = df_1h.copy()
+    df = df_tf.copy()
     df["symbol"] = sym
     df["venue"] = "binance"
-    df["timeframe"] = TF_DST  # apply_tf_manifest → manifests/<strategy>_1h.yaml
+    df["timeframe"] = target_tf
     try:
         df["vol_z_pre"] = volume_zscore(df["volume"], period=20)
     except Exception:
@@ -196,7 +223,7 @@ def gather_cell(module_name: str, class_name: str, sym: str, df_1h: pd.DataFrame
             [sym],
             start=df["ts"].iloc[0].to_pydatetime(),
             end=df["ts"].iloc[-1].to_pydatetime(),
-            timeframe=TF_DST,
+            timeframe=target_tf,
             initial_capital=INITIAL_CAPITAL,
             fees=FEES,
             slippage_bps=SLIPPAGE_BPS,
@@ -268,12 +295,17 @@ def gather_cell(module_name: str, class_name: str, sym: str, df_1h: pd.DataFrame
 
 
 # ── Build mode ───────────────────────────────────────────────────────────────
-def run_build(symbols: list[str], out_path: Path) -> int:
+def run_build(symbols: list[str], out_path: Path, target_tf: str = TF_DST) -> int:
     t_start = time.time()
     pool: list[dict] = []
     resample_rows = []
 
-    print(f"=== build_pool_1h — {len(symbols)} sembol × {len(TOP4_STRATEGIES)} strateji ===")
+    if target_tf not in TARGET_BARS_PER_BUCKET:
+        raise ValueError(f"Desteklenmeyen hedef timeframe: {target_tf!r}")
+    print(
+        f"=== build_pool_{target_tf} — {len(symbols)} sembol × "
+        f"{len(TOP4_STRATEGIES)} strateji ==="
+    )
     print(f"DB: {DB_PATH} (read-only)  →  OUT: {out_path}")
 
     for sym in symbols:
@@ -282,15 +314,15 @@ def run_build(symbols: list[str], out_path: Path) -> int:
         if df_15m.empty:
             print(f"  [WARN] {sym}: 15m verisi yok — atlandı")
             continue
-        df_1h, rs = resample_15m_to_1h(df_15m)
+        df_tf, rs = resample_15m(df_15m, target_tf)
         resample_rows.append((sym, rs))
-        if df_1h.empty:
+        if df_tf.empty:
             print(f"  [WARN] {sym}: resample sonrası boş — atlandı")
             continue
         sym_trades = 0
         for module_name, class_name in TOP4_STRATEGIES:
             t_cell = time.time()
-            trades = gather_cell(module_name, class_name, sym, df_1h)
+            trades = gather_cell(module_name, class_name, sym, df_tf, target_tf)
             pool.extend(trades)
             sym_trades += len(trades)
             print(
@@ -299,7 +331,7 @@ def run_build(symbols: list[str], out_path: Path) -> int:
             )
         print(
             f"  {sym:11s} TOPLAM {sym_trades:>6d} trade | 15m={rs['n_src']:,} → "
-            f"1h={rs['n_complete']:,} (dropped {rs['n_dropped']}) "
+            f"{target_tf}={rs['n_complete']:,} (dropped {rs['n_dropped']}) "
             f"({time.time()-t_sym:.1f}s)"
         )
 
@@ -327,7 +359,7 @@ def run_build(symbols: list[str], out_path: Path) -> int:
     print("  sembol dağılımı:")
     for k in sorted(sym_counts):
         print(f"    {k:12s} {sym_counts[k]:>7,}")
-    print("  resample özeti (sembol: 15m→1h, dropped-incomplete):")
+    print(f"  resample özeti (sembol: 15m→{target_tf}, dropped-incomplete):")
     for sym, rs in resample_rows:
         print(
             f"    {sym:12s} {rs['n_src']:>8,} → {rs['n_complete']:>7,}  (dropped {rs['n_dropped']})"
@@ -527,15 +559,27 @@ def main() -> int:
     p = argparse.ArgumentParser(description="1h backtest pool builder (sec53 şeması)")
     p.add_argument("--mode", choices=["build", "parity"], default="build")
     p.add_argument(
+        "--timeframe",
+        choices=sorted(TARGET_BARS_PER_BUCKET),
+        default="1h",
+        help="15m kaynaktan üretilecek hedef timeframe.",
+    )
+    p.add_argument(
         "--symbols", default="", help="Virgüllü alt-küme (örn: BTC/USDT,ETH/USDT). Boş = 19 sembol."
     )
     p.add_argument(
-        "--out", type=Path, default=OUT_DEFAULT, help=f"Pool çıktı yolu (default: {OUT_DEFAULT})"
+        "--out", type=Path, default=None, help="Pool çıktı yolu (verilmezse timeframe'e göre seçilir)."
     )
     args = p.parse_args()
 
     if args.mode == "parity":
+        if args.timeframe != "1h":
+            p.error("parity modu yalnız bağımsız DB 1h barları bulunduğu için --timeframe 1h destekler")
         return run_parity()
+
+    out_path = args.out
+    if out_path is None:
+        out_path = OUT_DEFAULT if args.timeframe == "1h" else ROOT / "data" / f"sec53_{args.timeframe}_pool_v11.pkl"
 
     symbols = (
         [s.strip() for s in args.symbols.split(",") if s.strip()] if args.symbols else SYMBOLS_19
@@ -543,7 +587,7 @@ def main() -> int:
     unknown = [s for s in symbols if s not in SYMBOLS_19]
     if unknown:
         print(f"[WARN] 19-sembol evreninde olmayan semboller: {unknown}")
-    return run_build(symbols, args.out)
+    return run_build(symbols, out_path, args.timeframe)
 
 
 if __name__ == "__main__":

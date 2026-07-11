@@ -1,0 +1,46 @@
+schema_version: tf-independent-oos-protocol-v2
+
+# This protocol is intentionally conservative.  It is locked into every
+# preregistration before any future holdout row may be evaluated.
+minimums:
+  oos_calendar_days: 90
+  candidate_trades: 100
+  baseline_trades: 100
+  common_symbols: 5
+  walk_forward_folds: 3
+  trades_per_walk_forward_fold: 20
+  regimes: 2
+  trades_per_regime: 15
+  common_months: 6
+  parameter_variants: 2
+
+thresholds:
+  min_candidate_mean_r: 0.0
+  min_candidate_vs_baseline_mean_r: 0.0
+  min_positive_walk_forward_share: 1.0
+  min_symbol_out_mean_r: 0.0
+  min_regime_mean_r: 0.0
+  min_variant_expectancy_retention: 0.50
+  family_wise_alpha: 0.05
+
+multiple_testing:
+  method: bonferroni
+  # The family size is preregistered.  Twenty is the conservative default for
+  # an exploration batch; a deliberate protocol file is required to change it.
+  family_size: 20
+
+permutation:
+  method: monthly_paired_mean_r_sign_flip
+  samples: 20000
+  seed: 20260711
+
+authorization:
+  scope: SIGNAL_ONLY_SHADOW
+  live_order_authorized: false
+  principal_authorization:
+    algorithm: Ed25519
+    public_key_path: configs/keys/tf_shadow_principal_ed25519.pub
+    # Fail-closed placeholder. Principal provisioning replaces this with the
+    # SHA-256 of the external public key before any new preregistration.
+    public_key_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    max_validity_seconds: 86400

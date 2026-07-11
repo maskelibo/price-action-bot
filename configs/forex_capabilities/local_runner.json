@@ -1,0 +1,23 @@
+{
+  "capability": "local_runner",
+  "implementation_artifacts": [
+    {
+      "path": "src/price_action/forex/paper_signal.py",
+      "sha256": "f853f4c26ba59f24db677b59321307cac899d39c0a8329f9bdf1a9ccac03b708"
+    },
+    {
+      "path": "scripts/forex_paper_signal.py",
+      "sha256": "c08efce1bbc6667d7601f1f0ca2f76132c2290da27ba3e2ee68c3806f2d5733b"
+    },
+    {
+      "path": "src/price_action/lab/forex_readiness.py",
+      "sha256": "94e656e8bbfef637dbb48de6833f5c51cf09855a7b7110c04e1b1414da6c084f"
+    }
+  ],
+  "live_authorized": false,
+  "order_authorized": false,
+  "paper_only": true,
+  "ready": true,
+  "schema_version": "forex-capability-v1",
+  "testnet_authorized": false
+}
