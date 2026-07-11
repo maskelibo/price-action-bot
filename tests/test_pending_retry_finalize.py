@@ -609,7 +609,9 @@ def test_real_process_exit_then_two_processor_barrier_is_exactly_once(tmp_path):
     ppe.append_pending_entry(
         queue_path,
         _entry(
-            ts="2026-07-11T12:00:00+00:00",
+            # Keep the subprocess entry inside its age budget regardless of
+            # the wall-clock hour in which the suite is executed.
+            ts=(datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
             symbol="BTC/USDT:USDT",
             side="long",
             qty=2.0,

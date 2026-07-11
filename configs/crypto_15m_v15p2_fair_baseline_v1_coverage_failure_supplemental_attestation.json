@@ -1,0 +1,211 @@
+{
+  "schema_version": "crypto-15m-v15p2-fair-baseline-coverage-failure-supplement-v1",
+  "status": "APPEND_ONLY_SUPPLEMENT_DOES_NOT_MUTATE_SEALED_FAILURE_ARTIFACT",
+  "created_at_utc": "2026-07-11T13:03:03Z",
+  "predecessor": {
+    "path": "configs/crypto_15m_v15p2_fair_baseline_v1_coverage_failure.json",
+    "sha256": "34a844100497bab4ee6edc6cba5efea26bdf6d9ce7278bf384a86fb9d58fab76",
+    "seal_commit": "f6c7dd9e69b4f8c4c7fe54333116dbb6c118f89b",
+    "attempt_source_commit": "05fc820c0a684954ec035a164b82bda0bf57ab66",
+    "attempt_preregistration_sha256": "695fb5b7a07fc0bb54c0a69b10f0893d246926a4339a17b5e8705802800f9c22",
+    "sealed_artifact_modified": false
+  },
+  "attempt_invocation": {
+    "cwd": "/Users/peyman/price-action-bot",
+    "explicit_environment": {
+      "PA_DISABLE_FILE_LOG": "1",
+      "PA_LOG_QUIET": "1",
+      "PA_TESTING": "1",
+      "PYTHONUNBUFFERED": "1"
+    },
+    "argv": [
+      "taskpolicy",
+      "-b",
+      "nice",
+      "-n",
+      "10",
+      ".venv/bin/python",
+      "-m",
+      "price_action.lab.crypto_15m_v15p2_program",
+      "--repo-root",
+      "/Users/peyman/price-action-bot",
+      "--prereg",
+      "configs/crypto_15m_v15p2_fair_baseline_prereg.yaml",
+      "--output",
+      "reports/research/crypto_15m_v15p2_fair_baseline_20260711T124500Z_05fc820_raw.json"
+    ],
+    "exit_code": 1,
+    "attempt_label_utc": "2026-07-11T12:45:00Z",
+    "exact_process_start_and_end_timestamps_available": false,
+    "elapsed_seconds_approx": 3.464648,
+    "elapsed_components_seconds": [
+      1.002137,
+      2.462511
+    ],
+    "elapsed_basis": "initial tool yield plus final process poll; not an exact process monotonic clock"
+  },
+  "process_streams": {
+    "stdout": {
+      "encoding": "utf-8",
+      "text": "",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stderr": {
+      "encoding": "utf-8",
+      "trailing_newline": true,
+      "line_count": 14,
+      "bytes": 1044,
+      "text": "Traceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/Users/peyman/price-action-bot/src/price_action/lab/crypto_15m_v15p2_program.py\", line 1499, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/Users/peyman/price-action-bot/src/price_action/lab/crypto_15m_v15p2_program.py\", line 1467, in main\n    dry_plan(prereg, repo_root=root) if args.dry_plan else run_program(prereg, repo_root=root)\n                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/peyman/price-action-bot/src/price_action/lab/crypto_15m_v15p2_program.py\", line 1176, in run_program\n    _validate_loaded_market(market)\n  File \"/Users/peyman/price-action-bot/src/price_action/lab/crypto_15m_v15p2_program.py\", line 900, in _validate_loaded_market\n    raise ValueError(f\"{symbol}: missing exact 500-bar warmup at evaluation start\")\nValueError: ATOM/USDT: missing exact 500-bar warmup at evaluation start\n",
+      "sha256": "1908bdd7fedd553a2294a4c7c874af2c73e37fc9e6110286238e860addc015da"
+    }
+  },
+  "failure_stage_attestation": {
+    "failed_stage": "validate_loaded_market_before_funding_load_or_signal_generation",
+    "raw_output_path": "reports/research/crypto_15m_v15p2_fair_baseline_20260711T124500Z_05fc820_raw.json",
+    "raw_output_created": false,
+    "market_snapshot_opened_read_only": true,
+    "funding_snapshot_database_opened": false,
+    "signal_generation_started": false,
+    "daily_return_construction_started": false,
+    "portfolio_engine_started": false,
+    "scenario_results_produced": false,
+    "signals_trades_monthly_returns_roi_or_drawdown_inspected": false
+  },
+  "post_failure_reverification": {
+    "source_checked_at_utc": "2026-07-11T13:03:03Z",
+    "snapshot_files_checked_at_utc": "2026-07-11T13:02:23Z",
+    "current_source_commit": "f6c7dd9e69b4f8c4c7fe54333116dbb6c118f89b",
+    "source_clean_before_creating_this_supplement": true,
+    "git_status_porcelain_before_creating_this_supplement": [],
+    "raw_output_path_absent": true,
+    "snapshot_reverification_method": "full-file sequential SHA-256 plus byte-size stat; no write connection",
+    "snapshots": {
+      "market": {
+        "path": "data/backups/20260711/market.duckdb",
+        "bytes": 1636839424,
+        "sha256": "071768300daea9170d29bd5e35cc94795b8a500614d6e5ac4b127e459416652d",
+        "database_opened_for_coverage_diagnostic": true,
+        "database_connection_read_only": true
+      },
+      "funding": {
+        "path": "data/backups/20260711/funding.duckdb",
+        "bytes": 17575936,
+        "sha256": "35be9ebae8f9468a6bae819054008cb4c2338ae0eb923910584dea1adc0c6b96",
+        "database_opened_for_coverage_diagnostic": false
+      }
+    }
+  },
+  "coverage_requirements": {
+    "evaluation_start_utc": "2021-06-01T00:00:00Z",
+    "signal_warmup": {
+      "required_exact_contiguous_15m_bars_strictly_before_start": 500,
+      "required_first_ts": "2021-05-26T19:00:00Z",
+      "required_last_ts": "2021-05-31T23:45:00Z"
+    },
+    "correlation_history": {
+      "required_complete_utc_daily_closes_strictly_before_start": 91,
+      "required_causal_daily_log_returns": 90,
+      "required_first_complete_day": "2021-03-02T00:00:00Z",
+      "required_last_complete_day": "2021-05-31T00:00:00Z"
+    }
+  },
+  "per_symbol_coverage": {
+    "ETH/USDT": {"warmup_rows": 500, "warmup_distinct_timestamps": 500, "warmup_first_ts": "2021-05-26T19:00:00Z", "warmup_last_ts": "2021-05-31T23:45:00Z", "warmup_pass": true, "complete_daily_closes": 16, "causal_daily_log_returns_available": 15, "correlation_history_pass": false},
+    "SOL/USDT": {"warmup_rows": 500, "warmup_distinct_timestamps": 500, "warmup_first_ts": "2021-05-26T19:00:00Z", "warmup_last_ts": "2021-05-31T23:45:00Z", "warmup_pass": true, "complete_daily_closes": 16, "causal_daily_log_returns_available": 15, "correlation_history_pass": false},
+    "BNB/USDT": {"warmup_rows": 500, "warmup_distinct_timestamps": 500, "warmup_first_ts": "2021-05-26T19:00:00Z", "warmup_last_ts": "2021-05-31T23:45:00Z", "warmup_pass": true, "complete_daily_closes": 16, "causal_daily_log_returns_available": 15, "correlation_history_pass": false},
+    "ADA/USDT": {"warmup_rows": 500, "warmup_distinct_timestamps": 500, "warmup_first_ts": "2021-05-26T19:00:00Z", "warmup_last_ts": "2021-05-31T23:45:00Z", "warmup_pass": true, "complete_daily_closes": 16, "causal_daily_log_returns_available": 15, "correlation_history_pass": false},
+    "AVAX/USDT": {"warmup_rows": 500, "warmup_distinct_timestamps": 500, "warmup_first_ts": "2021-05-26T19:00:00Z", "warmup_last_ts": "2021-05-31T23:45:00Z", "warmup_pass": true, "complete_daily_closes": 16, "causal_daily_log_returns_available": 15, "correlation_history_pass": false},
+    "LINK/USDT": {"warmup_rows": 500, "warmup_distinct_timestamps": 500, "warmup_first_ts": "2021-05-26T19:00:00Z", "warmup_last_ts": "2021-05-31T23:45:00Z", "warmup_pass": true, "complete_daily_closes": 16, "causal_daily_log_returns_available": 15, "correlation_history_pass": false},
+    "DOT/USDT": {"warmup_rows": 500, "warmup_distinct_timestamps": 500, "warmup_first_ts": "2021-05-26T19:00:00Z", "warmup_last_ts": "2021-05-31T23:45:00Z", "warmup_pass": true, "complete_daily_closes": 16, "causal_daily_log_returns_available": 15, "correlation_history_pass": false},
+    "DOGE/USDT": {"warmup_rows": 500, "warmup_distinct_timestamps": 500, "warmup_first_ts": "2021-05-26T19:00:00Z", "warmup_last_ts": "2021-05-31T23:45:00Z", "warmup_pass": true, "complete_daily_closes": 16, "causal_daily_log_returns_available": 15, "correlation_history_pass": false},
+    "ZEC/USDT": {"warmup_rows": 500, "warmup_distinct_timestamps": 500, "warmup_first_ts": "2021-05-26T19:00:00Z", "warmup_last_ts": "2021-05-31T23:45:00Z", "warmup_pass": true, "complete_daily_closes": 91, "causal_daily_log_returns_available": 90, "correlation_history_pass": true},
+    "NEAR/USDT": {"warmup_rows": 500, "warmup_distinct_timestamps": 500, "warmup_first_ts": "2021-05-26T19:00:00Z", "warmup_last_ts": "2021-05-31T23:45:00Z", "warmup_pass": true, "complete_daily_closes": 91, "causal_daily_log_returns_available": 90, "correlation_history_pass": true},
+    "FIL/USDT": {"warmup_rows": 500, "warmup_distinct_timestamps": 500, "warmup_first_ts": "2021-05-26T19:00:00Z", "warmup_last_ts": "2021-05-31T23:45:00Z", "warmup_pass": true, "complete_daily_closes": 91, "causal_daily_log_returns_available": 90, "correlation_history_pass": true},
+    "ATOM/USDT": {"warmup_rows": 100, "warmup_distinct_timestamps": 100, "warmup_first_ts": "2021-05-30T23:00:00Z", "warmup_last_ts": "2021-05-31T23:45:00Z", "warmup_pass": false, "complete_daily_closes": 1, "causal_daily_log_returns_available": 0, "correlation_history_pass": false},
+    "ALGO/USDT": {"warmup_rows": 100, "warmup_distinct_timestamps": 100, "warmup_first_ts": "2021-05-30T23:00:00Z", "warmup_last_ts": "2021-05-31T23:45:00Z", "warmup_pass": false, "complete_daily_closes": 1, "causal_daily_log_returns_available": 0, "correlation_history_pass": false}
+  },
+  "coverage_summary": {
+    "primary_symbol_count": 13,
+    "warmup_pass_count": 11,
+    "warmup_fail_symbols": ["ATOM/USDT", "ALGO/USDT"],
+    "correlation_history_pass_count": 3,
+    "correlation_history_fail_symbols": ["ETH/USDT", "SOL/USDT", "BNB/USDT", "ADA/USDT", "AVAX/USDT", "LINK/USDT", "DOT/USDT", "DOGE/USDT", "ATOM/USDT", "ALGO/USDT"],
+    "failure_is_not_limited_to_the_first_reported_ATOM_exception": true
+  },
+  "diagnostic_provenance": {
+    "scope": "frozen market snapshot only",
+    "database_path": "data/backups/20260711/market.duckdb",
+    "table": "ohlcv",
+    "database_connection_read_only": true,
+    "tool_versions": {
+      "python": "3.12.13",
+      "duckdb": "1.5.3",
+      "pandas": "3.0.3"
+    },
+    "attempt_source_hashes": {
+      "src/price_action/lab/crypto_15m_v15p2_program.py": "8db749f239c62c69b18715d7a9bdf4a9b3139fd63ec421ab63b67b7ff3ec9bf6",
+      "src/price_action/lab/crypto_15m_snapshot_io.py": "7c9feef9b3243d96865527423113178c555f9caa79e50aa739b9340643886e7b",
+      "configs/crypto_15m_v15p2_fair_baseline_prereg.yaml": "695fb5b7a07fc0bb54c0a69b10f0893d246926a4339a17b5e8705802800f9c22"
+    },
+    "queries": {
+      "all13_warmup": {
+        "sql": "WITH requested(symbol) AS (\n  VALUES ('ETH/USDT'), ('SOL/USDT'), ('BNB/USDT'), ('ADA/USDT'),\n         ('AVAX/USDT'), ('LINK/USDT'), ('DOT/USDT'), ('DOGE/USDT'),\n         ('ZEC/USDT'), ('NEAR/USDT'), ('FIL/USDT'), ('ATOM/USDT'), ('ALGO/USDT')\n), observed AS (\n  SELECT symbol, COUNT(*) AS row_count, COUNT(DISTINCT ts) AS distinct_ts_count,\n         MIN(ts) AS first_ts, MAX(ts) AS last_ts\n  FROM ohlcv\n  WHERE venue = 'binance' AND timeframe = '15m'\n    AND ts >= TIMESTAMPTZ '2021-05-26 19:00:00+00'\n    AND ts <  TIMESTAMPTZ '2021-06-01 00:00:00+00'\n    AND symbol IN (SELECT symbol FROM requested)\n  GROUP BY symbol\n)\nSELECT requested.symbol, COALESCE(row_count, 0) AS row_count,\n       COALESCE(distinct_ts_count, 0) AS distinct_ts_count, first_ts, last_ts\nFROM requested LEFT JOIN observed USING (symbol)\nORDER BY requested.symbol",
+        "sql_sha256_utf8": "cbdbe0852edff568bf0079491d7ff6e1c5777f7563fe14fba8319f9603943536",
+        "canonical_result_sha256": "4048a2d7067bfe0304876446e7f848782675b56fef22bc557ae0fdc678251562",
+        "result_row_count": 13
+      },
+      "all13_complete_daily_closes": {
+        "sql": "WITH requested(symbol) AS (\n  VALUES ('ETH/USDT'), ('SOL/USDT'), ('BNB/USDT'), ('ADA/USDT'),\n         ('AVAX/USDT'), ('LINK/USDT'), ('DOT/USDT'), ('DOGE/USDT'),\n         ('ZEC/USDT'), ('NEAR/USDT'), ('FIL/USDT'), ('ATOM/USDT'), ('ALGO/USDT')\n), per_day AS (\n  SELECT symbol, date_trunc('day', ts) AS utc_day,\n         COUNT(*) AS row_count, COUNT(DISTINCT ts) AS distinct_ts_count,\n         MIN(ts) AS first_ts, MAX(ts) AS last_ts\n  FROM ohlcv\n  WHERE venue = 'binance' AND timeframe = '15m'\n    AND ts >= TIMESTAMPTZ '2021-03-02 00:00:00+00'\n    AND ts <  TIMESTAMPTZ '2021-06-01 00:00:00+00'\n    AND symbol IN (SELECT symbol FROM requested)\n  GROUP BY symbol, utc_day\n), complete AS (\n  SELECT symbol, COUNT(*) AS complete_daily_close_count\n  FROM per_day\n  WHERE row_count = 96 AND distinct_ts_count = 96\n    AND first_ts = utc_day\n    AND last_ts = utc_day + INTERVAL 23 HOUR + INTERVAL 45 MINUTE\n  GROUP BY symbol\n)\nSELECT requested.symbol, COALESCE(complete_daily_close_count, 0) AS complete_daily_close_count\nFROM requested LEFT JOIN complete USING (symbol)\nORDER BY requested.symbol",
+        "sql_sha256_utf8": "94394aa02bf916f796d0a0d024b200163c6ce2e5b7be703c9efcaffc99dfc387",
+        "canonical_result_sha256": "d4d064510d81067ec49af80cd123d1ea198386c1be213b80c344aa2d483e2416",
+        "result_row_count": 13
+      },
+      "atom_algo_symbol_spelling_scope": {
+        "sql": "SELECT venue, timeframe, symbol, MIN(ts) AS first_ts, MAX(ts) AS last_ts,\n       COUNT(*) AS row_count\nFROM ohlcv\nWHERE regexp_matches(upper(symbol), '(^|[/_:-])(ATOM|ALGO)')\n   OR upper(symbol) IN ('ATOMUSDT', 'ALGOUSDT')\nGROUP BY venue, timeframe, symbol\nORDER BY symbol, venue, timeframe",
+        "sql_sha256_utf8": "f6ad2b92fcb22073e5947903d5c4648ffa96520eeff864c09c1b9edd04d3d777",
+        "canonical_result_sha256": "4e35169f56e160ebec715f58f122ec901a611121df0e74b7819e4372de4a3b71",
+        "result_row_count": 18
+      },
+      "first10_atom_value_access": {
+        "sql": "SELECT ts, open, close\nFROM ohlcv\nWHERE venue = 'binance' AND timeframe = '15m' AND symbol = 'ATOM/USDT'\nORDER BY ts\nLIMIT 10",
+        "sql_sha256_utf8": "8e0f4d3f5faf23f86b73d0ccc335324dde6702d6aff994ecf56d98c699f2d409",
+        "canonical_result_sha256": "be3ab79e67c549072d87abec2a5fed6a6a3eef40b7e8c2826efd3ac3cf8543f3",
+        "result_row_count": 10,
+        "result_values_embedded_in_this_attestation": false
+      }
+    }
+  },
+  "alternate_symbol_spelling_attestation": {
+    "scope": "only the frozen market snapshot data/backups/20260711/market.duckdb; no external source was searched",
+    "binance_15m_atom_algo_rows_found": [
+      {"symbol": "ALGO/USDT", "first_ts": "2021-05-30T23:00:00Z", "last_ts": "2026-07-10T22:45:00Z", "row_count": 179121},
+      {"symbol": "ATOM/USDT", "first_ts": "2021-05-30T23:00:00Z", "last_ts": "2026-07-10T22:45:00Z", "row_count": 179121}
+    ],
+    "alternate_binance_15m_spelling_with_earlier_backfill_found": false,
+    "external_backfill_availability_claimed": false
+  },
+  "value_access_attestation": {
+    "accessed_rows": 10,
+    "symbol": "ATOM/USDT",
+    "columns_read": ["ts", "open", "close"],
+    "raw_values_embedded_or_persisted_in_failure_artifacts": false,
+    "returns_or_direction_derived": false,
+    "signals_or_patterns_generated": false,
+    "trades_or_portfolio_paths_generated": false,
+    "roi_drawdown_or_monthly_metrics_generated": false,
+    "values_used_to_select_or_change_strategy_policy_threshold_universe_or_execution": false,
+    "values_used_in_any_performance_or_deployment_decision": false
+  },
+  "governance": {
+    "supplement_is_evidence_only": true,
+    "strategy_or_performance_result": false,
+    "alpha_result_trials": 0,
+    "original_failure_artifact_mutated": false,
+    "original_preregistration_mutated_after_snapshot_access": false,
+    "network_or_exchange_accessed": false,
+    "live_or_paper_daemon_mutated_or_restarted": false,
+    "deployment_authorized": false,
+    "successor_replay_requires_new_preregistration_and_snapshot_identity": true
+  }
+}
