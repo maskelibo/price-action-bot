@@ -7,8 +7,29 @@ ingest→consumer snapshotı ve rate-limit azaltımları diskte hazırdır; anca
 performans kapısı **RED**, rate-limit deploy kapısı **PENDING** durumundadır.
 Mevcut veri `%10+` getiri kanıtlamaz ve yeni strateji/bot terfisine izin vermez.
 
-Çalışan v15p2 daemon açık iki pozisyon nedeniyle yeniden başlatılmadı. Kod
-düzeltmeleri bir sonraki doğal ve güvenli restartta etkinleşecektir.
+Çalışan v15p2 daemon korumalı ZEC pozisyonu nedeniyle yeniden başlatılmadı. Kod
+düzeltmeleri ancak doğal flat durumundan sonraki güvenli bakım penceresinde
+etkinleşecektir.
+
+## Güncel salt-okunur durum — 11 Temmuz 23:49 TR
+
+- PID `34731`, uptime `1 gün 05:52:56`, `STAT=SN`; proses aktiftir.
+- Son tarama `20:45:15Z / 23:45:15 TR`; log mtime `23:45:29 TR`.
+- Bir açık pozisyon ve üç exchange-side TP/SL algo emri:
+  ZEC long `1.534 @ 487.6942`, son log mark `522.2700`, log U-PnL
+  `+53.04 USDT`.
+- Watchdog aynı turda ZEC stopunu `510.57 → 514.44` taşıdı.
+- Consecutive-loss breaker aktiftir; `19:30Z` turunda yeni ADA sinyali
+  `dd_breaker_active` ile reddedildi. Günlük/haftalık/aylık breaker'lar false'tur.
+- Kümülatif yerel sayaçlar: scan `716`, WIDESTOP `602`, STALE `0`, RISK `13`,
+  MISSED `0`, geniş entry/fill regex eşleşmesi `52` (trade sayısı değildir).
+- Caffeinate PID `1047`, `/usr/bin/caffeinate -ims`; Mac uyumaz, ekran
+  kapanabilir.
+
+Bu fotoğraf yalnız PID ve yerel logdan alındı; yeni private REST mutabakatı,
+restart, emir veya pozisyon değişikliği yapılmadı. Yeni V18 adayı primary kapıyı
+geçmediği için onun için prospective shadow/paper/live kanıt penceresi
+başlatılmadı; bu bir eksik deploy değil, bağlayıcı güvenlik kararıdır.
 
 ## Son durable hesap snapshot'ı ve yerel live-log kanıtı
 
@@ -146,13 +167,15 @@ ve `git diff --check` temizdir. Repo-geneli Ruff tarihsel araştırma/watch kodu
 
 - Running daemon eski process image'ını kullanıyor; yeni kod güvenli doğal
   restart öncesinde canlı değildir.
-- Binance testnet logunda 03:08 UTC itibarıyla `38` adet 418/`-1003` cevap satırı
-  var; son yeni cevap `02:30:16Z`, son başarılı doğal tur `03:00:21Z`.
+- Binance testnet logunda 23:49 TR sayımında geniş 418/`-1003` eşleşmesi `66`
+  satırdır. Son olay `19:00:22Z / 22:00:22 TR` sırasında ZEC eski stop iptalinde
+  görülmüş, sonraki `20:45Z` doğal tur başarıyla tamamlanmıştır. Olay hâlâ
+  kapanmış veya 48 saat temiz diye sınıflandırılmaz.
 - DMS background private polling'i kaldıran external-main-loop heartbeat, shared
   cooldown, cooldown-aware flatten, symbol-scoped order state, process-long
   client, single-client ingest ve `RATE_BUDGET` telemetrisi testlidir; çalışan
   PID eski image olduğu için henüz saha-doğrulanmış değildir.
-- Açık pozisyon nedeniyle restart yapılmadı; 48 saatlik gözlem güvenli restart
+- Korumalı ZEC pozisyonu nedeniyle restart yapılmadı; 48 saatlik gözlem güvenli restart
   sınırından sonra başlar. CEO bu sırada unloaded ve private erişim kapılıdır.
 - Performans RED olduğu için yeni bot başlatılmadı ve hiçbir strateji otomatik
   terfi ettirilmedi.

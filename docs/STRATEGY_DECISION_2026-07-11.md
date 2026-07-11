@@ -2,13 +2,59 @@
 
 ## Karar
 
-**Yeni bot üretilmedi.** İncelenen iki timeframe adayı ve yeni XS-carry
-mekanizması zorunlu kapıları geçmedi. Çalışan `v15p2` daemon ve açık
-pozisyonlar değiştirilmedi; hiçbir aday paper/testnet/live sürecine alınmadı.
+**Yeni bot üretilmedi.** İncelenen timeframe adayları, XS-carry mekanizması ve
+15 dakikalık V16–V18 programlarının hiçbiri zorunlu kapıları geçmedi. Çalışan
+`v15p2` daemon ve açık pozisyonlar değiştirilmedi; hiçbir aday
+paper/testnet/live sürecine alınmadı.
 
 Bu sonuç programın başarısız olduğu anlamına gelmez: yanlış pozitif üreten
 karşılaştırma hataları kapatıldı ve ekonomik olarak zayıf adaylar botlaşmadan
 önce elendi.
+
+## Gerçekçi 15m baseline ve son V18 kararı
+
+V15p2'nin adil V2 baseline replay'i ve V18 challenger'ları aynı immutable V3
+USD-M snapshotı, observed funding, next-open fill ve üç ayrı path-dependent
+maliyet senaryosuyla çalıştırıldı. H senaryosu fill başına `28.5 bp`, pozitif
+fiyat PnL için `0.50x`, negatif fiyat PnL için `1.25x` ve observed funding
+uygular. Son 36 tam ay historical pseudo-OOS'tur; prospective canlı kanıt
+değildir.
+
+Baseline V2 H sonucu:
+
+- trimli aylık ortalama: `-%5.39`
+- medyan ay: `-%5.01`
+- negatif ay: `36/36`
+- en kötü ay: `-%12.31`
+- maksimum mark-to-market drawdown: `%98.27`
+
+V18 dört hücreyi sonuç görülmeden önce kilitledi: VSA-only, Grimes-only,
+dual+causal günlük SMA50 ve VSA+causal günlük SMA50. Primary H sonuçları:
+
+| Hücre | Kapalı trade | Trimli ay | Medyan ay | %90 bootstrap altı | Negatif ay | En kötü ay | H MaxDD | Gate |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| C1 VSA-only | 1,773 | `-%4.324` | `-%3.965` | `-%4.786` | 36/36 | `-%7.956` | `%79.744` | RED |
+| C2 Grimes-only | 1,797 | `-%2.935` | `-%2.675` | `-%3.469` | 36/36 | `-%8.502` | `%68.532` | RED |
+| C3 dual+HTF50 | 1,828 | `-%3.753` | `-%3.745` | `-%4.282` | 36/36 | `-%8.463` | `%75.918` | RED |
+| C4 VSA+HTF50 | 962 | `-%2.532` | `-%2.498` | `-%2.828` | 36/36 | `-%5.292` | `%60.525` | RED |
+
+Karar `RED_NO_PRIMARY_CELL_PASSED`; ranking boş, kazanan yok ve önkayıt gereği
+true-LOSO çalıştırılmadı. Hedef `+%10–15/ay` ve en fazla `%15` drawdown iken en
+az kötü hücre bile negatif ve drawdown tavanının dört katından fazladır.
+
+12 shard'lık bundle manifesti evidence-eligible ve manifest-last'tır. Kanonik
+reporter, bütün aylık PnL'ler negatif olduğunda tanımsız iki konsantrasyon payını
+`+inf` ürettiği için strict JSON yayınında fail-closed durmuştur; kanonik report
+evidence'ı yayımlanmamıştır. Bu olay ranking veya RED kararını değiştirmez.
+Gelecekteki koşular için `null` serializer düzeltmesi ayrı commit'tir; mühürlü
+V18 yeniden çalıştırılmamış ve sonucu yeniden yazılmamıştır.
+
+Ana kanıtlar:
+
+- `configs/crypto_15m_v18_primary_red_result_identity.json`
+- `reports/research/crypto_15m_v18_primary_bundle/manifest.json`
+- `reports/research/CRYPTO_15M_V18_PRIMARY_RED_INCIDENT_2026-07-11.md`
+- `reports/research/CRYPTO_15M_V18_TECHNICAL_REPORT.html`
 
 ## Üretilen canonical timeframe havuzları
 

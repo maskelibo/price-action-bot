@@ -1,0 +1,46 @@
+{
+  "schema_version": "crypto-15m-v18-technical-report-identity-v1",
+  "status": "TECHNICAL_SUMMARY_VERIFIED_NOT_CANONICAL_PRIMARY_REPORT",
+  "decision_changed": false,
+  "live_or_paper_authorized": false,
+  "source_decision": {
+    "path": "reports/research/crypto_15m_v18_primary_red_incident_2026-07-11.json",
+    "sha256": "c362860ad37438120734f51bd8399e192ea1254242070359f16cbf0a81fc8c77"
+  },
+  "source_query": {
+    "path": "reports/research/crypto_15m_v18_technical_report_source.sql",
+    "sha256": "2996f255fb3d2f7eee83d2bc75b272abfd3a4c2c1c1b18371686a1164857c1f2"
+  },
+  "artifact": {
+    "path": "reports/research/crypto_15m_v18_technical_report_artifact.json",
+    "sha256": "473571b47737d9703144732f93768954eb98f49c4cc6194cdd74e5dceb982764"
+  },
+  "html": {
+    "path": "reports/research/CRYPTO_15M_V18_TECHNICAL_REPORT.html",
+    "bytes": 433015,
+    "sha256": "0c56627c08b83b2962d41a59ab401fc95da136fde55ea81855133bbb94d87821",
+    "self_contained": true
+  },
+  "tooling": {
+    "node": "v24.16.0",
+    "build_script_sha256": "0b86883810cf23c81f563a48a7708283a6a4cadf11228ad261efb64426ef728e",
+    "verify_script_sha256": "b495c4cc34113fb2918118eac302f4e7e2152c1b1b9b63e3646cea97ecbf9b3f"
+  },
+  "qa": {
+    "verified_at": "2026-07-11T20:54:00Z",
+    "viewports_px": [1440, 390],
+    "blocks": 16,
+    "charts": 2,
+    "metrics": 3,
+    "tables": 1,
+    "source_dialog": "passed",
+    "source_interaction": "keyboard_menu_semantic_click",
+    "horizontal_overflow": false,
+    "external_requests": 0
+  },
+  "publication_limit": {
+    "canonical_primary_report_published": false,
+    "canonical_primary_report_evidence_eligible": false,
+    "immutable_primary_bundle_evidence_eligible": true
+  }
+}

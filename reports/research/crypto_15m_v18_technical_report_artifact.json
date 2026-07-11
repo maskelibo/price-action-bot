@@ -1,0 +1,403 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Crypto 15m V18 — gerçekçi backtest kararı",
+    "description": "Dört önkayıtlı 15 dakikalık long/short adayın gerçekçi maliyet, istikrar ve risk kapılarıyla teknik değerlendirmesi.",
+    "generatedAt": "2026-07-11T20:37:27Z",
+    "filters": [],
+    "cards": [
+      {
+        "id": "passing_candidates_card",
+        "description": "Otuz dört primary kontrolden sonra bütün zorunlu kapıları geçen aday sayısı.",
+        "dataset": "summary",
+        "sourceId": "v18_result_sql",
+        "metrics": [
+          {
+            "label": "Gate geçen aday",
+            "field": "passing_candidates",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "best_trimmed_return_card",
+        "description": "En az kötü adayın H pseudo-OOS yüzde-puan cinsinden %10 trimli aylık ortalaması; hedef +%10–15 idi.",
+        "dataset": "summary",
+        "sourceId": "v18_result_sql",
+        "metrics": [
+          {
+            "label": "En iyi trimli ay",
+            "field": "best_trimmed_monthly_pct",
+            "format": "number",
+            "unit": "%",
+            "signed": true
+          },
+          {
+            "label": "Hedef alt sınır",
+            "field": "target_monthly_pct_min",
+            "format": "number",
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "id": "lowest_drawdown_card",
+        "description": "Adaylar arasındaki en düşük H pseudo-OOS mark-to-market drawdown; hedef en fazla %15 idi.",
+        "dataset": "summary",
+        "sourceId": "v18_result_sql",
+        "metrics": [
+          {
+            "label": "En düşük H DD",
+            "field": "lowest_drawdown_pct",
+            "format": "number",
+            "unit": "%"
+          },
+          {
+            "label": "DD tavanı",
+            "field": "target_drawdown_pct_max",
+            "format": "number",
+            "unit": "%"
+          }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "trimmed_return_chart",
+        "title": "H pseudo-OOS trimli aylık getiri",
+        "subtitle": "36 ay, yüzde puan; dört adayın tamamı sıfırın ve +%10 hedefinin altında",
+        "type": "bar",
+        "dataset": "candidate_results",
+        "sourceId": "v18_result_sql",
+        "valueFormat": "number",
+        "encodings": {
+          "x": {
+            "field": "candidate",
+            "type": "nominal",
+            "label": "Aday"
+          },
+          "y": {
+            "field": "trimmed_mean_monthly_pct",
+            "type": "quantitative",
+            "label": "Trimli aylık getiri (%)"
+          },
+          "tooltip": [
+            {
+              "field": "median_monthly_pct",
+              "type": "quantitative",
+              "label": "Medyan ay (%)",
+              "format": "number"
+            },
+            {
+              "field": "bootstrap_90pct_lower_bound_pct",
+              "type": "quantitative",
+              "label": "Bootstrap %90 alt sınır (%)",
+              "format": "number"
+            },
+            {
+              "field": "closed_trades",
+              "type": "quantitative",
+              "label": "Kapalı trade",
+              "format": "number"
+            }
+          ]
+        }
+      },
+      {
+        "id": "drawdown_chart",
+        "title": "H pseudo-OOS mark-to-market drawdown",
+        "subtitle": "36 ay; en düşük gözlem %60,52 iken önkayıtlı tavan %15",
+        "type": "bar",
+        "dataset": "candidate_results",
+        "sourceId": "v18_result_sql",
+        "valueFormat": "number",
+        "encodings": {
+          "x": {
+            "field": "candidate",
+            "type": "nominal",
+            "label": "Aday"
+          },
+          "y": {
+            "field": "max_mtm_drawdown_pct",
+            "type": "quantitative",
+            "label": "Maksimum MTM DD (%)"
+          },
+          "tooltip": [
+            {
+              "field": "negative_months",
+              "type": "quantitative",
+              "label": "Negatif ay",
+              "format": "number"
+            },
+            {
+              "field": "worst_month_pct",
+              "type": "quantitative",
+              "label": "En kötü ay (%)",
+              "format": "number"
+            },
+            {
+              "field": "closed_trades",
+              "type": "quantitative",
+              "label": "Kapalı trade",
+              "format": "number"
+            }
+          ]
+        }
+      }
+    ],
+    "tables": [
+      {
+        "id": "candidate_detail_table",
+        "title": "Aday sonuç ayrıntısı",
+        "subtitle": "H pseudo-OOS, 36 tam ay; exact lookup için yüzde-puan değerleri",
+        "dataset": "candidate_results",
+        "sourceId": "v18_result_sql",
+        "defaultSort": {
+          "field": "trimmed_mean_monthly_pct",
+          "direction": "desc"
+        },
+        "columns": [
+          {
+            "field": "candidate",
+            "label": "Aday",
+            "type": "text"
+          },
+          {
+            "field": "closed_trades",
+            "label": "Kapalı trade",
+            "format": "number"
+          },
+          {
+            "field": "trimmed_mean_monthly_pct",
+            "label": "Trimli ay (%)",
+            "format": "number"
+          },
+          {
+            "field": "median_monthly_pct",
+            "label": "Medyan ay (%)",
+            "format": "number"
+          },
+          {
+            "field": "bootstrap_90pct_lower_bound_pct",
+            "label": "Bootstrap alt (%)",
+            "format": "number"
+          },
+          {
+            "field": "negative_months",
+            "label": "Negatif ay",
+            "format": "number"
+          },
+          {
+            "field": "worst_month_pct",
+            "label": "En kötü ay (%)",
+            "format": "number"
+          },
+          {
+            "field": "max_mtm_drawdown_pct",
+            "label": "MTM DD (%)",
+            "format": "number"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "v18_result_sql",
+        "label": "V18 mühürlü RED kararından DuckDB dönüşümü",
+        "path": "reports/research/crypto_15m_v18_technical_report_source.sql"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Crypto 15m V18 — gerçekçi backtest kararı"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "sourceId": "v18_result_sql",
+        "body": "## Teknik özet\n\n**Yeni bot adayı çıkmadı.** Dört önkayıtlı hücrenin tamamı H pseudo-OOS döneminde 36/36 negatif ay üretti. En az kötü aylık sonuç `C4_VSA_HTF50` için `-%2,53`, en düşük drawdown yine bu hücrede `%60,52`; hedef sırasıyla `+%10–15` ve en fazla `%15` idi. Primary ranking boştur, kazanan yoktur ve true-LOSO çalıştırılmaz."
+      },
+      {
+        "id": "headline_metrics",
+        "type": "metric-strip",
+        "cardIds": [
+          "passing_candidates_card",
+          "best_trimmed_return_card",
+          "lowest_drawdown_card"
+        ]
+      },
+      {
+        "id": "return_result",
+        "type": "markdown",
+        "sourceId": "v18_result_sql",
+        "body": "## Filtreler kaybı azalttı ama ekonomik edge üretmedi\n\nEn iyi hücre bile aylık bazda negatiftir; bootstrap %90 alt sınırlarının tamamı `-%2,83` ile `-%4,79` arasındadır. Bu sonuç, ortalamanın birkaç şanslı aya dayanmadığını değil, dağılımın bütününün hedefin altında olduğunu gösterir."
+      },
+      {
+        "id": "return_chart_block",
+        "type": "chart",
+        "chartId": "trimmed_return_chart"
+      },
+      {
+        "id": "return_interpretation",
+        "type": "markdown",
+        "sourceId": "v18_result_sql",
+        "body": "Dört adayın trimli aylık getirisi de negatiftir. `C4_VSA_HTF50`, baseline'ın `-%5,39` değerinden daha az kötü olsa da `-%2,53` ile yeni bot eşiğine yaklaşmaz; bu yüzden göreli iyileşme promotion gerekçesi değildir."
+      },
+      {
+        "id": "risk_result",
+        "type": "markdown",
+        "sourceId": "v18_result_sql",
+        "body": "## Drawdown tek başına bile bütün adayları eliyor\n\nH pseudo-OOS drawdown `%60,52–%79,74` aralığındadır. Önceden kilitlenen `%15` tavanının en iyi durumda dört katı aşılması, return kapıları olmasaydı bile deployment'ı reddetmeye yeterlidir."
+      },
+      {
+        "id": "drawdown_chart_block",
+        "type": "chart",
+        "chartId": "drawdown_chart"
+      },
+      {
+        "id": "exact_result_table",
+        "type": "table",
+        "tableId": "candidate_detail_table"
+      },
+      {
+        "id": "scope_definitions",
+        "type": "markdown",
+        "sourceId": "v18_result_sql",
+        "body": "## Ölçülen şey: 13 sembol, 36 tam pseudo-OOS ay ve sert H maliyeti\n\nEvren 13 Binance USD-M araştırma-proxy sembolüdür. Kesintisiz replay `[2021-06-01, 2026-06-01)` aralığını kapsar; ilk 24 ay development, son 36 ay historical pseudo-OOS'tur. H senaryosu fill başına 28,5 bp maliyet uygular, pozitif fiyat PnL'yi `0,50×`, negatif fiyat PnL'yi `1,25×` çarpar ve gözlenen funding olaylarını dahil eder. Yüzdeler yüzde puanıdır."
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "sourceId": "v18_result_sql",
+        "body": "## Seçim baskısı ve nedensellik önceden kilitlendi\n\nDört hücre VSA-only, Grimes-only, dual+günlük SMA50 ve VSA+günlük SMA50'dir. Günlük kapı yalnız D-1'e kadar 50 kesintisiz tam UTC günü kullanır. B, C2 ve H bağımsız path-dependent replay edilir. Seed 18 sign-flip, yerel ve 13-denemelik cumulative Holm, DSR floor ve 6-slice CSCV/PBO kapıları ranking'den önce uygulanır."
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "sourceId": "v18_result_sql",
+        "body": "## Kanıt güçlü bir RED, fakat prospective getiri iddiası değildir\n\nBu dönem önceki araştırmalarda görülmüştür; bağımsız prospective OOS değildir. Next-open ve sabit maliyet modeli gerçek order-book queue/latency replay'i değildir. Ayrıca kanonik primary reporter, pozitif ay PnL toplamı sıfır olduğu için iki konsantrasyon payını `+inf` üretmiş ve strict JSON yayınında fail-closed durmuştur. Immutable 12-shard bundle eligible'dır; kanonik report evidence'ı oluşmamıştır. Bu kusur kararı iyileştiremez: her aday 24–25 ayrı kapıyı kaybetmiştir."
+      },
+      {
+        "id": "next_steps",
+        "type": "markdown",
+        "body": "## Sonraki adım: bu aileyi deploy etme, yeni mekanizma olmadan yeniden açma\n\n1. V18 için true-LOSO, shadow, paper ve live süreçlerini açma.\n2. Çalışan `v15p2` daemon'ı bu araştırma nedeniyle değiştirme veya restart etme.\n3. JSON-safe `null` temsil düzeltmesini yalnız gelecekteki raporlara uygula; V18 kararını yeniden yazma.\n4. Yeni araştırmayı yalnız ekonomik olarak farklı bir mekanizma ve yeni önkayıtla başlat; eşik düşürme veya bu dört hücreyi yeniden karıştırma."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Açık soru\n\nYeni denemeyi haklı çıkaracak mekanizma, 15 dakikalık yön tahmininden farklı bir ekonomik kaynak sunabiliyor mu—örneğin gerçek maker queue avantajı, cross-sectional relative value veya olay-temelli likidite primi? Böyle bir kaynak ve point-in-time veri yoksa araştırmayı dondurmak en doğru karardır."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-11T20:37:27Z",
+    "status": "partial",
+    "datasets": {
+      "summary": [
+        {
+          "passing_candidates": 0,
+          "best_trimmed_monthly_pct": -2.531802878950662,
+          "target_monthly_pct_min": 10.0,
+          "lowest_drawdown_pct": 60.524547939296546,
+          "target_drawdown_pct_max": 15.0
+        }
+      ],
+      "candidate_results": [
+        {
+          "candidate": "C1_VSA_ONLY",
+          "closed_trades": 1773,
+          "trimmed_mean_monthly_pct": -4.323838220948677,
+          "median_monthly_pct": -3.9645652076902165,
+          "bootstrap_90pct_lower_bound_pct": -4.786174295252519,
+          "negative_months": 36,
+          "worst_month_pct": -7.956049442714133,
+          "max_mtm_drawdown_pct": 79.74377261079317,
+          "target_monthly_pct_min": 10.0,
+          "target_drawdown_pct_max": 15.0,
+          "primary_gate_passed": false
+        },
+        {
+          "candidate": "C2_GRIMES_ONLY",
+          "closed_trades": 1797,
+          "trimmed_mean_monthly_pct": -2.9353656254743914,
+          "median_monthly_pct": -2.674570873670756,
+          "bootstrap_90pct_lower_bound_pct": -3.4686338499496205,
+          "negative_months": 36,
+          "worst_month_pct": -8.502291553261662,
+          "max_mtm_drawdown_pct": 68.53211985004054,
+          "target_monthly_pct_min": 10.0,
+          "target_drawdown_pct_max": 15.0,
+          "primary_gate_passed": false
+        },
+        {
+          "candidate": "C3_DUAL_HTF50",
+          "closed_trades": 1828,
+          "trimmed_mean_monthly_pct": -3.7525020653057077,
+          "median_monthly_pct": -3.7446050172726615,
+          "bootstrap_90pct_lower_bound_pct": -4.2816604349166045,
+          "negative_months": 36,
+          "worst_month_pct": -8.462718443753577,
+          "max_mtm_drawdown_pct": 75.91832630567785,
+          "target_monthly_pct_min": 10.0,
+          "target_drawdown_pct_max": 15.0,
+          "primary_gate_passed": false
+        },
+        {
+          "candidate": "C4_VSA_HTF50",
+          "closed_trades": 962,
+          "trimmed_mean_monthly_pct": -2.531802878950662,
+          "median_monthly_pct": -2.4983118880925144,
+          "bootstrap_90pct_lower_bound_pct": -2.8279305176778777,
+          "negative_months": 36,
+          "worst_month_pct": -5.291946837790293,
+          "max_mtm_drawdown_pct": 60.524547939296546,
+          "target_monthly_pct_min": 10.0,
+          "target_drawdown_pct_max": 15.0,
+          "primary_gate_passed": false
+        }
+      ]
+    },
+    "accessIssues": [
+      {
+        "id": "canonical_primary_report_unavailable",
+        "dataset": "canonical_primary_report",
+        "message": "Kanonik reporter, tanımsız pozitif-PnL konsantrasyon paylarını +inf olarak tuttuğu için strict JSON yayını fail-closed durdu; bu rapor mühürlü RED incident artifact'ını kullanır."
+      }
+    ]
+  },
+  "sources": [
+    {
+      "id": "v18_result_sql",
+      "label": "V18 mühürlü RED kararından DuckDB dönüşümü",
+      "path": "reports/research/crypto_15m_v18_technical_report_source.sql",
+      "query": {
+        "engine": "duckdb",
+        "id": "crypto_15m_v18_primary_red_20260711",
+        "sql": null,
+        "description": "Mühürlü V18 RED incident JSON içindeki dört candidate_H_pseudo_oos kaydını tek karşılaştırma tablosuna dönüştürür.",
+        "language": "sql",
+        "executed_at": "2026-07-11T20:37:27Z",
+        "tables_used": [
+          "read_json_auto(reports/research/crypto_15m_v18_primary_red_incident_2026-07-11.json)"
+        ],
+        "filters": [
+          "H pseudo-OOS window only",
+          "four preregistered V18 candidates only",
+          "36 complete months",
+          "terminal positions excluded from closed-trade counts"
+        ],
+        "metric_definitions": [
+          "trimmed_mean_monthly_pct: arithmetic mean after symmetric 10% monthly return trim, percentage points",
+          "bootstrap_90pct_lower_bound_pct: seed-18, 20,000-iteration, three-month-block lower confidence bound",
+          "max_mtm_drawdown_pct: peak-to-trough mark-to-market NAV drawdown within H pseudo-OOS",
+          "H scenario: 28.5 bps per fill, observed funding, positive price PnL x0.50, negative price PnL x1.25"
+        ]
+      }
+    }
+  ]
+}

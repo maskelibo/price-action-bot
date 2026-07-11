@@ -48,6 +48,14 @@ extend-exclude = [
     "README.md",
     "PROJE_RAPORU.md",
     "RESUME_*.md",
+    # 2026-07-11 kapanış kayıtları Türkçe gövdeli; İngilizce sözlükte
+    # performans/sistem ve ekler false-positive üretiyor.
+    "docs/AUTONOMY_PHASE5_6_STATUS_2026-07-11.md",
+    "docs/LIVE_EVIDENCE_2026-07-11.md",
+    "docs/OPERATIONS_DECISIONS_2026-07-11.md",
+    "docs/OPERATIONS_PENDING_2026-07-11.md",
+    "docs/ROADMAP_COMPLETION_2026-07-11.md",
+    "docs/STRATEGY_DECISION_2026-07-11.md",
     # FIX 2026-07-07: skill dokümanları da Türkçe gövdeli
     ".claude/skills/**",
     "memory/**",

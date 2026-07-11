@@ -12,6 +12,28 @@
   selected real hypothesis is **QUALITY_GATE_FAIL**. The harness itself does
   not authorize promotion, deployment, orders, or live operation.
 
+## Roadmap closure and V18 interaction
+
+Phase 3–6 code paths are complete for their deliberately bounded scope:
+descriptive discovery, paper-only readiness, deterministic evaluation and
+fail-closed promotion gates. They are not a mandate to keep searching until a
+profitable result appears.
+
+The governed V18 program exercised that contract on four preregistered 15m
+cells. All four failed 24–25 primary gates, ranking remained empty and no
+true-LOSO, shadow, paper or live job was created. This is the expected autonomy
+behavior: an agent may generate and test a hypothesis, but cannot lower gates,
+reinterpret a RED result or create execution authority.
+
+The primary reporter's non-finite diagnostic serialization failure also
+stopped publication fail-closed. A future-only `null` serializer repair is
+tested separately; it does not mutate the sealed run. The technical report is
+a source-backed summary of the sealed incident, not a substitute primary
+evidence artifact.
+
+No additional scheduler, credential, private exchange reader, daemon or
+testnet account was activated by the V18 work.
+
 ## Phase 5 — observed local evidence
 
 Real commands:

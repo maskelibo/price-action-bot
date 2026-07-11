@@ -62,10 +62,10 @@ Kapanış kanıtı:
 
 ## 3. Binance testnet 418 / `-1003` — ACTIVE, CODE FIXED, DEPLOY BLOCKED
 
-- Canlı loglarda 03:08 UTC itibarıyla `38` adet rate-ban cevap satırı doğrulandı.
-  Son yeni cevap `02:30:16Z`; cevap deadline'ı `03:00:58.690Z`
-  (`06:00:58.690 TR`). 02:45 ve 03:00 doğal turları yeniden `2 pos / 6 algo`
-  gördü; bu recovery deploy veya 48 saat kanıtı sayılmaz.
+- 23:49 TR yerel log sayımında geniş 418/`-1003` eşleşmesi `66` satırdır.
+  Son olay `19:00:22Z / 22:00:22 TR` sırasında ZEC eski stop iptalinde
+  görülmüştür. Sonraki `20:45Z` turu `1 pos / 3 algo` ile tamamlandı ve stop
+  `514.44` seviyesine taşındı; bu recovery deploy veya 48 saat kanıtı sayılmaz.
 - Kök katkılar sayısallaştırıldı: eski DMS yaklaşık `329–348` private HTTP/saat
   ve yerel private request adedinin `%90+` bölümünü üretiyor; symbolsüz
   regular+algo order state de `40+40 weight/bar` tüketiyor.
@@ -75,7 +75,7 @@ Kapanış kanıtı:
   `RATE_BUDGET` header telemetrisi.
 - CEO wrapper/plist'i `PA_DISABLE_PRIVATE_EXCHANGE_API=1`; guard credential,
   client ve network öncesi çalışır. CEO olay boyunca unloaded kalır.
-- Çalışan daemon açık pozisyonlar nedeniyle restart edilmedi; dolayısıyla bu
+- Çalışan daemon korumalı ZEC pozisyonu nedeniyle restart edilmedi; dolayısıyla bu
   mitigasyon henüz saha-doğrulanmış değildir.
 - Incident kaydı:
   `memory/shared/incidents/INC-2026-07-11-binance-testnet-rate-ban.md`.

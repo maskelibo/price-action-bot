@@ -4,8 +4,8 @@
 
 | Konu | Karar | Gerekçe / yeniden açılma kapısı |
 |---|---|---|
-| Aktif bot | `v15p2` korunur; yeni bot açılmaz | Yeni TF ve XS-carry adayları RED. Canlı performans da `%10+` kapısını kanıtlamadı. |
-| Trade daemon restartı | Açık NEAR/ZEC pozisyonları varken **yasak** | Diskteki execution/rate düzeltmelerini yüklemek için korumalı pozisyonların lifecycle'ı kesilmez. |
+| Aktif bot | `v15p2` korunur; yeni bot açılmaz | TF, XS-carry ve V16–V18 adayları RED. Canlı performans da `%10+` kapısını kanıtlamadı. |
+| Trade daemon restartı | Korumalı ZEC pozisyonu varken **yasak** | Diskteki execution/rate düzeltmelerini yüklemek için pozisyon lifecycle'ı kesilmez. |
 | Binance private REST sahibi | Yalnız trade daemon | Dashboard/E13 yerel kanıt kullanır. CEO process kapısı credential/client/network öncesi private erişimi reddeder. |
 | CEO scheduler | Şimdilik unloaded | Eski trade PID'i ortak cooldown'u okumuyor; ikinci private okuyucu eklenmez. Güvenli daemon restartı ve ilk sağlıklı bar sonrası guarded CEO ayrıca doğrulanır. |
 | Pyramid | Hard-disabled | Ayrı pyramid execution yolu crash-complete değil; config değişikliği bu kapıyı açamaz. |
@@ -16,6 +16,19 @@
 | TF/feature adayları | Descriptive-only | Preregister edilmiş gelecekteki bağımsız OOS olmadan shadow/deploy yok. |
 | Backup retention | Yerelde newest-3 | 39/39 doğrulanmış yerel backup var; off-site olmadığı için DR yine `DEGRADED`. |
 | VPS / ikinci testnet hesap | Defer | Yeni bot kararı yok; ayrı hesap/process ihtiyacı bugün doğmadı. |
+
+## Güncel operasyon fotoğrafı — 11 Temmuz 23:49 TR
+
+- v15p2 PID `34731` aktiftir; uptime yaklaşık `1 gün 6 saat`.
+- Son doğal tur `20:45Z / 23:45 TR`: scan tamamlandı, bir ZEC long ve üç
+  koruma algo emri görüldü, trailing stop `514.44` seviyesine taşındı.
+- Consecutive-loss breaker aktiftir ve yeni risk alımını reddetmektedir.
+- Geniş yerel 418/`-1003` sayımı `66`; son olay `19:00:22Z` stop-cancel
+  denemesinde görülmüştür. `20:45Z` turunun başarılı olması incident kapanışı
+  veya 48 saatlik saha kanıtı değildir.
+- CEO unloaded, pyramid hard-OFF, caffeinate `-ims` aktiftir.
+- Bu fotoğraf private REST çağrısı olmadan yerel PID/logdan alınmıştır; daemon,
+  emirler ve açık pozisyon değiştirilmemiştir.
 
 ## Güvenli deploy sırası
 
