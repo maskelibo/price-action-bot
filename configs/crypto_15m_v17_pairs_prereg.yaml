@@ -1,0 +1,319 @@
+schema_version: crypto-15m-v17-pairs-prereg-v1
+status: PREREGISTERED_NO_RESULTS_SEEN
+created_at_utc: "2026-07-11T04:32:18Z"
+parent_git_commit: 80330d90ef20397d382e2672ba085587c26b4a47
+live_deployment_authorized: false
+promotion_eligible: false
+
+objective:
+  timeframe: 15m
+  market: binance_usdm_research_proxy
+  direction: atomically_paired_long_short
+  target_is_a_frozen_gate_not_an_optimizer: true
+  target_monthly_return_pct: [10.0, 15.0]
+  target_max_drawdown_pct: 15.0
+  planning_expectation_note: >-
+    Ten to fifteen percent per month is a stretch falsification gate, not a
+    planning forecast. With low turnover, four fills per episode and low DD,
+    even one to three percent net per month would be economically strong but
+    does not pass this batch's return gate.
+
+batch1_parent_evidence:
+  report: reports/research/CRYPTO_15M_V16_BATCH1_2026-07-11.md
+  raw_result_gzip: reports/research/crypto_15m_v16_primary_raw_2026-07-11.json.gz
+  raw_json_sha256: 9ebbe8620a7fb5b46eb958ce593e7e772a50f2380f54fc7b857f9cd488063d8e
+  gzip_sha256: 7e434d50280dadea4a730a1a8dac0f6436f92e36118082eef164f3638256265d
+  verdict: RED_ALL_SIX_CELLS
+  reuse_or_posthoc_combination_forbidden: true
+
+snapshots:
+  market:
+    path: data/backups/20260711/market.duckdb
+    sha256: 071768300daea9170d29bd5e35cc94795b8a500614d6e5ac4b127e459416652d
+    bytes: 1636839424
+    table: ohlcv
+    venue: binance
+    timeframe: 15m
+  funding:
+    path: data/backups/20260711/funding.duckdb
+    sha256: 35be9ebae8f9468a6bae819054008cb4c2338ae0eb923910584dea1adc0c6b96
+    bytes: 17575936
+    table: funding_rates
+  mutable_live_databases_forbidden: true
+
+universe:
+  reference_symbol: BTC/USDT
+  reference_symbol_is_never_traded: true
+  primary_symbols:
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - ADA/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - DOT/USDT
+    - DOGE/USDT
+    - ZEC/USDT
+    - NEAR/USDT
+    - FIL/USDT
+    - ATOM/USDT
+    - ALGO/USDT
+  holdout_symbols: [XLM/USDT, AAVE/USDT, TRX/USDT, XRP/USDT]
+  excluded_static_symbol: UNI/USDT
+  partition_rule: >-
+    Pair selection is run separately inside the 13-symbol primary universe and,
+    only after a cell is locked, inside the four-symbol holdout universe. Cross-
+    partition pairs are forbidden.
+  survivorship_warning: >-
+    The universe is static and not delisting-inclusive. A historical pass is
+    FEASIBILITY_NOT_PROMOTION until point-in-time membership exists.
+
+time_protocol:
+  complete_months_utc: ["2021-06-01T00:00:00Z", "2026-06-01T00:00:00Z"]
+  development: ["2021-06-01T00:00:00Z", "2023-06-01T00:00:00Z"]
+  expanding_walk_forward:
+    - ["2023-06-01T00:00:00Z", "2023-12-01T00:00:00Z"]
+    - ["2023-12-01T00:00:00Z", "2024-06-01T00:00:00Z"]
+    - ["2024-06-01T00:00:00Z", "2024-12-01T00:00:00Z"]
+    - ["2024-12-01T00:00:00Z", "2025-06-01T00:00:00Z"]
+    - ["2025-06-01T00:00:00Z", "2025-12-01T00:00:00Z"]
+    - ["2025-12-01T00:00:00Z", "2026-06-01T00:00:00Z"]
+  interval_semantics: half_open_start_inclusive_end_exclusive
+  single_continuous_replay_per_cell_scenario: true
+  folds_are_metric_slices_not_restarts: true
+  genuine_prospective_cutoff_utc: "2026-07-11T04:32:18Z"
+
+data_contract:
+  pair_alignment: pair_plus_BTC_own_timestamp_intersection
+  global_18_symbol_intersection_forbidden: true
+  forward_fill_prices_forbidden: true
+  hourly_formation_close: close_of_15m_bar_labelled_minute_45
+  minimum_hourly_completeness_each_window: 0.95
+  selection_schedule: first_monday_of_each_month_00_00_utc
+  selection_information_cutoff: previous_completed_15m_bar
+  price_columns: [open, high, low, close, volume]
+  gap_policy:
+    max_contiguous_gap_minutes: 30
+    open_pair_action: atomic_exit_at_first_timestamp_with_both_leg_opens
+    pair_quarantine_until_next_monthly_selection: true
+
+pair_selection:
+  validation_hours: 672
+  training_ends_before_validation: true
+  x_leg_rule: >-
+    x is the symbol with higher median close*volume during validation; ties use
+    lexicographic symbol order.
+  normalized_price_base: first_training_hour_close
+  gatev_ssd_prefilter_pairs: 20
+  minimum_training_hourly_return_correlation: 0.75
+  regression: log_y_equals_alpha_plus_beta_log_x
+  beta_range: [0.25, 4.0]
+  engle_granger_holm_fwer: 0.05
+  engle_granger_family: all_Gatev_prefilter_pairs_per_cell_selection_universe
+  ar1_residual_phi_range_exclusive: [0.0, 1.0]
+  beta_half_to_half_relative_change_max: 0.20
+  validation_mean_shift_train_sigma_max: 0.50
+  validation_std_over_train_std_range: [0.50, 1.50]
+  validation_mean_crossings_min: 4
+  absolute_pair_BTC_beta_max: 0.15
+  eligible_sort:
+    - lower_holm_adjusted_p
+    - lower_normalized_price_ssd
+    - lower_sha256_of_snapshot_hash_pair_cell_selection_ts
+  symbol_overlap_between_selected_pairs: false
+  max_selected_pairs: 3
+  frozen_during_selection_month: [alpha, beta, validation_mean, validation_std]
+
+candidate_cells:
+  - id: DP1_EG_90D_Z2P5
+    family: dynamic_cointegrated_pairs
+    train_hours: 2160
+    validation_hours: 672
+    entry_abs_z: 2.5
+    exit_abs_z: 0.5
+    disaster_abs_z: 4.5
+    half_life_hours: [12, 120]
+    max_hold_hours: 168
+    cooldown_hours: 48
+  - id: DP2_EG_180D_Z2P5
+    family: dynamic_cointegrated_pairs
+    train_hours: 4320
+    validation_hours: 672
+    entry_abs_z: 2.5
+    exit_abs_z: 0.5
+    disaster_abs_z: 4.5
+    half_life_hours: [24, 168]
+    max_hold_hours: 336
+    cooldown_hours: 72
+  - id: DP3_EG_180D_Z3_STRICT
+    family: dynamic_cointegrated_pairs
+    train_hours: 4320
+    validation_hours: 672
+    entry_abs_z: 3.0
+    exit_abs_z: 0.5
+    disaster_abs_z: 5.0
+    half_life_hours: [24, 168]
+    max_hold_hours: 336
+    cooldown_hours: 72
+
+signal_contract:
+  spread: log_y_minus_alpha_minus_beta_log_x
+  zscore: spread_minus_frozen_validation_mean_over_frozen_validation_std
+  gross_weights:
+    y: one_over_one_plus_beta
+    x: beta_over_one_plus_beta
+  entry_check: every_hour_when_minute_45_bar_completes
+  persistence_bars_15m: 4
+  persistence_rule: all_four_completed_closes_outside_same_entry_threshold
+  high_spread_sides: {y: short, x: long}
+  low_spread_sides: {y: long, x: short}
+  decision: completed_15m_bar_close
+  earliest_entry: next_contiguous_15m_bar_open
+  atomic_entry: true
+  reject_if_either_leg_missing: true
+  one_active_episode_per_pair: true
+  one_active_pair_per_symbol: true
+
+economic_entry_gate:
+  expected_convergence_return_formula: (abs_z_minus_exit_abs_z)*validation_std/(1+beta)
+  adverse_funding:
+    lookback_events_per_leg: 3
+    funding_credits_count_as_zero: true
+    per_event_cost: weighted_worst_known_payment_rate_for_proposed_leg_side
+    horizon_events: ceil_max_hold_hours_divided_by_8
+  base_round_trip_cost_per_gross_exposure: 0.0057
+  C2_round_trip_cost_per_gross_exposure: 0.0114
+  positive_H_payoff_multiplier: 0.50
+  buffer_multiplier: 1.50
+  entry_requirement: >-
+    expected_convergence_return >= 1.5 * max(0.0114 + adverse_funding,
+    2 * (0.0057 + adverse_funding))
+
+risk_and_execution:
+  initial_equity: 10000.0
+  risk_per_pair_episode_pct: 0.50
+  dd_throttle: {threshold_pct: 6.0, risk_multiplier: 0.50}
+  loss_per_gross_formula: >-
+    (disaster_abs_z-abs_entry_z)*validation_std/(1+beta)
+  gross_exposure_formula: risk_budget_divided_by_loss_per_gross
+  max_leg_notional_pct_equity: 15.0
+  max_pairs: 3
+  max_legs: 6
+  max_leverage: 3.0
+  execution_costs_bps_per_leg:
+    fee: 4.0
+    spread_and_slippage: 20.0
+    impact: 4.5
+  base_single_leg_round_trip_bps: 57.0
+  funding: observed_event_cashflow_per_remaining_leg_notional
+  partial_exit: false
+  pyramid: false
+  single_leg_carry: false
+  cost_scenarios:
+    B: {cost_multiplier: 1.0, funding_multiplier: 1.0, positive_pnl_multiplier: 1.0, negative_pnl_multiplier: 1.0}
+    C2: {cost_multiplier: 2.0, funding_multiplier: 2.0, positive_pnl_multiplier: 1.0, negative_pnl_multiplier: 1.0}
+    H: {cost_multiplier: 1.0, funding_multiplier: 1.0, positive_pnl_multiplier: 0.50, negative_pnl_multiplier: 1.25}
+
+exit_contract:
+  evaluate_on_every_completed_15m_bar: true
+  execute_both_legs_at_next_contiguous_open: true
+  mean_exit:
+    high_entry: z_lte_positive_0_5
+    low_entry: z_gte_negative_0_5
+  structural_break:
+    residual_mean_window_hours: 48
+    distance_from_frozen_mean_sigma: 1.50
+    consecutive_hourly_checks: 4
+    quarantine_until_next_monthly_selection: true
+  deselection_exit: true
+  max_hold_from_atomic_entry: true
+  priority:
+    - data_gap
+    - disaster_z_stop
+    - structural_break
+    - max_hold
+    - pair_deselection
+    - mean_exit
+  ambiguous_execution: next_open_no_close_fill
+  H_multiplier_applies_to_atomic_pair_price_pnl: true
+
+selection_and_early_stop:
+  batch_trial_count: 3
+  rank_metric: H_trimmed_mean_monthly_return_capped_at_15pct
+  tie_breakers: [lower_H_max_drawdown, fewer_H_negative_months, lower_turnover]
+  thresholds_may_not_be_relaxed_after_results: true
+  ensemble_requires_new_preregistration: true
+  primary_absolute_gates_before_holdout: true
+  if_no_primary_cell_passes: RED_without_holdout_or_LOSO
+
+hard_gates:
+  sample:
+    pseudo_oos_months: 36
+    minimum_closed_pair_episodes: 120
+    minimum_high_spread_entries: 40
+    minimum_low_spread_entries: 40
+    minimum_active_months: 30
+    pair_legs_may_not_count_as_separate_trades: true
+  H_return:
+    trimmed_mean_monthly_pct_min: 10.0
+    median_monthly_pct_min: 8.0
+    block_bootstrap_90pct_lower_bound_pct_min: 6.0
+  H_stability:
+    negative_months_max: 4
+    months_below_minus_1pct_max: 3
+    worst_month_pct_min: -6.0
+  C2_return:
+    trimmed_mean_monthly_pct_min: 8.0
+    median_monthly_pct_min: 6.0
+    total_return_must_be_positive: true
+  drawdown:
+    B_max_mtm_pct: 15.0
+    C2_H_max_mtm_pct: 20.0
+    max_recovery_months: 6
+  walk_forward:
+    positive_folds_min: 5
+    total_folds: 6
+    worst_six_month_fold_pct_min: -5.0
+    oos_to_is_trimmed_return_ratio_min: 0.50
+    oos_to_is_drawdown_ratio_max: 1.50
+  economic_edge:
+    B_closed_pair_price_pnl_before_execution_and_funding_must_be_positive: true
+    B_pre_cost_price_pnl_over_execution_cost_min: 1.25
+    median_entry_expected_edge_over_stressed_cost_min: 1.50
+  concentration:
+    best_month_positive_pnl_share_max: 0.15
+    best_3_month_positive_pnl_share_max: 0.35
+    top_5pct_pair_episodes_positive_pnl_share_max: 0.65
+    net_after_top_5pct_pair_episodes_removed_must_be_positive: true
+    effective_symbol_count_min: 6
+    all_true_leave_one_symbol_out_replays_positive: true
+  holdout:
+    C2_total_return_must_be_positive: true
+    development_return_retention_min: 0.40
+    positive_holdout_symbols_min: 3
+    holdout_symbols_total: 4
+    max_drawdown_pct: 25.0
+  direction:
+    high_spread_C2_net_must_be_positive: true
+    low_spread_C2_net_must_be_positive: true
+  multiple_testing:
+    paired_block_months: 3
+    bootstrap_iterations: 20000
+    holm_fwer_adjusted_p_max: 0.05
+    deflated_sharpe_min: 0.95
+    probability_backtest_overfit_max: 0.20
+
+fair_baseline:
+  required_before_better_than_v15p2_claim: true
+  classification: FAIR_LIVE_POLICY_PROXY
+  same_snapshot_cost_scenarios_and_half_open_periods: true
+  missing_FnG_and_mark_L1_must_be_disclosed: true
+
+provenance_required:
+  - git_commit_and_research_file_hashes
+  - prereg_sha256
+  - both_snapshot_sha256_and_bytes
+  - pair_selection_ledger_per_month
+  - rejected_pair_reasons
+  - atomic_episode_ledger
+  - scenario_and_half_open_period
