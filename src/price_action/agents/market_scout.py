@@ -267,7 +267,7 @@ class MarketScoutAgent(LLMAgentBase):
             "kaynakları markdown ref listesinde göster.\n"
             "5. Eğer GO/DEFER ise: Researcher'a teslim edilecek 2-3 seed konu, "
             "Risk Officer'dan istenecek pre-mortem başlıkları.\n\n"
-            "ÇIKTI FORMATI (.claude/agents/market_scout.md SOP-1 template'i):\n"
+            "ÇIKTI FORMATI (agents/market_scout.md SOP-1 template'i):\n"
             "Markdown başlıkları: ## 1. Context, ## 2. Data Availability, "
             "## 3. Strategy Adaptability, ## 4. Risk Model Complexity, "
             "## 5. Regulatory Burden, ## 6. Edge Potential, "

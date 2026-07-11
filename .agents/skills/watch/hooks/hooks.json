@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.agents/skills/watch/hooks/scripts/check-setup.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -11,7 +11,7 @@ DESIGN:
   dosya isimleri okur, modül import etmez.
 - Deploy ETMEZ — sadece öneri yazar. `requested_review_from: [ceo, risk_officer]`.
 
-HARD LIMITS (.claude/agents/strategy_curator.md §Hard Limits):
+HARD LIMITS (`agents/strategy_curator.md` §Hard Limits):
 - Aktif config edit YOK
 - Lab tournament bypass YOK
 - Cool-down ihlali YOK (`cooldown_weeks_after_retire: 12`)

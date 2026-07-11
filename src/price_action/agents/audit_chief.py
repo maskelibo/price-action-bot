@@ -27,7 +27,7 @@ _OWNER = "ceo"  # kapsama açığı sahibi (süreç sahipliği atanana dek)
 # T5-01 (2026-07-10) — ÇALIŞABILIR ajan kümesi (CT-CHF-02 phantom-owner girdisi)
 #
 # src/price_action/agents/*.py içindeki GERÇEK Agent sınıflarının
-# ``name: ClassVar[str]`` değerleri. Persona-only ajanlar (.claude/agents/*.md
+# ``name: ClassVar[str]`` değerleri. Persona-only ajanlar (agents/*.md
 # dosyası var ama Python sınıfı YOK — örn. execution_chief, portfolio_manager,
 # signal_chief) bu kümede DEĞİLDİR: onlara atanan bulgu remediation dead-end
 # olur (kimse koşmaz, SLA sessizce dolar — CT-OPS-03/05/06'da yaşandı).
@@ -102,7 +102,7 @@ def phantom_owner(
             "sürece açılan bulgu remediation dead-end olur."
         ),
         cause=(
-            "Persona-only ajan (.claude/agents/*.md var, Python sınıfı yok) "
+            "Persona-only ajan (agents/*.md var, Python sınıfı yok) "
             "owner olarak atanmış veya ajan adı yanlış yazılmış."
         ),
         effect=(

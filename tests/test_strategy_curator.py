@@ -99,7 +99,7 @@ def curator_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, An
     (root / "memory" / "protocol").mkdir(parents=True)
     (root / "configs").mkdir(parents=True)
     (root / "data").mkdir(parents=True)
-    rules_dir = root / ".claude" / "agents"
+    rules_dir = root / "agents"
     rules_dir.mkdir(parents=True)
     (rules_dir / "strategy_curator.md").write_text(
         "---\nname: strategy_curator\n---\n# Curator rules\n", encoding="utf-8"
