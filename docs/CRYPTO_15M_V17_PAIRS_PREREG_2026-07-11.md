@@ -30,12 +30,23 @@ ortalaması ve standard deviation değeri seçim ayı boyunca donar. BTC yalnız
 referansıdır ve işlem göremez. Primary seçim yalnız 13 primary sembolde yapılır;
 holdout açılırsa aynı algoritma yalnız dört holdout sembolünde sıfırdan çalışır.
 
+İlk implementasyon veya aday sonucu görülmeden istatistik sözleşmesi de
+sabitlendi: Engle–Granger `trend='c'`, `maxlag=24`, `autolag='aic'` kullanır.
+Pair BTC betası training saatlik getirilerinde
+`abs(cov(w_y*r_y-w_x*r_x,r_BTC)/var(r_BTC))` olarak hesaplanır ve `0.15`i
+geçemez.
+
 ## Causal execution
 
 Entry yalnız saatlik checkpoint'te ve son dört tamamlanmış 15m close aynı yönde
 eşik dışında kaldığında doğar. Karar close'da, iki bacak birlikte sonraki
 kesintisiz 15m open'da girer; tek bacak eksikse ikisi de reddedilir. Yüksek
 spread `short y / long x`, düşük spread tersidir.
+
+Kayıtlardaki `decision_ts`, tamamlandığı anda karar verilen `:45` barının open
+etiketidir; gerçek karar anı ve iki bacağın ortak entry barı `decision_ts+15m`
+olan `:00` open'dır. Entry z değeri disaster eşiğine ulaşmış veya onu geçmişse
+risk paydası pozitif kalmayacağı için işlem reddedilir.
 
 Her pair episode NAV'ın `%0.5` riskini kullanır; `%6` DD sonrası yeni risk yarıya
 iner. Her leg NAV'ın `%15`iyle, portföy üç çift/altı leg ve `3×` leverage ile

@@ -4,6 +4,14 @@ created_at_utc: "2026-07-11T04:32:18Z"
 parent_git_commit: 80330d90ef20397d382e2672ba085587c26b4a47
 live_deployment_authorized: false
 promotion_eligible: false
+pre_result_amendments:
+  - at_utc: "2026-07-11T04:37:14Z"
+    subject: statistical_and_timestamp_bindings
+    change: >-
+      Before implementation or candidate results, Engle-Granger lag selection,
+      the weighted pair BTC-beta formula, decision-bar versus entry timestamp,
+      and rejection at or beyond the disaster z threshold were made explicit.
+      Candidate cells and acceptance thresholds did not change.
 
 objective:
   timeframe: 15m
@@ -109,13 +117,21 @@ pair_selection:
   regression: log_y_equals_alpha_plus_beta_log_x
   beta_range: [0.25, 4.0]
   engle_granger_holm_fwer: 0.05
+  engle_granger_implementation:
+    function: statsmodels.tsa.stattools.coint
+    trend: c
+    maxlag: 24
+    autolag: aic
   engle_granger_family: all_Gatev_prefilter_pairs_per_cell_selection_universe
   ar1_residual_phi_range_exclusive: [0.0, 1.0]
   beta_half_to_half_relative_change_max: 0.20
   validation_mean_shift_train_sigma_max: 0.50
   validation_std_over_train_std_range: [0.50, 1.50]
   validation_mean_crossings_min: 4
-  absolute_pair_BTC_beta_max: 0.15
+  pair_BTC_beta:
+    window: training_hourly_returns_on_same_pair_plus_BTC_intersection
+    formula: abs(cov(w_y*r_y-w_x*r_x,r_BTC)/var(r_BTC))
+    maximum: 0.15
   eligible_sort:
     - lower_holm_adjusted_p
     - lower_normalized_price_ssd
@@ -168,11 +184,15 @@ signal_contract:
   high_spread_sides: {y: short, x: long}
   low_spread_sides: {y: long, x: short}
   decision: completed_15m_bar_close
+  decision_ts_storage: source_bar_open_label_with_minute_45
+  actual_decision_instant: decision_ts_plus_15_minutes
   earliest_entry: next_contiguous_15m_bar_open
+  atomic_entry_ts: decision_ts_plus_15_minutes_for_both_legs
   atomic_entry: true
   reject_if_either_leg_missing: true
   one_active_episode_per_pair: true
   one_active_pair_per_symbol: true
+  reject_entry_when_abs_z_gte_disaster_abs_z: true
 
 economic_entry_gate:
   expected_convergence_return_formula: (abs_z_minus_exit_abs_z)*validation_std/(1+beta)
