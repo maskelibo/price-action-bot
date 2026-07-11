@@ -1,0 +1,29 @@
+{
+  "archive_access_may_start_only_after_this_reservation": true,
+  "attempt_number_within_v3": 1,
+  "builder": {
+    "path": "scripts/research/build_crypto_15m_usdm_snapshot_v3.py",
+    "sha256": "60166be4a874a0b4c98f4dbf8799f5190093a943a6b6377fe6a35f34ad621bd5",
+    "test_path": "tests/test_crypto_15m_usdm_snapshot_v3_builder.py",
+    "test_sha256": "c21c88cb374a1429ba751c6c3747e159f439724fe82c4285ca02968f4d55cdc4"
+  },
+  "coverage_diagnosis": {
+    "path": "configs/crypto_15m_v15p2_usdm_snapshot_v2_coverage_diagnosis.json",
+    "sha256": "b2a50fdb00c055aef8ec09b1c81e662160917878ac797b2dae966e661b745e91"
+  },
+  "data_build_trial_count_before_execution": 1,
+  "data_build_trial_count_including_this_attempt": 2,
+  "git_commit": "596f3061445db9482891b0604d952ed956a80071",
+  "performance_or_strategy_execution_authorized": false,
+  "protocol": {
+    "path": "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_protocol.json",
+    "sha256": "e6995f2fa22158d9133b9d3a45caeb0ba3de01ad70e77239d99bb13331bef3c8"
+  },
+  "schema_version": "crypto-15m-v15p2-usdm-snapshot-v3-build-reservation-v1",
+  "started_at_utc": "2026-07-11T16:15:16.260478+00:00",
+  "status": "STARTED_IMMUTABLE_V3_ATTEMPT_RESERVATION",
+  "vendor_lock": {
+    "path": "configs/crypto_15m_v15p2_usdm_snapshot_v2_vendor_lock.json",
+    "sha256": "d7168500a61a60de44212e2401dcbcfab9ee4c1d14d28226b73105f0a8df106b"
+  }
+}

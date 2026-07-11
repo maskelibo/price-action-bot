@@ -1,0 +1,319 @@
+{
+  "archive_identity": {
+    "all_cache_files_regular_no_symlink_and_vendor_rehashed": true,
+    "archive_audits_canonical_sha256": "6e92037f472aae097f81c043630db03b9e0a4172f6d86eb4679b43999fbadb10",
+    "archive_audits_count": 896,
+    "archive_progress_canonical_sha256": "0b2f1a7bc001a22b88e166f98c3f774729b27a999016ec2b938a24f7a2257b53",
+    "cache_bytes": 112920959,
+    "cache_files": 896,
+    "cache_manifest_sha256": "3a14ca9553128ee65d7fc9e31cc93ee71a7244d570b8faadacb7b5542d7f9c59",
+    "cache_path": "data/backups/20260711_v15p2_v2_usdm_vendor_cache",
+    "cache_vendor_download_audit_order_and_sha256_exact_match": true,
+    "counter_consistency_pass": true,
+    "current_archive_at_evidence_boundary": null,
+    "downloads_canonical_sha256": "e3fd37f00a5436ed44bb785fea5ba7c38a66edf33c9512daeab885624b98b918",
+    "downloads_count": 896,
+    "frozen_missing_vendor_rows": 1920,
+    "network_http_attempts": 0,
+    "selected_and_inserted_target_rows_confirmed": 2586624,
+    "validated_vendor_rows": 2613504
+  },
+  "audit_results": {
+    "cache_evidence_assertions": 8080,
+    "independent_cache_evidence_audit": "PASS",
+    "independent_snapshot_audit": "PASS",
+    "p0_blockers": 0,
+    "p1_blockers": 0,
+    "p2_blockers": 0,
+    "primary_post_build_read_only_audit": "PASS",
+    "v2_v3_regression_tests": {
+      "failed": 0,
+      "passed": 71
+    }
+  },
+  "builder_emitted_artifact": false,
+  "bundle": {
+    "build_evidence": {
+      "bytes": 1095568,
+      "canonical_json": true,
+      "path": "data/backups/20260711_v15p2_v3_usdm/build_evidence.json",
+      "sha256": "1ac74ceb61c197fad4bc27783eadaed4e88504e3a751257d8c735bc9eece9b34",
+      "status": "SUCCESS"
+    },
+    "children_regular_non_symlink_single_link": true,
+    "database": {
+      "bytes": 181415936,
+      "identity_unchanged_before_and_after_independent_read_only_qa": true,
+      "path": "data/backups/20260711_v15p2_v3_usdm/market.duckdb",
+      "sha256": "50e5b240e6babeb3b7ceadc0ae007ededc0ae589cba931e3603d233cec693eb8"
+    },
+    "exact_children": [
+      "build_evidence.json",
+      "market.duckdb"
+    ],
+    "failure_evidence": {
+      "absent_and_not_symlink": true,
+      "path": "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_attempt_001_failure.json"
+    },
+    "path": "data/backups/20260711_v15p2_v3_usdm"
+  },
+  "chronology": {
+    "evidence_finished_at_utc": "2026-07-11T16:47:07.571270+00:00",
+    "evidence_started_at_utc": "2026-07-11T16:15:16.260478+00:00",
+    "protocol_created_at_utc": "2026-07-11T16:12:37Z",
+    "reservation_started_at_utc": "2026-07-11T16:15:16.260478+00:00",
+    "source_commit_time": "2026-07-11T19:14:06+03:00",
+    "strictly_ordered_and_reservation_equals_evidence_start": true
+  },
+  "governance": {
+    "alpha_result_trials": 0,
+    "database_and_success_evidence_published_as_one_atomic_bundle": true,
+    "deployment_authorized": false,
+    "exchange_account_or_credentials_used": false,
+    "failed_v1_or_v2_database_rows_reused": false,
+    "governance_canonical_sha256": "304b8f5b770c8ef8fae11b1e182446f032cf66e7467a9be844dec89084560a49",
+    "live_database_or_daemon_mutated": false,
+    "live_or_shadow_authorized": false,
+    "network_access_used_by_v3": false,
+    "strategy_engine_report_or_performance_code_imported": false,
+    "strategy_or_performance_execution_authorized": false
+  },
+  "lineage": {
+    "builder": {
+      "path": "scripts/research/build_crypto_15m_usdm_snapshot_v3.py",
+      "sha256": "60166be4a874a0b4c98f4dbf8799f5190093a943a6b6377fe6a35f34ad621bd5"
+    },
+    "builder_test": {
+      "path": "tests/test_crypto_15m_usdm_snapshot_v3_builder.py",
+      "sha256": "c21c88cb374a1429ba751c6c3747e159f439724fe82c4285ca02968f4d55cdc4"
+    },
+    "coverage_diagnosis": {
+      "bytes": 8036,
+      "commit": "7d1de13060cbf5d96910b1d36b0f0785b6db1a47",
+      "path": "configs/crypto_15m_v15p2_usdm_snapshot_v2_coverage_diagnosis.json",
+      "sha256": "b2a50fdb00c055aef8ec09b1c81e662160917878ac797b2dae966e661b745e91"
+    },
+    "protocol": {
+      "bytes": 8125,
+      "created_at_utc": "2026-07-11T16:12:37Z",
+      "path": "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_protocol.json",
+      "sha256": "e6995f2fa22158d9133b9d3a45caeb0ba3de01ad70e77239d99bb13331bef3c8"
+    },
+    "reservation": {
+      "bytes": 1387,
+      "path": "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_attempt_001_started.json",
+      "sha256": "5c28272dc96d6e14eb471a37e8b4e7bd97cee3983f22c62e5c6e4cf6241ae404",
+      "started_at_utc": "2026-07-11T16:15:16.260478+00:00",
+      "status": "STARTED_IMMUTABLE_V3_ATTEMPT_RESERVATION"
+    },
+    "vendor_lock": {
+      "bytes": 1058921,
+      "entries": 896,
+      "entries_canonical_sha256": "0ee02c7538df8c504efcc43d73fcbb8b0e9f76395b9b5fb5fd6f3576fcc40ad6",
+      "path": "configs/crypto_15m_v15p2_usdm_snapshot_v2_vendor_lock.json",
+      "sha256": "d7168500a61a60de44212e2401dcbcfab9ee4c1d14d28226b73105f0a8df106b"
+    }
+  },
+  "qa": {
+    "actual_missing_key_count": 1920,
+    "actual_ordered_missing_key_sha256": "bfd80250c7ae2b5b242f80b2170c47c872b771100f88b7e1ed64d0eaad29287d",
+    "actual_ordered_primary_key_sha256": "8fa35b544898ab7f131a0826a2a4bd989aa0d283cc5a2926fb85f962a3e93318",
+    "canonical_sha256": "8ee3ccf0ab7a577b0197dc92f492ae207dca3a829f3b48507a490fd35b07a3e0",
+    "distinct_primary_keys": 2586624,
+    "exact_gap_manifest": [
+      {
+        "affected_symbols": [
+          "SOLUSDT",
+          "ZECUSDT",
+          "NEARUSDT",
+          "FILUSDT"
+        ],
+        "bars_per_affected_symbol": 288,
+        "end_exclusive_utc": "2022-03-01T00:00:00+00:00",
+        "start_inclusive_utc": "2022-02-26T00:00:00+00:00"
+      },
+      {
+        "affected_symbols": [
+          "SOLUSDT",
+          "ZECUSDT",
+          "NEARUSDT",
+          "FILUSDT"
+        ],
+        "bars_per_affected_symbol": 192,
+        "end_exclusive_utc": "2022-04-03T00:00:00+00:00",
+        "start_inclusive_utc": "2022-04-01T00:00:00+00:00"
+      }
+    ],
+    "expected_ordered_primary_key_sha256": "8fa35b544898ab7f131a0826a2a4bd989aa0d283cc5a2926fb85f962a3e93318",
+    "explicit_indexes": [],
+    "invalid_ohlcv_rows": 0,
+    "per_symbol": {
+      "ADA/USDT": {
+        "content_sha256": "abe74ec2f667a30aaac658240d1744b5cc70b832049bea39b013fa24dc311ec6",
+        "first_ts": "2021-02-21T00:00:00+00:00",
+        "frozen_missing_bar_count": 0,
+        "frozen_missing_full_utc_day_count": 0,
+        "gap_transition_count": 0,
+        "last_ts": "2026-05-31T23:45:00+00:00",
+        "rows": 184896
+      },
+      "ALGO/USDT": {
+        "content_sha256": "9cccf7086f4820b64e4e76d498c60b13bd059a32e4265db458277b79bef509a2",
+        "first_ts": "2021-02-21T00:00:00+00:00",
+        "frozen_missing_bar_count": 0,
+        "frozen_missing_full_utc_day_count": 0,
+        "gap_transition_count": 0,
+        "last_ts": "2026-05-31T23:45:00+00:00",
+        "rows": 184896
+      },
+      "ATOM/USDT": {
+        "content_sha256": "25b443b62a4a01537df194a1ef6dec7072a8da281291e610fc2e1eab4cca2660",
+        "first_ts": "2021-02-21T00:00:00+00:00",
+        "frozen_missing_bar_count": 0,
+        "frozen_missing_full_utc_day_count": 0,
+        "gap_transition_count": 0,
+        "last_ts": "2026-05-31T23:45:00+00:00",
+        "rows": 184896
+      },
+      "AVAX/USDT": {
+        "content_sha256": "719421b6cea4b6e2be24a7ae60eb7f447ed850d297152c57c137bd5392c2954b",
+        "first_ts": "2021-02-21T00:00:00+00:00",
+        "frozen_missing_bar_count": 0,
+        "frozen_missing_full_utc_day_count": 0,
+        "gap_transition_count": 0,
+        "last_ts": "2026-05-31T23:45:00+00:00",
+        "rows": 184896
+      },
+      "BNB/USDT": {
+        "content_sha256": "ef48712f2febe84ee919cebb47b8ae954eaa99871193a7973b56e0dd016df828",
+        "first_ts": "2021-02-21T00:00:00+00:00",
+        "frozen_missing_bar_count": 0,
+        "frozen_missing_full_utc_day_count": 0,
+        "gap_transition_count": 0,
+        "last_ts": "2026-05-31T23:45:00+00:00",
+        "rows": 184896
+      },
+      "BTC/USDT": {
+        "content_sha256": "7ac102891dc5a6d62d38bfacaa0e8a15fd4d360ce7f2cb81c19a678e1b75b6f7",
+        "first_ts": "2021-02-21T00:00:00+00:00",
+        "frozen_missing_bar_count": 0,
+        "frozen_missing_full_utc_day_count": 0,
+        "gap_transition_count": 0,
+        "last_ts": "2026-05-31T23:45:00+00:00",
+        "rows": 184896
+      },
+      "DOGE/USDT": {
+        "content_sha256": "e53bb649fce9fba6d01d08c890ae92e6c7f6fad078e5bfca0f34ab6c6628984d",
+        "first_ts": "2021-02-21T00:00:00+00:00",
+        "frozen_missing_bar_count": 0,
+        "frozen_missing_full_utc_day_count": 0,
+        "gap_transition_count": 0,
+        "last_ts": "2026-05-31T23:45:00+00:00",
+        "rows": 184896
+      },
+      "DOT/USDT": {
+        "content_sha256": "7ddd9749248e4f36e9b756288ceaef1b9c28fc44c0272fc1ac8ce584ebad4c22",
+        "first_ts": "2021-02-21T00:00:00+00:00",
+        "frozen_missing_bar_count": 0,
+        "frozen_missing_full_utc_day_count": 0,
+        "gap_transition_count": 0,
+        "last_ts": "2026-05-31T23:45:00+00:00",
+        "rows": 184896
+      },
+      "ETH/USDT": {
+        "content_sha256": "a9a20a458b2848d7120434f22d3d350cbe4bd91e04b63ab4327b1e3290db3cfa",
+        "first_ts": "2021-02-21T00:00:00+00:00",
+        "frozen_missing_bar_count": 0,
+        "frozen_missing_full_utc_day_count": 0,
+        "gap_transition_count": 0,
+        "last_ts": "2026-05-31T23:45:00+00:00",
+        "rows": 184896
+      },
+      "FIL/USDT": {
+        "content_sha256": "ce201dc38a902d4a57081452d0b4b7f83c90c67a8f258c0623bedb0734bfaaf8",
+        "first_ts": "2021-02-21T00:00:00+00:00",
+        "frozen_missing_bar_count": 480,
+        "frozen_missing_full_utc_day_count": 5,
+        "gap_transition_count": 2,
+        "last_ts": "2026-05-31T23:45:00+00:00",
+        "rows": 184416
+      },
+      "LINK/USDT": {
+        "content_sha256": "e3091c824584cf7fd69e49b4df0c92f288068b16c07262df8e014eeea8fbc232",
+        "first_ts": "2021-02-21T00:00:00+00:00",
+        "frozen_missing_bar_count": 0,
+        "frozen_missing_full_utc_day_count": 0,
+        "gap_transition_count": 0,
+        "last_ts": "2026-05-31T23:45:00+00:00",
+        "rows": 184896
+      },
+      "NEAR/USDT": {
+        "content_sha256": "59a4bb6dc130907eaaafcb233145cc62f1fe5c3b46737eede86e2b7ebdcc68b5",
+        "first_ts": "2021-02-21T00:00:00+00:00",
+        "frozen_missing_bar_count": 480,
+        "frozen_missing_full_utc_day_count": 5,
+        "gap_transition_count": 2,
+        "last_ts": "2026-05-31T23:45:00+00:00",
+        "rows": 184416
+      },
+      "SOL/USDT": {
+        "content_sha256": "081a2424e778231126173aff1f1969c48c4113faa25c4e62e39c6f63bcdc45a6",
+        "first_ts": "2021-02-21T00:00:00+00:00",
+        "frozen_missing_bar_count": 480,
+        "frozen_missing_full_utc_day_count": 5,
+        "gap_transition_count": 2,
+        "last_ts": "2026-05-31T23:45:00+00:00",
+        "rows": 184416
+      },
+      "ZEC/USDT": {
+        "content_sha256": "6603ee65062eaaebb79e3f611b4157654899b94b6f36894f1edf3b37a30cf6d9",
+        "first_ts": "2021-02-21T00:00:00+00:00",
+        "frozen_missing_bar_count": 480,
+        "frozen_missing_full_utc_day_count": 5,
+        "gap_transition_count": 2,
+        "last_ts": "2026-05-31T23:45:00+00:00",
+        "rows": 184416
+      }
+    },
+    "per_symbol_canonical_sha256": "b1b39716e92215e514091264a90088b69fd916c6333f755fc4d1c165aa290679",
+    "schema_contract_canonical_sha256": "8a678a1e615b203528d500bd980f20bb53aa7ac748cbd90a2b303f201673834c",
+    "snapshot_metadata_canonical_sha256": "dc0a79739082aab642ca10999fc51fc33e455dbb344b9797584a09509b675e05",
+    "total_rows": 2586624,
+    "unregistered_persistent_user_objects": [],
+    "write_read_only_and_independent_qa_exact_match": true
+  },
+  "role": "POST_BUILD_READ_ONLY_IDENTITY_FOR_IGNORED_BUNDLE",
+  "schema_version": "crypto-15m-v15p2-usdm-snapshot-v3-post-build-success-identity-v1",
+  "source": {
+    "commit": "596f3061445db9482891b0604d952ed956a80071",
+    "commit_time": "2026-07-11T19:14:06+03:00",
+    "committed_file_sha256": {
+      "configs/crypto_15m_v15p2_fair_baseline_prereg.yaml": "695fb5b7a07fc0bb54c0a69b10f0893d246926a4339a17b5e8705802800f9c22",
+      "configs/crypto_15m_v15p2_usdm_snapshot_v2_build_attempt_001_failure.json": "0a65ceb3d3cd5569acdf44c6035835cfa927e42ce9bd56d081e9a21983c421a2",
+      "configs/crypto_15m_v15p2_usdm_snapshot_v2_build_attempt_001_started.json": "073d35afee68d4ad86efb9c6d3b91c2c9648db79e60ea31bb262851fb1bb618e",
+      "configs/crypto_15m_v15p2_usdm_snapshot_v2_build_protocol.json": "7f9b48374551aed7afc7afb48d460204241b378ca60ed375c9f52f03c2496850",
+      "configs/crypto_15m_v15p2_usdm_snapshot_v2_coverage_diagnosis.json": "b2a50fdb00c055aef8ec09b1c81e662160917878ac797b2dae966e661b745e91",
+      "configs/crypto_15m_v15p2_usdm_snapshot_v2_vendor_lock.json": "d7168500a61a60de44212e2401dcbcfab9ee4c1d14d28226b73105f0a8df106b",
+      "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_protocol.json": "e6995f2fa22158d9133b9d3a45caeb0ba3de01ad70e77239d99bb13331bef3c8",
+      "scripts/research/build_crypto_15m_usdm_snapshot_v2.py": "4a3519a7faaeb3d4e6a2fb38c30f0cf18edfe21a70c997475e8c7af8d67ab4cf",
+      "scripts/research/build_crypto_15m_usdm_snapshot_v3.py": "60166be4a874a0b4c98f4dbf8799f5190093a943a6b6377fe6a35f34ad621bd5",
+      "tests/test_crypto_15m_usdm_snapshot_v2_builder.py": "c812c9d11fc0310749ea54a36710b0356ae2a6ba1c557f4921a54313f3d01e3b",
+      "tests/test_crypto_15m_usdm_snapshot_v3_builder.py": "c21c88cb374a1429ba751c6c3747e159f439724fe82c4285ca02968f4d55cdc4"
+    },
+    "git_status_at_audit": [
+      "?? configs/crypto_15m_v15p2_usdm_snapshot_v3_build_attempt_001_started.json"
+    ],
+    "origin_branch": "audit-hardreview-20260528",
+    "source_file_runtime_commit_identity_match_with_only_reservation_status_delta": true
+  },
+  "status": "V3_SNAPSHOT_BUILD_SUCCESS_IDENTITY_SEALED_NO_STRATEGY_OR_PERFORMANCE_RESULT",
+  "trial_ledger": {
+    "alpha_result_trials": 0,
+    "coverage_diagnosis_pass_count": 1,
+    "data_build_trial_count_before_v3": 1,
+    "data_build_trial_count_including_v3": 2,
+    "performance_result_produced": false,
+    "post_build_read_only_audits_increment_data_build_trials": false
+  },
+  "verified_at_utc": "2026-07-11T16:55:30.034508+00:00"
+}
