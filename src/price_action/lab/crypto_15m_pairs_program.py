@@ -12,12 +12,17 @@ import argparse
 import hashlib
 import json
 import math
+import os
+import platform
 import re
 import subprocess
+import tempfile
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import UTC, datetime
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
@@ -53,6 +58,28 @@ PROGRAM_SCHEMA = "crypto-15m-v17-pairs-run-v1"
 PREREG_SCHEMA = "crypto-15m-v17-pairs-prereg-v1"
 FROZEN_STATUS = "PREREGISTERED_NO_RESULTS_SEEN"
 SCENARIO_ORDER = ("B", "C2", "H")
+_CRITICAL_RUNTIME_DISTRIBUTIONS = {
+    "duckdb": "duckdb",
+    "numpy": "numpy",
+    "pandas": "pandas",
+    "pyyaml": "PyYAML",
+    "scipy": "scipy",
+    "statsmodels": "statsmodels",
+}
+_FROZEN_SOURCE_FILES = (
+    "configs/crypto_15m_v17_pairs_prereg.yaml",
+    "docs/CRYPTO_15M_V17_PAIRS_PREREG_2026-07-11.md",
+    "requirements-lock.txt",
+    "scripts/research/crypto_15m_v17_pairs_program.py",
+    "scripts/research/crypto_15m_v17_pairs_report.py",
+    "src/price_action/lab/crypto_15m_pairs_engine.py",
+    "src/price_action/lab/crypto_15m_pairs_evidence.py",
+    "src/price_action/lab/crypto_15m_pairs_program.py",
+    "src/price_action/lab/crypto_15m_pairs_report.py",
+    "src/price_action/lab/crypto_15m_pairs_signals.py",
+    "src/price_action/lab/crypto_15m_pairs_validation.py",
+    "src/price_action/lab/crypto_15m_validation.py",
+)
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _BAR = pd.Timedelta(minutes=15)
@@ -93,6 +120,43 @@ def sha256_file(path: Path, *, chunk_bytes: int = 8 * 1024 * 1024) -> str:
         while block := handle.read(chunk_bytes):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _critical_runtime_versions(repo_root: Path) -> dict[str, str]:
+    """Fail closed unless numerical/IO packages match the committed lockfile."""
+
+    lock_path = repo_root / "requirements-lock.txt"
+    if not lock_path.is_file():
+        raise RuntimeError("requirements-lock.txt is required for v17 replay")
+    locked: dict[str, str] = {}
+    for raw_line in lock_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "==" not in line:
+            continue
+        distribution, pinned = line.split("==", 1)
+        locked[distribution.strip().casefold()] = pinned.strip()
+
+    result = {
+        "python": platform.python_version(),
+        "python_implementation": platform.python_implementation(),
+    }
+    for label, distribution in _CRITICAL_RUNTIME_DISTRIBUTIONS.items():
+        expected = locked.get(distribution.casefold())
+        if expected is None:
+            raise RuntimeError(f"{distribution} must be exactly pinned in requirements-lock.txt")
+        try:
+            installed = package_version(distribution)
+        except PackageNotFoundError as exc:
+            raise RuntimeError(
+                f"critical runtime package is not installed: {distribution}"
+            ) from exc
+        if installed != expected:
+            raise RuntimeError(
+                f"critical runtime version mismatch for {distribution}: "
+                f"installed={installed}, locked={expected}"
+            )
+        result[label] = installed
+    return result
 
 
 def _jsonable(value: Any) -> Any:
@@ -760,9 +824,7 @@ def _scenario_payload(
     if len(result.rejection_details) != len(result.rejections):
         raise RuntimeError("timestamped rejection details disagree with rejection tuples")
     rejections = [_jsonable(rejection) for rejection in result.rejection_details]
-    curve_digest_rows = [
-        (pd.Timestamp(ts).isoformat(), float(nav)) for ts, nav in result.equity_curve
-    ]
+    curve_ledger = [[pd.Timestamp(ts).isoformat(), float(nav)] for ts, nav in result.equity_curve]
     return {
         "initial_equity": float(result.initial_equity),
         "final_equity": float(result.final_equity),
@@ -778,7 +840,8 @@ def _scenario_payload(
             for month, value in result.monthly_returns
         ],
         "equity_curve_observations": len(result.equity_curve),
-        "equity_curve_sha256": _payload_sha256(curve_digest_rows),
+        "equity_curve_ledger": curve_ledger,
+        "equity_curve_sha256": _payload_sha256(curve_ledger),
         "closed_episode_ledger": closed,
         "closed_episode_ledger_sha256": _payload_sha256(closed),
         "terminal_episode_ledger": terminal,
@@ -797,17 +860,7 @@ def _scenario_payload(
 
 
 def _research_source_provenance(repo_root: Path) -> dict[str, Any]:
-    relative_files = (
-        "configs/crypto_15m_v17_pairs_prereg.yaml",
-        "docs/CRYPTO_15M_V17_PAIRS_PREREG_2026-07-11.md",
-        "scripts/research/crypto_15m_v17_pairs_program.py",
-        "src/price_action/lab/crypto_15m_pairs_engine.py",
-        "src/price_action/lab/crypto_15m_pairs_evidence.py",
-        "src/price_action/lab/crypto_15m_pairs_program.py",
-        "src/price_action/lab/crypto_15m_pairs_signals.py",
-        "src/price_action/lab/crypto_15m_pairs_validation.py",
-        "src/price_action/lab/crypto_15m_validation.py",
-    )
+    relative_files = _FROZEN_SOURCE_FILES
     existing = tuple(relative for relative in relative_files if (repo_root / relative).is_file())
     missing_files = sorted(set(relative_files).difference(existing))
     hashes = {relative: sha256_file(repo_root / relative) for relative in existing}
@@ -845,6 +898,7 @@ def _base_plan(
     repo_root: Path,
     source_provenance: Mapping[str, Any] | None = None,
     prereg_sha256: str | None = None,
+    runtime_versions: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     cells = build_candidate_cells(prereg)
     policy = build_policy(prereg)
@@ -862,6 +916,11 @@ def _base_plan(
         "candidate_ids": [cell.candidate_id for cell in cells],
         "candidate_count": len(cells),
         "scenario_order": list(SCENARIO_ORDER),
+        "runtime_versions": dict(
+            runtime_versions
+            if runtime_versions is not None
+            else _critical_runtime_versions(repo_root)
+        ),
         "source_provenance": (
             dict(source_provenance)
             if source_provenance is not None
@@ -900,6 +959,7 @@ def run_program(
     canonical_prereg_path = _require_canonical_preregistration(
         prereg, prereg_path=prereg_path, repo_root=repo_root
     )
+    runtime_versions = _critical_runtime_versions(repo_root)
     preflight_prereg_sha256 = sha256_file(canonical_prereg_path)
     preflight_source = _research_source_provenance(repo_root)
     if not preflight_source["research_source_clean"]:
@@ -1040,6 +1100,7 @@ def run_program(
         repo_root=repo_root,
         source_provenance=postflight_source,
         prereg_sha256=preflight_prereg_sha256,
+        runtime_versions=runtime_versions,
     )
     source_clean = bool(postflight_source["research_source_clean"])
     stream_payload: dict[str, Any] = {}
@@ -1211,12 +1272,66 @@ def deterministic_json(payload: Mapping[str, Any]) -> str:
     return json.dumps(_jsonable(payload), sort_keys=True, indent=2, allow_nan=False) + "\n"
 
 
+def _validated_output_path(
+    raw_output: Path,
+    *,
+    repo_root: Path,
+    prereg_path: Path,
+) -> Path:
+    """Resolve a new result path without risking any frozen input or source."""
+
+    output = raw_output.resolve()
+    reports_root = (repo_root / "reports/research").resolve()
+    protected = {prereg_path.resolve()}
+    protected.update((repo_root / relative).resolve() for relative in _FROZEN_SOURCE_FILES)
+    prereg = load_preregistration(prereg_path.resolve())
+    protected.update(
+        (repo_root / str(prereg["snapshots"][name]["path"])).resolve()
+        for name in ("market", "funding")
+    )
+    protected.add((repo_root / str(prereg["batch1_parent_evidence"]["raw_result_gzip"])).resolve())
+    if output in protected:
+        raise ValueError("results may not overwrite a frozen input or source file")
+    if reports_root not in output.parents or output.suffix.lower() != ".json":
+        raise ValueError("result output must be a .json file under reports/research")
+    if output.exists() or output.is_symlink():
+        raise FileExistsError(f"result output already exists: {output}")
+    return output
+
+
+def _write_deterministic_json_file(path: Path, payload: Mapping[str, Any]) -> None:
+    """Stream strict deterministic JSON atomically without duplicating a large payload."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_name: str | None = None
+    encoder = json.JSONEncoder(sort_keys=True, indent=2, allow_nan=False)
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_name = handle.name
+            for chunk in encoder.iterencode(payload):
+                handle.write(chunk)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.link(temporary_name, path)
+        Path(temporary_name).unlink()
+        temporary_name = None
+    finally:
+        if temporary_name is not None:
+            Path(temporary_name).unlink(missing_ok=True)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--prereg", type=Path, default=Path("configs/crypto_15m_v17_pairs_prereg.yaml")
-    )
-    parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    parser.add_argument("--prereg", type=Path, default=None)
+    parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[3])
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--execute", action="store_true", help="run the frozen DuckDB replay")
     modes.add_argument("--smoke", action="store_true", help="in-memory contract smoke only")
@@ -1224,22 +1339,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--partition", choices=("primary",), default="primary")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
+    root = args.repo_root.resolve()
+    prereg_path = args.prereg or root / "configs/crypto_15m_v17_pairs_prereg.yaml"
+    output = (
+        None
+        if args.output is None
+        else _validated_output_path(args.output, repo_root=root, prereg_path=prereg_path)
+    )
 
     if args.execute:
-        payload = run_program(args.prereg, repo_root=args.repo_root, partition=args.partition)
+        payload = run_program(prereg_path, repo_root=root, partition=args.partition)
     elif args.smoke:
-        payload = smoke_run(args.prereg, repo_root=args.repo_root)
+        payload = smoke_run(prereg_path, repo_root=root)
     else:
-        payload = dry_run(args.prereg, repo_root=args.repo_root)
-    rendered = deterministic_json(payload)
-    if args.output is None:
-        print(rendered, end="")
+        payload = dry_run(prereg_path, repo_root=root)
+    if output is None:
+        print(deterministic_json(payload), end="")
     else:
-        output = args.output.resolve()
-        if output == args.prereg.resolve():
-            raise ValueError("results may not overwrite the preregistration")
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(rendered, encoding="utf-8")
+        _write_deterministic_json_file(output, payload)
     return 0
 
 

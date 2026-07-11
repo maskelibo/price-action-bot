@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import copy
 import json
+import platform
+import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -24,6 +27,30 @@ def _base_config() -> dict:
 def _write_prereg(path: Path, config: dict) -> Path:
     path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     return path
+
+
+def _temporary_cli_repo(tmp_path: Path) -> tuple[Path, Path, dict[str, Path]]:
+    root = tmp_path / "isolated-repo"
+    config = _base_config()
+    prereg = root / "configs" / "crypto_15m_v17_pairs_prereg.yaml"
+    prereg.parent.mkdir(parents=True)
+    _write_prereg(prereg, config)
+
+    lock = root / "requirements-lock.txt"
+    lock.write_bytes((ROOT / "requirements-lock.txt").read_bytes())
+    protected = {
+        "preregistration": prereg,
+        "source": root / "src/price_action/lab/crypto_15m_pairs_report.py",
+        "market_snapshot": root / str(config["snapshots"]["market"]["path"]),
+        "funding_snapshot": root / str(config["snapshots"]["funding"]["path"]),
+        "v16_parent": root / str(config["batch1_parent_evidence"]["raw_result_gzip"]),
+    }
+    for name, path in protected.items():
+        if name == "preregistration":
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(f"sentinel:{name}".encode())
+    return root, prereg, protected
 
 
 def _synthetic_portfolio_result(
@@ -242,6 +269,108 @@ def test_dry_and_smoke_do_not_access_configured_snapshots(tmp_path: Path) -> Non
     assert smoke["smoke"]["reference_symbol_traded"] is False
 
 
+@pytest.mark.subprocess
+def test_dry_run_binds_exact_critical_runtime_versions_and_report_sources() -> None:
+    payload = program.dry_run(BASE_PREREG, repo_root=ROOT)
+    locked = {}
+    for raw_line in (ROOT / "requirements-lock.txt").read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if line and not line.startswith("#") and "==" in line:
+            distribution, version = line.split("==", 1)
+            locked[distribution.casefold()] = version
+
+    assert payload["runtime_versions"] == {
+        "python": platform.python_version(),
+        "python_implementation": platform.python_implementation(),
+        "duckdb": locked["duckdb"],
+        "numpy": locked["numpy"],
+        "pandas": locked["pandas"],
+        "pyyaml": locked["pyyaml"],
+        "scipy": locked["scipy"],
+        "statsmodels": locked["statsmodels"],
+    }
+
+    required_sources = {
+        "requirements-lock.txt",
+        "scripts/research/crypto_15m_v17_pairs_report.py",
+        "src/price_action/lab/crypto_15m_pairs_report.py",
+    }
+    provenance = payload["source_provenance"]
+    assert required_sources <= set(program._FROZEN_SOURCE_FILES)
+    assert required_sources <= set(provenance["file_sha256"])
+    assert required_sources.isdisjoint(provenance["missing_source_files"])
+    assert {relative: provenance["file_sha256"][relative] for relative in required_sources} == {
+        relative: program.sha256_file(ROOT / relative) for relative in required_sources
+    }
+
+
+def test_cli_rejects_output_outside_reports_research_without_modifying_file(
+    tmp_path: Path,
+) -> None:
+    root, prereg, _protected = _temporary_cli_repo(tmp_path)
+    output = tmp_path / "outside.json"
+    output.write_bytes(b"outside-sentinel")
+    before = output.read_bytes()
+
+    with pytest.raises(ValueError, match="under reports/research"):
+        program.main(
+            [
+                "--dry-run",
+                "--repo-root",
+                str(root),
+                "--prereg",
+                str(prereg),
+                "--output",
+                str(output),
+            ]
+        )
+
+    assert output.read_bytes() == before
+
+
+def test_cli_rejects_overwriting_every_frozen_input_without_modifying_it(
+    tmp_path: Path,
+) -> None:
+    root, prereg, protected = _temporary_cli_repo(tmp_path)
+
+    for output in protected.values():
+        before = output.read_bytes()
+        with pytest.raises(ValueError, match="may not overwrite"):
+            program.main(
+                [
+                    "--dry-run",
+                    "--repo-root",
+                    str(root),
+                    "--prereg",
+                    str(prereg),
+                    "--output",
+                    str(output),
+                ]
+            )
+        assert output.read_bytes() == before
+
+
+@pytest.mark.subprocess
+def test_dry_cli_defaults_are_repo_anchored_outside_repo_cwd(tmp_path: Path) -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/research/crypto_15m_v17_pairs_program.py"),
+            "--dry-run",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(completed.stdout)
+    assert payload["mode"] == "DRY_RUN_NO_SNAPSHOT_ACCESS"
+    assert payload["preregistration"]["path"] == str(BASE_PREREG.resolve())
+    assert payload["snapshots"]["market"]["status"] == "NOT_ACCESSED"
+    assert payload["snapshots"]["funding"]["status"] == "NOT_ACCESSED"
+
+
 def test_run_verifies_both_snapshots_before_first_database_loader(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -364,12 +493,31 @@ def test_full_synthetic_run_preserves_governance_and_empty_selection_events(
         tuple(payload["results"][candidate_id]) == program.SCENARIO_ORDER
         for candidate_id in candidate_ids
     )
+    expected_curve_ledger = [
+        ["2021-06-01T00:00:00+00:00", 10_000.0],
+        ["2026-05-31T23:45:00+00:00", 10_000.0],
+    ]
     for candidate_id in candidate_ids:
         ledger = payload["streams"][candidate_id]["pair_selection_ledger"]
         assert len(ledger) == 1
         assert ledger[0]["selected_pair_ids"] == []
         assert ledger[0]["selected_models"] == []
         assert ledger[0]["pair_decisions"] == []
+        for scenario_name in program.SCENARIO_ORDER:
+            scenario = payload["results"][candidate_id][scenario_name]
+            assert scenario["equity_curve_ledger"] == expected_curve_ledger
+            assert scenario["equity_curve_observations"] == len(expected_curve_ledger)
+            assert scenario["equity_curve_sha256"] == program._payload_sha256(expected_curve_ledger)
+
+            complete = scenario["windows"]["complete"]
+            nav_values = [row[1] for row in expected_curve_ledger]
+            assert complete["equity_observations"] == len(nav_values)
+            assert complete["nav_observation_sum"] == pytest.approx(sum(nav_values))
+            assert complete["arithmetic_mean_15m_nav"] == pytest.approx(
+                sum(nav_values) / len(nav_values)
+            )
+            assert complete["baseline_equity"] == pytest.approx(nav_values[0])
+            assert complete["ending_equity"] == pytest.approx(nav_values[-1])
 
 
 @pytest.mark.parametrize(
@@ -516,3 +664,78 @@ def test_deterministic_json_is_strict_and_repeatable(tmp_path: Path) -> None:
     assert "Infinity" not in first
     with pytest.raises(ValueError):
         program.deterministic_json({"bad": float("nan")})
+
+
+@pytest.mark.subprocess
+def test_streamed_json_writer_is_byte_identical_and_atomic_for_dry_and_curve_payloads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prereg = _write_prereg(tmp_path / "prereg.yaml", copy.deepcopy(_base_config()))
+    dry_payload = program.dry_run(prereg, repo_root=ROOT)
+    start = pd.Timestamp("2024-01-01T00:00:00Z")
+    end = pd.Timestamp("2024-01-01T00:30:00Z")
+    curve_payload = {
+        "mode": "SYNTHETIC_CURVE",
+        "scenario": program._scenario_payload(
+            _synthetic_portfolio_result(start, end),
+            windows={"complete": (start, end)},
+        ),
+    }
+
+    real_link = program.os.link
+    link_calls: list[tuple[Path, Path]] = []
+
+    def recording_link(source: str, destination: Path) -> None:
+        source_path = Path(source)
+        destination_path = Path(destination)
+        assert source_path.exists()
+        assert source_path.parent == destination_path.parent
+        assert source_path.name.startswith(f".{destination_path.name}.")
+        assert source_path.suffix == ".tmp"
+        assert not destination_path.exists()
+        link_calls.append((source_path, destination_path))
+        real_link(source, destination)
+
+    monkeypatch.setattr(program.os, "link", recording_link)
+    for index, payload in enumerate((dry_payload, curve_payload)):
+        output = tmp_path / f"payload-{index}.json"
+        program._write_deterministic_json_file(output, payload)
+
+        assert output.read_bytes() == program.deterministic_json(payload).encode()
+        assert not list(tmp_path.glob(f".{output.name}.*.tmp"))
+
+    assert [destination for _source, destination in link_calls] == [
+        tmp_path / "payload-0.json",
+        tmp_path / "payload-1.json",
+    ]
+
+
+def test_existing_output_is_rejected_before_expensive_execute(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, prereg, _protected = _temporary_cli_repo(tmp_path)
+    output = root / "reports/research/already-exists.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"existing-result-sentinel")
+    run_calls: list[Path] = []
+
+    def forbidden_run(prereg_path: Path, **_kwargs) -> dict:
+        run_calls.append(prereg_path)
+        raise AssertionError("existing output must fail before the frozen replay")
+
+    monkeypatch.setattr(program, "run_program", forbidden_run)
+    with pytest.raises(FileExistsError, match="already exists"):
+        program.main(
+            [
+                "--execute",
+                "--repo-root",
+                str(root),
+                "--prereg",
+                str(prereg),
+                "--output",
+                str(output),
+            ]
+        )
+
+    assert run_calls == []
+    assert output.read_bytes() == b"existing-result-sentinel"
