@@ -1,0 +1,201 @@
+{
+  "schema_version": "crypto-15m-v15p2-usdm-snapshot-v2-coverage-diagnosis-v1",
+  "status": "COVERAGE_ONLY_DIAGNOSIS_NO_PERFORMANCE_RESULT",
+  "created_at_utc": "2026-07-11T14:48:56Z",
+  "source_commit": "cb08fd9c82a3461402874f6b30f8f8b7bfdfc974",
+  "commit_chain": {
+    "v2_protocol_phase_1": "68c39bbb9fc7509344e4323772bb4a319592bddf",
+    "vendor_lock_phase_2_and_attempt_source": "7d7a73392a0ef5a034b936867ed3805ef1c973a0",
+    "v2_failure_seal": "cb08fd9c82a3461402874f6b30f8f8b7bfdfc974"
+  },
+  "inputs": {
+    "protocol": {
+      "path": "configs/crypto_15m_v15p2_usdm_snapshot_v2_build_protocol.json",
+      "sha256": "7f9b48374551aed7afc7afb48d460204241b378ca60ed375c9f52f03c2496850"
+    },
+    "vendor_lock": {
+      "path": "configs/crypto_15m_v15p2_usdm_snapshot_v2_vendor_lock.json",
+      "sha256": "d7168500a61a60de44212e2401dcbcfab9ee4c1d14d28226b73105f0a8df106b",
+      "entries": 896
+    },
+    "attempt_reservation": {
+      "path": "configs/crypto_15m_v15p2_usdm_snapshot_v2_build_attempt_001_started.json",
+      "sha256": "073d35afee68d4ad86efb9c6d3b91c2c9648db79e60ea31bb262851fb1bb618e"
+    },
+    "failure_evidence": {
+      "path": "configs/crypto_15m_v15p2_usdm_snapshot_v2_build_attempt_001_failure.json",
+      "sha256": "0a65ceb3d3cd5569acdf44c6035835cfa927e42ce9bd56d081e9a21983c421a2"
+    },
+    "verified_cache": {
+      "logical_path": "data/backups/20260711_v15p2_v2_usdm_vendor_cache",
+      "regular_zip_files": 896,
+      "total_bytes": 112920959,
+      "filename_bytes_sha256_manifest": "3a14ca9553128ee65d7fc9e31cc93ee71a7244d570b8faadacb7b5542d7f9c59",
+      "all_zip_sha256_match_vendor_lock": true,
+      "cache_is_not_a_committed_research_result": true
+    }
+  },
+  "audit_scope": {
+    "source_kind": "BINANCE_PUBLIC_DATA_USDM_CONTRACT_PRICE_KLINES",
+    "archive_months_inclusive": [
+      "2021-02",
+      "2026-05"
+    ],
+    "symbols": [
+      "ETHUSDT",
+      "SOLUSDT",
+      "BNBUSDT",
+      "ADAUSDT",
+      "AVAXUSDT",
+      "LINKUSDT",
+      "DOTUSDT",
+      "DOGEUSDT",
+      "ZECUSDT",
+      "NEARUSDT",
+      "FILUSDT",
+      "ATOMUSDT",
+      "ALGOUSDT",
+      "BTCUSDT"
+    ],
+    "inspection_fields": [
+      "zip_crc_and_exact_member_name",
+      "open_time_timestamp_only_for_all_rows",
+      "row_count",
+      "duplicate_timestamp_count",
+      "out_of_order_timestamp_count",
+      "off_15m_grid_timestamp_count",
+      "timestamp_outside_declared_month_count"
+    ],
+    "strategy_signal_trade_return_roi_drawdown_or_scenario_code_executed": false,
+    "ohlcv_values_used_for_policy_selection": false,
+    "alpha_result_trials": 0
+  },
+  "archive_scope_findings": {
+    "full_calendar_range": [
+      "2021-02-01T00:00:00Z",
+      "2026-06-01T00:00:00Z"
+    ],
+    "full_grid_rows_per_symbol": 186816,
+    "full_archive_rows_across_all_symbols": 2613504,
+    "full_calendar_archives": 888,
+    "gap_manifest_archives": 8,
+    "continuous_symbols": [
+      "ETHUSDT",
+      "BNBUSDT",
+      "ADAUSDT",
+      "AVAXUSDT",
+      "LINKUSDT",
+      "DOTUSDT",
+      "DOGEUSDT",
+      "ATOMUSDT",
+      "ALGOUSDT",
+      "BTCUSDT"
+    ],
+    "continuous_symbol_rows_each": 186816,
+    "vendor_gap_symbols": [
+      "SOLUSDT",
+      "ZECUSDT",
+      "NEARUSDT",
+      "FILUSDT"
+    ],
+    "vendor_gap_symbol_rows_each": 186336,
+    "exact_missing_intervals": [
+      {
+        "start_inclusive_utc": "2022-02-26T00:00:00Z",
+        "end_exclusive_utc": "2022-03-01T00:00:00Z",
+        "bars_per_affected_symbol": 288,
+        "affected_symbols": [
+          "SOLUSDT",
+          "ZECUSDT",
+          "NEARUSDT",
+          "FILUSDT"
+        ]
+      },
+      {
+        "start_inclusive_utc": "2022-04-01T00:00:00Z",
+        "end_exclusive_utc": "2022-04-03T00:00:00Z",
+        "bars_per_affected_symbol": 192,
+        "affected_symbols": [
+          "SOLUSDT",
+          "ZECUSDT",
+          "NEARUSDT",
+          "FILUSDT"
+        ]
+      }
+    ],
+    "exception_archive_vendor_sha256": {
+      "SOLUSDT-15m-2022-02.zip": "fac5a884ae3cb71e9a04c298c0734c962d51c150d8cabec22c6e396093077759",
+      "SOLUSDT-15m-2022-04.zip": "fcc0dfbbdb5391007ad9155a56ee92bd415d2958d0216ec25209e9ddf66d6030",
+      "ZECUSDT-15m-2022-02.zip": "f874692fc0721cad0681c5100bf4b2cf9f3494793554deaf33cca138564fe612",
+      "ZECUSDT-15m-2022-04.zip": "b4a3b3fa6f14c2bf16066139969de7a4357c2c41bb9ac68769ab6a0fef3f9b5b",
+      "NEARUSDT-15m-2022-02.zip": "a3dba168b51c122f1f9420670411cdb074ce9e77673ad716fc2b592db63a5d30",
+      "NEARUSDT-15m-2022-04.zip": "0375f302c4f8f97d4f2260b460e4340b185d18b8816bf63f9569f55e8f512f06",
+      "FILUSDT-15m-2022-02.zip": "91f64e7fe7c0fdfe29980eb35c1a78359ec38eeedbc01b2fc00cf3d80a8f63b9",
+      "FILUSDT-15m-2022-04.zip": "36e304143ee04e7474ae243f92fa8f2448eada4c804fe2c4160d056db974866c"
+    },
+    "missing_bars_per_affected_symbol": 480,
+    "duplicate_timestamps": 0,
+    "out_of_order_timestamps": 0,
+    "off_15m_grid_timestamps": 0,
+    "timestamps_outside_declared_month": 0,
+    "unlisted_missing_intervals": 0,
+    "common_continuous_suffix_start_utc": "2022-04-03T00:00:00Z"
+  },
+  "successor_target_freeze": {
+    "history_start_inclusive_utc": "2021-02-21T00:00:00Z",
+    "evaluation_start_inclusive_utc": "2021-06-01T00:00:00Z",
+    "evaluation_end_exclusive_utc": "2026-06-01T00:00:00Z",
+    "evaluation_complete_months": 60,
+    "development_complete_months": 24,
+    "pseudo_oos_complete_months": 36,
+    "preserve_original_sixty_month_evaluation": true,
+    "global_common_suffix_truncation_allowed": false,
+    "vendor_observed_gaps_preserved": true,
+    "forward_fill_interpolation_resampling_or_synthetic_rows_allowed": false,
+    "continuous_symbol_rows_each": 184896,
+    "vendor_gap_symbol_rows_each": 184416,
+    "expected_total_rows": 2586624,
+    "expected_ordered_primary_key_sha256": "8fa35b544898ab7f131a0826a2a4bd989aa0d283cc5a2926fb85f962a3e93318",
+    "expected_missing_key_count": 1920,
+    "expected_ordered_missing_key_sha256": "bfd80250c7ae2b5b242f80b2170c47c872b771100f88b7e1ed64d0eaad29287d",
+    "exact_missing_intervals_only": true,
+    "any_additional_missing_duplicate_extra_offgrid_or_out_of_order_timestamp_fails_closed": true
+  },
+  "downstream_coverage_preconditions": {
+    "all_14_symbols_history_bars_2021_02_21_to_2021_06_01": 9600,
+    "all_14_symbols_initial_history_is_exact_contiguous_15m": true,
+    "primary13_exact_500_bar_tail": [
+      "2021-05-26T19:00:00Z",
+      "2021-05-31T23:45:00Z"
+    ],
+    "primary13_exact_500_bar_tail_pass": true,
+    "primary13_91_complete_daily_closes_and_90_causal_returns_pass": true,
+    "all_14_symbols_terminal_bar_utc": "2026-05-31T23:45:00Z"
+  },
+  "pre_successor_access_disclosure": {
+    "all_archive_timestamp_counts_and_gap_locations_seen": true,
+    "sol_february_2022_first_three_and_last_three_raw_rows_seen_during_failure_diagnosis": true,
+    "v2_attempt_ohlcv_rows_parsed_and_geometry_validated_before_failure": 224256,
+    "v2_attempt_archives_parsed_and_geometry_validated_before_failure": 77,
+    "v2_attempt_selected_rows_written_to_ephemeral_staging_db_before_failure": 218016,
+    "v2_attempt_parsed_breakdown": {
+      "ETHUSDT_all_64_archives_rows": 186816,
+      "SOLUSDT_2021_02_through_2022_02_rows": 37440
+    },
+    "v2_ephemeral_database_published_or_retained": false,
+    "signals_trades_returns_roi_drawdown_monthly_metrics_or_scenario_results_seen": false,
+    "strategy_universe_threshold_execution_cost_or_risk_policy_selected_from_values": false,
+    "performance_result_produced": false
+  },
+  "governance": {
+    "coverage_diagnosis_is_not_a_snapshot_success": true,
+    "coverage_diagnosis_is_not_a_strategy_trial": true,
+    "coverage_diagnosis_pass_count": 1,
+    "coverage_result_influenced_successor_data_contract": true,
+    "coverage_result_influence_limited_to_exact_gap_allowlist_counts_and_key_hash": true,
+    "failed_v1_or_v2_rows_reused_without_vendor_verification": false,
+    "live_database_or_daemon_mutated": false,
+    "exchange_account_credentials_or_private_api_used": false,
+    "deployment_authorized": false
+  }
+}
