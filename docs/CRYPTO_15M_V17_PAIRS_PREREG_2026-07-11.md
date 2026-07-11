@@ -25,6 +25,20 @@ filtresine girer. Getiri korelasyonu, Engle–Granger + Holm, residual half-life
 iki yarı beta stabilitesi, validation mean/std ve BTC-beta kapılarının tamamını
 geçen en fazla üç sembol-çakışmasız çift seçilir.
 
+Bir saatlik gözlem dört tam ve bitişik 15m bar ister; close `:45` barının close'u,
+volume dört barın toplamıdır. Getiri yalnız tam bir saat aralıklı closeların log
+farkıdır. Gatev fiyatı ilk training close'una bölünür ve SSD iki normalize fiyat
+farkının ortalama karesidir. Irregular timestampler sıkıştırılıp yan yana
+getirilmez: training'de en uzun bitişik saatlik block (eşitlikte en güncel) en az
+pencerenin `%95`i; validation'da selection'a bitişik suffix en az `%95` olmalıdır.
+AR(1), yalnız bitişik saatlerde
+`ε_t=c+φ ε_{t-1}` OLS; half-life `-ln(2)/ln(φ)` olarak hesaplanır. Train ve
+validation standard deviation `ddof=0` kullanır; mean touch crossing sayılmaz.
+
+SSD top-20 yalnız eligibility/ranking filtresidir; Holm ailesi bununla
+daraltılmaz. Primary'de o ay veri yeterliliğini geçen 78'e kadar unordered
+çiftin tamamının Engle–Granger p-değeri aynı cell-month ailesinde düzeltilir.
+
 Regression `log(y)=α+βlog(x)` biçimindedir. `α`, `β`, validation residual
 ortalaması ve standard deviation değeri seçim ayı boyunca donar. BTC yalnız risk faktörü
 referansıdır ve işlem göremez. Primary seçim yalnız 13 primary sembolde yapılır;
@@ -48,6 +62,12 @@ etiketidir; gerçek karar anı ve iki bacağın ortak entry barı `decision_ts+1
 olan `:00` open'dır. Entry z değeri disaster eşiğine ulaşmış veya onu geçmişse
 risk paydası pozitif kalmayacağı için işlem reddedilir.
 
+Decision-close intent yalnız provisional'dır. İki gerçek entry open fiyatından
+`fill_z` yeniden hesaplanır; aynı spread yönünde entry eşiğinin hâlâ dışında ve
+disaster eşiğinin içinde değilse iki leg de reddedilir. Expected edge, ekonomik
+kapı ve risk paydası fill-z ile yeniden hesaplanır. Bir leg `%15` capa çarparsa
+hedge bozulmaz; iki leg aynı factor ile küçültülür.
+
 Her pair episode NAV'ın `%0.5` riskini kullanır; `%6` DD sonrası yeni risk yarıya
 iner. Her leg NAV'ın `%15`iyle, portföy üç çift/altı leg ve `3×` leverage ile
 sınırlıdır. Partial, pyramid ve tek-leg taşıma yoktur.
@@ -64,6 +84,17 @@ PnL'ine uygulanır.
 oluşabilecek kötü ödeme eklenir; olası funding kredisi giriş kararında sıfır
 sayılır. Donmuş spreadin mean'e beklenen dönüşü, `C2` ve yarıya kesilmiş pozitif
 `H` payoff'ının kötü olanını en az `1.5×` karşılamıyorsa işlem açılmaz.
+
+Funding bilgisinde cutoff `event_ts < entry_ts` biçiminde katıdır; entry ile aynı
+`:00` olay kullanılamaz. `C2` entry kapısında funding de `2×` sayılır. Gerçek
+cashflow markı varsa event mark, yoksa event anına kadar tamamlanmış son 15m
+close'dur; ikisi de yoksa replay geçersizdir.
+
+Funding timestampindeki fractional second UTC tam saniyeye floor edilir; pozisyon
+yalnız `entry_ts < event_ts <= exit_ts` ise olayı taşır. Son 30 bilinen eventin en
+kısa pozitif cadence'i max-hold event sayısını belirler; iki event yoksa 8 saat
+kullanılır. Böylece tarihsel 2/4 saatlik SOL funding rejimleri 8 saat varsayımıyla
+eksik sayılmaz. Bare funding sembolü `SOL/USDT` biçimine canonical edilir.
 
 Bu kural Batch 1'de görülen `$0.29` edge / `$3.70` maliyet problemini eşik
 oynamadan doğrudan ekonomik seviyede engeller.
@@ -82,10 +113,42 @@ oynamadan doğrudan ekonomik seviyede engeller.
   açık çift ve state taşınır.
 - Bir episode tek trade sayılır; iki leg örneklemi yapay olarak ikiye katlamaz.
 
+`H` MTM yolu episode-final sonuca bırakılmaz: her 15m noktada entry'den beri
+kümülatif atomik pair fiyat PnL'i pozitifse `0.50`, negatifse `1.25` ile
+çarpılır; exitte final kümülatif fiyat PnL'ine aynı kural uygulanır. Execution ve
+funding ayrı kalır. İlk train/validation geçmişi henüz dolmamış aylar silinmez,
+sıfır getiri olarak development serisinde kalır.
+
+OOS/IS oranı hücreler arası ortak kullanılabilir pencere olan Ocak 2022–Mayıs
+2023 üzerinde hesaplanır; tam 24 aylık development serisi erken sıfır aylarıyla
+ayrıca raporlanır. Cutoff'ta açık pair, sample'da kapalı episode sayılmaz fakat
+son close MTM ve accrued liquidation maliyetiyle edge/yön/konsantrasyona terminal
+pseudo-episode olarak girer.
+
 Sample kapısı pairs mekanizmasına uygun olarak en az 120 kapalı episode, iki
 spread yönünde en az 40'ar giriş ve 30 aktif ay ister. Return, stability, DD,
 fold, holdout ve multiple-testing eşikleri v16 ile aynı kalır. Primary mutlak
 kapıları geçmezse holdout/LOSO çalıştırılmaz ve sonuç RED'dir.
+
+Trimli ortalama her kuyruktan `floor(n×0.10)` gözlem çıkarır; `%15` cap yalnız
+aday sıralamasındadır, hard gate getirileri hamdır. Bootstrap üç aylık overlapping
+moving block, 20.000 iterasyon ve seed `17`; DSR üç hücrenin H Sharpe dağılımı,
+PBO eksiksiz `36×3` H matrisiyle hesaplanır. Holdout sembol PnL'si uydurulmaz:
+aynı 36 ayda C2 toplam/retention/DD yanında dört sembolün tamamının ve en az iki
+farklı kapalı holdout çiftinin gerçekten işlem görmesi gerekir.
+
+Candidate sign-flip testi 12 adet örtüşmeyen kronolojik üç aylık block'un her
+birine bağımsız `±1` işareti verir; p-değeri `(1+null>=observed)/(20000+1)`dir.
+v17 içi üç denemeye ek olarak, aynı pseudo-OOS'u görmüş v16 ile toplam dokuz
+hücrenin program-wide Holm/DSR/PBO değerleri de aynı eşikleri geçmek zorundadır.
+
+Holdout ayrıca en az 30 kapalı episode ve 18 aktif ay ister. Yalnız primary
+kapıları geçenler arasındaki tek kilitli winner önce gerçek LOSO, sonra bir kez
+holdout görür; holdout başarısızsa runner-up denenmez. `instruments` tablosu boş
+olduğu için quantity continuous fractional proxy'dir; tarihsel tick/lot rounding
+yoktur ve v17 sonucu live implementability iddiası taşıyamaz. `3×` leverage,
+altı leg × `%15` cap altında erişilmeyen tavandır; fill modeli gerçek submit
+gecikmesi değil next-open proxy + gerçek leg notionalında `28.5 bps/fill`dir.
 
 ## Ekonomik dayanak ve sınırlar
 
