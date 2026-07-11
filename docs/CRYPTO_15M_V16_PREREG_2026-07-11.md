@@ -29,9 +29,10 @@ adlandırılabilir.
 
 1. **Residual cross-sectional trend:** Her varlığın getirisi yalnız geçmiş
    barlarla hesaplanan BTC betasından arındırılır. Bir, iki ve dört haftalık
-   residual trend sıralamasında ilk/son üç varlık haftalık, dengeli long/short
-   kitap olarak açılır. Emir kararı tamamlanmış 15m barında, giriş sonraki
-   kesintisiz 15m açılışındadır. Funding alpha değil gerçekleşen maliyettir.
+   residual trend, aynı pencerenin residual volatilitesiyle normalize edilir;
+   sıralamadaki ilk/son üç varlık haftalık, dengeli long/short kitap olarak
+   açılır. Emir kararı tamamlanmış 15m barında, giriş sonraki kesintisiz 15m
+   açılışındadır. Funding alpha değil gerçekleşen maliyettir.
 2. **Funding-confirmed residual reversion:** 24 saatlik BTC-residual hareket,
    yalnız aynı yöndeki funding kalabalığıyla birlikte aşırıysa ters yönde işlem
    aranır. `z=2.0/2.5` ve `4h/8h` olmak üzere üç hücre önceden kaydedilmiştir.
@@ -39,6 +40,12 @@ adlandırılabilir.
 Toplam altı hücre vardır. Yeni eşik, post-hoc filtre veya seçilmiş hücre
 kombinasyonu bu batch'e eklenemez. Bir ensemble ancak ayrı bir ön kayıtla test
 edilebilir.
+
+İlk gerçek aday sonucu çalıştırılmadan önce iki yöntem düzeltmesi kayda geçirildi:
+BTC yalnız referans olduğu için aynı likidite katmanında XRP holdout seçildi ve
+ham residual toplamının yüksek-volatilite coinleri otomatik kayırmaması için
+trend skoru `residual toplam / (residual std × sqrt(pencere))` olarak
+boyutsuzlaştırıldı. Hücre, eşik ve kabul kapısı sayıları değişmedi.
 
 ## Ekonomik dayanak ve karşı kanıt
 
@@ -62,7 +69,7 @@ edilebilir.
   çalışması](https://www.bis.org/publ/work1087.pdf).
 - Survivorship ve delisting dönüşleri momentum sonucunu değiştirebilir. Yerel
   evren delisting-inclusive olmadığı için olumlu tarihsel sonuç en fazla
-  `FEASIBILITY_NOT_PROMOTION` olabilir. [Liebi'nin survivorship
+  `FEASIBILITY_NOT_PROMOTION` olabilir. [Liebi survivorship
   çalışması](https://www.sebastianstoeckl.com/publications/wp2022_liebi_survivorship/).
 
 ## Donmuş veri ve gizli sembol kontrolü

@@ -4,6 +4,19 @@ created_at_utc: "2026-07-11T03:35:09Z"
 parent_git_commit: d71bc0e8f86e69a66015b2fdbd44a3c7424501cd
 live_deployment_authorized: false
 promotion_eligible: false
+pre_result_amendments:
+  - at_utc: "2026-07-11T03:39:09Z"
+    subject: reference_symbol
+    change: >-
+      BTC was replaced by XRP as the quartile-3 trade holdout because BTC is
+      the fixed residual reference and is never tradable.
+  - at_utc: "2026-07-11T03:52:09Z"
+    subject: trend_score_normalization
+    change: >-
+      Before any candidate result, the trend score was made dimensionless as
+      rolling residual sum divided by trailing residual standard deviation
+      times sqrt(formation_bars). This prevents raw volatility from deciding
+      the cross-sectional rank. No threshold or candidate count changed.
 
 objective:
   timeframe: 15m
@@ -122,6 +135,7 @@ candidate_cells:
     family: residual_cross_sectional_trend
     beta_lookback_bars: 2688
     formation_bars: 672
+    score_normalization: residual_sum_over_residual_std_sqrt_formation
     rebalance: monday_00_00_utc
     hold_bars: 672
     long_k: 3
@@ -133,6 +147,7 @@ candidate_cells:
     family: residual_cross_sectional_trend
     beta_lookback_bars: 2688
     formation_bars: 1344
+    score_normalization: residual_sum_over_residual_std_sqrt_formation
     rebalance: monday_00_00_utc
     hold_bars: 672
     long_k: 3
@@ -144,6 +159,7 @@ candidate_cells:
     family: residual_cross_sectional_trend
     beta_lookback_bars: 2688
     formation_bars: 2688
+    score_normalization: residual_sum_over_residual_std_sqrt_formation
     rebalance: monday_00_00_utc
     hold_bars: 672
     long_k: 3
