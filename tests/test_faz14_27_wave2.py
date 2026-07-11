@@ -127,8 +127,11 @@ class TestPostOnlyAtomicGuard:
     """Faz 14.27 C3-1: cancel fail + verify fail → RuntimeError (market YAPMA)."""
 
     def test_ambiguous_cancel_raises_runtime_error(self):
-        """Mock exchange: cancel fail + fetch_order fail → RuntimeError beklenir."""
-        from price_action.execution.post_only_router import place_post_only_with_fallback
+        """Cancel/fetch belirsizliği typed fail-closed exception üretir."""
+        from price_action.execution.post_only_router import (
+            OrderSubmissionUncertainError,
+            place_post_only_with_fallback,
+        )
 
         class MockExchange:
             def __init__(self):
@@ -148,12 +151,13 @@ class TestPostOnlyAtomicGuard:
                 return {"id": "market456", "average": 100.0}
 
         ex = MockExchange()
-        with pytest.raises(RuntimeError, match="ambiguous"):
+        with pytest.raises(OrderSubmissionUncertainError) as exc_info:
             place_post_only_with_fallback(
                 ex, symbol="BTC/USDT", side="buy", qty=0.001,
                 target_price=100.0,
                 fallback_after_sec=1,  # short timeout
                 poll_interval=0.1,
             )
+        assert exc_info.value.stage == "post_only_cancel_verify"
         # Market YAPMA garanti
         assert not ex.market_called, "Market order ambiguous cancel sonrası YAPILMAMALI"

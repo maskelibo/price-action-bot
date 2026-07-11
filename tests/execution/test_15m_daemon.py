@@ -9,14 +9,13 @@ Senaryolar:
   6) Missed bar counter artimi
   7) next_15m_boundary saat gecisi (xx:59 -> sonraki saat :00)
 """
+
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -27,8 +26,9 @@ sys.path.insert(0, str(ROOT / "src"))
 # Senaryolar 1-2: next_15m_boundary
 # =====================================================================
 
+
 def _make_utc(hour: int, minute: int, second: int = 0) -> datetime:
-    return datetime(2026, 5, 18, hour, minute, second, tzinfo=timezone.utc)
+    return datetime(2026, 5, 18, hour, minute, second, tzinfo=UTC)
 
 
 def _next_15m_boundary_impl(now: datetime) -> datetime:
@@ -82,7 +82,7 @@ class TestNext15mBoundary:
         now = _make_utc(23, 46)
         result = _next_15m_boundary_impl(now)
         # 00:00 sonraki gün
-        expected = datetime(2026, 5, 19, 0, 0, 0, tzinfo=timezone.utc)
+        expected = datetime(2026, 5, 19, 0, 0, 0, tzinfo=UTC)
         assert result == expected
 
     def test_boundary_is_always_in_future(self):
@@ -101,6 +101,7 @@ class TestNext15mBoundary:
 # Senaryo 2: Bar-close detection (dakika+saniye hassasiyeti)
 # =====================================================================
 
+
 class TestBarCloseDetection:
     """sleep_until + next_15m_boundary ile doğru bar zamanlaması."""
 
@@ -115,20 +116,21 @@ class TestBarCloseDetection:
     def test_processing_window_within_bar(self):
         """5s buffer ile scan başlangıcı sonraki bar açılışından önce."""
         # 15m bar = 900s; scan 5s sonra başlıyor, 30s sürüyor → 35s < 900s PASS
-        SCAN_WINDOW_SEC = 30
-        BUFFER_SEC = 5
-        assert BUFFER_SEC + SCAN_WINDOW_SEC < 900, "Scan window 15m bar'a sığmıyor"
+        scan_window_sec = 30
+        buffer_sec = 5
+        assert buffer_sec + scan_window_sec < 900, "Scan window 15m bar'a sığmıyor"
 
 
 # =====================================================================
 # Senaryo 3-4: Stale signal reject / accept
 # =====================================================================
 
+
 class TestStaleSignalGuard:
     """DQ-02 — 30 dakikadan eski sinyal REJECT."""
 
     def _make_signal(self, age_minutes: float) -> dict:
-        sig_ts = datetime.now(timezone.utc) - timedelta(minutes=age_minutes)
+        sig_ts = datetime.now(UTC) - timedelta(minutes=age_minutes)
         return {
             "signal_id": "test_sig",
             "ts": sig_ts,
@@ -143,8 +145,8 @@ class TestStaleSignalGuard:
         if sig_ts is None:
             return False
         if not hasattr(sig_ts, "tzinfo") or sig_ts.tzinfo is None:
-            sig_ts = sig_ts.replace(tzinfo=timezone.utc)
-        age_min = (datetime.now(timezone.utc) - sig_ts).total_seconds() / 60
+            sig_ts = sig_ts.replace(tzinfo=UTC)
+        age_min = (datetime.now(UTC) - sig_ts).total_seconds() / 60
         return age_min > max_age_min
 
     def test_reject_31_minute_old_signal(self):
@@ -189,12 +191,14 @@ class TestStaleSignalGuard:
 # Senaryo 5: DMS heartbeat / TF parametreleri
 # =====================================================================
 
+
 class TestDmsHeartbeat:
     """DeadMansSwitch tf='15m' parametreleri doğrulama."""
 
     def test_dms_15m_params(self):
         """tf='15m' → heartbeat=20s, timeout=1800s, watchdog=10s."""
         from price_action.execution.dead_mans_switch import DeadMansSwitch
+
         dms = DeadMansSwitch(exchange=None, tf="15m", service_name="test_15m")
         assert dms.heartbeat_sec == 20
         assert dms.timeout_sec == 1800
@@ -204,7 +208,9 @@ class TestDmsHeartbeat:
     def test_dms_ping_updates_last_heartbeat_ts(self):
         """ping() çağrısı _last_heartbeat_ts'i günceller."""
         import time
+
         from price_action.execution.dead_mans_switch import DeadMansSwitch
+
         dms = DeadMansSwitch(exchange=None, tf="15m", service_name="test_ping")
         before = dms._last_heartbeat_ts
         time.sleep(0.05)
@@ -215,13 +221,24 @@ class TestDmsHeartbeat:
     def test_dms_not_triggered_immediately(self):
         """Yeni oluşturulan DMS henüz triggered değil (timeout=1800s)."""
         from price_action.execution.dead_mans_switch import DeadMansSwitch
+
         dms = DeadMansSwitch(exchange=None, tf="15m", service_name="test_not_triggered")
         assert dms.is_triggered is False
+
+    def test_live_15m_wires_external_main_loop_heartbeat(self):
+        """DMS cannot poll private account state every 20 seconds in live 15m."""
+        source = (ROOT / "scripts" / "futures_daemon.py").read_text(encoding="utf-8")
+
+        assert "external_heartbeat=True" in source
+        assert "retry_not_before_reader=_get_binance_ban_until_dms" in source
+        assert "background REST poll=OFF" in source
+        assert "dms_15m.ping()" not in source
 
 
 # =====================================================================
 # Senaryo 6: Missed bar counter
 # =====================================================================
+
 
 class TestMissedBarCounter:
     """Atlanmış bar tespiti — bars_elapsed > 1 durumu."""
@@ -264,6 +281,7 @@ class TestMissedBarCounter:
 # Senaryo 7-10: 15m Post-Only Entry Path (2026-05-21)
 # =====================================================================
 
+
 class TestPostOnly15mEntryPath:
     """15m daemon entry post-only wiring testleri.
 
@@ -284,18 +302,11 @@ class TestPostOnly15mEntryPath:
         """Daemon'daki post-only entry yolunu simüle eder (15m daemon ~satır 984-1022)."""
         from price_action.execution.post_only_router import (
             place_post_only_with_fallback,
-            SlippageExceededError,
         )
 
-        _15m_po_enabled = bool(
-            risk_cfg.get("execution", {}).get("post_only_limit_enabled", False)
-        )
-        _15m_po_timeout = int(
-            risk_cfg.get("execution", {}).get("post_only_fallback_seconds", 30)
-        )
-        _15m_slip_limit = float(
-            risk_cfg.get("execution", {}).get("slippage_limit_bps", 25.0)
-        )
+        _15m_po_enabled = bool(risk_cfg.get("execution", {}).get("post_only_limit_enabled", False))
+        _15m_po_timeout = int(risk_cfg.get("execution", {}).get("post_only_fallback_seconds", 30))
+        _15m_slip_limit = float(risk_cfg.get("execution", {}).get("slippage_limit_bps", 25.0))
 
         if _15m_po_enabled:
             order, fill_method = place_post_only_with_fallback(
@@ -310,7 +321,9 @@ class TestPostOnly15mEntryPath:
             )
         else:
             order = exchange.create_market_order(
-                "BTC/USDT", order_side, qty,
+                "BTC/USDT",
+                order_side,
+                qty,
                 params={"newClientOrderId": coid},
             )
             fill_method = "market_only"
@@ -354,7 +367,7 @@ class TestPostOnly15mEntryPath:
             }
         }
         ex = self._mk_po_fills_exchange(fill_avg=65000.0)
-        order, method = self._simulate_entry(risk_cfg, ex, 65000.0, "buy", 0.05, "PA_testcoid1")
+        _order, method = self._simulate_entry(risk_cfg, ex, 65000.0, "buy", 0.05, "PA_testcoid1")
 
         assert method == "post_only_filled"
         # create_order çağrıldı (post-only limit gönderildi)
@@ -372,7 +385,7 @@ class TestPostOnly15mEntryPath:
             }
         }
         ex = self._mk_market_exchange(fill_avg=65000.0)
-        order, method = self._simulate_entry(risk_cfg, ex, 65000.0, "buy", 0.05, "PA_testcoid2")
+        _order, method = self._simulate_entry(risk_cfg, ex, 65000.0, "buy", 0.05, "PA_testcoid2")
 
         assert method == "market_only"
         assert ex.create_market_order.called
@@ -383,20 +396,18 @@ class TestPostOnly15mEntryPath:
         """Senaryo 9: execution bloğu YAML'de yoksa → default False → market yolu (backward-compat)."""
         risk_cfg = {}  # execution bloğu yok
         ex = self._mk_market_exchange(fill_avg=65100.0)
-        order, method = self._simulate_entry(risk_cfg, ex, 65100.0, "sell", 0.05, "PA_testcoid3")
+        _order, method = self._simulate_entry(risk_cfg, ex, 65100.0, "sell", 0.05, "PA_testcoid3")
 
         assert method == "market_only"
         assert ex.create_market_order.called
 
-    def test_slippage_exceeded_skips_signal(self):
-        """Senaryo 10: SlippageExceededError → sinyal atlanır (continue) — exception yukarı çıkmaz."""
-        from price_action.execution.post_only_router import SlippageExceededError
-
+    def test_slippage_exceeded_is_owned_for_protection(self):
+        """Senaryo 10: verified breach normal SL-first protection'a devredilir."""
         risk_cfg = {
             "execution": {
                 "post_only_limit_enabled": True,
                 "post_only_fallback_seconds": 1,
-                "slippage_limit_bps": 5.0,   # çok düşük limit → kolayca aşılır
+                "slippage_limit_bps": 5.0,  # çok düşük limit → kolayca aşılır
             }
         }
 
@@ -404,7 +415,16 @@ class TestPostOnly15mEntryPath:
         ex = MagicMock()
         ex.create_order.return_value = {"id": "PO_SLIP", "status": "open"}
         ex.fetch_order.return_value = {"id": "PO_SLIP", "status": "open"}
-        ex.cancel_order.return_value = {"status": "canceled"}
+
+        def _cancel_and_publish_terminal(order_id, symbol):
+            ex.fetch_order.return_value = {
+                "id": order_id,
+                "status": "canceled",
+                "filled": 0.0,
+            }
+            return {"id": order_id, "status": "canceled", "filled": 0.0}
+
+        ex.cancel_order.side_effect = _cancel_and_publish_terminal
         ex.create_market_order.return_value = {
             "id": "MK_SLIP",
             "status": "closed",
@@ -412,15 +432,12 @@ class TestPostOnly15mEntryPath:
             "filled": 0.05,
         }
 
-        # Daemon catch bloğu: SlippageExceededError yakalanır → continue (exception raise etmez)
-        _slippage_caught = False
-        try:
-            order, method = self._simulate_entry(risk_cfg, ex, 65000.0, "buy", 0.05, "PA_testcoid4")
-        except SlippageExceededError:
-            _slippage_caught = True
+        order, method = self._simulate_entry(risk_cfg, ex, 65000.0, "buy", 0.05, "PA_testcoid4")
 
-        # Daemon catch bloğu exception'ı yukarı geçirmez → True (yakalandı)
-        assert _slippage_caught is True  # router raise eder, daemon yakalar
+        assert method == "market_fallback_slippage_breach_protect"
+        assert order["slippage_breach"]["position_owned"] is True
+        assert order["slippage_breach"]["protection_required"] is True
+        assert ex.create_market_order.call_count == 1
 
     def test_coid_passed_to_po_router(self):
         """Senaryo 11: client_order_id (_coid) post-only router'a geçirilir (idempotency korunur)."""

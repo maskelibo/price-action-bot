@@ -60,6 +60,7 @@ take_profit:
 
 vol_target:
   enabled: true
+  input_metric: entry_stop_distance_pct
   # 1h ATR% ≈ 1.5-2.5% (15m: 0.5-1.5%, 1d: 3-6%)
   target_atr_pct: 0.018
   min_factor: 0.20

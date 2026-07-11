@@ -143,6 +143,11 @@ class BotMonitorAgent(LLMAgentBase):
         "sql_query",  # DuckDB SELECT (read-only)
         "write_report",  # snapshot / card / alert md
     )
+    _live_equity_cache_wallet: ClassVar[float | None] = None
+    _live_equity_cache_at: ClassVar[datetime | None] = None
+    _live_equity_cache_populated: ClassVar[bool] = False
+    _live_equity_cache_ttl: ClassVar[timedelta] = timedelta(minutes=5)
+    _equity_snapshot_max_age: ClassVar[timedelta] = timedelta(minutes=30)
 
     def __init__(self, **kw: Any) -> None:
         super().__init__(**kw)
@@ -563,7 +568,11 @@ class BotMonitorAgent(LLMAgentBase):
                 or (cfg.get("defaults") or {}).get("account_equity_usdt")
                 or 10000.0
             )
-            _acct_eq = self._fetch_live_equity(_config_acct_eq_snap)
+            _acct_eq = self._fetch_live_equity(
+                _config_acct_eq_snap,
+                journal_path=journal,
+                now=now,
+            )
             dd30 = self._calc_drawdown(self._equity_curve(trades, starting_equity=_acct_eq))
             # Son 24h P&L
             cutoff_24h = now - timedelta(hours=24)
@@ -667,9 +676,66 @@ class BotMonitorAgent(LLMAgentBase):
             )
             return datetime.now(UTC)
 
-    @staticmethod
-    def _fetch_live_equity(config_equity_fallback: float) -> float:
-        """Gerçek cüzdan bakiyesini borsa API'sinden çek.
+    def _fresh_snapshot_equity(
+        self,
+        journal_path: str | Path,
+        *,
+        now: datetime,
+    ) -> float | None:
+        """Read a recent exchange-truth wallet snapshot without any API call."""
+        path = Path(journal_path)
+        if not path.exists():
+            return None
+        try:
+            import duckdb  # type: ignore[import-not-found]
+
+            connection = duckdb.connect(str(path), read_only=True)
+            try:
+                row = connection.execute(
+                    """SELECT ts, wallet_balance, notes
+                         FROM futures_equity_snapshots
+                     ORDER BY ts DESC
+                        LIMIT 1"""
+                ).fetchone()
+            finally:
+                connection.close()
+            if row is None:
+                return None
+            snapshot_ts = self._to_utc(row[0])
+            age = now - snapshot_ts
+            wallet = float(row[1] or 0.0)
+            if -timedelta(minutes=1) <= age <= self._equity_snapshot_max_age and wallet > 0:
+                logger.info(
+                    "bot_monitor.live_equity_snapshot",
+                    extra={
+                        "path": str(path),
+                        "age_seconds": round(age.total_seconds(), 1),
+                        "notes": str(row[2] or "")[:80],
+                    },
+                )
+                return wallet
+        except Exception as exc:
+            logger.debug(
+                "bot_monitor.live_equity_snapshot_unavailable",
+                extra={"path": str(path), "err": str(exc)[:160]},
+            )
+        return None
+
+    @classmethod
+    def _reset_live_equity_cache(cls) -> None:
+        """Test/run-boundary helper; production naturally expires after five minutes."""
+        cls._live_equity_cache_wallet = None
+        cls._live_equity_cache_at = None
+        cls._live_equity_cache_populated = False
+
+    def _fetch_live_equity(
+        self,
+        config_equity_fallback: float,
+        *,
+        journal_path: str | Path | None = None,
+        now: datetime | None = None,
+    ) -> float:
+        """Resolve wallet from fresh journal evidence, then one cached API read.
 
         SEC-#2D: bot_kill_criteria.yaml'daki account_equity_usdt değeri sabit
         (10000.0) ama gerçek hesap ~5000$ olabilir → DD bazı şişik → yanlış-pozitif
@@ -683,27 +749,64 @@ class BotMonitorAgent(LLMAgentBase):
         - Borsa bağlantısı 5 saniyede timeout olmadıysa bu metod yavaş kalabilir;
           caller timeout ile sarmalamamışsa risk var.
         """
+        current_time = now or datetime.now(UTC)
+        if current_time.tzinfo is None:
+            current_time = current_time.replace(tzinfo=UTC)
+        else:
+            current_time = current_time.astimezone(UTC)
+
+        canonical_journal = (
+            self.settings.reports_dir.parent / "data/futures_journal_v15p2.duckdb"
+        )
+        snapshot_paths = [canonical_journal]
+        if journal_path is not None and Path(journal_path) != canonical_journal:
+            snapshot_paths.append(Path(journal_path))
+        for snapshot_path in snapshot_paths:
+            snapshot_wallet = self._fresh_snapshot_equity(snapshot_path, now=current_time)
+            if snapshot_wallet is not None:
+                type(self)._live_equity_cache_wallet = snapshot_wallet
+                type(self)._live_equity_cache_at = current_time
+                type(self)._live_equity_cache_populated = True
+                return snapshot_wallet
+
+        cache_at = type(self)._live_equity_cache_at
+        if (
+            type(self)._live_equity_cache_populated
+            and cache_at is not None
+            and timedelta(0) <= current_time - cache_at <= self._live_equity_cache_ttl
+        ):
+            cached = type(self)._live_equity_cache_wallet
+            return cached if cached is not None and cached > 0 else config_equity_fallback
+
         try:
             import os as _os
 
             # API key yoksa (test ortamı) erken çık
             if not _os.environ.get("BINANCE_FUTURES_TESTNET_API_KEY"):
                 return config_equity_fallback
-            from scripts.futures_trade_daily import (  # type: ignore[import]
-                fetch_futures_state,
-                get_futures_exchange,
-            )
+            from scripts import futures_trade_daily as _ftd  # type: ignore[import]
 
-            _ex = get_futures_exchange()
-            _state = fetch_futures_state(_ex)
+            ban_reader = getattr(_ftd, "get_binance_ban_until", None)
+            if callable(ban_reader) and float(ban_reader() or 0.0) > current_time.timestamp():
+                logger.warning("bot_monitor.live_equity_shared_ban_active")
+                return config_equity_fallback
+
+            _ex = _ftd.get_futures_exchange()
+            _state = _ftd.fetch_futures_state(_ex, journal_path=canonical_journal)
             _wb = float(_state.get("wallet_balance", 0))
             if _wb > 0:
+                type(self)._live_equity_cache_wallet = _wb
+                type(self)._live_equity_cache_at = current_time
+                type(self)._live_equity_cache_populated = True
                 return _wb
         except Exception as _live_exc:
             logger.warning(
                 "bot_monitor.live_equity_fetch_fail",
                 extra={"err": str(_live_exc)[:200], "fallback": config_equity_fallback},
             )
+        type(self)._live_equity_cache_wallet = None
+        type(self)._live_equity_cache_at = current_time
+        type(self)._live_equity_cache_populated = True
         return config_equity_fallback
 
     def _heartbeat_check(self, bot_name: str) -> bool:
@@ -1168,7 +1271,11 @@ class BotMonitorAgent(LLMAgentBase):
             _config_acct_eq = float(
                 bot_cfg.get("account_equity_usdt") or defaults.get("account_equity_usdt") or 10000.0
             )
-            acct_eq = self._fetch_live_equity(_config_acct_eq)
+            acct_eq = self._fetch_live_equity(
+                _config_acct_eq,
+                journal_path=journal,
+                now=now,
+            )
             if acct_eq != _config_acct_eq:
                 logger.info(
                     "bot_monitor.live_equity_override",

@@ -28,15 +28,16 @@ KRITIK KISITLAR:
   - PA_LIVE_CONFIRM olmadan live order atılmaz (caller'ın sorumluluğu).
   - Bu modül sadece kod + unit test sprinti (SEC54.3). Testnet smoke SEC54.4.
 """
+
 from __future__ import annotations
 
 import logging
-import sys
+import math
 import threading
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from price_action.execution.idempotency import IdempotencyStore
@@ -45,16 +46,21 @@ if TYPE_CHECKING:
 # Modül namespace'ine al: testler patch edebilsin, lazy import yerine.
 try:
     from price_action.execution.post_only_router import (
+        OrderSubmissionUncertainError,
         SlippageExceededError,
         place_post_only_with_fallback,
     )
+
     _POST_ONLY_AVAILABLE = True
 except ImportError:  # pragma: no cover
     _POST_ONLY_AVAILABLE = False
     SlippageExceededError = Exception  # type: ignore[misc,assignment]
+    OrderSubmissionUncertainError = RuntimeError  # type: ignore[misc,assignment]
 
     def place_post_only_with_fallback(*args, **kwargs):  # type: ignore[misc]
         raise RuntimeError("post_only_router not available")
+
+from price_action.execution.slippage_tracker import execution_evidence_values_match
 
 log = logging.getLogger(__name__)
 
@@ -70,30 +76,30 @@ PositionSide = Literal["LONG", "SHORT"]
 class PyramidLeg:
     """Bir pyramid leg'inin yaşam döngüsü."""
 
-    leg_num: int                        # 1=entry, 2=ilk pyramid, 3=ikinci pyramid
+    leg_num: int  # 1=entry, 2=ilk pyramid, 3=ikinci pyramid
     leg_state: LegState
-    leg_qty: float                      # işlem miktarı (base asset)
-    leg_price: float                    # tetik fiyatı (trigger / fill ref)
-    client_order_id: str                # PA_{fp[:12]}_L{n}
-    submitted_at: Optional[datetime] = None
-    filled_at: Optional[datetime] = None
-    exchange_order_id: Optional[str] = None
-    fill_price: Optional[float] = None  # gerçek fill fiyatı (log + slippage)
+    leg_qty: float  # işlem miktarı (base asset)
+    leg_price: float  # tetik fiyatı (trigger / fill ref)
+    client_order_id: str  # PA_{fp[:12]}_L{n}
+    submitted_at: datetime | None = None
+    filled_at: datetime | None = None
+    exchange_order_id: str | None = None
+    fill_price: float | None = None  # gerçek fill fiyatı (log + slippage)
 
 
 @dataclass
 class PyramidPosition:
     """Bir pozisyona ait tüm leg durumu + konfigürasyonu."""
 
-    parent_position_id: str             # sinyal fingerprint (ilk leg ile aynı)
+    parent_position_id: str  # sinyal fingerprint (ilk leg ile aynı)
     symbol: str
     side: PositionSide
-    entry_price: float                  # leg-1 fill fiyatı
+    entry_price: float  # leg-1 fill fiyatı
     sl_price: float
-    initial_R: float                    # 1R mesafesi = |entry_price - sl_price|
-    legs: list[PyramidLeg]             # indeks 0 = leg-1 (entry)
-    pyramid_triggers: list[float]       # örn. [1.0, 1.5] R katları
-    pyramid_sizes: list[float]          # örn. [0.50, 0.30] (leg-1 qty oranı)
+    initial_R: float  # noqa: N815 - persisted/public schema name
+    legs: list[PyramidLeg]  # indeks 0 = leg-1 (entry)
+    pyramid_triggers: list[float]  # örn. [1.0, 1.5] R katları
+    pyramid_sizes: list[float]  # örn. [0.50, 0.30] (leg-1 qty oranı)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     # ── Yardımcılar ──────────────────────────────────────────────────────────
@@ -105,7 +111,7 @@ class PyramidPosition:
             return 0.0
         return self.legs[0].leg_qty
 
-    def leg_for_num(self, leg_num: int) -> Optional[PyramidLeg]:
+    def leg_for_num(self, leg_num: int) -> PyramidLeg | None:
         for lg in self.legs:
             if lg.leg_num == leg_num:
                 return lg
@@ -118,7 +124,7 @@ class PyramidPosition:
         else:  # SHORT
             return current_price >= self.sl_price
 
-    def trigger_price_for_leg(self, leg_num: int) -> Optional[float]:
+    def trigger_price_for_leg(self, leg_num: int) -> float | None:
         """Leg numarasına karşılık gelen tetik fiyatını hesapla.
 
         Leg-2 → pyramid_triggers[0], Leg-3 → pyramid_triggers[1]
@@ -172,8 +178,8 @@ class PyramidRouter:
     def __init__(
         self,
         exchange: Any,
-        idempotency_store: "IdempotencyStore",
-        slippage_tracker: "SlippageTracker",
+        idempotency_store: IdempotencyStore,
+        slippage_tracker: SlippageTracker,
         *,
         post_only_enabled: bool = True,
         fallback_seconds: int = 30,
@@ -239,7 +245,8 @@ class PyramidRouter:
                 if not prev_leg_filled:
                     log.debug(
                         "PyramidRouter.sequential_block: leg-%d skipped (leg-%d not FILLED yet)",
-                        leg_num, leg_num - 1,
+                        leg_num,
+                        leg_num - 1,
                     )
                     break
 
@@ -247,7 +254,7 @@ class PyramidRouter:
                     # Already handled — durumuna bak (FILLED → next leg OK, PENDING → block)
                     _lg = position.leg_for_num(leg_num)
                     if _lg is not None:
-                        prev_leg_filled = (_lg.leg_state == "FILLED")
+                        prev_leg_filled = _lg.leg_state == "FILLED"
                     continue
 
                 if position.trigger_reached(leg_num, current_price):
@@ -295,7 +302,9 @@ class PyramidRouter:
         if size <= 0:
             log.warning(
                 "PyramidRouter: leg-%d qty=%.6f <= 0, skip. pos=%s",
-                leg_num, size, position.parent_position_id,
+                leg_num,
+                size,
+                position.parent_position_id,
             )
             return
 
@@ -306,16 +315,14 @@ class PyramidRouter:
             # Daha önce submit edildi; leg durumunu SUBMITTED olarak işaretle
             log.info(
                 "PyramidRouter: leg-%d idem HIT — already submitted. coid=%s",
-                leg_num, client_order_id,
+                leg_num,
+                client_order_id,
             )
-            self._ensure_leg_submitted(position, leg_num, size, trigger_price,
-                                       client_order_id, ts)
+            self._ensure_leg_submitted(position, leg_num, size, trigger_price, client_order_id, ts)
             return
 
         # ── Leg oluştur (PENDING) ─────────────────────────────────────────
-        leg = _find_or_create_leg(
-            position, leg_num, size, trigger_price, client_order_id
-        )
+        leg = _find_or_create_leg(position, leg_num, size, trigger_price, client_order_id)
         leg.leg_state = "PENDING"
 
         # ── Borsa'ya gönder ───────────────────────────────────────────────
@@ -336,6 +343,25 @@ class PyramidRouter:
                     poll_interval=1.0,
                 )
                 order = order_dict
+            except OrderSubmissionUncertainError as uncertain:
+                # The production daemon currently disables pyramid execution
+                # before this point.  Retain a durable no-resubmit marker for
+                # direct/test callers as an additional fail-closed boundary;
+                # never label the unknown ACK as a fill.
+                self.idempotency.mark_submitted(
+                    client_order_id,
+                    symbol=position.symbol,
+                    side=order_side,
+                )
+                leg.leg_state = "SUBMITTED"
+                leg.submitted_at = ts
+                log.critical(
+                    "PyramidRouter: uncertain submit held coid=%s stage=%s pos=%s",
+                    client_order_id,
+                    uncertain.stage,
+                    position.parent_position_id,
+                )
+                raise
             except SlippageExceededError as slip_err:
                 leg.leg_state = "REJECTED"
                 self.idempotency.mark_rejected(
@@ -344,39 +370,11 @@ class PyramidRouter:
                 )
                 log.error(
                     "PyramidRouter: leg-%d SLIP_EXCEEDED %.1fbps > %.1fbps. pos=%s",
-                    leg_num, slip_err.slippage_bps, self.slippage_limit_bps,
+                    leg_num,
+                    slip_err.slippage_bps,
+                    self.slippage_limit_bps,
                     position.parent_position_id,
                 )
-                # Telemetri: reverse-close edilen leg'i kaydet (is_maker=False, market)
-                # _record_slippage'ı buradan doğrudan çağıramayız — fill_qty/fill_px yok.
-                # SlippageTracker'a REJECTED kaydı yazarak kör kalmamasını sağla.
-                try:
-                    _rej_fill_id = f"pyr_rej_{uuid.uuid4().hex[:12]}"
-                    self.slippage.record_fill(
-                        fill_id=_rej_fill_id,
-                        ts=ts,
-                        symbol=position.symbol,
-                        strategy=f"pyramid_leg{leg_num}_rejected",
-                        side=position.side.lower(),
-                        expected_price=trigger_price,
-                        realized_price=trigger_price,  # bilinmiyor; beklenen fiyat
-                        quantity=size,
-                        fee_usdt=0.0,
-                        is_maker=False,
-                        order_type="slip_exceeded_reverse_close",
-                        mode=self.mode,
-                        exchange_order_id="",
-                        client_order_id=client_order_id,
-                        notes=(
-                            f"pyramid leg-{leg_num} REJECTED "
-                            f"slip={slip_err.slippage_bps:.1f}bps>"
-                            f"{self.slippage_limit_bps:.1f}bps "
-                            f"pos={position.parent_position_id}"
-                        ),
-                        tf="15m",
-                    )
-                except Exception as _tel_err:
-                    log.error("PyramidRouter: slip_exceeded telemetry FAIL: %s", _tel_err)
                 raise
         else:
             # Market order (testnet / post_only_enabled=False)
@@ -398,20 +396,65 @@ class PyramidRouter:
 
         if order:
             exchange_order_id = str(order.get("id", ""))
-            fill_px = float(order.get("average") or order.get("price") or trigger_price)
-            fill_qty = float(order.get("filled") or size)
             order_status = str(order.get("status", "open"))
 
             if order_status in ("closed", "filled"):
+                try:
+                    raw_fill_px = order.get("average")
+                    raw_fill_qty = order.get("filled")
+                    fill_px = float(raw_fill_px)
+                    fill_qty = float(raw_fill_qty)
+                except (TypeError, ValueError):
+                    fill_px = 0.0
+                    fill_qty = 0.0
+                values_verified = all(
+                    math.isfinite(value) and value > 0 for value in (fill_px, fill_qty)
+                )
+                if self.post_only_enabled:
+                    values_verified = bool(
+                        values_verified
+                        and order.get("fill_price_verified") is True
+                        and order.get("fill_quantity_verified") is True
+                    )
+                if not values_verified:
+                    log.critical(
+                        "PyramidRouter: closed fill UNVERIFIED; held SUBMITTED "
+                        "coid=%s exoid=%s pos=%s",
+                        client_order_id,
+                        exchange_order_id,
+                        position.parent_position_id,
+                    )
+                    return
+
+                breach = order.get("slippage_breach")
+                if isinstance(breach, dict):
+                    breach_valid = bool(
+                        breach.get("disposition") == "protect_position"
+                        and breach.get("position_owned") is True
+                        and breach.get("protection_required") is True
+                        and breach.get("fill_evidence_verified") is True
+                        and execution_evidence_values_match(
+                            breach.get("owned_quantity"), fill_qty
+                        )
+                        and execution_evidence_values_match(
+                            breach.get("owned_average"), fill_px
+                        )
+                    )
+                    if not breach_valid:
+                        log.critical(
+                            "PyramidRouter: invalid slippage-breach ownership; held SUBMITTED "
+                            "coid=%s pos=%s",
+                            client_order_id,
+                            position.parent_position_id,
+                        )
+                        return
                 leg.leg_state = "FILLED"
                 leg.filled_at = ts
                 leg.exchange_order_id = exchange_order_id
                 leg.fill_price = fill_px
 
                 # Idempotency fill update
-                self.idempotency.mark_filled(
-                    client_order_id, exchange_order_id, fill_px, fill_qty
-                )
+                self.idempotency.mark_filled(client_order_id, exchange_order_id, fill_px, fill_qty)
 
                 # Slippage kayıt
                 self._record_slippage(
@@ -423,14 +466,18 @@ class PyramidRouter:
                     fill_price=fill_px,
                     fill_qty=fill_qty,
                     ts=ts,
-                    method=getattr(method, "__class__", type(method)).__name__ if not isinstance(method, str) else method,
+                    method=getattr(method, "__class__", type(method)).__name__
+                    if not isinstance(method, str)
+                    else method,
                 )
 
                 log.info(
-                    "PyramidRouter: leg-%d FILLED @ %.6f (expected %.6f). "
-                    "coid=%s exoid=%s pos=%s",
-                    leg_num, fill_px, trigger_price,
-                    client_order_id, exchange_order_id,
+                    "PyramidRouter: leg-%d FILLED @ %.6f (expected %.6f). coid=%s exoid=%s pos=%s",
+                    leg_num,
+                    fill_px,
+                    trigger_price,
+                    client_order_id,
+                    exchange_order_id,
                     position.parent_position_id,
                 )
                 # FIX 2026-06-10 (v14 audit BLOCKER-1): leg fill SONRASI koruma
@@ -441,9 +488,10 @@ class PyramidRouter:
                 self._resize_protection_after_leg_fill(position, leg_num)
             else:
                 log.info(
-                    "PyramidRouter: leg-%d SUBMITTED (pending fill). "
-                    "coid=%s status=%s pos=%s",
-                    leg_num, client_order_id, order_status,
+                    "PyramidRouter: leg-%d SUBMITTED (pending fill). coid=%s status=%s pos=%s",
+                    leg_num,
+                    client_order_id,
+                    order_status,
                     position.parent_position_id,
                 )
 
@@ -472,14 +520,17 @@ class PyramidRouter:
             if full_qty <= 0:
                 log.warning(
                     "PyramidRouter: leg-%d fill sonrası pozisyon okunamadı (%s) — "
-                    "SL resize atlandı, watchdog'a bırakıldı", leg_num, sym_raw,
+                    "SL resize atlandı, watchdog'a bırakıldı",
+                    leg_num,
+                    sym_raw,
                 )
                 return
             # 2) Mevcut SL algo emirleri (trigger fiyatını koru)
             algos = self.exchange.fapiPrivateGetOpenAlgoOrders()
             items = algos.get("orders", algos) if isinstance(algos, dict) else algos
             old_sls = [
-                o for o in (items or [])
+                o
+                for o in (items or [])
                 if o.get("symbol") == sym_raw
                 and str(o.get("orderType", o.get("type", ""))).upper() == "STOP_MARKET"
                 and str(o.get("side", "")).upper() == close_side
@@ -501,7 +552,10 @@ class PyramidRouter:
             )
             log.info(
                 "PyramidRouter: leg-%d fill → SL tam-qty resize: qty=%s @ %s (%s)",
-                leg_num, qty_str, sl_str, sym_raw,
+                leg_num,
+                qty_str,
+                sl_str,
+                sym_raw,
             )
             # 4) SONRA eski SL'leri iptal et (başarısızlık zararsız — watchdog
             #    "fazla SL temizle" adımı bir sonraki tick'te toparlar)
@@ -513,12 +567,15 @@ class PyramidRouter:
                 except Exception as _del_err:
                     log.warning(
                         "PyramidRouter: eski SL iptali başarısız (algoId=%s): %s",
-                        o.get("algoId"), str(_del_err)[:80],
+                        o.get("algoId"),
+                        str(_del_err)[:80],
                     )
         except Exception as _rs_err:
             log.warning(
                 "PyramidRouter: leg-%d SL resize hatası (%s): %s — eski SL korunuyor",
-                leg_num, sym_raw, str(_rs_err)[:100],
+                leg_num,
+                sym_raw,
+                str(_rs_err)[:100],
             )
 
     def _cancel_pending_legs(
@@ -537,7 +594,10 @@ class PyramidRouter:
             coid = leg.client_order_id
             log.info(
                 "PyramidRouter: cancel leg-%d state=%s reason=%s coid=%s pos=%s",
-                leg.leg_num, leg.leg_state, reason, coid,
+                leg.leg_num,
+                leg.leg_state,
+                reason,
+                coid,
                 position.parent_position_id,
             )
             # Borsa cancel (best-effort — zaten fill/cancel olmuşsa hata normaldir)
@@ -550,7 +610,8 @@ class PyramidRouter:
                     log.warning(
                         "PyramidRouter: exchange cancel FAIL exoid=%s err=%s "
                         "(already filled/canceled — not critical)",
-                        exc_id, exc,
+                        exc_id,
+                        exc,
                     )
             else:
                 # client_order_id ile cancel dene (bazı borsalar destekler)
@@ -559,7 +620,8 @@ class PyramidRouter:
                 except Exception as exc:
                     log.warning(
                         "PyramidRouter: coid-cancel FAIL coid=%s err=%s",
-                        coid, exc,
+                        coid,
+                        exc,
                     )
             leg.leg_state = "CANCELED"
 
@@ -678,7 +740,7 @@ def build_position_from_signal(
     side_raw = signal_dict.get("side", "long").upper()
     side: PositionSide = "LONG" if side_raw == "LONG" else "SHORT"
 
-    initial_R = abs(fill_price - sl_price)
+    initial_R = abs(fill_price - sl_price)  # noqa: N806 - constructor schema name
 
     # Leg-1: entry (zaten dolu)
     entry_leg = PyramidLeg(
@@ -688,7 +750,7 @@ def build_position_from_signal(
         leg_price=fill_price,
         client_order_id=_make_client_order_id(parent_position_id, 1),
         fill_price=fill_price,
-        filled_at=datetime.now(timezone.utc),
+        filled_at=datetime.now(UTC),
     )
 
     return PyramidPosition(
@@ -708,6 +770,6 @@ __all__ = [
     "PyramidLeg",
     "PyramidPosition",
     "PyramidRouter",
-    "build_position_from_signal",
     "_make_client_order_id",
+    "build_position_from_signal",
 ]

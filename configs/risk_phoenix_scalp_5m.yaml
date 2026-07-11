@@ -54,6 +54,7 @@ take_profit:
 
 vol_target:
   enabled: true
+  input_metric: entry_stop_distance_pct
   # DIFF vs 15m: %1.0 -> %0.5 (5m bar vol daha kucuk)
   target_atr_pct: 0.005
   min_factor: 0.20

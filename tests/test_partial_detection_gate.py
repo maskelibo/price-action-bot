@@ -67,3 +67,80 @@ def test_daemon_uses_pure_function():
     assert src.count("_should_check_protection_fills(") >= 2  # def + çağrı
     # eski inline koşul kalmadı
     assert "if (not tp_open and not sl_open) or _sl_gone_pos_flat:" not in src
+
+
+def test_latest_tp2_terminal_is_not_shadowed_by_historical_tp1():
+    """TP1 history'de kalır; daha yeni TP2 terminal update'i seçilmelidir."""
+    tp1 = {
+        "algoId": "101",
+        "algoStatus": "FINISHED",
+        "updateTime": 1_000,
+    }
+    tp2 = {
+        "algoId": "202",
+        "algoStatus": "TRIGGERED",
+        "updateTime": 2_000,
+    }
+
+    selected, kind = fd._latest_protection_terminal(
+        sl_order=None,
+        tp1_order=tp1,
+        tp2_order=tp2,
+    )
+
+    assert selected is tp2
+    assert kind == "TP2"
+    assert fd._protection_partial_close_id("sig-1", selected, "prot-1") == "sig-1_202"
+
+
+def test_latest_runner_sl_wins_over_both_historical_partials():
+    tp1 = {"algoId": "101", "algoStatus": "FINISHED", "updateTime": 1_000}
+    tp2 = {"algoId": "202", "algoStatus": "FINISHED", "updateTime": 2_000}
+    sl = {"algoId": "303", "algoStatus": "TRIGGERED", "updateTime": 3_000}
+
+    selected, kind = fd._latest_protection_terminal(
+        sl_order=sl,
+        tp1_order=tp1,
+        tp2_order=tp2,
+    )
+
+    assert selected is sl
+    assert kind == "SL"
+
+
+def test_newer_canceled_leg_is_not_an_actual_fill_candidate():
+    tp1 = {"algoId": "101", "algoStatus": "FINISHED", "updateTime": 1_000}
+    tp2 = {"algoId": "202", "algoStatus": "CANCELED", "updateTime": 9_000}
+
+    selected, kind = fd._latest_protection_terminal(
+        sl_order=None,
+        tp1_order=tp1,
+        tp2_order=tp2,
+    )
+
+    assert selected is tp1
+    assert kind == "TP1"
+
+
+def test_terminal_selector_tie_breaks_by_selected_algo_identity():
+    """Missing/equal timestamps still avoid fixed SL→TP1→TP2 first-match."""
+    tp1 = {"algoId": "101", "algoStatus": "FINISHED"}
+    tp2 = {"algoId": "202", "algoStatus": "FINISHED"}
+
+    selected, kind = fd._latest_protection_terminal(
+        sl_order=None,
+        tp1_order=tp1,
+        tp2_order=tp2,
+    )
+
+    assert selected is tp2
+    assert kind == "TP2"
+
+
+def test_daemon_wires_all_terminals_and_selected_leg_partial_id():
+    src = (ROOT / "scripts" / "futures_daemon.py").read_text(encoding="utf-8")
+
+    assert src.count("_protection_terminal_candidates(") >= 3
+    assert src.count("_process_protection_terminal_event(") >= 2
+    assert src.count("_protection_partial_close_id(") >= 2
+    assert "for o in (tp_order, tp2_order, sl_order)" in src

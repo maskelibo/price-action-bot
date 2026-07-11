@@ -12,8 +12,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -56,9 +55,8 @@ def test_triggered_after_timeout(tmp_dms):
 
 
 def test_seconds_since_heartbeat(tmp_dms):
-    dms, tmp_path = tmp_dms
+    dms, _ = tmp_dms
     # Age the heartbeat file (instead of just in-memory timestamp)
-    import os
     hb_file = dms._watchdog.heartbeat_file
     mtime = time.time() - 30
     os.utime(hb_file, (mtime, mtime))
@@ -109,6 +107,35 @@ def test_emergency_flatten_calls_exchange(tmp_path):
         dms_mod.KILL_SWITCH_PATH = orig_ks
 
 
+def test_emergency_flatten_cancels_wrapped_algo_response_once(tmp_path, monkeypatch):
+    """Binance'in ``{orders: [...]}`` şekli de iptal ve tek alarm üretir."""
+    import price_action.execution.dead_mans_switch as dms_mod
+
+    monkeypatch.setattr(dms_mod, "KILL_SWITCH_PATH", tmp_path / "kill_switch.json")
+    mock_ex = MagicMock()
+    mock_ex.fetch_positions.return_value = []
+    mock_ex.fapiPrivateGetOpenAlgoOrders.return_value = {
+        "orders": [{"symbol": "BTCUSDT", "algoId": "12345"}]
+    }
+    dms = DeadMansSwitch(
+        mock_ex,
+        service_name="wrapped_algo",
+        db_path=tmp_path / "wrapped_algo.duckdb",
+        heartbeat_file=tmp_path / "wrapped_algo.hb",
+        timeout_sec=300,
+    )
+    dms._send_alarm = MagicMock()
+
+    try:
+        assert dms._emergency_flatten() is True
+        mock_ex.fapiPrivateDeleteAlgoOrder.assert_called_once_with(
+            {"symbol": "BTCUSDT", "algoId": "12345"}
+        )
+        dms._send_alarm.assert_called_once()
+    finally:
+        dms.stop()
+
+
 def test_heartbeat_write_to_file(tmp_path):
     """Heartbeat file mtime updated?"""
     hb_file = tmp_path / "hb_test.txt"
@@ -123,6 +150,120 @@ def test_heartbeat_write_to_file(tmp_path):
     assert hb_file.exists()
     # File should have been touched
     assert time.time() - hb_file.stat().st_mtime < 5.0
+    dms.stop()
+
+
+def test_external_heartbeat_uses_main_loop_without_private_rest_poll(tmp_path):
+    """15m mode keeps the exchange only for stale-triggered emergency flatten."""
+    exchange = MagicMock()
+    dms = DeadMansSwitch(
+        exchange=exchange,
+        service_name="external_hb",
+        db_path=tmp_path / "external.duckdb",
+        heartbeat_file=tmp_path / "external.txt",
+        heartbeat_sec=1,
+        timeout_sec=300,
+        external_heartbeat=True,
+    )
+
+    dms.start()
+    try:
+        assert dms.external_heartbeat is True
+        assert dms._heartbeat_thread is None
+        assert dms._watchdog_thread is not None
+        assert dms._watchdog_thread.is_alive()
+        dms.ping(equity_usdt=1234.5, n_open_positions=2)
+        exchange.fapiPrivateV2GetAccount.assert_not_called()
+        exchange.fetch_positions.assert_not_called()
+    finally:
+        dms.stop()
+
+
+def test_active_private_rest_cooldown_defers_without_spending_retry_budget(tmp_path):
+    deadline = {"value": time.time() + 600}
+    dms = DeadMansSwitch(
+        exchange=MagicMock(),
+        service_name="cooldown_defer",
+        db_path=tmp_path / "cooldown.duckdb",
+        heartbeat_file=tmp_path / "cooldown.txt",
+        timeout_sec=1,
+        retry_not_before_reader=lambda: deadline["value"],
+    )
+    os.utime(dms._watchdog.heartbeat_file, (time.time() - 10, time.time() - 10))
+    dms._emergency_flatten = MagicMock(return_value=False)
+
+    for _ in range(10):
+        dms._watchdog_check()
+
+    assert dms._emergency_flatten.call_count == 0
+    assert dms._flatten_attempts == 0
+    assert dms._flatten_done is False
+
+    deadline["value"] = 0.0
+    dms._emergency_flatten.return_value = True
+    dms._watchdog_check()
+    assert dms._emergency_flatten.call_count == 1
+    assert dms._flatten_attempts == 1
+    assert dms._flatten_done is True
+    dms.stop()
+
+
+def test_cooldown_created_during_flatten_does_not_spend_retry(tmp_path):
+    deadline = {"value": 0.0}
+    calls = {"count": 0}
+    dms = DeadMansSwitch(
+        exchange=MagicMock(),
+        service_name="cooldown_race",
+        db_path=tmp_path / "cooldown-race.duckdb",
+        heartbeat_file=tmp_path / "cooldown-race.txt",
+        timeout_sec=1,
+        retry_not_before_reader=lambda: deadline["value"],
+    )
+    os.utime(dms._watchdog.heartbeat_file, (time.time() - 10, time.time() - 10))
+
+    def _flatten_once_banned_then_ok():
+        calls["count"] += 1
+        if calls["count"] == 1:
+            deadline["value"] = time.time() + 600
+            return False
+        return True
+
+    dms._emergency_flatten = MagicMock(side_effect=_flatten_once_banned_then_ok)
+    dms._watchdog_check()
+    assert dms._flatten_attempts == 0
+    assert dms._flatten_done is False
+
+    deadline["value"] = 0.0
+    dms._watchdog_check()
+    assert dms._emergency_flatten.call_count == 2
+    assert dms._flatten_attempts == 1
+    assert dms._flatten_done is True
+    dms.stop()
+
+
+def test_unreadable_cooldown_state_fails_closed_without_spending_retry(tmp_path):
+    def _broken_reader():
+        raise ValueError("corrupt state")
+
+    dms = DeadMansSwitch(
+        exchange=MagicMock(),
+        service_name="cooldown_corrupt",
+        db_path=tmp_path / "cooldown-corrupt.duckdb",
+        heartbeat_file=tmp_path / "cooldown-corrupt.txt",
+        timeout_sec=1,
+        retry_not_before_reader=_broken_reader,
+    )
+    os.utime(dms._watchdog.heartbeat_file, (time.time() - 10, time.time() - 10))
+    dms._emergency_flatten = MagicMock(return_value=False)
+    dms._send_alarm = MagicMock()
+
+    dms._watchdog_check()
+    dms._watchdog_check()
+
+    assert dms._emergency_flatten.call_count == 0
+    assert dms._flatten_attempts == 0
+    assert dms._flatten_done is False
+    dms._send_alarm.assert_called_once()
     dms.stop()
 
 
@@ -154,7 +295,7 @@ def test_heartbeat_write_to_db(tmp_path):
 
 def test_heartbeat_file_exists_after_init(tmp_dms):
     """File is created during __init__ for safety."""
-    dms, tmp_path = tmp_dms
+    dms, _ = tmp_dms
     # File should exist now (initialized in __init__)
     assert dms._watchdog.heartbeat_file.exists() is True
 
@@ -172,7 +313,6 @@ def test_triggered_via_file_mtime(tmp_path):
     assert dms.is_triggered is False
 
     # Set mtime to past
-    import os
     mtime = time.time() - 10.0
     os.utime(hb_file, (mtime, mtime))
 
@@ -206,7 +346,6 @@ def test_seconds_since_heartbeat_via_file(tmp_path):
     assert elapsed2 < 1.0
 
     # Age file
-    import os
     mtime = time.time() - 10.0
     os.utime(hb_file, (mtime, mtime))
 

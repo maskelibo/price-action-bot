@@ -11,10 +11,14 @@ Test kapsamı:
 
 from __future__ import annotations
 
+import copy
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import ccxt
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -102,6 +106,80 @@ class TestStaleSignalGuard:
 # ─── 2. place_protection_orders multi-target mode ────────────────────────────
 
 
+class _ReplayProtectionExchange:
+    """Stateful conditional-order fake with one configurable pre-accept failure."""
+
+    def __init__(
+        self,
+        *,
+        accept_sl_then_timeout: bool = False,
+        fail_once_type: str = "STOP_MARKET",
+        fail_once_suffix: str | None = None,
+    ) -> None:
+        self.orders: dict[str, dict] = {}
+        self.create_attempts: list[dict] = []
+        self.fetches: list[str] = []
+        self._counter = 0
+        self._fail_once = True
+        self._fail_once_type = fail_once_type
+        self._fail_once_suffix = fail_once_suffix
+        self._accept_sl_then_timeout = accept_sl_then_timeout
+
+    def amount_to_precision(self, symbol, qty):
+        del symbol
+        return str(round(qty, 4))
+
+    def price_to_precision(self, symbol, price):
+        del symbol
+        return str(round(price, 2))
+
+    def fetch_order(self, order_id, symbol, params=None):
+        del order_id, symbol
+        params = dict(params or {})
+        assert params["conditional"] is True
+        client_id = params["clientAlgoId"]
+        self.fetches.append(client_id)
+        if client_id not in self.orders:
+            raise ccxt.OrderNotFound(f"missing {client_id}")
+        return dict(self.orders[client_id])
+
+    def create_order(self, symbol, type, side, amount, params):
+        client_id = params["newClientOrderId"]
+        self.create_attempts.append(
+            {
+                "symbol": symbol,
+                "type": type,
+                "side": side,
+                "amount": amount,
+                "client_order_id": client_id,
+            }
+        )
+        should_fail = type == self._fail_once_type and (
+            self._fail_once_suffix is None or client_id.endswith(self._fail_once_suffix)
+        )
+        if should_fail and self._fail_once:
+            self._fail_once = False
+            if not self._accept_sl_then_timeout:
+                raise ccxt.ExchangeError(f"{type} rejected before acceptance")
+
+        self._counter += 1
+        order = {
+            "id": f"ALGO_{self._counter}",
+            "clientOrderId": client_id,
+            "type": type,
+            "side": side,
+            "amount": amount,
+            "triggerPrice": params["stopPrice"],
+            "reduceOnly": params["reduceOnly"],
+            "status": "open",
+        }
+        self.orders[client_id] = order
+        if type == "STOP_MARKET" and self._accept_sl_then_timeout:
+            self._accept_sl_then_timeout = False
+            raise ccxt.RequestTimeout("response lost after Binance accepted SL")
+        return dict(order)
+
+
 class TestPlaceProtectionOrdersMultiTarget:
     """SEC26.A: entry_price verildiğinde TP1+TP2+SL mode aktif olur."""
 
@@ -110,6 +188,7 @@ class TestPlaceProtectionOrdersMultiTarget:
         ex.market.return_value = {}
         ex.amount_to_precision.side_effect = lambda sym, qty: str(round(qty, 4))
         ex.price_to_precision.side_effect = lambda sym, px: str(round(px, 2))
+        ex.fetch_order.side_effect = ccxt.OrderNotFound("missing conditional order")
         # create_order returns fake order with id
         order_counter = [0]
 
@@ -213,12 +292,14 @@ class TestPlaceProtectionOrdersMultiTarget:
             entry_price=2200.0,
         )
         assert len(orders_placed) == 3
-        # TP1: 30% qty (F2 fix — doğrulanan kanon)
-        assert abs(orders_placed[0]["amount"] - 0.30) < 0.01
-        # TP2: 30% qty
-        assert abs(orders_placed[1]["amount"] - 0.30) < 0.01
-        # SL: 100% qty
-        assert abs(orders_placed[2]["amount"] - 1.0) < 0.01
+        # Güvenlik sırası SL→TP1→TP2; TP dilimleri yine %30/%30'dur.
+        assert orders_placed[0]["type"] == "STOP_MARKET"
+        assert abs(orders_placed[0]["amount"] - 1.0) < 0.01
+        take_profits = [
+            order for order in orders_placed if order["type"] == "TAKE_PROFIT_MARKET"
+        ]
+        assert len(take_profits) == 2
+        assert all(abs(order["amount"] - 0.30) < 0.01 for order in take_profits)
 
     def test_legacy_mode_places_2_orders(self):
         """entry_price=None → legacy mode, 2 order: TP + SL."""
@@ -246,6 +327,7 @@ class TestPlaceProtectionOrdersMultiTarget:
         ex.market.return_value = {}
         ex.amount_to_precision.side_effect = lambda sym, qty: str(qty)
         ex.price_to_precision.side_effect = lambda sym, px: str(px)
+        ex.fetch_order.side_effect = ccxt.OrderNotFound("missing conditional order")
         ex.create_order.side_effect = Exception("Rate limit exceeded")
         result = place_protection_orders(
             exchange=ex,
@@ -261,6 +343,172 @@ class TestPlaceProtectionOrdersMultiTarget:
 
 
 # ─── 3. scan_signals entry_price fix ─────────────────────────────────────────
+
+
+class TestProtectionReplaySafety:
+    def test_emergency_original_sl_reconciles_with_later_canonical_plan(self):
+        """Daemon plan-build fallback and WAL replay must own the same SL id."""
+        from scripts.futures_trade_daily import (
+            build_protection_plan,
+            ensure_original_level_sl,
+            place_protection_orders,
+        )
+
+        ex = _ReplayProtectionExchange(fail_once_type="NEVER")
+        entry_coid = "PA_daemon_entry_42"
+        emergency = ensure_original_level_sl(
+            ex,
+            symbol="ETH/USDT:USDT",
+            side="short",
+            qty=2.0,
+            sl_price=105.0,
+            protection_key=entry_coid,
+        )
+        plan = build_protection_plan(
+            ex,
+            symbol="ETH/USDT:USDT",
+            side="short",
+            qty=2.0,
+            tp_price=85.0,
+            sl_price=105.0,
+            entry_price=100.0,
+            protection_key=entry_coid,
+        )
+        replay = place_protection_orders(
+            ex,
+            symbol="ETH/USDT:USDT",
+            side="short",
+            qty=2.0,
+            tp_price=85.0,
+            sl_price=105.0,
+            entry_price=100.0,
+            protection_key=entry_coid,
+            protection_plan=plan,
+        )
+
+        assert emergency["status"] == "sl_placed_only"
+        assert replay["status"] == "placed"
+        assert emergency["protection_key"] == replay["protection_key"]
+        assert replay["legs"]["sl"]["source"] == "reconciled"
+        assert [attempt["type"] for attempt in ex.create_attempts].count("STOP_MARKET") == 1
+
+    def test_recomputed_self_hash_cannot_authorize_noncanonical_leg(self):
+        """A WAL editor cannot change SL qty and bless it with a new self-hash."""
+        from scripts.futures_trade_daily import (
+            _protection_plan_hash,
+            build_protection_plan,
+            validate_protection_plan_for_intent,
+        )
+
+        ex = _ReplayProtectionExchange()
+        intent = {
+            "symbol": "BTC/USDT:USDT",
+            "side": "long",
+            "qty": 1.0,
+            "tp_price": 112.5,
+            "sl_price": 95.0,
+            "entry_price": 100.0,
+            "protection_key": "PA_entry_canonical",
+        }
+        plan = build_protection_plan(ex, **intent)
+        tampered = copy.deepcopy(plan)
+        tampered["legs"][0]["amount"] = "0.5"
+        tampered["plan_sha256"] = _protection_plan_hash(tampered)
+
+        with pytest.raises(ValueError, match="semantic intent mismatch"):
+            validate_protection_plan_for_intent(ex, tampered, **intent)
+        assert ex.create_attempts == []
+
+    def test_retry_reconciles_sl_and_tp1_then_creates_only_missing_tp2(self):
+        """The SL-first prefix is never repeated after a later TP2 failure."""
+        from scripts.futures_trade_daily import place_protection_orders
+
+        ex = _ReplayProtectionExchange(
+            fail_once_type="TAKE_PROFIT_MARKET",
+            fail_once_suffix="tp2",
+        )
+        kwargs = {
+            "exchange": ex,
+            "symbol": "BTC/USDT:USDT",
+            "side": "long",
+            "qty": 1.0,
+            "tp_price": 112.5,
+            "sl_price": 95.0,
+            "entry_price": 100.0,
+        }
+
+        first = place_protection_orders(**kwargs)
+        assert first["status"] == "error"
+        assert first["failed_leg"] == "tp2"
+        assert set(first["legs"]) == {"tp1", "tp2", "sl"}
+        assert first["legs"]["tp2"]["source"] == "error"
+        assert first["legs"]["tp2"]["order_id"] is None
+        assert set(first["leg_order_ids"]) == {"sl", "tp1"}
+        assert len(set(first["client_order_ids"].values())) == 3
+        assert all(len(value) <= 36 for value in first["client_order_ids"].values())
+
+        second = place_protection_orders(**kwargs)
+
+        assert second["status"] == "placed"
+        assert second["protection_key"] == first["protection_key"]
+        assert second["client_order_ids"] == first["client_order_ids"]
+        assert second["legs"]["sl"]["source"] == "reconciled"
+        assert second["legs"]["tp1"]["source"] == "reconciled"
+        assert second["legs"]["tp2"]["source"] == "created"
+        created_types = [attempt["type"] for attempt in ex.create_attempts]
+        assert created_types.count("STOP_MARKET") == 1
+        assert created_types.count("TAKE_PROFIT_MARKET") == 3
+        assert len(ex.orders) == 3
+
+    def test_submit_timeout_after_accept_is_reconciled_without_duplicate_effect(self):
+        from scripts.futures_trade_daily import place_protection_orders
+
+        ex = _ReplayProtectionExchange(accept_sl_then_timeout=True)
+        kwargs = {
+            "exchange": ex,
+            "symbol": "ETH/USDT:USDT",
+            "side": "short",
+            "qty": 2.0,
+            "tp_price": 85.0,
+            "sl_price": 105.0,
+            "entry_price": 100.0,
+            "protection_key": "entry-order-42",
+        }
+
+        first = place_protection_orders(**kwargs)
+        assert first["status"] == "placed"
+        assert first["legs"]["sl"]["source"] == "reconciled_after_submit_error"
+        assert len(ex.create_attempts) == 3
+
+        kwargs["protection_key"] = first["protection_key"]
+        second = place_protection_orders(**kwargs)
+        assert second["status"] == "placed"
+        assert len(ex.create_attempts) == 3
+        assert all(leg["source"] == "reconciled" for leg in second["legs"].values())
+
+    def test_transient_reconcile_failure_is_fail_closed(self):
+        from scripts.futures_trade_daily import place_protection_orders
+
+        class TransientLookupExchange(_ReplayProtectionExchange):
+            def fetch_order(self, order_id, symbol, params=None):
+                del order_id, symbol, params
+                raise ccxt.NetworkError("conditional lookup unavailable")
+
+        ex = TransientLookupExchange()
+        result = place_protection_orders(
+            exchange=ex,
+            symbol="SOL/USDT:USDT",
+            side="long",
+            qty=3.0,
+            tp_price=110.0,
+            sl_price=95.0,
+            entry_price=100.0,
+        )
+
+        assert result["status"] == "error"
+        assert result["failed_leg"] == "sl"
+        assert "reconcile uncertain" in result["reason"]
+        assert ex.create_attempts == []
 
 
 class TestScanSignalsEntryPrice:

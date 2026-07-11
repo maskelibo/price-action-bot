@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.priceaction.e13_shadow_tick</string>
+
+  <!--
+    ACTIVE since 2026-07-11 — loaded independently of the trading daemon.
+    Every 5 minutes it reads local v15p2 journal + market.duckdb, advances an
+    isolated E13 JSON checkpoint, and never imports a daemon/broker or performs
+    network, private-API, order, cancel, or live-exit operations.
+
+    Manual preflight (non-mutating):
+      .venv/bin/python scripts/e13_shadow_tick.py \
+        --config configs/risk_phoenix_scalp_15m_v15p2.yaml \
+        --journal data/futures_journal_v15p2.duckdb \
+        --market data/market.duckdb --dry-run --json
+
+    Loading/reloading this job does not require or authorize a trading-daemon
+    restart. It may be booted out independently for maintenance.
+  -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/peyman/price-action-bot/.venv/bin/python</string>
+    <string>-u</string>
+    <string>scripts/e13_shadow_tick.py</string>
+    <string>--config</string>
+    <string>configs/risk_phoenix_scalp_15m_v15p2.yaml</string>
+    <string>--journal</string>
+    <string>data/futures_journal_v15p2.duckdb</string>
+    <string>--market</string>
+    <string>data/market.duckdb</string>
+    <string>--json</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/peyman/price-action-bot</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONPATH</key>
+    <string>/Users/peyman/price-action-bot/src</string>
+    <key>PA_LOG_QUIET</key>
+    <string>1</string>
+    <key>PA_DISABLE_FILE_LOG</key>
+    <string>1</string>
+    <key>PA_DUCKDB_READ_ONLY</key>
+    <string>true</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+    <key>TZ</key>
+    <string>UTC</string>
+  </dict>
+
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/e13_shadow_tick.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/peyman/price-action-bot/logs/launchd/e13_shadow_tick.stderr.log</string>
+
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>256</integer>
+  </dict>
+</dict>
+</plist>

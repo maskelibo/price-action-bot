@@ -255,6 +255,7 @@ take_profit:
 vol_target:
   # DIFF vs 1d: aktif (1d'de kapalı) — scalp'te vol spike'larında auto-shrink
   enabled: true
+  input_metric: entry_stop_distance_pct
   # 15m ATR% hedef: 1d %4 → 15m ~%1 (TF-scaled; 1d vol / sqrt(96 bar) ≈ %0.4-1)
   target_atr_pct: 0.010
   min_factor: 0.20

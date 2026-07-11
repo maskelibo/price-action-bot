@@ -270,7 +270,7 @@ stop_loss:  # ÖLÜ: SL sinyal katmanından gelir (signal.sl_price); sizing atr_
   # DIFF vs 1d: multiplier 2.0 → 1.5 (scalp'te geniş SL fee'den büyük olur)
   atr_multiplier: 1.5
   structural_buffer_pct: 0.003   # 1d %0.5 → %0.3 (daha sıkı scalp buffer)
-  trailing:  # ÖLÜ: kod okumuyor; canlı trail futures_daemon _TRAIL_PCT=0.04 hardcode. Doğrulandı 2026-07-10
+  trailing:  # CANLI OKUMAZ; v15p2 wrapper ayrı %1.5 PCT proxy uygular (ATR 1.5x değildir)
     enabled: true
     method: atr_chandelier
     atr_period: 14
@@ -278,22 +278,57 @@ stop_loss:  # ÖLÜ: SL sinyal katmanından gelir (signal.sl_price); sizing atr_
     # FIX 2026-05-29 (deploy): 2.0 → 3.0 (winner-let-run; runner'a daha geniş trail).
     # REVERT 2026-06-02: 3.0 → 1.5. Characterization (champion_characterization.md §11,
     #   55bps): trail 3.0 = edge-yıkıcı (−%1.1/ay, MaxDD −%66). BASELINE 1.5 = +%7.6/ay,
-    #   MaxDD −%18. Canlı daemon bu alanı OKUMUYOR (hardcoded _TRAIL_PCT=0.04) → bu sadece
-    #   landmine temizliği; backtest araçları bundan sonra doğrulanmış 1.5 okur.
+    #   MaxDD −%18. Canlı daemon bu alanı OKUMUYOR; wrapper _TRAIL_PCT=0.015 PCT
+    #   proxy uygular. ATR 1.5x E13 adayı aşağıdaki evidence gate arkasındadır.
     multiplier: 1.5
     activate_after_R: 1.0
 
-take_profit:  # İNERT-CANLI (E13/F2): canlı emir katmanı okumaz. KARŞILAŞTIRMA 2026-07-10: F2-canon (canlı, e702555) TP1=1.0R/%30 + TP2=1.5R/%30 + runner %40 ≠ bu blok (1.2R/0.8R) — kanonikleştirme kararı trail-tipi (pct vs ATR) seçimiyle birlikte Principal'de
+take_profit:  # İNERT-CANLI: F2-canon canlıda TP1=1R/%30 + TP2=1.5R/%30 + runner %40; E13 ATR trail sample gate altında
   method: r_multiple
   # DIFF vs 1d: 1.5 → 1.2R (scalp'te hızlı kâr realizasyonu, fee etkisi büyük)
   primary_R: 1.2
   partial_close_at_R: 0.8       # 0.8R'da kısmi kapat (1d'de 1.0R)
   runner_trail: true
 
+# E13 exit deneyi — karar kilidi. Canlı wrapper halen %1.5 percentage trail
+# kullanır; bu ATR 1.5x ile aynı şey değildir. 9 Tem P1-fix sonrası en az 40
+# temiz kapanış görülmeden ATR-chandelier yalnız shadow/research adayıdır.
+exit_evidence:
+  e13_atr_chandelier:
+    status: shadow_only
+    clean_cutoff_utc: "2026-07-09T23:13:00Z"
+    min_clean_closed_trades: 40
+    # Yalnız bizzat daemon'ın kaydettiği normal exit'ler örnek sayılır.
+    # reconcile_orphan/force/manual/DMS gibi sentetik-operasyonel kapanışlar hariçtir.
+    eligible_close_reasons: [sl, tp, time]
+    auto_promote: false
+    live_exit:
+      method: pct_trail
+      trail_pct: 0.015
+      activate_after_R: 1.0
+    candidate_exit:
+      method: atr_chandelier
+      atr_period: 14
+      atr_method: true_range_sma
+      multiplier: 1.5
+      activate_after_R: 1.0
+    paired_shadow:
+      schema_version: 1
+      min_paired_closed_trades: 40
+      market_venue: binance
+      timeframe: 15m
+      # futures_signals.ts sinyal mumunun açılış zamanıdır; trade ancak bu mum
+      # kapandıktan sonra girilebilir. Shadow ilk olarak sonraki tam mumu işler.
+      entry_timestamp_semantics: signal_bar_open
+      state_path: data/e13_atr_chandelier_shadow_state.json
+      evidence_path: data/e13_atr_chandelier_shadow_evidence.jsonl
+
 vol_target:
-  # DIFF vs 1d: aktif (1d'de kapalı) — scalp'te vol spike'larında auto-shrink
+  # Legacy blok adı. Gerçek girdi ATR/realized-vol değil, entry-stop mesafesidir;
+  # geniş stopta risk bütçesini küçülten backtest-parite katmanıdır.
   enabled: true
-  # 15m ATR% hedef: 1d %4 → 15m ~%1 (TF-scaled; 1d vol / sqrt(96 bar) ≈ %0.4-1)
+  input_metric: entry_stop_distance_pct
+  # Legacy anahtar adı: hedef giriş-stop mesafesi %1.
   target_atr_pct: 0.010
   min_factor: 0.20
   max_factor: 1.50

@@ -27,12 +27,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import signal as _signal
 import sys
 import time
 import traceback as _traceback
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -46,6 +48,7 @@ import duckdb
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
+from price_action.execution.slippage_tracker import execution_evidence_values_match
 from price_action.runtime_paths import resolve_runtime_root
 
 RUNTIME_ROOT = resolve_runtime_root(ROOT)
@@ -150,6 +153,709 @@ HEAL_CONFIRM_TICKS = 3
 # derse desin aşılamayan hard-cap. yaml != cap ise startup LEV_CAP_MISMATCH loglar.
 _LEV_HARD_CAP = 3
 
+# Deferred-entry ile protection watchdog aynı pozisyonu ilk kez gördüğünde
+# iki ayrı writer gibi davranmamalı. Queue kaydının sahibi retry processor'dür;
+# watchdog bu lease boyunca entry-price heal/market-close/SL mutation yapmaz.
+# Lease, queue metadata'sı bozuk veya aşırı büyük olsa bile sonludur: sonsuz
+# stale satır gerçek bir çıplak pozisyonun watchdog'unu kalıcı susturamaz.
+_PENDING_PROTECTION_LEASE_DEFAULT_SECONDS = 120.0
+_PENDING_PROTECTION_LEASE_MAX_SECONDS = 300.0
+_PENDING_PROTECTION_MAX_FUTURE_SKEW_SECONDS = 30.0
+_PENDING_QUEUE_READ_FAIL_CLOSED_TICKS = 2
+_pending_queue_read_fail_ticks = 0
+PROTECTION_FINALIZE_QUEUE = DATA_DIR / "protection_finalizations.jsonl"
+
+
+def _normalize_pending_symbol(value: object) -> str:
+    """Normalize CCXT/journal/algo symbol spellings to e.g. ``BTCUSDT``."""
+    symbol = str(value or "").strip().upper()
+    if ":" in symbol:
+        symbol = symbol.split(":", 1)[0]
+    return symbol.replace("/", "").replace("-", "")
+
+
+def _normalize_pending_side(value: object) -> str:
+    side = str(value or "").strip().lower()
+    return {"buy": "long", "sell": "short"}.get(side, side)
+
+
+def _normalize_pending_bot(value: object) -> str:
+    bot_name = str(value or "").strip().lower()
+    return "" if bot_name in ("", "default") else bot_name
+
+
+def _has_existing_symbol_position(positions: object, symbol: object) -> bool:
+    """Return true when a nonzero net position already owns this symbol."""
+    if not isinstance(positions, list):
+        return False
+    wanted = _normalize_pending_symbol(symbol)
+    for position in positions:
+        if not isinstance(position, dict):
+            continue
+        try:
+            contracts = abs(float(position.get("contracts", 0) or 0))
+        except (TypeError, ValueError):
+            # Invalid quantity is not proof that ownership is zero.
+            return True
+        if _normalize_pending_symbol(position.get("symbol")) == wanted and contracts > 1e-9:
+            return True
+    return False
+
+
+def _positive_pending_price(value: object) -> float | None:
+    try:
+        price = float(value)
+    except (TypeError, ValueError):
+        return None
+    return price if 0 < price < float("inf") else None
+
+
+def _pending_retry_watchdog_intent(
+    entry: dict,
+    position_symbol: str,
+    position_side: str,
+    *,
+    position_contracts: float | None = None,
+    position_entry_price: float | None = None,
+    position_update_time_ms: float | None = None,
+    now: datetime | None = None,
+) -> dict | None:
+    """Return a bounded protection-ownership contract for one position.
+
+    Old queue rows did not carry the explicit ``protection_owner`` fields, so a
+    deterministic client/order id remains a valid ownership proof. A matching
+    row without both original SL and TP is deliberately ignored: incomplete
+    intent metadata must not suppress the last-resort watchdog.
+    """
+    if not isinstance(entry, dict):
+        return None
+    if str(entry.get("tf") or "15m").lower() != "15m":
+        return None
+    if _normalize_pending_symbol(entry.get("symbol")) != _normalize_pending_symbol(position_symbol):
+        return None
+    if _normalize_pending_side(entry.get("side")) != _normalize_pending_side(position_side):
+        return None
+    # New rows are bot-scoped. Missing field remains accepted solely for old
+    # queue compatibility; an explicit different bot can never own our position.
+    if "bot_name" in entry and _normalize_pending_bot(entry.get("bot_name")) != (
+        _normalize_pending_bot(_BOT_NAME)
+    ):
+        return None
+    owner = str(entry.get("protection_owner") or "pending_retry_processor").strip()
+    if owner not in {"pending_retry_processor", "protection_finalize_processor"}:
+        return None
+
+    sl_price = _positive_pending_price(entry.get("sl_price"))
+    tp_price = _positive_pending_price(entry.get("tp_price"))
+    if sl_price is None or tp_price is None:
+        return None
+    entry_price = _positive_pending_price(entry.get("entry_px"))
+    normalized_side = _normalize_pending_side(entry.get("side"))
+    if entry_price is not None:
+        levels_valid = (
+            sl_price < entry_price < tp_price
+            if normalized_side == "long"
+            else tp_price < entry_price < sl_price
+        )
+        if not levels_valid:
+            return None
+
+    owner_id = str(
+        entry.get("protection_intent_id")
+        or entry.get("client_order_id")
+        or entry.get("submitted_order_id")
+        or ""
+    ).strip()
+    if not owner_id:
+        known_ids = entry.get("known_order_ids")
+        if isinstance(known_ids, list):
+            owner_id = next(
+                (
+                    str(value).strip()
+                    for value in known_ids
+                    if value is not None and str(value).strip()
+                ),
+                "",
+            )
+    if not owner_id:
+        return None
+
+    generation_state = "not_applicable"
+    generation = entry.get("position_generation")
+    if owner == "protection_finalize_processor" and not isinstance(generation, dict):
+        # A protection-finalize row is allowed to suppress the watchdog only
+        # while its position generation can be proved.  Treat missing legacy
+        # or malformed identity as uncertain ownership: hold during the short
+        # processor lease, then ignore the stale intent instead of applying
+        # its old SL/TP to a later same-symbol position.
+        generation_state = "unverifiable"
+    elif owner == "protection_finalize_processor":
+        try:
+            if generation.get("schema_version") != 1:
+                raise ValueError("invalid generation schema")
+            if _normalize_pending_symbol(generation.get("symbol")) != (
+                _normalize_pending_symbol(entry.get("symbol"))
+            ):
+                raise ValueError("generation symbol mismatch")
+            if _normalize_pending_side(generation.get("side")) != normalized_side:
+                raise ValueError("generation side mismatch")
+            for field in ("initial_quantity", "initial_entry_price", "verified_at_ms"):
+                if isinstance(generation.get(field), bool):
+                    raise ValueError(f"boolean generation {field}")
+            generation_qty = float(generation["initial_quantity"])
+            generation_entry = float(generation["initial_entry_price"])
+            generation_verified_ms = float(generation["verified_at_ms"])
+            current_qty = abs(float(position_contracts))
+            current_entry = float(position_entry_price)
+        except (KeyError, TypeError, ValueError):
+            generation_state = "unverifiable"
+        else:
+            if not all(
+                math.isfinite(value) and value > 0
+                for value in (
+                    generation_qty,
+                    generation_entry,
+                    generation_verified_ms,
+                )
+            ):
+                generation_state = "unverifiable"
+            elif not math.isfinite(current_qty) or current_qty <= 0:
+                return None
+            elif not math.isfinite(current_entry) or current_entry <= 0:
+                generation_state = "unverifiable"
+            elif current_qty > generation_qty * (1.0 + 1e-7) or not math.isclose(
+                current_entry,
+                generation_entry,
+                rel_tol=1e-7,
+                abs_tol=1e-10,
+            ):
+                return None
+            else:
+                try:
+                    if isinstance(position_update_time_ms, bool):
+                        raise ValueError("boolean position update time")
+                    current_update_ms = float(position_update_time_ms)
+                except (TypeError, ValueError):
+                    current_update_ms = 0.0
+                if not math.isfinite(current_update_ms) or current_update_ms <= 0:
+                    generation_state = "unverifiable"
+                elif current_update_ms > generation_verified_ms + 2_000:
+                    return None
+                else:
+                    generation_state = "match"
+
+    # When the enqueue path captured a pre-submit position baseline, require an
+    # actual exchange-position delta in the intended direction. This prevents
+    # a timed-out *unfilled* order from claiming an older same-symbol position.
+    baseline_raw = entry.get("pre_submit_position_qty")
+    if baseline_raw is not None and position_contracts is not None:
+        try:
+            baseline_qty = float(baseline_raw)
+            contracts = abs(float(position_contracts))
+        except (TypeError, ValueError):
+            return None
+        side_sign = 1.0 if _normalize_pending_side(position_side) == "long" else -1.0
+        current_signed_qty = contracts * side_sign
+        if (current_signed_qty - baseline_qty) * side_sign <= 1e-9:
+            return None
+
+    try:
+        created_at = datetime.fromisoformat(str(entry["ts"]).replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError):
+        return None
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=UTC)
+    else:
+        created_at = created_at.astimezone(UTC)
+
+    try:
+        requested_lease = float(
+            entry.get(
+                "watchdog_protection_lease_seconds",
+                entry.get("max_age_seconds", _PENDING_PROTECTION_LEASE_DEFAULT_SECONDS),
+            )
+        )
+    except (TypeError, ValueError):
+        requested_lease = _PENDING_PROTECTION_LEASE_DEFAULT_SECONDS
+    if requested_lease <= 0 or requested_lease != requested_lease:  # NaN
+        requested_lease = _PENDING_PROTECTION_LEASE_DEFAULT_SECONDS
+    lease_seconds = min(requested_lease, _PENDING_PROTECTION_LEASE_MAX_SECONDS)
+    now_utc = now or datetime.now(UTC)
+    now_utc = now_utc.replace(tzinfo=UTC) if now_utc.tzinfo is None else now_utc.astimezone(UTC)
+    # A far-future timestamp would renew the lease on every stateless read.
+    # Reject it; small scheduler/host skew remains tolerated.
+    if (created_at - now_utc).total_seconds() > _PENDING_PROTECTION_MAX_FUTURE_SKEW_SECONDS:
+        return None
+    lease_deadline = created_at + timedelta(seconds=lease_seconds)
+
+    raw_known_ids = entry.get("known_order_ids")
+    known_order_ids = list(raw_known_ids) if isinstance(raw_known_ids, list) else []
+
+    return {
+        "owner": owner,
+        "owner_id": owner_id,
+        "symbol": entry.get("symbol"),
+        "side": normalized_side,
+        "sl_price": sl_price,
+        "tp_price": tp_price,
+        "created_at": created_at,
+        "lease_deadline": lease_deadline,
+        "lease_seconds": lease_seconds,
+        "lease_active": now_utc <= lease_deadline,
+        "known_order_ids": known_order_ids,
+        "submitted_order_id": entry.get("submitted_order_id"),
+        "reconcile_only": bool(entry.get("reconcile_only", False)),
+        "generation_state": generation_state,
+    }
+
+
+def _read_pending_retry_entries(path: Path | None = None) -> tuple[list[dict], str | None]:
+    """Read entry and protection ownership queues under their stable locks."""
+    queue_paths = (
+        [path]
+        if path is not None
+        else [DATA_DIR / "pending_retries.jsonl", PROTECTION_FINALIZE_QUEUE]
+    )
+    raw_lines: list[str] = []
+    read_errors: list[str] = []
+    from scripts.process_pending_entries import _read_queue_snapshot
+
+    for queue_path in queue_paths:
+        try:
+            raw_lines.extend(_read_queue_snapshot(queue_path))
+        except Exception as exc:
+            read_errors.append(f"{queue_path.name}:{type(exc).__name__}: {str(exc)[:100]}")
+    if read_errors:
+        return [], "; ".join(read_errors)
+
+    entries: list[dict] = []
+    parse_failures = 0
+    for raw in raw_lines:
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            parse_failures += 1
+            continue
+        if isinstance(parsed, dict):
+            entries.append(parsed)
+        else:
+            parse_failures += 1
+    if parse_failures:
+        return entries, f"queue_parse_failures={parse_failures}"
+    return entries, None
+
+
+def _pending_retry_intent_for_position(
+    entries: list[dict],
+    position_symbol: str,
+    position_side: str,
+    *,
+    position_contracts: float | None = None,
+    position_entry_price: float | None = None,
+    position_update_time_ms: float | None = None,
+    now: datetime | None = None,
+) -> dict | None:
+    """Choose the newest matching queue owner deterministically."""
+    matches = [
+        intent
+        for entry in entries
+        if (
+            intent := _pending_retry_watchdog_intent(
+                entry,
+                position_symbol,
+                position_side,
+                position_contracts=position_contracts,
+                position_entry_price=position_entry_price,
+                position_update_time_ms=position_update_time_ms,
+                now=now,
+            )
+        )
+        is not None
+    ]
+    if not matches:
+        return None
+    return max(matches, key=lambda item: (item["created_at"], item["owner_id"]))
+
+
+def _pending_retry_watchdog_action(
+    intent: dict | None, *, queue_read_fail_closed: bool = False
+) -> str:
+    """Single ownership decision consumed by the mutation-heavy watchdog loop."""
+    if queue_read_fail_closed:
+        return "hold_queue_uncertain"
+    if intent is not None and bool(intent.get("lease_active")):
+        return "hold_processor_owned"
+    if intent is not None and intent.get("generation_state") == "unverifiable":
+        return "watchdog_normal_ignore_intent"
+    if intent is not None:
+        return "watchdog_takeover_original_levels"
+    return "watchdog_normal"
+
+
+def _known_order_ids_from_ack(order: dict | None) -> list[str]:
+    """Collect every exchange order id carried by a direct or mixed-fill ACK."""
+    if not isinstance(order, dict):
+        return []
+    order_ids: list[str] = []
+
+    def _add(value) -> None:
+        order_id = str(value or "").strip()
+        if order_id and order_id not in order_ids:
+            order_ids.append(order_id)
+
+    for key in ("id", "partial_limit_order_id", "market_fallback_order_id"):
+        _add(order.get(key))
+    resolved = order.get("resolved_order_ids")
+    if isinstance(resolved, list):
+        for value in resolved:
+            _add(value)
+    legs = order.get("fill_legs")
+    if isinstance(legs, list):
+        for leg in legs:
+            if isinstance(leg, dict):
+                _add(leg.get("id"))
+    return order_ids
+
+
+def _build_pending_retry_entry(
+    sig: dict,
+    *,
+    qty: float,
+    entry_px: float,
+    leverage: int,
+    client_order_id: str,
+    orig_error: str,
+    pre_submit_position_qty: float | None,
+    pre_submit_position_entry_price: float | None,
+    order: dict | None = None,
+    known_order_ids: list[str] | None = None,
+    reconcile_only: bool = False,
+) -> dict:
+    """Build the durable hand-off shared by timeout and delayed-fill paths."""
+    all_order_ids = _known_order_ids_from_ack(order)
+    for value in known_order_ids or []:
+        order_id = str(value or "").strip()
+        if order_id and order_id not in all_order_ids:
+            all_order_ids.append(order_id)
+
+    entry = {
+        "ts": datetime.now(UTC).isoformat(),
+        "tf": "15m",
+        "symbol": sig["symbol"],
+        "strategy": sig.get("strategy", ""),
+        "side": sig["side"],
+        "qty": qty,
+        "entry_px": entry_px,
+        "sl_price": sig.get("sl_price"),
+        "tp_price": sig.get("tp_price"),
+        "leverage": leverage,
+        "client_order_id": client_order_id,
+        "attempts": 0,
+        "max_attempts": 2,
+        # Two independent terminal-no-fill observations require two minute
+        # ticks. 180s leaves one full cron interval of jitter/headroom without
+        # permitting an indefinitely stale market entry.
+        "max_age_seconds": 180,
+        "orig_error": orig_error,
+        "bot_name": os.environ.get("PA_BOT_NAME", ""),
+        "journal_db": str(JOURNAL),
+        "idempotency_db": str(IDEMPOTENCY_DB),
+        "slippage_db": str(DATA_DIR / "execution_fills.duckdb"),
+        "pre_submit_position_qty": pre_submit_position_qty,
+        "pre_submit_position_entry_price": pre_submit_position_entry_price,
+        # Explicit cross-process protection ownership. Older rows are inferred
+        # from client/order ids by _pending_retry_watchdog_intent().
+        "protection_owner": "pending_retry_processor",
+        "protection_intent_id": client_order_id,
+        "watchdog_protection_lease_seconds": (_PENDING_PROTECTION_LEASE_DEFAULT_SECONDS),
+    }
+    if all_order_ids:
+        entry["known_order_ids"] = all_order_ids
+        entry["submitted_order_id"] = all_order_ids[0]
+    if reconcile_only:
+        entry.update(
+            {
+                "reconcile_only": True,
+                "terminal_no_fill_confirmations_required": 2,
+                "uncertain_client_order_ids": [client_order_id],
+                "submit_uncertainty": {
+                    "stage": "immediate_submit_fill_unverified",
+                    "main_client_order_id": client_order_id,
+                    "fallback_client_order_id": None,
+                    "partial_order_id": (
+                        str((order or {}).get("partial_limit_order_id") or "") or None
+                    ),
+                    "partial_qty": float((order or {}).get("partial_limit_qty") or 0.0),
+                    "remaining_qty": 0.0,
+                },
+            }
+        )
+    return entry
+
+
+def _enqueue_pending_retry(entry: dict, path: Path | None = None) -> str:
+    """Lock-safe queue append shared with the external retry processor."""
+    from scripts.process_pending_entries import append_pending_entry
+
+    return append_pending_entry(path or (DATA_DIR / "pending_retries.jsonl"), entry)
+
+
+def _replace_pending_retry(entry: dict, exact_line: str, path: Path | None = None) -> str:
+    """Persist an in-flight entry state transition on its existing WAL row."""
+    from scripts.process_pending_entries import _persist_ack_transition
+
+    return _persist_ack_transition(path or (DATA_DIR / "pending_retries.jsonl"), exact_line, entry)
+
+
+def _remove_pending_retry(exact_line: str, path: Path | None = None) -> None:
+    """Remove a handed-off entry WAL row without losing concurrent appends."""
+    from scripts.process_pending_entries import remove_pending_entry
+
+    remove_pending_entry(path or (DATA_DIR / "pending_retries.jsonl"), exact_line)
+
+
+def _transition_pending_retry_to_no_submit(
+    entry: dict,
+    exact_line: str,
+    *,
+    reason: str,
+    path: Path | None = None,
+    updates: dict | None = None,
+) -> str:
+    """Persist the no-submit state before retirement or queue hand-off.
+
+    Deletion is cleanup, not the safety transition.  If deletion later races or
+    crashes, the surviving row can only reconcile the deterministic order IDs;
+    it can never create a fresh market entry.
+    """
+    entry.update(updates or {})
+    entry.update(
+        {
+            "reconcile_only": True,
+            "entry_submit_allowed": False,
+            "direct_submit_lease_until": datetime.now(UTC).isoformat(),
+            "no_submit_reason": str(reason),
+        }
+    )
+    return _replace_pending_retry(entry, exact_line, path)
+
+
+def _build_protection_finalize_entry(
+    sig: dict,
+    *,
+    exchange,
+    client_order_id: str,
+    order: dict,
+    fill_method: str,
+    entry_execution_evidence: dict,
+    fill_qty: float,
+    fill_price: float,
+    fill_notional: float,
+    fill_source: str,
+    leverage: int,
+    signal_id: str,
+    protection_id: str,
+    protection_plan: dict,
+    known_order_ids: list[str] | None = None,
+) -> dict:
+    """Build the no-entry-submit WAL for one exchange-verified fill."""
+    if not client_order_id or not signal_id or not protection_id:
+        raise ValueError("protection finalize identity is incomplete")
+    for field, value in {
+        "fill_qty": fill_qty,
+        "fill_price": fill_price,
+        "fill_notional": fill_notional,
+    }.items():
+        parsed = float(value)
+        if not (0 < parsed < float("inf")):
+            raise ValueError(f"{field} must be finite and > 0")
+    order_ids = _known_order_ids_from_ack(order)
+    for value in known_order_ids or []:
+        normalized = str(value or "").strip()
+        if normalized and normalized not in order_ids:
+            order_ids.append(normalized)
+    journal_order_id = str(order.get("id") or ",".join(order_ids)).strip()
+    verified_at = datetime.now(UTC)
+    execution_outcome = order.get("slippage_breach")
+    if not isinstance(entry_execution_evidence, dict):
+        raise ValueError("entry execution evidence must be an object")
+    try:
+        evidence_qty = float(entry_execution_evidence["quantity"])
+        evidence_notional = float(entry_execution_evidence["notional_usdt"])
+        expected_price = float(entry_execution_evidence["expected_price"])
+        realized_price = float(entry_execution_evidence["realized_price"])
+        maker_qty = float(entry_execution_evidence["maker_quantity"])
+        maker_notional = float(entry_execution_evidence["maker_notional_usdt"])
+        fee_value = entry_execution_evidence.get("fee_usdt")
+        fee_value = float(fee_value) if fee_value is not None else None
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("entry execution evidence numerics are invalid") from exc
+    if (
+        entry_execution_evidence.get("schema_version") != 1
+        or not all(
+            math.isfinite(value) and value > 0
+            for value in (evidence_qty, evidence_notional, expected_price, realized_price)
+        )
+        or not math.isclose(evidence_qty, float(fill_qty), rel_tol=1e-12)
+        or not math.isclose(evidence_notional, float(fill_notional), rel_tol=1e-12)
+        or not (0 <= maker_qty <= evidence_qty)
+        or not (0 <= maker_notional <= evidence_notional)
+        or (fee_value is not None and not math.isfinite(fee_value))
+        or str(entry_execution_evidence.get("fill_method")) != str(fill_method)
+        or not str(entry_execution_evidence.get("fee_source") or "").strip()
+        or not str(entry_execution_evidence.get("order_type") or "").strip()
+        or not isinstance(entry_execution_evidence.get("is_maker"), bool)
+    ):
+        raise ValueError("entry execution evidence does not match verified fill")
+    if execution_outcome is not None:
+        if not isinstance(execution_outcome, dict):
+            raise ValueError("entry execution outcome must be an object")
+        expected_side = "buy" if str(sig["side"]).lower() == "long" else "sell"
+        if (
+            execution_outcome.get("schema_version") != 1
+            or execution_outcome.get("outcome_type") != "slippage_breach"
+            or execution_outcome.get("disposition") != "protect_position"
+            or execution_outcome.get("position_owned") is not True
+            or execution_outcome.get("protection_required") is not True
+            or execution_outcome.get("unwind_attempted") is not False
+            or execution_outcome.get("fill_evidence_verified") is not True
+            or str(execution_outcome.get("symbol")) != str(sig["symbol"])
+            or str(execution_outcome.get("entry_side")).lower() != expected_side
+            or not math.isfinite(float(execution_outcome.get("slippage_bps")))
+            or not math.isfinite(float(execution_outcome.get("limit_bps")))
+            or float(execution_outcome.get("slippage_bps"))
+            <= float(execution_outcome.get("limit_bps"))
+            or not execution_evidence_values_match(
+                execution_outcome.get("owned_quantity"), fill_qty
+            )
+            or not execution_evidence_values_match(
+                execution_outcome.get("owned_average"), fill_price
+            )
+        ):
+            raise ValueError("slippage breach ownership does not match verified fill")
+
+    work = {
+        "schema_version": 1,
+        "work_type": "finalize_verified_fill_v1",
+        "work_id": client_order_id,
+        "ts": datetime.now(UTC).isoformat(),
+        "signal_ts": str(sig.get("bar_close_ts") or sig.get("ts") or ""),
+        "tf": "15m",
+        "bot_name": os.environ.get("PA_BOT_NAME", ""),
+        "symbol": sig["symbol"],
+        "strategy": sig.get("strategy", ""),
+        "side": sig["side"],
+        "qty": float(fill_qty),
+        "entry_px": float(fill_price),
+        "sl_price": float(sig["sl_price"]),
+        "tp_price": float(sig["tp_price"]),
+        "leverage": int(leverage),
+        "confluence": float(sig.get("confluence", 0.0)),
+        "entry_fill_method": str(fill_method),
+        "entry_execution_outcome": execution_outcome,
+        "entry_execution_evidence": entry_execution_evidence,
+        "client_order_id": client_order_id,
+        "known_order_ids": order_ids,
+        "journal_order_id": journal_order_id,
+        "journal_db": str(JOURNAL),
+        "idempotency_db": str(IDEMPOTENCY_DB),
+        "slippage_db": str(DATA_DIR / "execution_fills.duckdb"),
+        "journal_signal_id": signal_id,
+        "journal_protection_id": protection_id,
+        "entry_submit_allowed": False,
+        "reconcile_only": True,
+        "protection_owner": "protection_finalize_processor",
+        "protection_intent_id": protection_plan["protection_key"],
+        "protection_state": "intent_persisted",
+        "watchdog_protection_lease_seconds": (_PENDING_PROTECTION_LEASE_DEFAULT_SECONDS),
+        "protection_plan": protection_plan,
+        "fill_evidence": {
+            "verified": True,
+            "verified_at": verified_at.isoformat(),
+            "verified_at_ms": int(verified_at.timestamp() * 1000),
+            "source": fill_source,
+            "qty": float(fill_qty),
+            "average": float(fill_price),
+            "notional_usdt": float(fill_notional),
+            "order_ids": order_ids,
+        },
+        "position_generation": {
+            "schema_version": 1,
+            "symbol": sig["symbol"],
+            "side": sig["side"],
+            "initial_quantity": float(fill_qty),
+            "initial_entry_price": float(fill_price),
+            "verified_at_ms": int(verified_at.timestamp() * 1000),
+        },
+        "finalize_attempts": 0,
+    }
+    _validate_protection_work_plan(exchange, work)
+    work["protection_binding_sha256"] = _protection_work_binding_sha256(work)
+    return work
+
+
+def _validate_protection_work_plan(exchange, work: dict) -> dict:
+    """Prove a WAL plan is canonical for its independently stored fill facts."""
+    from scripts.futures_trade_daily import validate_protection_plan_for_intent
+
+    return validate_protection_plan_for_intent(
+        exchange,
+        work["protection_plan"],
+        symbol=str(work["symbol"]),
+        side=str(work["side"]),
+        qty=float(work["fill_evidence"]["qty"]),
+        tp_price=float(work["tp_price"]),
+        sl_price=float(work["sl_price"]),
+        entry_price=float(work["fill_evidence"]["average"]),
+        protection_key=str(work["client_order_id"]),
+    )
+
+
+def _protection_work_binding_sha256(work: dict) -> str:
+    from scripts.futures_trade_daily import protection_plan_intent_binding_sha256
+
+    fill = work["fill_evidence"]
+    return protection_plan_intent_binding_sha256(
+        work["protection_plan"],
+        entry_client_order_id=str(work["client_order_id"]),
+        symbol=str(work["symbol"]),
+        side=str(work["side"]),
+        qty=float(fill["qty"]),
+        entry_price=float(fill["average"]),
+        tp_price=float(work["tp_price"]),
+        sl_price=float(work["sl_price"]),
+    )
+
+
+def _validate_protection_work_binding(work: dict) -> None:
+    expected = _protection_work_binding_sha256(work)
+    if str(work.get("protection_binding_sha256") or "") != expected:
+        raise ValueError("protection work semantic binding mismatch")
+
+
+def _execute_protection_with_wal(
+    exchange,
+    work: dict,
+    *,
+    queue_path: Path = PROTECTION_FINALIZE_QUEUE,
+) -> tuple[dict, bool, str | None]:
+    """Fsync the finalize intent before the first protection side effect."""
+    from scripts.futures_trade_daily import (
+        ensure_protection_plan_sl,
+        execute_protection_plan,
+    )
+    from scripts.process_pending_entries import append_pending_entry
+
+    _validate_protection_work_binding(work)
+    try:
+        append_pending_entry(queue_path, work)
+    except Exception as exc:
+        # Without a durable replay owner, only the canonical SL may be touched.
+        # Creating TP legs here would re-open the original crash window.
+        sl_result = ensure_protection_plan_sl(exchange, work["protection_plan"])
+        return sl_result, False, f"{type(exc).__name__}: {str(exc)[:160]}"
+    return execute_protection_plan(exchange, work["protection_plan"]), True, None
+
 
 def _pyramid_enabled_15m() -> bool:
     """15m active config'de strategy_portfolio.pyramid_enabled değerini döner.
@@ -177,6 +883,16 @@ def _pyramid_enabled_15m() -> bool:
     except Exception as _pe_err:
         # FAIL-CLOSED: config okunamıyorsa pyramid AÇMA (eski: True = fail-open).
         log(f"PYRAMID_CFG_FAIL: {str(_pe_err)[:80]} — FAIL-CLOSED (False)")
+        _enabled = False
+    if _enabled:
+        # The shared post-only router now exposes typed uncertain/unverified
+        # ownership.  Pyramid additions do not yet have the entry/protection
+        # WAL used by normal 15m entries, so any enabled legacy config is held
+        # before router construction or exchange I/O.  v15p2 is already OFF.
+        log(
+            "PYRAMID_EXECUTION_DISABLED: config ON ama crash-complete "
+            "submit/protection WAL yok — FAIL-CLOSED (False)"
+        )
         _enabled = False
     _PYRAMID_ENABLED_CACHE[cache_key] = _enabled
     return _enabled
@@ -244,7 +960,7 @@ def _rotate_log_if_large(path) -> None:
             return
         for i in range(5, 0, -1):
             old = path.with_suffix(path.suffix + f".{i}")
-            new = path.with_suffix(path.suffix + f".{i+1}")
+            new = path.with_suffix(path.suffix + f".{i + 1}")
             if i == 5 and old.exists():
                 old.unlink()
             elif old.exists():
@@ -293,6 +1009,52 @@ _last_signal_scan_date = _load_last_scan_date()  # restart-persistent (sadece g�
 
 # Dead Man's Switch instance (daemon başladığında set edilir)
 _dms = None
+
+# 15m main loop is single-threaded and keeps one CCXT client for its lifetime.
+# The DMS intentionally receives a different instance, reserved for emergency
+# flatten, so its watchdog thread never races the normal request limiter/state.
+_DAEMON_PRIVATE_EXCHANGE = None
+
+_RATE_BUDGET_RESPONSE_HEADERS: tuple[tuple[str, str], ...] = (
+    ("x-mbx-used-weight-1m", "used_weight_1m"),
+    ("x-mbx-order-count-10s", "order_count_10s"),
+    ("x-mbx-order-count-1m", "order_count_1m"),
+    ("x-mbx-order-count-1d", "order_count_1d"),
+)
+
+
+def _get_daemon_exchange():
+    """Return the registered process-long main client, or a test/legacy fallback."""
+    if _DAEMON_PRIVATE_EXCHANGE is not None:
+        return _DAEMON_PRIVATE_EXCHANGE
+    from scripts.futures_trade_daily import get_futures_exchange
+
+    # Legacy 1d helpers and unit tests do not register a process client. Keep
+    # their previous factory semantics; run_15m_mode performs registration.
+    return get_futures_exchange()
+
+
+def _rate_budget_log_line(exchange: object | None) -> str:
+    """Format a non-secret, fail-safe snapshot of Binance rate headers."""
+    raw_headers = getattr(exchange, "last_response_headers", None)
+    headers = (
+        {str(key).strip().lower(): value for key, value in raw_headers.items()}
+        if isinstance(raw_headers, Mapping)
+        else {}
+    )
+    values: list[str] = []
+    for header_name, label in _RATE_BUDGET_RESPONSE_HEADERS:
+        parsed = "UNKNOWN"
+        raw_value = headers.get(header_name)
+        if raw_value is not None and not isinstance(raw_value, bool):
+            try:
+                numeric = float(str(raw_value).strip())
+            except (TypeError, ValueError):
+                numeric = float("nan")
+            if math.isfinite(numeric) and numeric >= 0 and numeric.is_integer():
+                parsed = str(int(numeric))
+        values.append(f"{label}={parsed}")
+    return "RATE_BUDGET: " + " ".join(values)
 
 # FIX 2026-05-28 (audit-A1): graceful shutdown bayrağı + signal handler.
 # Önceki bug: PID 17267 12:45 TR'de sessiz öldü; son log "15M_WAIT", crash log yok.
@@ -359,6 +1121,64 @@ def _dms_ping(state: dict | None = None):
         log(f"DMS_PING_FAIL: {_e}")  # log-only: heartbeat best-effort, akış değişmez
 
 
+def _utc_naive_timestamp(value):
+    """Normalize an aware timestamp for DuckDB's timezone-less TIMESTAMP."""
+    if value is not None and getattr(value, "tzinfo", None) is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
+
+
+def _write_equity_snapshot(
+    state: dict,
+    *,
+    journal_path: Path | str = JOURNAL,
+    snapshot_id: str | None = None,
+    snapshot_ts: datetime | None = None,
+    notes: str | None = None,
+) -> str:
+    """Fetch edilmiş hesap durumunu explicit-column ve idempotent yaz."""
+    snap_id = snapshot_id or uuid.uuid4().hex[:16]
+    snap_ts = snapshot_ts or datetime.now(UTC)
+    quality = state.get("positions_ok")
+    exchange_complete = state.get("exchange_state_complete")
+    if exchange_complete is False:
+        quality_note = "exchange_state_complete=false API_STALE"
+    elif quality is False:
+        quality_note = "positions_ok=false API_STALE"
+    elif quality is True:
+        quality_note = "positions_ok=true"
+    else:
+        quality_note = "positions_ok=unknown API_STALE"
+    notes = f"{notes} {quality_note}".strip() if notes else quality_note
+    # DuckDB TIMESTAMP timezone taşımaz. Aware datetime doğrudan bind edilirse
+    # session timezone'a (örn. Europe/Istanbul) çevrilip offset atılabilir.
+    # Journal sözleşmesi UTC-naive'dir; önce explicit UTC'ye normalize et.
+    snap_ts = _utc_naive_timestamp(snap_ts)
+    con = duckdb.connect(str(journal_path))
+    try:
+        con.execute(
+            """INSERT OR IGNORE INTO futures_equity_snapshots
+               (snapshot_id, ts, wallet_balance, unrealized_pnl, margin_balance,
+                available_balance, n_positions, n_open_orders, notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                snap_id,
+                snap_ts,
+                state["wallet_balance"],
+                state["unrealized_pnl"],
+                state["margin_balance"],
+                state["available_balance"],
+                state["n_positions"],
+                state["n_open_orders"],
+                notes,
+            ),
+        )
+        con.commit()
+    finally:
+        con.close()
+    return snap_id
+
+
 def equity_snapshot():
     from scripts.futures_trade_daily import (
         fetch_futures_state,
@@ -370,27 +1190,7 @@ def equity_snapshot():
     try:
         ex = get_futures_exchange()
         state = fetch_futures_state(ex)
-        con = duckdb.connect(str(JOURNAL))
-        try:
-            con.execute(
-                """
-                INSERT INTO futures_equity_snapshots VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    uuid.uuid4().hex[:16],
-                    datetime.now(UTC),
-                    state["wallet_balance"],
-                    state["unrealized_pnl"],
-                    state["margin_balance"],
-                    state["available_balance"],
-                    state["n_positions"],
-                    state["n_open_orders"],
-                    None,
-                ),
-            )
-            con.commit()
-        finally:
-            con.close()
+        _write_equity_snapshot(state)
         log(
             f"SNAPSHOT: wallet=${state['wallet_balance']:.2f}, "
             f"unrealized={state['unrealized_pnl']:+.2f}, "
@@ -569,7 +1369,17 @@ def _rebuild_position_tracking_from_exchange(exchange) -> None:
     # Borsadaki algo SL'leri al (per-symbol hızlı lookup için)
     _algo_sl_map: dict[str, float] = {}  # "XLMUSDT" → triggerPrice
     try:
-        _algo_ords = exchange.fapiPrivateGetOpenAlgoOrders()
+        from scripts.futures_trade_daily import _scoped_open_orders
+
+        _algo_ords = _scoped_open_orders(
+            exchange,
+            method_name="fapiPrivateGetOpenAlgoOrders",
+            symbols={
+                symbol
+                for position in active_pos
+                if (symbol := _normalize_pending_symbol(position.get("symbol")))
+            },
+        )
         for _ao in _algo_ords or []:
             if _ao.get("orderType") == "STOP_MARKET":
                 _ao_sym = str(_ao.get("symbol", ""))
@@ -852,6 +1662,145 @@ def _should_retire_protection(any_terminal: bool, exchange_qty_now: float) -> bo
     return bool(any_terminal) and exchange_qty_now <= 1e-6
 
 
+def _protection_terminal_event_time(order: dict) -> float:
+    """Best available actual terminal-update/fill timestamp for an algo order."""
+    values: list[float] = []
+    for key in ("updateTime", "actualTime", "triggerTime", "timestamp", "time"):
+        raw = order.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            numeric = float(raw)
+            # Binance uses epoch-ms, while some wrappers expose epoch-seconds.
+            if 0 < numeric < 100_000_000_000:
+                numeric *= 1000.0
+            values.append(numeric)
+            continue
+        except (TypeError, ValueError):
+            pass
+        try:
+            parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            values.append(parsed.timestamp() * 1000.0)
+        except (TypeError, ValueError):
+            continue
+    return max(values, default=0.0)
+
+
+def _numeric_order_identity(order: dict) -> int:
+    """Monotonic exchange identity used only when terminal timestamps tie/miss."""
+    for key in ("actualOrderId", "actual_order_id", "algoId", "algo_id"):
+        try:
+            return int(str(order.get(key) or ""))
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def _latest_protection_terminal(
+    *,
+    sl_order: dict | None,
+    tp1_order: dict | None,
+    tp2_order: dict | None,
+) -> tuple[dict | None, str | None]:
+    """Select the newest actual SL/TP fill, never a fixed first-match leg.
+
+    TP1 remains in Binance algo history after its partial fill. A later TP2 (or
+    runner SL) must therefore win by terminal ``updateTime``; otherwise every
+    subsequent tick replays the historical TP1 and TP2 is never journaled.
+    """
+    candidates = _protection_terminal_candidates(
+        sl_order=sl_order,
+        tp1_order=tp1_order,
+        tp2_order=tp2_order,
+    )
+    if not candidates:
+        return None, None
+    return candidates[-1]
+
+
+def _protection_terminal_candidates(
+    *,
+    sl_order: dict | None,
+    tp1_order: dict | None,
+    tp2_order: dict | None,
+) -> list[tuple[dict, str]]:
+    """Return every actual protection fill in deterministic event order."""
+    terminal_statuses = {"TRIGGERED", "FINISHED"}
+    kind_rank = {"TP1": 1, "TP2": 2, "SL": 3}
+    candidates = [
+        (order, kind)
+        for order, kind in (
+            (tp1_order, "TP1"),
+            (tp2_order, "TP2"),
+            (sl_order, "SL"),
+        )
+        if order is not None
+        and str(order.get("algoStatus") or "").upper() in terminal_statuses
+    ]
+    return sorted(
+        candidates,
+        key=lambda item: (
+            _protection_terminal_event_time(item[0]),
+            _numeric_order_identity(item[0]),
+            kind_rank[item[1]],
+        ),
+    )
+
+
+def _protection_partial_close_id(signal_id: object, order: dict, prot_id: object) -> str:
+    """Idempotency key follows the terminal leg actually selected this tick."""
+    selected_algo_id = order.get("algoId") or order.get("algo_id") or prot_id
+    return f"{signal_id}_{selected_algo_id}"
+
+
+def _protection_fill_event_id(prot_id: object, order: dict, kind: object) -> str:
+    """Stable processed-state identity for one actual conditional-order fill."""
+    algo_id = order.get("algoId") or order.get("algo_id")
+    if algo_id in (None, ""):
+        raise ValueError("terminal protection fill has no algo identity")
+    return f"prot_event_{prot_id}_{str(kind).lower()}_{algo_id}"
+
+
+def _ensure_protection_fill_event_table(con) -> None:
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS futures_protection_fill_events (
+               event_id VARCHAR PRIMARY KEY,
+               prot_id VARCHAR NOT NULL,
+               signal_id VARCHAR NOT NULL,
+               algo_id VARCHAR NOT NULL,
+               kind VARCHAR NOT NULL,
+               terminal_time_ms DOUBLE,
+               execution_fill_id VARCHAR NOT NULL,
+               quantity DOUBLE NOT NULL,
+               price DOUBLE NOT NULL,
+               fee_usdt DOUBLE,
+               fee_source VARCHAR NOT NULL,
+               journal_record_id VARCHAR NOT NULL,
+               processed_at TIMESTAMP NOT NULL
+           )"""
+    )
+
+
+def _protection_retirement_ready(
+    *,
+    position_flat: bool,
+    events_ok: bool,
+    unprocessed_event_count: int,
+    trade_closed: bool,
+    has_terminal_state: bool,
+) -> bool:
+    """A protection row retires only after durable evidence and journal state."""
+    return bool(
+        position_flat
+        and events_ok
+        and unprocessed_event_count == 0
+        and trade_closed
+        and has_terminal_state
+    )
+
+
 def _slip_expected_from_trigger(trigger_px: float, fill_px: float) -> float:
     """Koruma (TP/SL) fill'i için slippage ÖLÇÜM referansı (saf fonksiyon).
 
@@ -888,6 +1837,701 @@ def _slip_realized_from_order(order_avg, order_price, fetched_avg) -> float | No
         if v > 0:
             return v
     return None
+
+
+def _protection_execution_from_user_trades(
+    exchange,
+    symbol_id: str,
+    algo_order: dict,
+    *,
+    fallback_price: float,
+    fallback_quantity: float,
+    fallback_price_verified: bool = False,
+    fallback_quantity_verified: bool = False,
+) -> dict:
+    """Algo protection fill'ini matching-engine trade kayıtlarıyla doğrula.
+
+    Binance algo history'deki ``algoId`` koşullu emir kimliğidir; komisyon ve
+    maker/taker gerçeği ise tetiklenince oluşan ``actualOrderId`` altındaki
+    ``fapi/v1/userTrades`` satırlarındadır. STOP_MARKET/TAKE_PROFIT_MARKET
+    protection emirleri takerdır. Exact order id veya USDT commission kanıtı
+    yoksa ücret tahmin edilmez; ``None/unavailable`` döner (fail-closed).
+    """
+    actual_order_id = str(
+        algo_order.get("actualOrderId") or algo_order.get("actual_order_id") or ""
+    ).strip()
+    result = {
+        "actual_order_id": actual_order_id,
+        "price": float(fallback_price or 0.0),
+        "quantity": float(fallback_quantity or 0.0),
+        "price_verified": bool(fallback_price_verified and fallback_price > 0),
+        "quantity_verified": bool(fallback_quantity_verified and fallback_quantity > 0),
+        "price_source": "algo_avg_price" if fallback_price_verified else "unavailable",
+        "fee_usdt": None,
+        "fee_source": "unavailable",
+        # Bu helper yalnız market protection emirleri için çağrılır.
+        "is_maker": False,
+    }
+    if not actual_order_id:
+        return result
+    try:
+        order_id_param = int(actual_order_id)
+    except (TypeError, ValueError):
+        result["fee_source"] = "invalid_actual_order_id"
+        return result
+
+    try:
+        rows = (
+            exchange.fapiPrivateGetUserTrades(
+                {"symbol": symbol_id, "orderId": order_id_param, "limit": 1000}
+            )
+            or []
+        )
+    except Exception:
+        return result
+
+    matches = [r for r in rows if str(r.get("orderId", "")) == actual_order_id]
+    if not matches:
+        return result
+
+    total_qty = 0.0
+    total_quote = 0.0
+    commissions: list[float] = []
+    commission_assets: set[str] = set()
+    commission_complete = True
+    for trade in matches:
+        try:
+            qty = float(trade.get("qty") or 0.0)
+            price = float(trade.get("price") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if qty <= 0 or price <= 0:
+            continue
+        try:
+            quote = float(trade.get("quoteQty") or 0.0)
+        except (TypeError, ValueError):
+            quote = 0.0
+        total_qty += qty
+        total_quote += quote if quote > 0 else price * qty
+
+        asset = str(trade.get("commissionAsset") or "").upper().strip()
+        if asset:
+            commission_assets.add(asset)
+        try:
+            commissions.append(float(trade["commission"]))
+        except (KeyError, TypeError, ValueError):
+            commission_complete = False
+
+    if total_qty <= 0 or total_quote <= 0:
+        return result
+
+    result["price"] = total_quote / total_qty
+    result["quantity"] = total_qty
+    result["price_verified"] = True
+    result["quantity_verified"] = True
+    result["price_source"] = "exchange_user_trades"
+    if commission_assets != {"USDT"}:
+        result["fee_source"] = (
+            f"unsupported_asset:{','.join(sorted(commission_assets))}"
+            if commission_assets
+            else "unavailable"
+        )
+    elif commission_complete and len(commissions) == len(matches):
+        result["fee_usdt"] = round(sum(commissions), 12)
+        result["fee_source"] = "exchange_user_trades"
+    return result
+
+
+def _record_protection_fill_evidence(
+    *,
+    prot_id: object,
+    triggered_kind: str,
+    triggered_order: dict,
+    execution: dict,
+    trigger_price: float,
+    fill_price: float,
+    ts: datetime,
+    symbol: str,
+    strategy: str,
+    side: str,
+    fallback_quantity: float,
+    tracker=None,
+) -> bool:
+    """Persist one verified protection fill for partial and final exits.
+
+    ``prot_id + leg kind`` is stable across daemon replays, and ``fills.fill_id``
+    is a primary key.  A repeated terminal-history observation therefore keeps
+    exactly one execution_fills row.  Matching-engine userTrades remains the
+    preferred price/quantity/fee source; no synthetic zero-slippage row is
+    emitted when price evidence is unavailable.
+    """
+    if execution.get("price_verified") is not True or execution.get("quantity_verified") is not True:
+        log(
+            f"  PROT_SLIP_UNVERIFIED: prot_id={prot_id} "
+            "exchange fill price/quantity yok — sahte evidence yazılmadı"
+        )
+        return False
+
+    try:
+        verified_price = float(fill_price)
+        verified_quantity = float(execution.get("quantity") or fallback_quantity)
+    except (TypeError, ValueError):
+        return False
+    if not (
+        math.isfinite(verified_price)
+        and verified_price > 0
+        and math.isfinite(verified_quantity)
+        and verified_quantity > 0
+    ):
+        return False
+
+    if tracker is None:
+        from price_action.execution.slippage_tracker import SlippageTracker
+
+        tracker = SlippageTracker()
+    normalized_kind = str(triggered_kind).lower()
+    order_type = str(triggered_order.get("orderType") or "market").lower()
+    tracker.record_fill(
+        fill_id=f"prot_{prot_id}_{normalized_kind}",
+        ts=ts,
+        symbol=str(symbol),
+        strategy=f"{strategy}_{normalized_kind}",
+        side=str(side).lower(),
+        expected_price=_slip_expected_from_trigger(trigger_price, verified_price),
+        realized_price=verified_price,
+        quantity=verified_quantity,
+        fee_usdt=execution.get("fee_usdt"),
+        is_maker=False,
+        order_type=f"algo_{order_type}",
+        mode=os.environ.get("PA_RUN_MODE", "paper"),
+        exchange_order_id=(
+            str(execution.get("actual_order_id") or "")
+            or str(triggered_order.get("algoId", ""))
+        ),
+        fill_type=normalized_kind,
+        fill_role="exit",
+        fee_source=str(execution.get("fee_source") or "unavailable"),
+        notes=(
+            f"price_source={execution.get('price_source', 'unavailable')} "
+            f"algo_id={triggered_order.get('algoId', '')} "
+            f"actual_order_id={execution.get('actual_order_id', '')}"
+        ),
+        tf="15m",
+    )
+    return True
+
+
+def _process_protection_terminal_event(
+    *,
+    con,
+    exchange,
+    prot_id: object,
+    symbol: str,
+    symbol_id: str,
+    triggered_order: dict,
+    triggered_kind: str,
+    position_flat: bool,
+    is_last_candidate: bool,
+    journal_path: Path | str | None = None,
+    tracker=None,
+    income_fetcher=None,
+) -> bool:
+    """Persist one algo fill through evidence, journal and processed-state.
+
+    Cross-database atomicity is obtained by ordering plus deterministic IDs:
+    execution evidence is written first, the trade journal second, and the
+    processed marker last in the journal database.  A crash at either boundary
+    replays exact payloads; a mismatch raises instead of being ignored.
+    """
+    event_id = _protection_fill_event_id(prot_id, triggered_order, triggered_kind)
+    _ensure_protection_fill_event_table(con)
+    if con.execute(
+        "SELECT 1 FROM futures_protection_fill_events WHERE event_id=?",
+        [event_id],
+    ).fetchone():
+        return True
+
+    sig_row = con.execute(
+        """SELECT signal_id, ts, symbol, side, strategy, fill_price, fill_qty, sl_price
+             FROM futures_signals
+            WHERE signal_id = (
+                SELECT signal_id FROM futures_protection_orders WHERE prot_id = ?
+            )""",
+        [prot_id],
+    ).fetchone()
+    if sig_row is None:
+        raise RuntimeError(f"protection event {event_id} has no linked signal")
+    (
+        sig_id,
+        ts_open,
+        sym_sig,
+        side_sig,
+        strategy,
+        entry_price,
+        fill_qty_sig,
+        sl_price,
+    ) = sig_row
+
+    trigger_price = float(triggered_order.get("triggerPrice", 0) or 0)
+    raw_avg = triggered_order.get("avgPrice") or triggered_order.get("avgExecutedPrice")
+    raw_actual = triggered_order.get("actualPrice")
+    avg_price = _positive_pending_price(raw_avg)
+    actual_price = _positive_pending_price(raw_actual)
+    fallback_price = avg_price or actual_price or trigger_price
+    raw_quantity = triggered_order.get("actualQuantity") or triggered_order.get("executedQty")
+    explicit_quantity = _positive_pending_price(raw_quantity)
+    execution = _protection_execution_from_user_trades(
+        exchange,
+        symbol_id,
+        triggered_order,
+        fallback_price=fallback_price,
+        fallback_quantity=explicit_quantity or 0.0,
+        fallback_price_verified=avg_price is not None,
+        fallback_quantity_verified=explicit_quantity is not None,
+    )
+    verified_price = float(execution.get("price") or 0.0)
+    verified_quantity = float(execution.get("quantity") or 0.0)
+    terminal_ms = _protection_terminal_event_time(triggered_order)
+    event_ts = (
+        datetime.fromtimestamp(terminal_ms / 1000.0, UTC)
+        if terminal_ms > 0
+        else datetime.now(UTC)
+    )
+    evidence_written = _record_protection_fill_evidence(
+        prot_id=prot_id,
+        triggered_kind=triggered_kind,
+        triggered_order=triggered_order,
+        execution=execution,
+        trigger_price=trigger_price,
+        fill_price=verified_price,
+        ts=event_ts,
+        symbol=str(sym_sig),
+        strategy=str(strategy or ""),
+        side=str(side_sig),
+        fallback_quantity=0.0,
+        tracker=tracker,
+    )
+    if not evidence_written:
+        return False
+
+    from price_action.execution.trade_journal import TradeJournal
+
+    resolved_journal = str(journal_path or JOURNAL)
+    trade_journal = TradeJournal(db_path=resolved_journal)
+    normalized_kind = str(triggered_kind).lower()
+    close_reason = "tp" if normalized_kind in {"tp", "tp1", "tp2"} else normalized_kind
+    close_id = _protection_partial_close_id(sig_id, triggered_order, prot_id)
+    existing_partial = con.execute(
+        """SELECT trade_id, sym, side, qty_closed, exit_price, close_reason
+             FROM futures_partial_closes WHERE close_id=?""",
+        [close_id],
+    ).fetchone()
+    partial_replay = bool(
+        existing_partial is not None
+        and str(existing_partial[0]) == str(sig_id)
+        and str(existing_partial[1]) == str(sym_sig)
+        and str(existing_partial[2]).lower() == str(side_sig).lower()
+        and execution_evidence_values_match(existing_partial[3], verified_quantity)
+        and execution_evidence_values_match(existing_partial[4], verified_price)
+        and str(existing_partial[5]) == normalized_kind
+    )
+    if existing_partial is not None and not partial_replay:
+        raise RuntimeError(f"deterministic partial-close conflict for {event_id}")
+    existing_final = con.execute(
+        """SELECT sym, side, qty, exit_price, close_reason
+             FROM futures_trades_closed WHERE trade_id=?""",
+        [str(sig_id)],
+    ).fetchone()
+    final_replay = bool(
+        existing_final is not None
+        and position_flat
+        and is_last_candidate
+        and str(existing_final[0]) == str(sym_sig)
+        and str(existing_final[1]).lower() == str(side_sig).lower()
+        and execution_evidence_values_match(existing_final[2], verified_quantity)
+        and execution_evidence_values_match(existing_final[3], verified_price)
+        and str(existing_final[4]) == close_reason
+    )
+
+    remaining_before = _remaining_qty_on_con(con, str(sig_id), float(fill_qty_sig or 0.0))
+    if (
+        not partial_replay
+        and not final_replay
+        and not execution_evidence_values_match(
+            min(verified_quantity, remaining_before), verified_quantity
+        )
+    ):
+        raise RuntimeError(
+            f"protection event {event_id} quantity {verified_quantity} exceeds "
+            f"remaining {remaining_before}"
+        )
+
+    record_as_final = bool(
+        final_replay
+        or (
+            not partial_replay
+            and position_flat
+            and is_last_candidate
+            and execution_evidence_values_match(verified_quantity, remaining_before)
+        )
+    )
+    inserted = False
+    if record_as_final:
+        pnl_override = None
+        try:
+            if income_fetcher is None:
+                from price_action.execution.exchange_income import (
+                    fetch_realized_income as income_fetcher,
+                )
+
+            normalized_open = ts_open
+            if normalized_open is not None and getattr(normalized_open, "tzinfo", None) is None:
+                normalized_open = normalized_open.replace(tzinfo=UTC)
+            start_ms = int(normalized_open.timestamp() * 1000) if normalized_open else None
+            total_income = income_fetcher(exchange, sym_sig, start_ms)
+            if total_income is not None:
+                row = con.execute(
+                    "SELECT COALESCE(SUM(realized_pnl_usdt),0.0) "
+                    "FROM futures_partial_closes WHERE trade_id=?",
+                    [str(sig_id)],
+                ).fetchone()
+                pnl_override = float(total_income) - float(row[0] if row else 0.0)
+        except Exception as exc:
+            log(f"  PROT_INCOME_ERR sig={sig_id}: {str(exc)[:80]}")
+
+        inserted = trade_journal.record_close(
+            trade_id=str(sig_id),
+            ts_open=ts_open or event_ts,
+            ts_close=event_ts,
+            sym=str(sym_sig),
+            side=str(side_sig).lower(),
+            strategy=str(strategy or ""),
+            entry_price=float(entry_price or 0.0),
+            exit_price=verified_price,
+            qty=verified_quantity,
+            sl_price=float(sl_price or 0.0),
+            close_reason=close_reason,
+            realized_pnl_override=pnl_override,
+        )
+        if not inserted:
+            existing = con.execute(
+                """SELECT sym, side, qty, exit_price, close_reason
+                     FROM futures_trades_closed WHERE trade_id=?""",
+                [str(sig_id)],
+            ).fetchone()
+            if (
+                existing is None
+                or str(existing[0]) != str(sym_sig)
+                or str(existing[1]).lower() != str(side_sig).lower()
+                or not execution_evidence_values_match(existing[2], verified_quantity)
+                or not execution_evidence_values_match(existing[3], verified_price)
+                or str(existing[4]) != close_reason
+            ):
+                raise RuntimeError(f"deterministic final-close conflict for {event_id}")
+        journal_record_id = str(sig_id)
+    else:
+        inserted = trade_journal.record_partial_close(
+            close_id=close_id,
+            trade_id=str(sig_id),
+            ts_close=event_ts,
+            sym=str(sym_sig),
+            side=str(side_sig).lower(),
+            strategy=str(strategy or ""),
+            entry_price=float(entry_price or 0.0),
+            exit_price=verified_price,
+            qty_closed=verified_quantity,
+            sl_price=float(sl_price or 0.0),
+            close_reason=normalized_kind,
+        )
+        if not inserted:
+            existing = con.execute(
+                """SELECT trade_id, sym, side, qty_closed, exit_price, close_reason
+                     FROM futures_partial_closes WHERE close_id=?""",
+                [close_id],
+            ).fetchone()
+            if (
+                existing is None
+                or str(existing[0]) != str(sig_id)
+                or str(existing[1]) != str(sym_sig)
+                or str(existing[2]).lower() != str(side_sig).lower()
+                or not execution_evidence_values_match(existing[3], verified_quantity)
+                or not execution_evidence_values_match(existing[4], verified_price)
+                or str(existing[5]) != normalized_kind
+            ):
+                raise RuntimeError(f"deterministic partial-close conflict for {event_id}")
+        journal_record_id = close_id
+
+    algo_id = str(triggered_order.get("algoId") or triggered_order.get("algo_id") or "")
+    execution_fill_id = f"prot_{prot_id}_{normalized_kind}"
+    fee = execution.get("fee_usdt")
+    insert_result = con.execute(
+        """INSERT OR IGNORE INTO futures_protection_fill_events
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING event_id""",
+        [
+            event_id,
+            str(prot_id),
+            str(sig_id),
+            algo_id,
+            normalized_kind,
+            terminal_ms,
+            execution_fill_id,
+            verified_quantity,
+            verified_price,
+            float(fee) if fee is not None else None,
+            str(execution.get("fee_source") or "unavailable"),
+            journal_record_id,
+            _utc_naive_timestamp(datetime.now(UTC)),
+        ],
+    ).fetchone()
+    if insert_result is None:
+        existing_event = con.execute(
+            """SELECT quantity, price, fee_usdt, fee_source, journal_record_id
+                 FROM futures_protection_fill_events WHERE event_id=?""",
+            [event_id],
+        ).fetchone()
+        fee_matches = (
+            existing_event is not None
+            and (
+                (existing_event[2] is None and fee is None)
+                or (
+                    existing_event[2] is not None
+                    and fee is not None
+                    and math.isclose(
+                        float(existing_event[2]),
+                        float(fee),
+                        rel_tol=1e-8,
+                        abs_tol=1e-10,
+                    )
+                )
+            )
+        )
+        if (
+            existing_event is None
+            or not execution_evidence_values_match(existing_event[0], verified_quantity)
+            or not execution_evidence_values_match(existing_event[1], verified_price)
+            or not fee_matches
+            or str(existing_event[3]) != str(execution.get("fee_source") or "unavailable")
+            or str(existing_event[4]) != journal_record_id
+        ):
+            raise RuntimeError(f"deterministic processed-event conflict for {event_id}")
+
+    log(
+        f"  PROT_EVENT_COMMITTED: {symbol} {triggered_kind} event_id={event_id} "
+        f"qty={verified_quantity:.8f} price={verified_price:.8f} inserted={inserted}"
+    )
+    return True
+
+
+def _entry_execution_from_user_trades(exchange, symbol_id: str, order: dict) -> dict:
+    """Entry'nin tüm maker/market leglerini exact userTrades ile birleştir.
+
+    Mixed fallback iki ayrı matching-engine order id üretir. KPI/fee/qty ancak
+    istenen TÜM leg id'leri USDT commission ile bulunursa tamam sayılır; tek leg
+    bile eksikse kısmi sonucu gerçek toplam gibi döndürmeyiz.
+    """
+    result = {
+        "complete": False,
+        "order_ids": [],
+        "price": None,
+        "quantity": None,
+        "notional_usdt": None,
+        "fee_usdt": None,
+        "fee_source": "unavailable",
+        "maker_quantity": None,
+        "maker_notional_usdt": None,
+    }
+    raw_ids = [
+        order.get("partial_limit_order_id"),
+        order.get("market_fallback_order_id"),
+    ]
+    if not any(raw_ids):
+        raw_ids.append(order.get("id"))
+    order_ids: list[str] = []
+    for raw_id in raw_ids:
+        order_id = str(raw_id or "").strip()
+        if order_id and order_id not in order_ids:
+            order_ids.append(order_id)
+    result["order_ids"] = order_ids
+    if not order_ids:
+        return result
+
+    total_qty = 0.0
+    total_notional = 0.0
+    total_fee = 0.0
+    maker_qty = 0.0
+    maker_notional = 0.0
+    for order_id in order_ids:
+        try:
+            order_id_param = int(order_id)
+            rows = (
+                exchange.fapiPrivateGetUserTrades(
+                    {"symbol": symbol_id, "orderId": order_id_param, "limit": 1000}
+                )
+                or []
+            )
+        except Exception:
+            return result
+        matches = [row for row in rows if str(row.get("orderId", "")) == order_id]
+        if not matches:
+            return result
+        for trade in matches:
+            try:
+                qty = float(trade["qty"])
+                price = float(trade["price"])
+                quote = float(trade.get("quoteQty") or 0.0)
+                commission = float(trade["commission"])
+            except (KeyError, TypeError, ValueError):
+                return result
+            asset = str(trade.get("commissionAsset") or "").upper().strip()
+            if asset != "USDT":
+                result["fee_source"] = f"unsupported_asset:{asset or '?'}"
+                return result
+            if qty <= 0 or price <= 0:
+                return result
+            notional = quote if quote > 0 else price * qty
+            maker_raw = trade.get("maker", False)
+            is_maker = (
+                maker_raw.strip().lower() == "true"
+                if isinstance(maker_raw, str)
+                else bool(maker_raw)
+            )
+            total_qty += qty
+            total_notional += notional
+            total_fee += commission
+            if is_maker:
+                maker_qty += qty
+                maker_notional += notional
+
+    if total_qty <= 0 or total_notional <= 0:
+        return result
+    result.update(
+        {
+            "complete": True,
+            "price": total_notional / total_qty,
+            "quantity": total_qty,
+            "notional_usdt": total_notional,
+            "fee_usdt": round(total_fee, 12),
+            "fee_source": "exchange_user_trades",
+            "maker_quantity": maker_qty,
+            "maker_notional_usdt": maker_notional,
+        }
+    )
+    return result
+
+
+def _entry_position_delta_evidence(
+    before_state: dict,
+    after_state: dict,
+    symbol: str,
+    side: str,
+) -> dict:
+    """userTrades yoksa pre/post borsa pozisyonundan yeni fill delta'sını çöz."""
+    empty = {
+        "complete": False,
+        "quantity": None,
+        "price": None,
+        "notional_usdt": None,
+        "source": "unavailable",
+    }
+    if before_state.get("positions_ok") is not True or after_state.get("positions_ok") is not True:
+        return empty
+
+    symbol_id = str(symbol).upper().replace(":USDT", "").replace("/", "")
+    wanted_side = str(side).lower()
+
+    def _position(state: dict) -> tuple[float, float, bool]:
+        qty = 0.0
+        entry_price = 0.0
+        conflicting_side = False
+        for position in state.get("positions", []) or []:
+            pos_symbol = (
+                str(position.get("symbol") or "").upper().replace(":USDT", "").replace("/", "")
+            )
+            if pos_symbol != symbol_id:
+                continue
+            pos_qty = abs(float(position.get("contracts") or 0.0))
+            if pos_qty <= 0:
+                continue
+            if str(position.get("side") or "").lower() != wanted_side:
+                conflicting_side = True
+                continue
+            qty += pos_qty
+            entry_price = float(position.get("entryPrice") or 0.0)
+        return qty, entry_price, conflicting_side
+
+    try:
+        before_qty, before_price, before_conflict = _position(before_state)
+        after_qty, after_price, after_conflict = _position(after_state)
+    except (TypeError, ValueError):
+        return empty
+    if (
+        before_conflict
+        or after_conflict
+        or (before_qty > 0 and before_price <= 0)
+        or after_price <= 0
+        or after_qty <= before_qty
+    ):
+        return empty
+    fill_qty = after_qty - before_qty
+    after_notional = after_qty * after_price
+    before_notional = before_qty * before_price if before_qty > 0 and before_price > 0 else 0.0
+    fill_notional = round(after_notional - before_notional, 12)
+    if fill_notional <= 0 or fill_qty <= 0:
+        return empty
+    return {
+        "complete": True,
+        "quantity": fill_qty,
+        "price": round(fill_notional / fill_qty, 12),
+        "notional_usdt": fill_notional,
+        "source": "exchange_position_delta",
+    }
+
+
+def _entry_position_baseline(state: dict, symbol: str) -> tuple[float | None, float | None]:
+    """Return signed pre-submit qty + entry price from a trusted account snapshot.
+
+    The retry process may use this only as a baseline for a later measured
+    position delta. Missing/stale/conflicting state therefore returns
+    ``(None, None)`` instead of manufacturing a flat position.
+    """
+    if state.get("positions_ok") is not True:
+        return None, None
+
+    symbol_id = str(symbol).upper().replace(":USDT", "").replace("/", "")
+    matches: list[tuple[float, float]] = []
+    try:
+        for position in state.get("positions", []) or []:
+            pos_symbol = (
+                str(position.get("symbol") or "").upper().replace(":USDT", "").replace("/", "")
+            )
+            if pos_symbol != symbol_id:
+                continue
+            info = position.get("info") if isinstance(position.get("info"), dict) else {}
+            raw_amt = info.get("positionAmt")
+            if raw_amt is not None:
+                signed_qty = float(raw_amt)
+            else:
+                contracts = abs(float(position.get("contracts") or 0.0))
+                side = str(position.get("side") or "").lower()
+                signed_qty = -contracts if side == "short" else contracts
+            if abs(signed_qty) <= 1e-12:
+                continue
+            entry_price = float(position.get("entryPrice") or info.get("entryPrice") or 0.0)
+            if entry_price <= 0:
+                return None, None
+            matches.append((signed_qty, entry_price))
+    except (TypeError, ValueError):
+        return None, None
+
+    if not matches:
+        return 0.0, None
+    signs = {1 if qty > 0 else -1 for qty, _ in matches}
+    if len(signs) != 1:
+        return None, None
+    total_qty = sum(qty for qty, _ in matches)
+    total_abs = sum(abs(qty) for qty, _ in matches)
+    weighted_entry = sum(abs(qty) * px for qty, px in matches) / total_abs
+    return total_qty, weighted_entry
 
 
 def _desired_sl_price(
@@ -966,7 +2610,7 @@ def _remaining_qty_on_con(con, trade_id: str, fill_qty: float) -> float:
         ).fetchone():
             return 0.0
         row = con.execute(
-            "SELECT COALESCE(SUM(qty_closed),0.0) FROM futures_partial_closes " "WHERE trade_id=?",
+            "SELECT COALESCE(SUM(qty_closed),0.0) FROM futures_partial_closes WHERE trade_id=?",
             [trade_id],
         ).fetchone()
         partial_sum = float(row[0]) if row and row[0] is not None else 0.0
@@ -978,20 +2622,78 @@ def _remaining_qty_on_con(con, trade_id: str, fill_qty: float) -> float:
 _POS_CHECK_DEG_SNAPSHOT: int = 0  # KALAN_ISLER #8: önceki POS_CHECK'teki toplam sayaç
 
 
+def _orphan_confirmation_candidates(
+    algo_orders: object,
+    active_position_symbols: set[str],
+    journal_open_symbols: set[str],
+) -> set[str]:
+    """Return symbols that can actually reach orphan cancellation this tick.
+
+    ``positionRisk`` is a second private REST read used only as stale-read
+    confirmation.  Calling it when every algo order is already owned by an
+    active exchange position or an open journal row adds load without changing
+    a decision.  Invalid/identity-less rows are ignored because the cleanup
+    loop cannot mutate them either.
+    """
+    candidates: set[str] = set()
+    if not isinstance(algo_orders, list):
+        return candidates
+    for order in algo_orders:
+        if not isinstance(order, dict):
+            continue
+        symbol = _normalize_pending_symbol(order.get("symbol"))
+        algo_id = order.get("algoId") or order.get("algo_id")
+        if (
+            symbol
+            and algo_id
+            and symbol not in active_position_symbols
+            and symbol not in journal_open_symbols
+        ):
+            candidates.add(symbol)
+    return candidates
+
+
+def _fresh_orphan_position_symbols(
+    exchange,
+    candidate_symbols: set[str],
+    active_position_symbols: set[str],
+) -> set[str] | None:
+    """Confirm only actionable orphan candidates through positionRisk.
+
+    No candidate means no endpoint call.  A failed confirmation returns None,
+    which is the cleanup loop's fail-closed "do not cancel" state.
+    """
+    confirmed = set(active_position_symbols)
+    if not candidate_symbols:
+        return confirmed
+    try:
+        for position in exchange.fapiPrivateV2GetPositionRisk():
+            if abs(float(position.get("positionAmt", 0) or 0)) > 0.0001:
+                symbol = _normalize_pending_symbol(position.get("symbol"))
+                if symbol:
+                    confirmed.add(symbol)
+    except Exception as exc:
+        record_degraded_read("pos_check.position_risk_confirm", exc, log_fn=log)
+        return None
+    return confirmed
+
+
 def position_check():
     """Açık pozisyonları + algo (TP/SL) protection order durumu."""
-    from scripts.futures_trade_daily import fetch_futures_state, get_futures_exchange
+    from scripts.futures_trade_daily import fetch_futures_state
 
-    global _POS_CHECK_DEG_SNAPSHOT
+    global _POS_CHECK_DEG_SNAPSHOT, _pending_queue_read_fail_ticks
     try:
-        ex = get_futures_exchange()
+        ex = _get_daemon_exchange()
         state = fetch_futures_state(ex)
         positions = state["positions"]
 
         # A3: rate-limit/network bilgi etiketi
         algo_ok = state.get("algo_orders_ok", True)
         pos_ok = state.get("positions_ok", True)
-        rate_limit_suffix = "" if (algo_ok and pos_ok) else " [API_STALE]"
+        state_complete = state.get("exchange_state_complete") is True
+        rate_limit_suffix = "" if state_complete else " [API_STALE]"
+        algo_count_display = state["n_algo_orders"] if algo_ok else "UNKNOWN"
 
         # KALAN_ISLER #8 (2026-07-10): son tick'ten bu yana DEGRADED_READ olduysa
         # özet satırına [DEGRADED:n] eki — '0 pozisyon' ile 'okuma çöktü' loglarda
@@ -1022,15 +2724,15 @@ def position_check():
                 # Düşük-fiyatlı coinler (DOGE, AVAX) $.2f'te aynı görünüyordu —
                 # gerçek hareket gizleniyordu. $.4f ile $0.1014 vs $0.1023 ayırt edilir.
                 pos_summary.append(
-                    f"{sym.replace('/USDT:USDT','').replace('/USDT','')}={side[0].upper()}{abs(contracts):.3f}@${entry:.4f}->{mark:.4f}({pnl:+.2f})"
+                    f"{sym.replace('/USDT:USDT', '').replace('/USDT', '')}={side[0].upper()}{abs(contracts):.3f}@${entry:.4f}->{mark:.4f}({pnl:+.2f})"
                 )
             log(
-                f"POS_CHECK: {len(positions)} pos, {state['n_algo_orders']} algo (TP+SL){rate_limit_suffix}{degraded_suffix} | "
+                f"POS_CHECK: {len(positions)} pos, {algo_count_display} algo (TP+SL){rate_limit_suffix}{degraded_suffix} | "
                 + " | ".join(pos_summary[:6])
             )
         else:
             log(
-                f"POS_CHECK: 0 pozisyon, {state['n_algo_orders']} algo orders"
+                f"POS_CHECK: 0 pozisyon, {algo_count_display} algo orders"
                 f"{rate_limit_suffix}{degraded_suffix}"
             )
 
@@ -1099,7 +2801,7 @@ def position_check():
                             if not _skip_dedup:
                                 log(
                                     f"  CONCENTRATION_BREACH: {_psym} "
-                                    f"{_ppct*100:.1f}% > {_max_per_sym_pct*100:.0f}% "
+                                    f"{_ppct * 100:.1f}% > {_max_per_sym_pct * 100:.0f}% "
                                     f"(notional=${_pnotional:.0f}, equity=${_watchdog_equity:.0f})"
                                 )
                                 try:
@@ -1109,7 +2811,7 @@ def position_check():
 
                                     push_critical(
                                         f"CONCENTRATION_BREACH: {_psym} "
-                                        f"{_ppct*100:.1f}% > {_max_per_sym_pct*100:.0f}% "
+                                        f"{_ppct * 100:.1f}% > {_max_per_sym_pct * 100:.0f}% "
                                         f"(notional=${_pnotional:.0f})",
                                         source="pos_check_watchdog",
                                     )
@@ -1130,11 +2832,15 @@ def position_check():
                 log(f"  CONC_WATCHDOG_ERR: {str(_conc_ex)[:80]}")
 
         # A3: API stale ise — orphan cleanup + prot_check SKIP (false-close yazımı önle)
-        if not algo_ok or not pos_ok:
+        if not state_complete:
             log(
-                f"POS_CHECK SKIP: orphan+prot_check passed (algo_ok={algo_ok}, pos_ok={pos_ok}) — rate-limit/network"
+                "POS_CHECK SKIP: orphan+prot_check passed "
+                f"(positions_ok={pos_ok}, algo_ok={algo_ok}, "
+                f"order_scope_ok={state.get('order_scope_ok')}, "
+                f"scope_err={state.get('order_scope_error') or '-'}) "
+                "— exchange state UNKNOWN"
             )
-            return
+            return state
 
         # Orphan algo cleanup — TP fill sonrası SL kalıntısı (veya tersi) iptal.
         # reduceOnly tek başına whipsaw'da yetersiz: TP doldu → fiyat geri döner →
@@ -1157,31 +2863,15 @@ def position_check():
                     # "BTC/USDT:USDT" → "BTCUSDT" (algo endpoint sym format)
                     active_pos_syms.add(sym_raw.split(":")[0].replace("/", ""))
 
-            # FIX INC1: journal'daki açık sinyal sembollerini al (BTCUSDT formatına çevir)
-            # FIX 2026-06-10 (v14 audit MAJOR-1a): journal okunamazsa FAIL-CLOSED —
-            # cross-check katmanı sessizce devre dışı kalıyordu (fail-open); artık
-            # journal okunamadıysa bu tick orphan-cancel TAMAMEN atlanır.
-            _journal_open_syms: set[str] = set()
-            _journal_read_ok = True
-            try:
-                _jcon_oc = duckdb.connect(str(JOURNAL), read_only=True)
-                try:
-                    _jrows = _jcon_oc.execute("""
-                        SELECT DISTINCT symbol FROM futures_signals
-                        WHERE status = 'filled'
-                          AND signal_id NOT IN (SELECT trade_id FROM futures_trades_closed)
-                    """).fetchall()
-                    for (_jsym,) in _jrows:
-                        # "XLM/USDT" → "XLMUSDT"
-                        _journal_open_syms.add(str(_jsym).replace("/", "").replace(":USDT", ""))
-                finally:
-                    _jcon_oc.close()
-            except Exception as _joc_err:
-                _journal_read_ok = False
-                log(
-                    f"ORPHAN_JOURNAL_READ_ERR: {str(_joc_err)[:80]} — "
-                    f"fail-closed: bu tick orphan-cancel atlanıyor"
-                )
+            # fetch_futures_state bu journal/queue kapsamını order endpoint'inden
+            # ÖNCE ve fail-closed okudu. Aynı DuckDB sorgusunu burada tekrarlama;
+            # kapsam eksik olsaydı yukarıdaki state_complete kapısı dönerdi.
+            _journal_open_syms = {
+                _normalize_pending_symbol(symbol)
+                for symbol in state.get("journal_open_position_symbols", []) or []
+                if _normalize_pending_symbol(symbol)
+            }
+            _journal_read_ok = state.get("order_scope_ok") is True
 
             # FIX 2026-06-07 (XRP/LINK çıplak döngüsü): İKİNCİ TAZE POZİSYON TEYİDİ.
             # Tek fetch_positions stale dönebilir (testnet): pozisyon AÇIKKEN positions[]
@@ -1193,15 +2883,16 @@ def position_check():
             # fetch_positions ile aynı endpoint'in stale pencereleri korele
             # (02:15Z'de iki okuma da boş geldi). positionRisk ayrı endpoint,
             # sembol formatı zaten ham "BTCUSDT".
-            _confirm_syms: set[str] | None = set(active_pos_syms)
-            try:
-                for _pr in ex.fapiPrivateV2GetPositionRisk():
-                    if abs(float(_pr.get("positionAmt", 0) or 0)) > 0.0001:
-                        _confirm_syms.add(str(_pr.get("symbol", "")))
-            except Exception as _pr_exc:
-                # KALAN_ISLER #8: önceden tamamen sessizdi — sayaç + marker.
-                record_degraded_read("pos_check.position_risk_confirm", _pr_exc, log_fn=log)
-                _confirm_syms = None  # teyit alınamadı → hiçbir şeyi orphan sayma
+            _orphan_candidates = _orphan_confirmation_candidates(
+                state.get("algo_orders", []),
+                active_pos_syms,
+                _journal_open_syms,
+            )
+            _confirm_syms = _fresh_orphan_position_symbols(
+                ex,
+                _orphan_candidates,
+                active_pos_syms,
+            )
 
             # FIX 2026-06-10 (XRP 02:15Z olayı): N-ARDIŞIK-TİCK STATEFUL TEYİT.
             # Double-read fix (d513795) DELİNDİ: 4. tick'te İKİ okuma da stale geldi
@@ -1261,7 +2952,7 @@ def position_check():
                     orphan_cnt += 1
                     _ORPHAN_SUSPECT_TICKS.pop(_skey, None)
                     log(
-                        f"ORPHAN_CANCEL: {algo_sym} algoId={algo_id} type={o.get('type','?')} "
+                        f"ORPHAN_CANCEL: {algo_sym} algoId={algo_id} type={o.get('type', '?')} "
                         f"({ORPHAN_CONFIRM_TICKS} ardışık tick teyitli orphan)"
                     )
                 except Exception as cancel_err:
@@ -1299,6 +2990,15 @@ def position_check():
                 FROM futures_signals s
                 LEFT JOIN futures_protection_orders p ON p.signal_id = s.signal_id
                 WHERE s.status='filled'
+                  -- Aktif protection kaydi durable terminal-event replay hattinin
+                  -- sorumlulugundadir. Self-heal kesin fill kaniti journal'a
+                  -- yazilmadan once sentetik reconcile_orphan uretemez.
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM futures_protection_orders ap
+                      WHERE ap.signal_id = s.signal_id
+                        AND ap.status = 'placed'
+                  )
             """).fetchall()
             _algo_ids_now = set(
                 str(o.get("algoId", "")) for o in (state.get("algo_orders", []) or [])
@@ -1489,8 +3189,6 @@ def position_check():
                                 _tp2_oid = None
                         except Exception:
                             _tp2_oid = None
-                    _tp2_open = _tp2_oid in algo_open_ids if _tp2_oid else False
-
                     sym_id = sym.replace("/USDT:USDT", "USDT").replace("/USDT", "USDT")
                     try:
                         hist = ex.fapiPrivateGetAllAlgoOrders({"symbol": sym_id, "limit": 30})
@@ -1508,359 +3206,104 @@ def position_check():
                                 sl_order = o
                             elif _tp2_oid and algo_id_str == str(_tp2_oid):
                                 tp2_order = o
-                        triggered = triggered_kind = None
-                        for cand, knd in ((sl_order, "SL"), (tp_order, "TP1"), (tp2_order, "TP2")):
-                            if cand is not None and cand.get("algoStatus") in (
-                                "TRIGGERED",
-                                "FINISHED",
-                            ):
-                                triggered, triggered_kind = cand, knd
-                                break
+                        terminal_candidates = _protection_terminal_candidates(
+                            sl_order=sl_order,
+                            tp1_order=tp_order,
+                            tp2_order=tp2_order,
+                        )
                         any_terminal = any(
                             o is not None
-                            and o.get("algoStatus")
-                            in ("TRIGGERED", "CANCELED", "FINISHED", "EXPIRED")
-                            for o in (tp_order, sl_order)
+                            and str(o.get("algoStatus") or "").upper()
+                            in (
+                                "TRIGGERED",
+                                "CANCELED",
+                                "CANCELLED",
+                                "FINISHED",
+                                "EXPIRED",
+                            )
+                            for o in (tp_order, tp2_order, sl_order)
                         )
-                        # FIX 2026-07-08 (W1-HIGH, dalga-3): satır TEK-ATIŞ değil.
-                        # Eski kod ilk terminal olayda (TP1 partial dahil) emekli
-                        # ediyordu → runner'ın final kapanışını daemon göremiyor,
-                        # heal yazıyordu. Artık yalnız borsa qty≈0 iken emekli.
                         _prot_qty_now = _exchange_pos_qty_j.get(sym, 0.0)
-                        if _should_retire_protection(any_terminal, _prot_qty_now):
+                        _position_flat = _prot_qty_now <= 1e-6
+                        _events_ok = True
+                        for _event_index, (_event_order, _event_kind) in enumerate(
+                            terminal_candidates
+                        ):
+                            try:
+                                _event_ok = _process_protection_terminal_event(
+                                    con=con,
+                                    exchange=ex,
+                                    prot_id=prot_id,
+                                    symbol=sym,
+                                    symbol_id=sym_id,
+                                    triggered_order=_event_order,
+                                    triggered_kind=_event_kind,
+                                    position_flat=_position_flat,
+                                    is_last_candidate=(
+                                        _event_index == len(terminal_candidates) - 1
+                                    ),
+                                )
+                            except Exception as _event_exc:
+                                _event_ok = False
+                                log(
+                                    f"  PROT_EVENT_HELD: {sym} {_event_kind} "
+                                    f"{type(_event_exc).__name__}: "
+                                    f"{str(_event_exc)[:120]}"
+                                )
+                            if not _event_ok:
+                                _events_ok = False
+                                break
+
+                        _ensure_protection_fill_event_table(con)
+                        _unprocessed_events = []
+                        for _candidate_order, _candidate_kind in terminal_candidates:
+                            _candidate_event_id = _protection_fill_event_id(
+                                prot_id,
+                                _candidate_order,
+                                _candidate_kind,
+                            )
+                            if not con.execute(
+                                "SELECT 1 FROM futures_protection_fill_events "
+                                "WHERE event_id=?",
+                                [_candidate_event_id],
+                            ).fetchone():
+                                _unprocessed_events.append(_candidate_event_id)
+
+                        _linked_signal_row = con.execute(
+                            "SELECT signal_id FROM futures_protection_orders WHERE prot_id=?",
+                            [prot_id],
+                        ).fetchone()
+                        _trade_closed = bool(
+                            _linked_signal_row
+                            and con.execute(
+                                "SELECT 1 FROM futures_trades_closed WHERE trade_id=?",
+                                [str(_linked_signal_row[0])],
+                            ).fetchone()
+                        )
+                        if _protection_retirement_ready(
+                            position_flat=_position_flat,
+                            events_ok=_events_ok,
+                            unprocessed_event_count=len(_unprocessed_events),
+                            trade_closed=_trade_closed,
+                            has_terminal_state=bool(terminal_candidates or any_terminal),
+                        ):
                             con.execute(
                                 """UPDATE futures_protection_orders SET status='filled' WHERE prot_id=?""",
                                 [prot_id],
                             )
-                        if triggered is not None:
-                            status_alg = triggered.get("algoStatus")
-                            # FIX 2026-05-30 (INC3-triggerPrice-bug): exit_price GERÇEK fill fiyatı.
-                            # KÖK NEDEN: triggered.get("triggerPrice") EMIR KURULUM fiyatını döner
-                            # (sinyal hesaplamasındaki TP/SL hedef fiyatı) — borsanın gerçek fill
-                            # fiyatı DEĞİL. Binance TAKE_PROFIT_MARKET/STOP_MARKET algo emirleri
-                            # triggerPrice'de TETIKLENIR ama MARKET PRICE'dan FILL olur. Bu fark
-                            # testnet'te küçük, canlıda/stres dönemlerinde 10-30bps slippage = $10+
-                            # sapma. Daha kötüsü: DOT gibi vakalarda TP hiç dolmamış olabilir ama
-                            # journal "TP hit @ target" yazmıştı → +28.73 sahte kâr.
-                            # Düzeltme: avgPrice (gerçek weighted-average fill) veya
-                            # executedQty > 0 olan fill. triggerPrice fallback olarak son çare.
-                            _prot_trigger_px = float(triggered.get("triggerPrice", 0) or 0)
-                            _prot_avg_px = triggered.get("avgPrice") or triggered.get(
-                                "avgExecutedPrice"
+                            log(
+                                f"PROT_RETIRED_DURABLE: {sym} prot_id={prot_id} "
+                                f"events={len(terminal_candidates)}"
                             )
-                            _prot_fill_px = (
-                                float(_prot_avg_px)
-                                if _prot_avg_px and float(_prot_avg_px) > 0
-                                else _prot_trigger_px
+                        elif _position_flat and (terminal_candidates or any_terminal):
+                            log(
+                                f"PROT_RETIRE_HELD: {sym} prot_id={prot_id} "
+                                f"events_ok={_events_ok} pending={len(_unprocessed_events)} "
+                                f"trade_closed={_trade_closed}"
                             )
-                            if _prot_avg_px and float(_prot_avg_px) > 0:
-                                log(
-                                    f"PROT_FILL: {sym} {triggered_kind} HIT @ ${_prot_fill_px} "
-                                    f"(avgPrice, trigger=${_prot_trigger_px}, status={status_alg})"
-                                )
-                            else:
-                                # avgPrice yoksa triggerPrice kullandık — audit uyarısı
-                                log(
-                                    f"PROT_FILL: {sym} {triggered_kind} HIT @ ${_prot_fill_px} "
-                                    f"(triggerPrice fallback — avgPrice missing, status={status_alg}) "
-                                    f"[AUDIT: exit_price may differ from actual fill]"
-                                )
-                            # PARTIAL-CLOSE KARAR NOKTASI (2026-05-31):
-                            # Borsa güncel qty'sini çek; 0'a yakınsa TAM kapanış,
-                            # hâlâ qty varsa KISMİ kapanış (TP1/TP2 partial fill).
-                            # Epsilon: borsa minumum qty 0.001'in altı = "sıfır".
-                            _CLOSE_EPSILON = 1e-6
-                            _exchange_qty_now = _exchange_pos_qty_j.get(sym, 0.0)
-                            try:
-                                sig_row = con.execute(
-                                    """
-                                    SELECT signal_id, ts, symbol, side, strategy, fill_price, fill_qty, sl_price
-                                    FROM futures_signals
-                                    WHERE signal_id = (
-                                        SELECT signal_id FROM futures_protection_orders WHERE prot_id = ?
-                                    )
-                                """,
-                                    [prot_id],
-                                ).fetchone()
-                                if sig_row:
-                                    (
-                                        sig_id,
-                                        ts_open,
-                                        sym_sig,
-                                        side_sig,
-                                        strat,
-                                        entry_p,
-                                        fill_qty_sig,
-                                        sl_p,
-                                    ) = sig_row
-                                    exit_p = _prot_fill_px
-                                    now_close = datetime.now(UTC)
 
-                                    if _exchange_qty_now > _CLOSE_EPSILON:
-                                        # ── KISMİ KAPANIŞ (TP1 veya TP2 partial fill) ──
-                                        # Borsa hâlâ açık: runner pozisyon devam ediyor.
-                                        # closed_qty = sinyal kalan qty − borsa güncel qty.
-                                        from price_action.execution.trade_journal import (
-                                            TradeJournal,
-                                        )
-
-                                        tj = TradeJournal(db_path=str(JOURNAL))
-                                        # FIX 2026-06-16: açık con üzerinde inline (ro+rw çakışması)
-                                        _remaining_before = _remaining_qty_on_con(
-                                            con, str(sig_id), float(fill_qty_sig or 0.0)
-                                        )
-                                        _closed_qty = max(
-                                            0.0, _remaining_before - _exchange_qty_now
-                                        )
-                                        if _closed_qty < _CLOSE_EPSILON:
-                                            # qty fark çok küçük — büyük ihtimalle API stale
-                                            # (borsa qty taze gelmediyse). Skip + uyarı.
-                                            log(
-                                                f"  PROT_PARTIAL_SKIP: {sym} {triggered_kind} "
-                                                f"exchange_qty={_exchange_qty_now:.6f} remaining_before={_remaining_before:.6f} "
-                                                f"closed_qty={_closed_qty:.6f} < epsilon — API stale olabilir, skip"
-                                            )
-                                        else:
-                                            # close_id deterministik: trade_id + order_id
-                                            _close_id = (
-                                                f"{sig_id}_{triggered.get('algoId', prot_id)}"
-                                            )
-                                            _partial_inserted = tj.record_partial_close(
-                                                close_id=_close_id,
-                                                trade_id=str(sig_id),
-                                                ts_close=now_close,
-                                                sym=str(sym_sig),
-                                                side=str(side_sig).lower(),
-                                                strategy=str(strat or ""),
-                                                entry_price=float(entry_p or 0.0),
-                                                exit_price=float(exit_p),
-                                                qty_closed=float(_closed_qty),
-                                                sl_price=float(sl_p or 0.0),
-                                                close_reason=triggered_kind.lower(),
-                                            )
-                                            log(
-                                                f"  TRADE_PARTIAL: sig={sig_id} {triggered_kind} "
-                                                f"qty_closed={_closed_qty:.6f} exit=${exit_p:.4f} "
-                                                f"exchange_remaining={_exchange_qty_now:.6f} inserted={_partial_inserted}"
-                                            )
-                                            # TP1 partial Telegram (kısa bilgi)
-                                            if _partial_inserted:
-                                                try:
-                                                    from price_action.orchestrator.notifications import (
-                                                        notify_position_close,
-                                                    )
-
-                                                    _pnl_part = (
-                                                        (float(exit_p) - float(entry_p or 0.0))
-                                                        * _closed_qty
-                                                        if str(side_sig).lower() == "long"
-                                                        else (float(entry_p or 0.0) - float(exit_p))
-                                                        * _closed_qty
-                                                    )
-                                                    notify_position_close(
-                                                        bot="futures15m",
-                                                        symbol=str(sym_sig),
-                                                        side=str(side_sig).lower(),
-                                                        strategy=str(strat or ""),
-                                                        entry_price=float(entry_p or 0.0),
-                                                        exit_price=float(exit_p),
-                                                        qty=float(_closed_qty),
-                                                        notional_usdt=float(_closed_qty)
-                                                        * float(entry_p or 0.0),
-                                                        realized_pnl_usdt=_pnl_part,
-                                                        realized_r=0.0,
-                                                        close_reason=f"partial_{triggered_kind.lower()}",
-                                                        hold_seconds=None,
-                                                    )
-                                                except Exception as _tn_part_exc:
-                                                    log(f"  TELEGRAM_PARTIAL_FAIL: {_tn_part_exc}")
-                                    else:
-                                        # ── TAM KAPANIŞ ──
-                                        # Borsa qty ≈ 0: tüm pozisyon kapandı.
-                                        # Kalan qty = fill_qty − SUM(partials).
-                                        from price_action.execution.trade_journal import (
-                                            TradeJournal,
-                                        )
-
-                                        tj = TradeJournal(db_path=str(JOURNAL))
-                                        # FIX 2026-06-16: açık con üzerinde inline (ro+rw çakışması)
-                                        _remaining_qty = _remaining_qty_on_con(
-                                            con, str(sig_id), float(fill_qty_sig or 0.0)
-                                        )
-                                        # 0'a yakınsa en az sembolik qty yaz (borsanın yuvarlama toleransı)
-                                        _final_qty = max(_remaining_qty, 0.0)
-                                        close_reason_str = triggered_kind.lower()
-                                        # "tp1"/"tp2" → trades_closed'e "tp" yaz (eski raporlar okur)
-                                        if close_reason_str in ("tp1", "tp2"):
-                                            close_reason_str = "tp"
-
-                                        # G14: TP/SL fill slippage kaydı (sig_row verisiyle)
-                                        try:
-                                            from price_action.execution.slippage_tracker import (
-                                                SlippageTracker as _ST_prot,
-                                            )
-
-                                            _st_prot = _ST_prot()
-                                            _prot_qty = float(_final_qty or 0.0)
-                                            _prot_notional = _prot_qty * _prot_fill_px
-                                            _prot_fee_bps = 4.0  # algo order = maker
-                                            _prot_fee_usdt = _prot_notional * _prot_fee_bps / 10_000
-                                            _st_prot.record_fill(
-                                                fill_id=f"prot_{prot_id}_{triggered_kind.lower()}",
-                                                ts=now_close,
-                                                symbol=str(sym_sig),
-                                                strategy=f"{strat or ''!s}_{triggered_kind.lower()}",
-                                                side=str(side_sig).lower(),
-                                                # Fix A (slippage 0.0 bug): expected = yapılandırılan
-                                                # trigger (arrival ref), realized = gerçek fill.
-                                                # Eskiden ikisi de _prot_fill_px → fill kendi
-                                                # benchmark'ı → %100 exit 0.0 bps. trigger yoksa
-                                                # fill'e döner (dürüst-0). Measurement-only.
-                                                expected_price=_slip_expected_from_trigger(
-                                                    _prot_trigger_px, _prot_fill_px
-                                                ),
-                                                realized_price=_prot_fill_px,
-                                                quantity=_prot_qty,
-                                                fee_usdt=_prot_fee_usdt,
-                                                is_maker=True,
-                                                order_type="algo_stop_market",
-                                                mode=os.environ.get("PA_RUN_MODE", "paper"),
-                                                exchange_order_id=str(triggered.get("algoId", "")),
-                                                fill_type=triggered_kind.lower(),
-                                                tf="15m",
-                                            )
-                                        except Exception as _st_prot_err:
-                                            log(
-                                                f"  PROT_SLIP_RECORD_ERR prot_id={prot_id}: {str(_st_prot_err)[:100]}"
-                                            )
-                                        # CT-EXE-02 (2026-06-15): realized_pnl'i borsa income'dan
-                                        # yaz (fee/funding dahil). Lokal (exit-entry)*qty fee'yi
-                                        # atlıyor (clean-sembol ~−10 gap). income yoksa None →
-                                        # record_close lokal hesaba düşer (eski davranış).
-                                        _prot_pnl_override = None
-                                        try:
-                                            from datetime import UTC as _UTCp
-
-                                            from price_action.execution.exchange_income import (
-                                                fetch_realized_income as _fetch_income_p,
-                                            )
-
-                                            _ts_op = ts_open
-                                            if (
-                                                _ts_op is not None
-                                                and getattr(_ts_op, "tzinfo", None) is None
-                                            ):
-                                                _ts_op = _ts_op.replace(tzinfo=_UTCp)
-                                            _p_start_ms = (
-                                                int(_ts_op.timestamp() * 1000) if _ts_op else None
-                                            )
-                                            _p_income = _fetch_income_p(ex, sym_sig, _p_start_ms)
-                                            if _p_income is not None:
-                                                # FIX 2026-06-15b: partial toplamını AÇIK rw con
-                                                # üzerinden sorgula — TradeJournal.get_partial_pnl_sum
-                                                # read_only bağlantı açar, con (rw) açıkken DuckDB
-                                                # "different configuration" çakışması verir.
-                                                _ppr = con.execute(
-                                                    "SELECT COALESCE(SUM(realized_pnl_usdt),0.0) "
-                                                    "FROM futures_partial_closes WHERE trade_id=?",
-                                                    [str(sig_id)],
-                                                ).fetchone()
-                                                _p_partial = (
-                                                    float(_ppr[0])
-                                                    if _ppr and _ppr[0] is not None
-                                                    else 0.0
-                                                )
-                                                _prot_pnl_override = _p_income - _p_partial
-                                        except Exception as _pio_err:
-                                            log(
-                                                f"  PROT_INCOME_ERR sig={sig_id}: {str(_pio_err)[:80]}"
-                                            )
-                                        # Canonical writer (SEC26.B-4) — idempotent.
-                                        try:
-                                            inserted = tj.record_close(
-                                                trade_id=str(sig_id),
-                                                ts_open=ts_open or now_close,
-                                                ts_close=now_close,
-                                                sym=str(sym_sig),
-                                                side=str(side_sig).lower(),
-                                                strategy=str(strat or ""),
-                                                entry_price=float(entry_p or 0.0),
-                                                exit_price=float(exit_p),
-                                                qty=float(_final_qty),
-                                                sl_price=float(sl_p or 0.0),
-                                                close_reason=close_reason_str,
-                                                realized_pnl_override=_prot_pnl_override,
-                                            )
-                                            log(
-                                                f"  TRADE_CLOSED: sig={sig_id} {triggered_kind} "
-                                                f"qty={_final_qty:.6f} inserted={inserted}"
-                                            )
-
-                                            # FIX 2026-05-26 (Faz 14.5): Telegram position-close bildirimi
-                                            if inserted:
-                                                try:
-                                                    from price_action.orchestrator.notifications import (
-                                                        notify_position_close,
-                                                    )
-
-                                                    _side = str(side_sig).lower()
-                                                    _entry = float(entry_p or 0.0)
-                                                    _exit = float(exit_p)
-                                                    _qty = float(_final_qty)
-                                                    if _side == "long":
-                                                        _pnl = (_exit - _entry) * _qty
-                                                    else:
-                                                        _pnl = (_entry - _exit) * _qty
-                                                    _sl = float(sl_p or 0.0)
-                                                    _r = 0.0
-                                                    if _sl and _entry:
-                                                        _sl_dist = abs(_entry - _sl)
-                                                        if _sl_dist > 0:
-                                                            _r = _pnl / (_sl_dist * _qty)
-                                                    _notional = _qty * _entry
-                                                    _hold_s = None
-                                                    if ts_open:
-                                                        try:
-                                                            _tso = (
-                                                                ts_open
-                                                                if ts_open.tzinfo
-                                                                else ts_open.replace(tzinfo=UTC)
-                                                            )
-                                                            _tsc = (
-                                                                now_close
-                                                                if now_close.tzinfo
-                                                                else now_close.replace(tzinfo=UTC)
-                                                            )
-                                                            _hold_s = (_tsc - _tso).total_seconds()
-                                                        except Exception:
-                                                            _hold_s = None
-                                                    notify_position_close(
-                                                        bot="futures15m",
-                                                        symbol=str(sym_sig),
-                                                        side=_side,
-                                                        strategy=str(strat or ""),
-                                                        entry_price=_entry,
-                                                        exit_price=_exit,
-                                                        qty=_qty,
-                                                        notional_usdt=_notional,
-                                                        realized_pnl_usdt=_pnl,
-                                                        realized_r=_r,
-                                                        close_reason=close_reason_str,
-                                                        hold_seconds=_hold_s,
-                                                    )
-                                                except Exception as _tn_exc:
-                                                    log(f"  TELEGRAM_CLOSE_FAIL: {_tn_exc}")
-                                        except Exception as tje:
-                                            log(
-                                                f"  TRADE_CLOSED_WRITE_FAIL sig_id={sig_id}: {str(tje)[:120]}"
-                                            )
-                            except Exception as je:
-                                log(
-                                    f"  TRADE_CLOSED_LOOKUP_FAIL prot_id={prot_id}: {str(je)[:120]}"
-                                )
-                        elif _should_retire_protection(any_terminal, _prot_qty_now):
-                            # trigger yok ama terminal + pozisyon flat → satır emekli edildi
-                            log(f"PROT_CANCEL: {sym} cancelled (stale/manual — no trigger)")
+                        # All terminal fills were handled by the durable event loop.
+                        continue
                     except Exception as e:
                         # KALAN_ISLER #8: sayaç-only (log zaten var) — akış aynı.
                         record_degraded_read("prot_check.algo_history", e, emit_log=False)
@@ -1877,6 +3320,21 @@ def position_check():
         #  • SL yok + kayıtlı SL ihlal → pozisyonu market kapatır (kaçan stop)
         # SL tespiti orderType=STOP_MARKET (SL breakeven'e çıksa da doğru
         # tanınır). Ratchet: SL yalnız lehe taşınır. Kaynak: pyramid_store.
+        _pending_retry_entries, _pending_queue_err = _read_pending_retry_entries()
+        _pending_queue_fail_closed = False
+        if _pending_queue_err is None:
+            _pending_queue_read_fail_ticks = 0
+        else:
+            _pending_queue_read_fail_ticks += 1
+            _pending_queue_fail_closed = (
+                _pending_queue_read_fail_ticks <= _PENDING_QUEUE_READ_FAIL_CLOSED_TICKS
+            )
+            log(
+                "  PROT_WATCHDOG_PENDING_READ_ERR: "
+                f"{_pending_queue_err} — fail-closed="
+                f"{_pending_queue_read_fail_ticks}/"
+                f"{_PENDING_QUEUE_READ_FAIL_CLOSED_TICKS}"
+            )
         try:
             for p in positions:
                 _contracts = abs(float(p.get("contracts", 0) or 0))
@@ -1888,8 +3346,65 @@ def position_check():
                 _side = (p.get("side") or "").lower()
                 _entry = float(p.get("entryPrice", 0) or 0)
                 _mark = float(p.get("markPrice", 0) or 0)
+                _position_info = p.get("info") if isinstance(p.get("info"), dict) else {}
+                try:
+                    _position_update_ms = float(
+                        p.get("updateTime") or _position_info.get("updateTime") or 0
+                    )
+                except (TypeError, ValueError):
+                    _position_update_ms = 0.0
                 if _entry <= 0 or _side not in ("long", "short"):
                     continue
+                _pending_intent = _pending_retry_intent_for_position(
+                    _pending_retry_entries,
+                    _sym_ccxt,
+                    _side,
+                    position_contracts=_contracts,
+                    position_entry_price=_entry,
+                    position_update_time_ms=(
+                        _position_update_ms if _position_update_ms > 0 else None
+                    ),
+                )
+                _pending_watchdog_action = _pending_retry_watchdog_action(
+                    _pending_intent,
+                    queue_read_fail_closed=_pending_queue_fail_closed,
+                )
+                # Queue read belirsizliği tek tick'te entry-price fallback veya
+                # market-close izni değildir. Fakat kalıcı bozuk queue watchdog'u
+                # sonsuza dek susturmasın: yalnız sabit sayıda tick fail-closed.
+                if _pending_watchdog_action == "hold_queue_uncertain":
+                    log(
+                        f"  PROT_WATCHDOG_PENDING_READ_HOLD: {_sym_algo} {_side} — "
+                        "queue ownership belirsiz; bu tick koruma mutation atlandı"
+                    )
+                    continue
+
+                if _pending_watchdog_action == "hold_processor_owned":
+                    # Retry processor bu intent'in tek protection writer'ıdır.
+                    # Watchdog burada entry-price SL koyarsa veya market kapatırsa
+                    # processor'ün orijinal SL/TP finalize'ıyla yarışır; aynı
+                    # pozisyona duplicate leg / erken BE kapanışı üretir.
+                    log(
+                        f"  PROT_WATCHDOG_PENDING_OWNER: {_sym_algo} {_side} "
+                        f"intent={_pending_intent['owner_id']} "
+                        f"until={_pending_intent['lease_deadline'].isoformat()} — "
+                        "retry processor owns original SL/TP; this tick skipped"
+                    )
+                    continue
+                if _pending_watchdog_action == "watchdog_normal_ignore_intent":
+                    log(
+                        f"  PROT_WATCHDOG_GENERATION_UNVERIFIABLE: "
+                        f"{_sym_algo} {_side} intent={_pending_intent['owner_id']} — "
+                        "lease expired; old WAL levels ignored"
+                    )
+                    _pending_intent = None
+                    _pending_watchdog_action = "watchdog_normal"
+                if _pending_watchdog_action == "watchdog_takeover_original_levels":
+                    log(
+                        f"  PROT_WATCHDOG_PENDING_LEASE_EXPIRED: {_sym_algo} {_side} "
+                        f"intent={_pending_intent['owner_id']} — watchdog takeover uses "
+                        f"original SL=${_pending_intent['sl_price']}"
+                    )
                 # FIX 2026-05-28 (Faz 14.27): SL emir filtresine SIDE eklendi.
                 # Önceki bug: STOP_MARKET emirleri yön bağımsız toplanıyordu →
                 # pozisyon SHORT'tan LONG'a döndüğünde eski BUY STOP emri "LONG'un
@@ -1943,7 +3458,7 @@ def position_check():
                     if _a != _cur_aid:
                         try:
                             ex.fapiPrivateDeleteAlgoOrder({"symbol": _sym_algo, "algoId": _a})
-                            log(f"  PROT_WATCHDOG: {_sym_algo} fazla SL iptal " f"(algoId={_a})")
+                            log(f"  PROT_WATCHDOG: {_sym_algo} fazla SL iptal (algoId={_a})")
                         except Exception as _e:
                             # log-only: iptal edilemeyen fazla-SL sonraki tick'te tekrar denenir
                             log(f"  EXCESS_SL_CANCEL_FAIL {_sym_algo} algoId={_a}: {str(_e)[:60]}")
@@ -1951,7 +3466,12 @@ def position_check():
                 # ÖNEMLİ: TP1/TP2/R hesabı leg-1 (orijinal) entry ile yapılmalı.
                 # Borsa entryPrice'ı pyramid ADD sonrası ortalama → şişer →
                 # TP2 yanlış hesaplanır, trailing hiç tetiklenmez.
-                _intended_sl = None
+                # Lease bittiyse entry-price fallback yerine queue'daki orijinal
+                # risk seviyesiyle devral. Bu, bounded lease sonrasında watchdog'u
+                # tekrar etkinleştirir ama BE'de yanlış close/SL üretmez.
+                _intended_sl = (
+                    float(_pending_intent["sl_price"]) if _pending_intent is not None else None
+                )
                 _pyr_entry = None
                 _pyr_pos_obj = None
                 for _pp in (_pyramid_positions or {}).values():
@@ -2264,7 +3784,7 @@ def position_check():
                             f"${_cur_sl} → ${_sl_str} (trailing)"
                         )
                 except Exception as _wd_place_err:
-                    log(f"  PROT_WATCHDOG_FAIL: {_sym_algo}: " f"{str(_wd_place_err)[:110]}")
+                    log(f"  PROT_WATCHDOG_FAIL: {_sym_algo}: {str(_wd_place_err)[:110]}")
         except Exception as _wd_err:
             log(f"  PROT_WATCHDOG_ERR: {str(_wd_err)[:120]}")
 
@@ -2304,6 +3824,8 @@ def position_check():
         except Exception as pyr_loop_err:
             log(f"PYRAMID_LOOP_ERR: {str(pyr_loop_err)[:120]}")
 
+        return state
+
     except Exception as e:
         log(f"POS_CHECK ERROR: {e}")
         # P2-#11 minimal-güvenli varyant (2026-07-10): HEAL/PROT dev-bloklarında
@@ -2318,6 +3840,7 @@ def position_check():
             if _leak_con is not None and hasattr(_leak_con, "close"):
                 with _ctx.suppress(Exception):
                     _leak_con.close()
+        return None
 
 
 # =====================================================================
@@ -2396,6 +3919,8 @@ def run_15m_mode(once: bool = False) -> None:
     Stale signal guard: >30 dk → REJECT (DQ-02)
     Pyramid hook: SEC54.3 pyramid_router.on_position_check (graceful if not yet present)
     """
+    global _DAEMON_PRIVATE_EXCHANGE
+
     # FIX 2026-05-28 (audit-A1): SIGTERM/SIGHUP handler kur.
     # PID 17267 sessiz öldü çünkü signal handler yoktu — Python interpreter
     # cleanup yaptı (stderr'e resource_tracker warning düştü) ama futures_daemon.log'a
@@ -2419,6 +3944,9 @@ def run_15m_mode(once: bool = False) -> None:
 
     try:
         from price_action.execution.dead_mans_switch import DeadMansSwitch
+        from scripts.futures_trade_daily import (
+            get_binance_ban_until as _get_binance_ban_until_dms,
+        )
         from scripts.futures_trade_daily import get_futures_exchange as _get_fx_dms
 
         # G21 fix (hard review 2026-05-21): DMS'e gerçek exchange ver — eskiden
@@ -2430,9 +3958,20 @@ def run_15m_mode(once: bool = False) -> None:
             service_name="futures_daemon_15m",
             tf="15m",
             db_path=IDEMPOTENCY_DB,
+            # Main-loop liveness is the heartbeat. The DMS must not mask a
+            # stalled scan loop or poll two private REST endpoints every 20s.
+            # Its exchange handle remains available only for stale-triggered
+            # emergency flatten.
+            external_heartbeat=True,
+            # Shared 418 state closes the local HTTP gate. Preserve the finite
+            # emergency retry budget until that deadline, then resume flatten.
+            retry_not_before_reader=_get_binance_ban_until_dms,
         )
         dms_15m.start()
-        log("15M_DMS: başlatıldı (tf=15m, heartbeat=20s, timeout=1800s, flatten AKTİF)")
+        log(
+            "15M_DMS: başlatıldı (tf=15m, heartbeat=external-main-loop, "
+            "timeout=1800s, background REST poll=OFF, flatten AKTİF)"
+        )
     except Exception as e:
         # FAIL-CLOSED (2026-07-10 Principal onayı): DMS kurulamadıysa KORUMASIZ
         # koşmayı REDDET (eski: switch'siz devam = fail-open). launchd yeniden
@@ -2570,8 +4109,9 @@ def run_15m_mode(once: bool = False) -> None:
     try:
         from scripts.futures_trade_daily import get_futures_exchange as _get_fx_rb
 
-        _rb_exchange = _get_fx_rb()
-        _rebuild_position_tracking_from_exchange(_rb_exchange)
+        _DAEMON_PRIVATE_EXCHANGE = _get_fx_rb()
+        _rebuild_position_tracking_from_exchange(_DAEMON_PRIVATE_EXCHANGE)
+        log("15M_EXCHANGE_CLIENT: process-long main client hazır (DMS ayrı instance)")
     except Exception as _rb_err:
         log(
             f"REBUILD_TRACKING_INIT_ERR: {_rb_err} — takip kaydı yeniden kurulamadı, G22 fallback devam"
@@ -2581,7 +4121,7 @@ def run_15m_mode(once: bool = False) -> None:
     log("FUTURES 15M DAEMON STARTED")
     log("  - Signal scan: her 15 dakikada (bar-close + 5s buffer)")
     log("  - Position monitor: her bar (pyramid trigger detection)")
-    log("  - DMS heartbeat: 20s (tf=15m, timeout=30dk)")
+    log("  - DMS heartbeat: ana-loop bar tick'i (tf=15m, timeout=30dk, background REST yok)")
     log("  - Stale guard: >30 dk sinyal REJECT")
     log("  - Pyramid DB persist: pyramid_store.duckdb (SEC58-L2)")
     log("=" * 60)
@@ -2626,11 +4166,14 @@ def run_15m_mode(once: bool = False) -> None:
             if dms_15m is not None:
                 _hb = getattr(dms_15m, "_heartbeat_thread", None)
                 _wd = getattr(dms_15m, "_watchdog_thread", None)
-                _hb_dead = _hb is not None and not _hb.is_alive()
-                _wd_dead = _wd is not None and not _wd.is_alive()
+                _external_hb = bool(getattr(dms_15m, "external_heartbeat", False))
+                _hb_dead = (not _external_hb) and (_hb is None or not _hb.is_alive())
+                _wd_dead = _wd is None or not _wd.is_alive()
                 if _hb_dead or _wd_dead:
                     log(
-                        f"15M_DMS_THREAD_DEAD: heartbeat_alive={not _hb_dead} "
+                        f"15M_DMS_THREAD_DEAD: heartbeat_mode="
+                        f"{'external' if _external_hb else 'thread'} "
+                        f"heartbeat_alive={not _hb_dead} "
                         f"watchdog_alive={not _wd_dead} — emergency shutdown"
                     )
                     try:
@@ -2735,7 +4278,7 @@ def run_15m_mode(once: bool = False) -> None:
                             age_min = (datetime.now(UTC) - _bc.to_pydatetime()).total_seconds() / 60
                             if age_min > 30:
                                 log(
-                                    f"  15M_REJECT_STALE(daemon-guard): {sig.get('symbol','?')} age={age_min:.1f}min"
+                                    f"  15M_REJECT_STALE(daemon-guard): {sig.get('symbol', '?')} age={age_min:.1f}min"
                                 )
                                 continue
                     except Exception as age_err:
@@ -2753,7 +4296,7 @@ def run_15m_mode(once: bool = False) -> None:
                         _ws_sl_pct = abs(_ws_entry - _ws_sl) / _ws_entry if _ws_entry > 0 else 0.0
                         if _ws_sl_pct < _sl_pct_min_15m:
                             log(
-                                f"  15M_REJECT_WIDESTOP: {sig.get('symbol','?')} "
+                                f"  15M_REJECT_WIDESTOP: {sig.get('symbol', '?')} "
                                 f"sl_pct={_ws_sl_pct:.4f} < {_sl_pct_min_15m:.4f}"
                             )
                             continue
@@ -2765,9 +4308,10 @@ def run_15m_mode(once: bool = False) -> None:
                         import yaml as _yaml
 
                         from scripts.futures_trade_daily import (
+                            _futures_state_entry_trusted,
+                            build_protection_plan,
+                            ensure_original_level_sl,
                             fetch_futures_state,
-                            get_futures_exchange,
-                            place_protection_orders,
                             setup_leverage,
                         )
                         from scripts.lib.risk_integration import (
@@ -2776,7 +4320,7 @@ def run_15m_mode(once: bool = False) -> None:
                             load_risk_officer,
                         )
 
-                        _ex_submit = get_futures_exchange()
+                        _ex_submit = _get_daemon_exchange()
                         _state_submit = fetch_futures_state(_ex_submit)
 
                         # SEC-#3A: Konsantrasyon fail-safe — stale pozisyon dedektörü.
@@ -2790,15 +4334,35 @@ def run_15m_mode(once: bool = False) -> None:
                         _pos_ok_15m = _state_submit.get("positions_ok", True)
                         _init_margin_15m = float(_state_submit.get("total_initial_margin", 0))
                         _pos_list_15m = _state_submit.get("positions", [])
-                        _stale_positions_15m = not _pos_ok_15m or (
-                            len(_pos_list_15m) == 0 and _init_margin_15m > 0
+                        _exchange_complete_15m = (
+                            _state_submit.get("exchange_state_complete") is True
                         )
+                        _stale_positions_15m = not _futures_state_entry_trusted(_state_submit)
                         if _stale_positions_15m:
                             log(
-                                f"  ENTRY_SKIP_STALE_POS: {sig.get('symbol','?')} — "
-                                f"pozisyon verisi güvenilmez (positions_ok={_pos_ok_15m}, "
+                                f"  ENTRY_SKIP_STALE_POS: {sig.get('symbol', '?')} — "
+                                f"exchange state güvenilmez "
+                                f"(complete={_exchange_complete_15m}, "
+                                f"positions_ok={_pos_ok_15m}, "
+                                f"order_scope_ok={_state_submit.get('order_scope_ok')}, "
                                 f"pos_list_len={len(_pos_list_15m)}, "
                                 f"initialMargin={_init_margin_15m:.2f}), giriş atlandı"
+                            )
+                            continue
+
+                        # New strategy signals never add to an existing net
+                        # symbol position.  Pyramids have their own explicit
+                        # router/state machine; allowing this path to add would
+                        # merge exchange generations and make protection replay
+                        # unable to distinguish the old weighted position.
+                        _same_symbol_open = _has_existing_symbol_position(
+                            _pos_list_15m,
+                            sig.get("symbol"),
+                        )
+                        if _same_symbol_open:
+                            log(
+                                f"  15M_REJECT_EXISTING_SYMBOL: {sig.get('symbol', '?')} "
+                                "— new signal cannot merge with an existing net position"
                             )
                             continue
 
@@ -2856,8 +4420,8 @@ def run_15m_mode(once: bool = False) -> None:
 
                         if not hasattr(_decision, "quantity"):
                             log(
-                                f"  15M_REJECT_RISK: {sig['symbol']} {sig.get('strategy','')} "
-                                f"reason={getattr(_decision,'reason','unknown')}"
+                                f"  15M_REJECT_RISK: {sig['symbol']} {sig.get('strategy', '')} "
+                                f"reason={getattr(_decision, 'reason', 'unknown')}"
                             )
                         else:
                             _qty = float(_decision.quantity)
@@ -2867,7 +4431,7 @@ def run_15m_mode(once: bool = False) -> None:
                             # üzerinden); _LEV_HARD_CAP = mutlak son-savunma tavanı
                             # (yaml ne derse desin aşılamaz). yaml>cap ise startup'ta
                             # LEV_CAP_MISMATCH uyarısı düşer.
-                            _lev = max(1, min(_LEV_HARD_CAP, int(round(_decision.leverage)))) or 1
+                            _lev = max(1, min(_LEV_HARD_CAP, round(_decision.leverage))) or 1
                             _margin = _notional / _lev if _lev > 0 else _notional
 
                             if _margin > _state_submit["available_balance"] * 0.9:
@@ -2882,9 +4446,9 @@ def run_15m_mode(once: bool = False) -> None:
                                 import hashlib as _hashlib
 
                                 _fp_src = (
-                                    f"{sig['symbol']}|{sig.get('side','')}|"
-                                    f"{sig.get('strategy','')}|"
-                                    f"{sig.get('bar_close_ts') or sig.get('ts','')!s}"
+                                    f"{sig['symbol']}|{sig.get('side', '')}|"
+                                    f"{sig.get('strategy', '')}|"
+                                    f"{sig.get('bar_close_ts') or sig.get('ts', '')!s}"
                                 )
                                 _fp = _hashlib.sha256(_fp_src.encode()).hexdigest()[:16]
                                 _coid = f"PA_{_fp}"  # max 19 char (< 36 limit)
@@ -2896,7 +4460,7 @@ def run_15m_mode(once: bool = False) -> None:
                                 _idem = _IdemStore(db_path=IDEMPOTENCY_DB)
                                 if _idem.is_seen(_fp):
                                     log(
-                                        f"  15M_IDEM_SKIP: {sig['symbol']} {sig.get('strategy','')} "
+                                        f"  15M_IDEM_SKIP: {sig['symbol']} {sig.get('strategy', '')} "
                                         f"fp={_fp} — zaten gönderildi (restart/duplicate scan)"
                                     )
                                     continue
@@ -2934,13 +4498,93 @@ def run_15m_mode(once: bool = False) -> None:
                                         f"{str(_lim_err)[:80]} — kontrol atlandı (fail-open)"
                                     )
 
+                                (
+                                    _pre_submit_position_qty,
+                                    _pre_submit_position_entry_price,
+                                ) = _entry_position_baseline(_state_submit, sig["symbol"])
+
+                                # First-entry write-ahead intent.  This fsync happens before
+                                # both post-only and market HTTP submits.  A restart can
+                                # reconcile the exact deterministic COID; if the WAL cannot
+                                # be written, sending an entry is forbidden.
+                                _pending_path = DATA_DIR / "pending_retries.jsonl"
+                                _existing_work, _existing_work_err = _read_pending_retry_entries()
+                                if _existing_work_err:
+                                    log(
+                                        f"  15M_ENTRY_WAL_READ_FAIL_CLOSED: "
+                                        f"{sig['symbol']} {_existing_work_err}"
+                                    )
+                                    continue
+                                if any(
+                                    str(item.get("client_order_id") or item.get("work_id") or "")
+                                    == _coid
+                                    for item in _existing_work
+                                ):
+                                    log(
+                                        f"  15M_ENTRY_WAL_SKIP: {sig['symbol']} coid={_coid} "
+                                        "— durable work already owns this signal"
+                                    )
+                                    continue
+
+                                _entry_journal_signal_id = _uuid.uuid5(
+                                    _uuid.NAMESPACE_URL, f"15m-signal|{_coid}"
+                                ).hex[:16]
+                                _entry_journal_protection_id = _uuid.uuid5(
+                                    _uuid.NAMESPACE_URL, f"15m-protection|{_coid}"
+                                ).hex[:16]
+                                _entry_wal = _build_pending_retry_entry(
+                                    sig,
+                                    qty=_qty,
+                                    entry_px=_cur_px,
+                                    leverage=_lev,
+                                    client_order_id=_coid,
+                                    orig_error="EntrySubmitPrepared: no HTTP side effect yet",
+                                    pre_submit_position_qty=_pre_submit_position_qty,
+                                    pre_submit_position_entry_price=(
+                                        _pre_submit_position_entry_price
+                                    ),
+                                )
+                                _entry_wal.update(
+                                    {
+                                        "schema_version": 1,
+                                        "work_type": "entry_submit_intent_v1",
+                                        "signal_fingerprint": _fp,
+                                        "entry_submit_allowed": True,
+                                        "journal_signal_id": _entry_journal_signal_id,
+                                        "journal_protection_id": (_entry_journal_protection_id),
+                                        "direct_submit_lease_until": (
+                                            datetime.now(UTC) + timedelta(seconds=90)
+                                        ).isoformat(),
+                                        "submit_uncertainty": {
+                                            "stage": "initial_submit_prepared",
+                                            "main_client_order_id": _coid,
+                                            "fallback_client_order_id": None,
+                                            "partial_order_id": None,
+                                            "partial_qty": 0.0,
+                                            "remaining_qty": _qty,
+                                        },
+                                        "uncertain_client_order_ids": [_coid],
+                                    }
+                                )
+                                try:
+                                    _entry_wal_line = _enqueue_pending_retry(
+                                        _entry_wal, _pending_path
+                                    )
+                                except Exception as _entry_wal_exc:
+                                    log(
+                                        f"  15M_ENTRY_WAL_FAIL_CLOSED: {sig['symbol']} "
+                                        f"{type(_entry_wal_exc).__name__}: "
+                                        f"{str(_entry_wal_exc)[:120]} — order NOT sent"
+                                    )
+                                    continue
                                 _idem.mark_submitted(_fp, symbol=sig["symbol"], side=_order_side)
 
                                 # ── POST-ONLY ENTRY PATH (2026-05-21) ──────────────────────────
                                 # Config-gated: post_only_limit_enabled (default False → backward-compat)
                                 # 1d pattern (futures_trade_daily.py:331-343) birebir izlendi.
                                 # Idempotency: _coid her iki yolda da geçilir.
-                                # SlippageExceededError: yakala, logla, o sinyali skip et, devam et.
+                                # High-slippage fills keep ownership and continue into the
+                                # same durable SL-first protection path as every other fill.
                                 _15m_po_enabled = bool(
                                     _risk_cfg.get("execution", {}).get(
                                         "post_only_limit_enabled", False
@@ -2989,75 +4633,94 @@ def run_15m_mode(once: bool = False) -> None:
                                         )
                                         _fill_method = "market_only"
                                 except Exception as _entry_exc:
-                                    # SlippageExceededError veya başka hata — sinyali skip et
                                     _exc_name = type(_entry_exc).__name__
-                                    if "SlippageExceeded" in _exc_name:
-                                        log(
-                                            f"  15M_SLIP_EXCEEDED: {sig['symbol']} {_entry_exc} — sinyal atlandı"
-                                        )
-                                        _idem.mark_filled(_fp, "", 0.0, 0.0)
-                                        continue
-
-                                    # FIX 2026-05-26 v2: H6 düzeltme — DEFERRED QUEUE pattern.
-                                    # Önceki versiyon time.sleep(30+60)=90s ile daemon ana
-                                    # döngüyü bloke ediyordu (position monitor + diğer sembol
-                                    # sinyalleri gecikti). Yeni: timeout durumunda sinyali
-                                    # data/pending_retries.jsonl'e yaz ve continue.
-                                    # Scheduler _job_process_pending_entries (her 60s)
-                                    # bu kuyruğu işler, retry yapar, fill ederse journal
-                                    # yazar. Daemon hiç bloke olmaz.
                                     _err_str = str(_entry_exc)
+                                    try:
+                                        from price_action.execution.post_only_router import (
+                                            OrderSubmissionUncertainError as _OrderSubmissionUncertainError,
+                                        )
+                                        from price_action.execution.post_only_router import (
+                                            _is_definitive_submit_rejection,
+                                        )
+
+                                        _is_submit_uncertain = isinstance(
+                                            _entry_exc, _OrderSubmissionUncertainError
+                                        )
+                                    except ImportError:
+                                        _is_submit_uncertain = False
+                                        _is_definitive_submit_rejection = lambda _exc: False
                                     _is_timeout = (
                                         "RequestTimeout" in _exc_name
                                         or "-1007" in _err_str
                                         or "timeout" in _err_str.lower()
                                         or "Timeout" in _err_str
                                     )
-                                    if _is_timeout:
-                                        # Deferred retry queue'ya yaz, daemon bloke olma
-                                        try:
-                                            _pending_path = DATA_DIR / "pending_retries.jsonl"
-                                            _pending_path.parent.mkdir(parents=True, exist_ok=True)
-                                            _pending_entry = {
-                                                "ts": datetime.now(UTC).isoformat(),
-                                                "tf": "15m",
-                                                "symbol": sig["symbol"],
-                                                "strategy": sig.get("strategy", ""),
-                                                "side": sig["side"],
-                                                "qty": _qty,
-                                                "entry_px": _cur_px,
-                                                "sl_price": sig.get("sl_price"),
-                                                "tp_price": sig.get("tp_price"),
-                                                "leverage": _lev,
-                                                "client_order_id": _coid,
-                                                "attempts": 0,  # scheduler bunu artırır
-                                                "max_attempts": 2,
-                                                "max_age_seconds": 120,  # 2 dk window
-                                                "orig_error": f"{_exc_name}: {str(_entry_exc)[:200]}",
-                                                # F4 FIX 2026-07-10: kuyruk kaydı kendini-tarifler —
-                                                # kuyruk dosyası botlar-arası paylaşımlı; retry
-                                                # subprocess'i doğru journal/idempotency DB'sini
-                                                # ancak kayıttan öğrenebilir (PA_BOT_NAME orada yok).
-                                                "bot_name": os.environ.get("PA_BOT_NAME", ""),
-                                                "journal_db": str(JOURNAL),
-                                                "idempotency_db": str(IDEMPOTENCY_DB),
-                                            }
-                                            with open(_pending_path, "a", encoding="utf-8") as _pf:
-                                                _pf.write(
-                                                    json.dumps(_pending_entry, default=str) + "\n"
-                                                )
-                                            log(
-                                                f"  15M_ENTRY_DEFERRED: {sig['symbol']} → pending_retries queue "
-                                                f"(daemon devam ediyor, retry async)"
-                                            )
-                                        except Exception as _q_exc:
-                                            log(f"  15M_QUEUE_FAIL: {sig['symbol']} {_q_exc}")
-                                        # NOT: _idem.mark_filled YAPMA — retry başarılı olursa
-                                        # işaretlemez, sonsuz queue riski. Scheduler retry
-                                        # sonucuna göre mark_filled yapar.
+
+                                    # The pre-submit row already exists.  Persist additional
+                                    # ACK/uncertainty facts on that exact row; never append a
+                                    # second submit-capable copy after an ambiguous response.
+                                    _entry_wal["orig_error"] = (
+                                        f"{_exc_name}: {str(_entry_exc)[:200]}"
+                                    )
+                                    _entry_wal["direct_submit_lease_until"] = datetime.now(
+                                        UTC
+                                    ).isoformat()
+                                    if hasattr(_entry_exc, "to_queue_fields"):
+                                        _entry_wal.update(_entry_exc.to_queue_fields())
+                                    else:
+                                        _entry_wal["submit_uncertainty"]["stage"] = (
+                                            "initial_submit_response_uncertain"
+                                        )
+                                        _entry_wal["submit_uncertainty"]["error_type"] = _exc_name
+                                    try:
+                                        _entry_wal_line = _replace_pending_retry(
+                                            _entry_wal, _entry_wal_line, _pending_path
+                                        )
+                                    except Exception as _transition_exc:
+                                        # The original pre-submit WAL remains durable and is
+                                        # sufficient to reconcile main/fallback COIDs.
+                                        log(
+                                            f"  15M_ENTRY_WAL_TRANSITION_FAIL: "
+                                            f"{sig['symbol']} {str(_transition_exc)[:120]}"
+                                        )
+
+                                    if "SlippageExceeded" in _exc_name:
+                                        log(
+                                            f"  15M_SLIP_EXCEEDED_RECONCILE: "
+                                            f"{sig['symbol']} {_entry_exc} — durable WAL held"
+                                        )
+                                        continue
+                                    if (
+                                        _is_submit_uncertain
+                                        or _is_timeout
+                                        or not (_is_definitive_submit_rejection(_entry_exc))
+                                    ):
+                                        log(
+                                            f"  15M_ENTRY_DEFERRED: {sig['symbol']} "
+                                            f"coid={_coid} — existing WAL will reconcile async"
+                                        )
                                         continue
 
-                                    # Non-timeout hata: doğrudan miss, audit + alert
+                                    # Only an explicit exchange rejection can terminate the
+                                    # entry.  Persist no-submit first: deletion is cleanup and
+                                    # may race a processor rewrite/crash.
+                                    try:
+                                        _entry_wal_line = _transition_pending_retry_to_no_submit(
+                                            _entry_wal,
+                                            _entry_wal_line,
+                                            path=_pending_path,
+                                            reason="definitive_exchange_rejection",
+                                            updates={
+                                                "terminal_rejection": True,
+                                                "terminal_rejection_type": _exc_name,
+                                            },
+                                        )
+                                        _remove_pending_retry(_entry_wal_line, _pending_path)
+                                    except Exception as _remove_exc:
+                                        log(
+                                            f"  15M_ENTRY_WAL_TERMINALIZE_FAIL: "
+                                            f"{sig['symbol']} {str(_remove_exc)[:100]}"
+                                        )
                                     log(
                                         f"  15M_ENTRY_ERR: {sig['symbol']} {_exc_name}: {str(_entry_exc)[:120]}"
                                     )
@@ -3088,7 +4751,7 @@ def run_15m_mode(once: bool = False) -> None:
 
                                         push_critical(
                                             f"15m ENTRY MISSED: {sig['symbol']} {sig['side']} "
-                                            f"{sig.get('strategy','')} — {_exc_name} "
+                                            f"{sig.get('strategy', '')} — {_exc_name} "
                                             f"({str(_entry_exc)[:80]})",
                                             source="futures15m",
                                         )
@@ -3097,73 +4760,363 @@ def run_15m_mode(once: bool = False) -> None:
                                     _idem.mark_filled(_fp, "", 0.0, 0.0)
                                     continue  # bu sinyali atla, daemon devam et
 
-                                _avg_px = float(
-                                    _order.get("average") or _order.get("price") or _cur_px
+                                # Entry truth sırası:
+                                #   1) matching-engine userTrades (tüm mixed leg order id'leri),
+                                #   2) router'ın explicit verified qty+price contract'i,
+                                #   3) pre/post exchange-position delta.
+                                # Hiçbiri yoksa intended qty/arrival price ASLA fill kanıtı olmaz.
+                                _entry_symbol_id = (
+                                    sig["symbol"].replace("/", "").replace(":USDT", "")
                                 )
-                                # Fix B (slippage 0.0 bug): slippage ÖLÇÜMÜ için borsanın
-                                # raporladığı GERÇEK fill fiyatını AYRI tut. _avg_px borsa
-                                # average vermezse _cur_px'e (arrival) düşer → realized==expected
-                                # → sahte 0.0 bps (167 market girişi). _slip_realized_px journal'a
-                                # DOKUNMADAN gerçek avg'i taşır (measurement-only). None = ölçülemez.
-                                _slip_realized_px = _slip_realized_from_order(
-                                    _order.get("average"), _order.get("price"), None
+                                _entry_trade_exec = _entry_execution_from_user_trades(
+                                    _ex_submit, _entry_symbol_id, _order
                                 )
-                                # FIX 2026-05-30 (INC2-fill-qty): market_fallback path'de
-                                # Binance testnet bazen filled=None/0 döner (async fill).
-                                # Önceki: `or _qty` → intended qty yazılıyordu (NEAR 291→219 bug).
-                                # Düzeltme: filled falsy ise fetch_order ile gerçek değeri al;
-                                # o da başarısızsa/hâlâ 0 ise intended qty'yi yaz AMA warn log.
-                                _raw_filled = _order.get("filled")
-                                _qty_missing = not _raw_filled or float(_raw_filled) <= 0
-                                # Fetch: qty eksikse VEYA slippage için gerçek avg eksikse.
-                                # _avg_px/qty tazeleme YALNIZ qty eksikken (eski davranış byte-aynı);
-                                # avg-only durumda sadece _slip_realized_px doldurulur.
-                                if _qty_missing or _slip_realized_px is None:
-                                    _order_id_for_fetch = str(_order.get("id", ""))
-                                    if _order_id_for_fetch:
-                                        try:
-                                            _fetched = _ex_submit.fetch_order(
-                                                _order_id_for_fetch, sig["symbol"]
-                                            )
-                                            _fetched_avg = _fetched.get("average") or _fetched.get(
-                                                "price"
-                                            )
-                                            if _qty_missing:
-                                                _raw_filled = _fetched.get("filled") or _raw_filled
-                                                # avg_px da fetch'ten daha güvenilir olabilir
-                                                if _fetched_avg:
-                                                    _avg_px = float(_fetched_avg)
-                                            if _slip_realized_px is None:
-                                                _slip_realized_px = _slip_realized_from_order(
-                                                    None, None, _fetched_avg
-                                                )
-                                        except Exception as _fe_err:
-                                            # KALAN_ISLER #8: sayaç-only (log zaten var).
-                                            record_degraded_read(
-                                                "entry_submit.fetch_order",
-                                                _fe_err,
-                                                emit_log=False,
-                                            )
-                                            log(
-                                                f"  15M_FILL_FETCH_ERR: {sig['symbol']} fetch_order fail: {str(_fe_err)[:80]}"
-                                            )
-                                if _raw_filled and float(_raw_filled) > 0:
-                                    _fill_qty = float(_raw_filled)
-                                else:
-                                    log(
-                                        f"  15M_FILL_QTY_WARN: {sig['symbol']} filled=0/None after fetch — "
-                                        f"using intended qty={_qty} (AUDIT REQUIRED)"
+                                _entry_fee_usdt = _entry_trade_exec["fee_usdt"]
+                                _entry_fee_source = _entry_trade_exec["fee_source"]
+                                _entry_truth_source = ""
+                                _fill_qty = 0.0
+                                _avg_px = 0.0
+                                _filled_notional = 0.0
+
+                                if _entry_trade_exec["complete"]:
+                                    _fill_qty = float(_entry_trade_exec["quantity"] or 0.0)
+                                    _avg_px = float(_entry_trade_exec["price"] or 0.0)
+                                    _filled_notional = float(
+                                        _entry_trade_exec["notional_usdt"] or 0.0
                                     )
-                                    _fill_qty = float(_qty)
-                                _sig_id = _uuid.uuid4().hex[:16]
+                                    _entry_truth_source = "exchange_user_trades"
+                                elif (
+                                    _order.get("fill_quantity_verified") is True
+                                    and _order.get("fill_price_verified") is True
+                                ):
+                                    _fill_qty = float(_order.get("filled") or 0.0)
+                                    _avg_px = float(_order.get("average") or 0.0)
+                                    _filled_notional = float(
+                                        _order.get("cost") or (_fill_qty * _avg_px)
+                                    )
+                                    _entry_truth_source = "router_verified"
+                                else:
+                                    try:
+                                        _post_fill_state = fetch_futures_state(_ex_submit)
+                                        _position_truth = _entry_position_delta_evidence(
+                                            _state_submit,
+                                            _post_fill_state,
+                                            sig["symbol"],
+                                            sig["side"],
+                                        )
+                                        if _position_truth["complete"]:
+                                            _fill_qty = float(_position_truth["quantity"] or 0.0)
+                                            _avg_px = float(_position_truth["price"] or 0.0)
+                                            _filled_notional = float(
+                                                _position_truth["notional_usdt"] or 0.0
+                                            )
+                                            _entry_truth_source = str(_position_truth["source"])
+                                    except Exception as _pos_reconcile_err:
+                                        record_degraded_read(
+                                            "entry_submit.position_reconcile",
+                                            _pos_reconcile_err,
+                                            emit_log=False,
+                                        )
+
+                                if (
+                                    not _entry_truth_source
+                                    or _fill_qty <= 0
+                                    or _avg_px <= 0
+                                    or _filled_notional <= 0
+                                ):
+                                    log(
+                                        f"  15M_FILL_UNVERIFIED_CRITICAL: {sig['symbol']} "
+                                        f"order_ids={_entry_trade_exec['order_ids']} — "
+                                        "intended qty journal/protection'a yazılmadı; "
+                                        "owned-position reconcile tetiklendi"
+                                    )
+                                    try:
+                                        from price_action.orchestrator.notifications import (
+                                            push_critical,
+                                        )
+
+                                        push_critical(
+                                            f"🚨 15m FILL UNVERIFIED — {sig['symbol']} "
+                                            f"order_ids={_entry_trade_exec['order_ids']}. "
+                                            "Journal/protection için sahte qty kullanılmadı; "
+                                            "exchange position reconcile gerekiyor.",
+                                            source="futures15m_fill_unverified",
+                                        )
+                                    except Exception:
+                                        pass
+                                    # Transition the pre-submit WAL to reconcile-only.  The
+                                    # original row is replaced durably; a second submit-capable
+                                    # queue copy is never appended.
+                                    try:
+                                        _known_fill_ids = _known_order_ids_from_ack(_order)
+                                        for _known_fill_id in list(
+                                            _entry_trade_exec.get("order_ids") or []
+                                        ):
+                                            if _known_fill_id not in _known_fill_ids:
+                                                _known_fill_ids.append(_known_fill_id)
+                                        _entry_wal.update(
+                                            {
+                                                "orig_error": (
+                                                    "FillEvidenceUnverified: immediate submit "
+                                                    "ACK received; exchange fill facts delayed"
+                                                ),
+                                                "known_order_ids": _known_fill_ids,
+                                                "submitted_order_id": (
+                                                    _known_fill_ids[0] if _known_fill_ids else None
+                                                ),
+                                                "reconcile_only": True,
+                                                "entry_submit_allowed": False,
+                                                "direct_submit_lease_until": (
+                                                    datetime.now(UTC).isoformat()
+                                                ),
+                                                "terminal_no_fill_confirmations_required": 2,
+                                            }
+                                        )
+                                        _entry_wal["submit_uncertainty"]["stage"] = (
+                                            "immediate_submit_fill_unverified"
+                                        )
+                                        _entry_wal_line = _replace_pending_retry(
+                                            _entry_wal,
+                                            _entry_wal_line,
+                                            _pending_path,
+                                        )
+                                        log(
+                                            f"  15M_FILL_RECONCILE_QUEUED: {sig['symbol']} "
+                                            f"order_ids={_known_fill_ids}"
+                                        )
+                                    except Exception as _fill_q_exc:
+                                        log(
+                                            f"  15M_FILL_RECONCILE_QUEUE_FAIL: {sig['symbol']} "
+                                            f"{str(_fill_q_exc)[:120]}"
+                                        )
+                                    try:
+                                        position_check()
+                                    except Exception as _owned_reconcile_err:
+                                        log(
+                                            f"  15M_OWNED_RECONCILE_ERR: "
+                                            f"{str(_owned_reconcile_err)[:100]}"
+                                        )
+                                    continue
+
+                                _slip_realized_px = _avg_px
+                                _filled_margin = _filled_notional / max(int(_lev or 1), 1)
+                                _sig_id = _entry_journal_signal_id
+                                _journal_prot_id = _entry_journal_protection_id
+                                _entry_notional = _filled_notional
+                                if _entry_trade_exec["complete"]:
+                                    _entry_maker_qty = float(
+                                        _entry_trade_exec["maker_quantity"] or 0.0
+                                    )
+                                    _entry_maker_notional = float(
+                                        _entry_trade_exec["maker_notional_usdt"] or 0.0
+                                    )
+                                else:
+                                    _method_is_maker = _fill_method.startswith("post_only_filled")
+                                    _entry_maker_qty = float(
+                                        _order.get("partial_limit_qty")
+                                        or (_fill_qty if _method_is_maker else 0.0)
+                                    )
+                                    _entry_maker_notional = float(
+                                        _order.get("partial_limit_notional")
+                                        or (_entry_notional if _method_is_maker else 0.0)
+                                    )
+                                _entry_maker_qty = min(max(_entry_maker_qty, 0.0), _fill_qty)
+                                _entry_maker_notional = min(
+                                    max(_entry_maker_notional, 0.0), _entry_notional
+                                )
+                                _is_maker = _entry_maker_qty >= (
+                                    _fill_qty - max(1e-9, _fill_qty * 1e-9)
+                                )
+                                _entry_order_type = (
+                                    "limit"
+                                    if _is_maker
+                                    else (
+                                        "mixed_limit_market" if _entry_maker_qty > 0 else "market"
+                                    )
+                                )
+                                _entry_execution_evidence = {
+                                    "schema_version": 1,
+                                    "expected_price": float(_cur_px),
+                                    "realized_price": float(_slip_realized_px),
+                                    "quantity": float(_fill_qty),
+                                    "notional_usdt": float(_filled_notional),
+                                    "fee_usdt": (
+                                        float(_entry_fee_usdt)
+                                        if _entry_fee_usdt is not None
+                                        else None
+                                    ),
+                                    "fee_source": str(_entry_fee_source),
+                                    "is_maker": bool(_is_maker),
+                                    "order_type": _entry_order_type,
+                                    "maker_quantity": float(_entry_maker_qty),
+                                    "maker_notional_usdt": float(_entry_maker_notional),
+                                    "fill_method": str(_fill_method),
+                                    "exchange_order_id": str(_order.get("id", "")),
+                                    "order_ids": list(_entry_trade_exec.get("order_ids") or []),
+                                }
+
+                                # A verified exchange fill first transitions its original
+                                # submit WAL to reconcile-only/no-submit.  Only then may the
+                                # dedicated protection WAL or an SL/TP side effect happen.
+                                # A crash at every boundary therefore leaves at least one
+                                # durable owner that cannot create another entry.
+                                _protection_plan = None
+                                _protection_work = None
+                                _protection_wal_persisted = False
+                                _protection_wal_error = None
+                                _entry_no_submit_persisted = False
+                                try:
+                                    _protection_plan = build_protection_plan(
+                                        _ex_submit,
+                                        symbol=sig["symbol"],
+                                        side=sig["side"],
+                                        qty=_fill_qty,
+                                        tp_price=float(sig["tp_price"]),
+                                        sl_price=float(sig["sl_price"]),
+                                        entry_price=_avg_px,
+                                        protection_key=_coid,
+                                    )
+                                    _protection_work = _build_protection_finalize_entry(
+                                        sig,
+                                        exchange=_ex_submit,
+                                        client_order_id=_coid,
+                                        order=_order,
+                                        fill_method=_fill_method,
+                                        entry_execution_evidence=(_entry_execution_evidence),
+                                        fill_qty=_fill_qty,
+                                        fill_price=_avg_px,
+                                        fill_notional=_filled_notional,
+                                        fill_source=_entry_truth_source,
+                                        leverage=_lev,
+                                        signal_id=_sig_id,
+                                        protection_id=_journal_prot_id,
+                                        protection_plan=_protection_plan,
+                                        known_order_ids=list(
+                                            _entry_trade_exec.get("order_ids") or []
+                                        ),
+                                    )
+                                    _entry_wal_line = _transition_pending_retry_to_no_submit(
+                                        _entry_wal,
+                                        _entry_wal_line,
+                                        path=_pending_path,
+                                        reason="verified_fill_protection_handoff",
+                                        updates={
+                                            "known_order_ids": _known_order_ids_from_ack(_order),
+                                            "submitted_order_id": str(_order.get("id") or ""),
+                                            "last_verified_fill_qty": _fill_qty,
+                                            "last_verified_fill_price": _avg_px,
+                                            "last_verified_fill_notional": _filled_notional,
+                                            "protection_plan": _protection_plan,
+                                            "protection_binding_sha256": (
+                                                _protection_work.get(
+                                                    "protection_binding_sha256"
+                                                )
+                                            ),
+                                            "entry_fill_method": _fill_method,
+                                            "entry_execution_outcome": _order.get(
+                                                "slippage_breach"
+                                            ),
+                                            "entry_execution_evidence": (
+                                                _entry_execution_evidence
+                                            ),
+                                        },
+                                    )
+                                    _entry_no_submit_persisted = True
+                                    (
+                                        _prot,
+                                        _protection_wal_persisted,
+                                        _protection_wal_error,
+                                    ) = _execute_protection_with_wal(_ex_submit, _protection_work)
+                                except Exception as _plan_exc:
+                                    _protection_wal_error = (
+                                        f"plan_build:{type(_plan_exc).__name__}: "
+                                        f"{str(_plan_exc)[:160]}"
+                                    )
+                                    if not _entry_no_submit_persisted:
+                                        try:
+                                            _entry_wal_line = (
+                                                _transition_pending_retry_to_no_submit(
+                                                    _entry_wal,
+                                                    _entry_wal_line,
+                                                    path=_pending_path,
+                                                    reason="verified_fill_emergency_sl",
+                                                    updates={
+                                                        "known_order_ids": (
+                                                            _known_order_ids_from_ack(_order)
+                                                        ),
+                                                        "submitted_order_id": str(
+                                                            _order.get("id") or ""
+                                                        ),
+                                                        "last_verified_fill_qty": _fill_qty,
+                                                        "last_verified_fill_price": _avg_px,
+                                                        "last_verified_fill_notional": (
+                                                            _filled_notional
+                                                        ),
+                                                        "entry_fill_method": _fill_method,
+                                                        "entry_execution_outcome": _order.get(
+                                                            "slippage_breach"
+                                                        ),
+                                                        "entry_execution_evidence": (
+                                                            _entry_execution_evidence
+                                                        ),
+                                                    },
+                                                )
+                                            )
+                                            _entry_no_submit_persisted = True
+                                        except Exception as _no_submit_exc:
+                                            _protection_wal_error += (
+                                                "; no_submit_transition:"
+                                                f"{type(_no_submit_exc).__name__}: "
+                                                f"{str(_no_submit_exc)[:100]}"
+                                            )
+                                    _prot = ensure_original_level_sl(
+                                        _ex_submit,
+                                        symbol=sig["symbol"],
+                                        side=sig["side"],
+                                        qty=_fill_qty,
+                                        sl_price=float(sig["sl_price"]),
+                                        protection_key=_coid,
+                                    )
+
+                                # Once the dedicated finalize WAL is durable it owns replay,
+                                # so remove the already-no-submit original intent.  If cleanup
+                                # fails, the surviving row remains reconcile-only and harmless.
+                                if _protection_wal_persisted:
+                                    try:
+                                        _remove_pending_retry(_entry_wal_line, _pending_path)
+                                    except Exception as _entry_remove_exc:
+                                        log(
+                                            f"  15M_ENTRY_WAL_HANDOFF_REMOVE_FAIL: "
+                                            f"{sig['symbol']} "
+                                            f"{str(_entry_remove_exc)[:120]}"
+                                        )
+                                if not _protection_wal_persisted:
+                                    log(
+                                        f"  15M_PROTECTION_WAL_CRITICAL: {sig['symbol']} "
+                                        f"{_protection_wal_error}; emergency_sl="
+                                        f"{_prot.get('status')}"
+                                    )
+                                    try:
+                                        from price_action.orchestrator.notifications import (
+                                            push_critical,
+                                        )
+
+                                        push_critical(
+                                            f"🚨 15m PROTECTION WAL FAILED — {sig['symbol']} "
+                                            f"coid={_coid}; only deterministic emergency SL "
+                                            f"was attempted ({_prot.get('status')}).",
+                                            source="futures15m_protection_wal",
+                                        )
+                                    except Exception:
+                                        pass
                                 _idem.mark_filled(
                                     _fp, str(_order.get("id", "")), _avg_px, _fill_qty
                                 )
 
                                 log(
                                     f"  15M_FILL: [{sig['side'].upper()}] {sig['symbol']} "
-                                    f"{sig.get('strategy','')} qty={_fill_qty:.4f} "
-                                    f"px=${_avg_px:.4f} lev={_lev}x id={_order.get('id','?')} "
+                                    f"{sig.get('strategy', '')} qty={_fill_qty:.4f} "
+                                    f"px=${_avg_px:.4f} lev={_lev}x id={_order.get('id', '?')} "
                                     f"coid={_coid} method={_fill_method}"
                                 )
 
@@ -3200,31 +5153,31 @@ def run_15m_mode(once: bool = False) -> None:
                                     )
 
                                     _st = _ST()
-                                    _entry_notional = _fill_qty * _avg_px
-                                    # post_only_filled → maker rebate (~4bps), market_fallback → taker (~8bps)
-                                    _is_maker = _fill_method == "post_only_filled"
-                                    _entry_fee_bps = 4.0 if _is_maker else 8.0
-                                    _entry_fee_usdt = _entry_notional * _entry_fee_bps / 10_000
                                     _st.record_fill(
                                         fill_id=f"entry_{_sig_id}",
                                         ts=datetime.now(UTC),
                                         symbol=sig["symbol"],
                                         strategy=sig.get("strategy", ""),
                                         side=sig["side"],
-                                        # Fix B: expected = arrival (_cur_px), realized = borsanın
-                                        # GERÇEK avg'i (_slip_realized_px). Ölçülemezse _cur_px'e
-                                        # döner (dürüst-0). _avg_px'e dokunulmaz (journal byte-aynı).
                                         expected_price=_cur_px,
-                                        realized_price=(
-                                            _slip_realized_px if _slip_realized_px else _cur_px
-                                        ),
+                                        realized_price=_slip_realized_px,
                                         quantity=_fill_qty,
+                                        # userTrades eksikse tahmin YOK: NULL/unavailable.
                                         fee_usdt=_entry_fee_usdt,
                                         is_maker=_is_maker,
-                                        order_type=("limit" if _is_maker else "market"),
+                                        order_type=_entry_order_type,
                                         mode=os.environ.get("PA_RUN_MODE", "paper"),
                                         exchange_order_id=str(_order.get("id", "")),
                                         client_order_id=_coid,
+                                        fill_type="entry",
+                                        fill_role="entry",
+                                        fee_source=_entry_fee_source,
+                                        maker_quantity=_entry_maker_qty,
+                                        maker_notional_usdt=_entry_maker_notional,
+                                        notes=(
+                                            f"truth_source={_entry_truth_source} "
+                                            f"order_ids={','.join(_entry_trade_exec['order_ids'])}"
+                                        ),
                                         tf="15m",
                                     )
                                 except Exception as _st_err:
@@ -3241,7 +5194,9 @@ def run_15m_mode(once: bool = False) -> None:
                                         """,
                                             (
                                                 _sig_id,
-                                                sig.get("bar_close_ts") or sig.get("ts"),
+                                                _utc_naive_timestamp(
+                                                    sig.get("bar_close_ts") or sig.get("ts")
+                                                ),
                                                 sig["symbol"],
                                                 sig.get("strategy", ""),
                                                 sig["side"],
@@ -3253,9 +5208,16 @@ def run_15m_mode(once: bool = False) -> None:
                                                 str(_order.get("id", "")),
                                                 _avg_px,
                                                 _fill_qty,
-                                                _notional,
-                                                _margin,
-                                                None,
+                                                _filled_notional,
+                                                _filled_margin,
+                                                (
+                                                    f"protection_wal="
+                                                    f"{_protection_wal_persisted} "
+                                                    f"protection_key="
+                                                    f"{(_protection_plan or {}).get('protection_key', '')} "
+                                                    f"plan_sha256="
+                                                    f"{(_protection_plan or {}).get('plan_sha256', '')}"
+                                                ),
                                             ),
                                         )
                                         _jcon.commit()
@@ -3264,16 +5226,6 @@ def run_15m_mode(once: bool = False) -> None:
                                 except Exception as _je_sig:
                                     log(f"    15M_JOURNAL_SIG_ERR: {str(_je_sig)[:120]}")
 
-                                # Protection orders
-                                _prot = place_protection_orders(
-                                    _ex_submit,
-                                    sig["symbol"],
-                                    sig["side"],
-                                    _fill_qty,
-                                    float(sig["tp_price"]),
-                                    float(sig["sl_price"]),
-                                    entry_price=_avg_px,
-                                )
                                 # FIX 2026-06-05: orijinal SL'i stabil sakla → watchdog
                                 # trailing'i hareketli SL yerine bunu kullanır (XRP +$64→$0 fix).
                                 try:
@@ -3294,17 +5246,22 @@ def run_15m_mode(once: bool = False) -> None:
                                     try:
                                         _jcon = duckdb.connect(str(JOURNAL))
                                         try:
-                                            _prot_id = _uuid.uuid4().hex[:16]
-                                            _notes = None
+                                            _prot_id = _journal_prot_id
+                                            _notes = (
+                                                f"protection_key={_prot.get('protection_key', '')} "
+                                                f"plan_sha256={_prot.get('plan_sha256', '')} "
+                                                f"client_order_ids="
+                                                f"{json.dumps(_prot.get('client_order_ids', {}), sort_keys=True)}"
+                                            )
                                             if _prot.get("mode") == "multi_target":
-                                                _notes = f"mode=multi_target tp2={_prot.get('tp2_price',0):.4f} tp2_id={_prot.get('tp2_order_id','')}"
+                                                _notes += f" mode=multi_target tp2={_prot.get('tp2_price', 0):.4f} tp2_id={_prot.get('tp2_order_id', '')}"
                                             _jcon.execute(
                                                 """
                                                 INSERT INTO futures_protection_orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                             """,
                                                 (
                                                     _prot_id,
-                                                    datetime.now(UTC),
+                                                    _utc_naive_timestamp(datetime.now(UTC)),
                                                     _sig_id,
                                                     sig["symbol"],
                                                     sig["side"],
@@ -3324,58 +5281,6 @@ def run_15m_mode(once: bool = False) -> None:
                                         log(f"    15M_JOURNAL_PROT_ERR: {str(_je_prot)[:120]}")
                                 else:
                                     log(f"    15M_PROTECT_ERR: {_prot.get('reason')}")
-
-                                # FIX 2026-06-05 (kullanıcı isteği — LINK -$224 çıplak olayı):
-                                # GİRİŞTE HEMEN-DOĞRULA-YOKSA-KOY. place_protection_orders
-                                # başarısız dönebilir VEYA SL borsaya düşmeyebilir → pozisyon
-                                # çıplak kalır, 15-dk watchdog'a kadar korumasız (LINK girişten
-                                # sonra çıplak kalıp -%20 düştü). Çözüm: koruma çağrısından HEMEN
-                                # sonra borsada gerçekten SL var mı bak; yoksa anında widestop SL
-                                # koy — tick'i BEKLEME. Pozisyon fresh (mark≈entry) → reduceOnly
-                                # STOP tetik-altı değil, -2022 riski düşük; olursa watchdog yakalar.
-                                try:
-                                    _vsym = sig["symbol"].replace("/", "").replace(":USDT", "")
-                                    _v_algo = _ex_submit.fapiPrivateGetOpenAlgoOrders()
-                                    _v_ords = (
-                                        _v_algo.get("orders", _v_algo)
-                                        if isinstance(_v_algo, dict)
-                                        else _v_algo
-                                    )
-                                    _has_sl = any(
-                                        o.get("symbol") == _vsym
-                                        and "STOP" in str(o.get("orderType", ""))
-                                        for o in (_v_ords or [])
-                                    )
-                                    if not _has_sl:
-                                        _v_side = (
-                                            "SELL" if str(sig["side"]).lower() == "long" else "BUY"
-                                        )
-                                        _v_sl_str = _ex_submit.price_to_precision(
-                                            sig["symbol"], float(sig["sl_price"])
-                                        )
-                                        _v_qty_str = _ex_submit.amount_to_precision(
-                                            sig["symbol"], _fill_qty
-                                        )
-                                        _ex_submit.create_order(
-                                            symbol=sig["symbol"],
-                                            type="STOP_MARKET",
-                                            side=_v_side,
-                                            amount=float(_v_qty_str),
-                                            params={
-                                                "stopPrice": _v_sl_str,
-                                                "reduceOnly": True,
-                                                "workingType": "MARK_PRICE",
-                                            },
-                                        )
-                                        log(
-                                            f"    15M_PROTECT_VERIFY: {_vsym} SL borsada YOKTU "
-                                            f"→ ANINDA kondu @ ${_v_sl_str} qty={_v_qty_str}"
-                                        )
-                                except Exception as _v_err:
-                                    log(
-                                        f"    15M_PROTECT_VERIFY_FAIL: {sig['symbol']} "
-                                        f"{str(_v_err)[:90]} — watchdog yedek yakalayacak"
-                                    )
 
                                 # P-04: PyramidPosition build + register (P-05 cleanup ready)
                                 if _pyramid_router_15m is not None:
@@ -3415,7 +5320,7 @@ def run_15m_mode(once: bool = False) -> None:
                                         log(f"    15M_PYRAMID_BUILD_ERR: {pyr_build_err}")
 
                     except Exception as sub_err:
-                        log(f"  15M_ORDER_ERR: {sig.get('symbol','?')}: {str(sub_err)[:120]}")
+                        log(f"  15M_ORDER_ERR: {sig.get('symbol', '?')}: {str(sub_err)[:120]}")
 
                     order_elapsed = (datetime.now(UTC) - order_start).total_seconds()
                     if _metrics_ok:
@@ -3426,24 +5331,30 @@ def run_15m_mode(once: bool = False) -> None:
 
                 # ------ POSITION MONITOR (pyramid hook + P-05 TP/SL pop) ------
                 pos_monitor_start = datetime.now(UTC)
+                _pos_check_state = None
                 try:
-                    position_check()  # 1d pos_check: TP/SL fill detection + orphan cleanup
+                    # Bu state aynı barın breaker/equity kanıtında yeniden
+                    # kullanılır; ikinci bir account/positions/orders turu atılmaz.
+                    _pos_check_state = position_check()
 
                     # P-04/P-05: PyramidRouter hook — aktif pyramid pozisyonları kontrol et
                     if _pyramid_router_15m is not None and _pyramid_positions:
                         try:
                             from scripts.futures_trade_daily import (
                                 fetch_futures_state,
-                                get_futures_exchange,
                             )
 
-                            _ex_mon = get_futures_exchange()
+                            _ex_mon = _get_daemon_exchange()
                             # Restart-recovered pyramid pozisyonları için exchange set et
                             # (router exchange=None ile init edilir, yeni signal fill yoksa
                             # boş kalır → create_market_order'da NoneType crash).
                             if _pyramid_router_15m.exchange is None:
                                 _pyramid_router_15m.exchange = _ex_mon
                             _state_mon = fetch_futures_state(_ex_mon)
+                            if _state_mon.get("exchange_state_complete") is not True:
+                                raise RuntimeError(
+                                    "pyramid monitor exchange state UNKNOWN; mutation skipped"
+                                )
                             _pyr_now = datetime.now(UTC)
                             # Aktif exchange pozisyonlarından mark price haritası
                             _mark_map: dict[str, float] = {}
@@ -3519,7 +5430,6 @@ def run_15m_mode(once: bool = False) -> None:
                 try:
                     from scripts.futures_trade_daily import (
                         fetch_futures_state,
-                        get_futures_exchange,
                     )
                     from scripts.lib.risk_integration import (
                         build_futures_account_state,
@@ -3533,22 +5443,67 @@ def run_15m_mode(once: bool = False) -> None:
                         yaml_path=_g19_risk_yaml,
                         breaker_state_path=_g19_state_path,
                     )
-                    _g19_ex = get_futures_exchange()
-                    _g19_state = fetch_futures_state(_g19_ex)
+                    if _pos_check_state is not None:
+                        _g19_state = _pos_check_state
+                    else:
+                        _g19_ex = _get_daemon_exchange()
+                        _g19_state = fetch_futures_state(_g19_ex)
+                    if _g19_state.get("exchange_state_complete") is not True:
+                        log(
+                            "15M_BREAKER_TICK_SKIP_UNKNOWN: exchange state incomplete; "
+                            "breaker/equity mutation atlandı"
+                        )
+                        raise RuntimeError("G19 exchange state UNKNOWN")
                     _g19_acct = build_futures_account_state(_g19_state, journal_path=JOURNAL)
                     _g19_snap = _g19_ro.breaker.update_from_account(_g19_acct)
                     if any(_g19_snap.values()):
                         log(f"15M_BREAKER_TICK: triggered={_g19_snap}")
+                    # Aynı G19 API sonucunu ayrıca equity kanıtı olarak yaz; yeni
+                    # borsa çağrısı yok. Bar-boundary ID aynı bar retry/restart'ında
+                    # duplicate üretmez. Snapshot hatası breaker akışını bloklamaz.
+                    try:
+                        _g19_snapshot_id = (
+                            f"{_BOT_NAME or 'default'}_15m_"
+                            f"{current_boundary.strftime('%Y%m%dT%H%MZ')}"
+                        )
+                        _write_equity_snapshot(
+                            _g19_state,
+                            snapshot_id=_g19_snapshot_id,
+                            snapshot_ts=current_boundary,
+                            notes="15m_bar_g19",
+                        )
+                        log(
+                            f"15M_EQUITY_SNAPSHOT: id={_g19_snapshot_id} "
+                            f"wallet=${float(_g19_state['wallet_balance']):.2f}"
+                        )
+                    except Exception as _g19_snap_err:
+                        log(f"15M_EQUITY_SNAPSHOT_ERR: {str(_g19_snap_err)[:120]}")
                 except Exception as _g19_err:
                     log(f"15M_BREAKER_TICK_ERR: {str(_g19_err)[:120]}")
 
                 # ------ DMS HEARTBEAT ------
                 if dms_15m is not None:
                     try:
-                        dms_15m.ping()
+                        _dms_equity = 0.0
+                        _dms_positions = 0
+                        if isinstance(_pos_check_state, dict):
+                            _dms_equity = float(
+                                _pos_check_state.get("margin_balance")
+                                or _pos_check_state.get("wallet_balance")
+                                or 0.0
+                            )
+                            _dms_positions = int(_pos_check_state.get("n_positions") or 0)
+                        dms_15m.ping(
+                            equity_usdt=_dms_equity,
+                            n_open_positions=_dms_positions,
+                        )
                     except Exception as _e:
                         log(f"DMS_15M_PING_FAIL: {_e}")  # log-only: akış değişmez
 
+                # Evidence-only: CCXT'nin son response header snapshot'ı.
+                # Yalnız rate-limit whitelist'i loglanır; header yok/bozuksa
+                # UNKNOWN. Bu telemetri karar veya request akışını değiştirmez.
+                log(_rate_budget_log_line(_DAEMON_PRIVATE_EXCHANGE))
                 log(
                     f"15M_TICK_DONE: scan={scan_elapsed:.1f}s pos_monitor={pos_monitor_elapsed:.1f}s"
                 )
@@ -3589,27 +5544,28 @@ def run_15m_mode(once: bool = False) -> None:
                 dms_15m.stop()
             except Exception as _ds_err:
                 log(f"15M_DMS_STOP_ERR: {str(_ds_err)[:120]}")  # log-only
+        _DAEMON_PRIVATE_EXCHANGE = None
 
 
-def signal_scan_if_new_day():
+def signal_scan_if_new_day(now: datetime | None = None):
+    """Retire the unsafe legacy 1d submit loop without a minute error storm."""
     global _last_signal_scan_date
-    now = datetime.now(UTC)
+    now = now or datetime.now(UTC)
+    now = now.replace(tzinfo=UTC) if now.tzinfo is None else now.astimezone(UTC)
     today = now.date()
     if _last_signal_scan_date == today:
         return
     if now.hour == 0 and now.minute < 10:
         return
-    log(f"DAILY_SCAN: yeni gün {today}, sinyal taraması başlıyor...")
-    try:
-        from scripts.futures_trade_daily import daily_run
-
-        target = now - timedelta(days=1)
-        daily_run(target, dry_run=False)
-        _last_signal_scan_date = today
-        _save_last_scan_date(today)
-        log(f"DAILY_SCAN: tamamlandı, target={target.date()}")
-    except Exception as e:
-        log(f"DAILY_SCAN ERROR: {e}")
+    # futures_trade_daily.daily_run(non-dry) is intentionally fail-closed because
+    # it has no crash-complete entry/protection WAL. Calling it here every minute
+    # could only raise forever; the supported live scanner is run_15m_mode.
+    _last_signal_scan_date = today
+    _save_last_scan_date(today)
+    log(
+        f"DAILY_SCAN_RETIRED: {today} legacy 1d execution disabled; "
+        "scan/order/network I/O yapılmadı (use 15m mode)"
+    )
 
 
 def main_loop():
@@ -4007,9 +5963,7 @@ def run_5m_mode(once: bool = False) -> None:
         for _l in _tb.format_exc().splitlines()[-12:]:
             log_5m(f"  TB: {_l[:180]}")
         if _err_count_5m >= _ERR_ABORT_5M:
-            log_5m(
-                f"5M_ABORT: {_err_count_5m} ardışık hata, daemon exit " f"(launchd restart eder)"
-            )
+            log_5m(f"5M_ABORT: {_err_count_5m} ardışık hata, daemon exit (launchd restart eder)")
         else:
             _bk = min(2 * (2 ** (_err_count_5m - 1)), 60)
             log_5m(f"5M_BACKOFF: {_bk}s — sonraki tick'te tekrar dene")

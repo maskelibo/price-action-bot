@@ -10,8 +10,9 @@ Gerçek borsa/DB çağrısı yok. Tüm exchange + idempotency + slippage mock.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch, call
+from datetime import UTC, datetime
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -22,7 +23,6 @@ from price_action.execution.pyramid_router import (
     _make_client_order_id,
     build_position_from_signal,
 )
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Test fixture builder'ları
@@ -48,7 +48,7 @@ def _make_position(legs=None) -> PyramidPosition:
         leg_price=ENTRY_PRICE,
         client_order_id="PA_test123456789_L1",
         fill_price=ENTRY_PRICE,
-        filled_at=datetime.now(timezone.utc),
+        filled_at=datetime.now(UTC),
     )
     return PyramidPosition(
         parent_position_id="test123456789_base",
@@ -101,7 +101,7 @@ def _mk_market_order(fill_avg=66_300.0, fill_qty=0.005, status="closed") -> dict
     }
 
 
-TS = datetime(2026, 5, 18, 12, 0, 0, tzinfo=timezone.utc)
+TS = datetime(2026, 5, 18, 12, 0, 0, tzinfo=UTC)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -339,6 +339,8 @@ def test_scenario3_leg3_post_only_fill():
         "status": "closed",
         "average": TRIG_LEG3,
         "filled": 0.003,
+        "fill_price_verified": True,
+        "fill_quantity_verified": True,
     }
 
     ex = MagicMock()
@@ -450,6 +452,8 @@ def test_scenario5_post_only_timeout_market_fallback():
         "status": "closed",
         "average": market_fill_px,
         "filled": 0.005,
+        "fill_price_verified": True,
+        "fill_quantity_verified": True,
     }
 
     ex = MagicMock()
@@ -515,9 +519,8 @@ def test_scenario5_post_only_slippage_exceeded_raises():
     with patch(
         "price_action.execution.pyramid_router.place_post_only_with_fallback",
         side_effect=SlippageExceededError(40.0, 25.0, symbol="BTC/USDT"),
-    ):
-        with pytest.raises(SlippageExceededError) as exc_info:
-            router.on_position_check(pos, TRIG_LEG2, TS)
+    ), pytest.raises(SlippageExceededError) as exc_info:
+        router.on_position_check(pos, TRIG_LEG2, TS)
 
     assert exc_info.value.slippage_bps == pytest.approx(40.0)
 
@@ -528,8 +531,8 @@ def test_scenario5_post_only_slippage_exceeded_raises():
     idem.mark_rejected.assert_called_once()
 
 
-def test_scenario5_slip_exceeded_telemetry_recorded():
-    """SlippageExceededError → record_fill REJECTED kaydı yapılmalı (telemetri kör kalmasın)."""
+def test_scenario5_legacy_slip_error_does_not_fabricate_fill_telemetry():
+    """Fiyat/qty kanıtı yoksa rejected olayı sahte fill olarak yazılmaz."""
     from price_action.execution.post_only_router import SlippageExceededError
 
     ex = MagicMock()
@@ -551,18 +554,149 @@ def test_scenario5_slip_exceeded_telemetry_recorded():
     with patch(
         "price_action.execution.pyramid_router.place_post_only_with_fallback",
         side_effect=SlippageExceededError(46.0, 25.0, symbol="BTC/USDT"),
-    ):
-        with pytest.raises(SlippageExceededError):
-            router.on_position_check(pos, TRIG_LEG2, TS)
+    ), pytest.raises(SlippageExceededError):
+        router.on_position_check(pos, TRIG_LEG2, TS)
 
-    # Telemetri: record_fill çağrıldı
-    slip.record_fill.assert_called_once()
-    kw = slip.record_fill.call_args.kwargs
-    # REJECTED kaydı: is_maker=False, notes'ta slip değer var
-    assert kw["is_maker"] is False
-    assert "REJECTED" in kw["notes"]
-    assert "46.0bps" in kw["notes"]
-    assert kw["order_type"] == "slip_exceeded_reverse_close"
+    slip.record_fill.assert_not_called()
+    idem.mark_rejected.assert_called_once()
+
+
+def test_uncertain_post_only_submit_is_durably_held_submitted_without_fake_fill():
+    """Unknown ACK is a durable no-resubmit marker, never a rejected/fill event."""
+    from price_action.execution.post_only_router import OrderSubmissionUncertainError
+
+    ex = MagicMock()
+    idem = MagicMock()
+    idem.is_seen.return_value = False
+    slip = MagicMock()
+    pos = _make_position()
+    router = _make_router(exchange=ex, idem=idem, slippage=slip, post_only_enabled=True)
+    uncertain = OrderSubmissionUncertainError(
+        stage="market_fallback_submit",
+        symbol=pos.symbol,
+        side="buy",
+        main_client_order_id="test-main",
+        fallback_client_order_id="test-fallback",
+        partial_order=None,
+        partial_qty=0.0,
+        remaining_qty=0.005,
+        cause=TimeoutError("ACK missing"),
+    )
+
+    with patch(
+        "price_action.execution.pyramid_router.place_post_only_with_fallback",
+        side_effect=uncertain,
+    ), pytest.raises(OrderSubmissionUncertainError):
+        router.on_position_check(pos, TRIG_LEG2, TS)
+
+    leg2 = pos.leg_for_num(2)
+    assert leg2 is not None
+    assert leg2.leg_state == "SUBMITTED"
+    idem.mark_submitted.assert_called_once_with(
+        leg2.client_order_id,
+        symbol=pos.symbol,
+        side="buy",
+    )
+    idem.mark_filled.assert_not_called()
+    idem.mark_rejected.assert_not_called()
+    slip.record_fill.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("price_verified", "quantity_verified"),
+    [(False, True), (True, False), (False, False)],
+)
+def test_closed_post_only_fill_requires_verified_price_and_quantity(
+    price_verified, quantity_verified
+):
+    """A closed status cannot promote trigger/size fallbacks into fill truth."""
+    order = {
+        "id": "UNVERIFIED_CLOSED",
+        "status": "closed",
+        "average": TRIG_LEG2,
+        "filled": 0.005,
+        "fill_price_verified": price_verified,
+        "fill_quantity_verified": quantity_verified,
+    }
+    ex = MagicMock()
+    idem = MagicMock()
+    idem.is_seen.return_value = False
+    slip = MagicMock()
+    pos = _make_position()
+    router = _make_router(exchange=ex, idem=idem, slippage=slip, post_only_enabled=True)
+
+    with patch(
+        "price_action.execution.pyramid_router.place_post_only_with_fallback",
+        return_value=(order, "market_fallback"),
+    ):
+        router.on_position_check(pos, TRIG_LEG2, TS)
+
+    leg2 = pos.leg_for_num(2)
+    assert leg2 is not None
+    assert leg2.leg_state == "SUBMITTED"
+    idem.mark_submitted.assert_called_once()
+    idem.mark_filled.assert_not_called()
+    slip.record_fill.assert_not_called()
+
+
+def test_slippage_breach_must_own_the_same_verified_fill():
+    """Mismatched breach metadata stays SUBMITTED and cannot resize protection."""
+    order = {
+        "id": "BREACH_MISMATCH",
+        "status": "closed",
+        "average": TRIG_LEG2,
+        "filled": 0.005,
+        "fill_price_verified": True,
+        "fill_quantity_verified": True,
+        "slippage_breach": {
+            "disposition": "protect_position",
+            "position_owned": True,
+            "protection_required": True,
+            "fill_evidence_verified": True,
+            "owned_quantity": 0.004,
+            "owned_average": TRIG_LEG2,
+        },
+    }
+    ex = MagicMock()
+    idem = MagicMock()
+    idem.is_seen.return_value = False
+    slip = MagicMock()
+    pos = _make_position()
+    router = _make_router(exchange=ex, idem=idem, slippage=slip, post_only_enabled=True)
+    resize = MagicMock()
+    router._resize_protection_after_leg_fill = resize
+
+    with patch(
+        "price_action.execution.pyramid_router.place_post_only_with_fallback",
+        return_value=(order, "market_fallback_slippage_breach_protect"),
+    ):
+        router.on_position_check(pos, TRIG_LEG2, TS)
+
+    leg2 = pos.leg_for_num(2)
+    assert leg2 is not None
+    assert leg2.leg_state == "SUBMITTED"
+    idem.mark_filled.assert_not_called()
+    slip.record_fill.assert_not_called()
+    resize.assert_not_called()
+
+
+def test_production_daemon_hard_disables_config_enabled_pyramid(tmp_path, monkeypatch):
+    """Until pyramid gets crash-complete WAL, config=true still performs no I/O."""
+    import scripts.futures_daemon as daemon
+
+    config = tmp_path / "risk.yaml"
+    config.write_text("strategy_portfolio:\n  pyramid_enabled: true\n", encoding="utf-8")
+    messages = []
+    monkeypatch.setattr(daemon, "_risk_config_15m", lambda: config)
+    monkeypatch.setattr(daemon, "_PYRAMID_ENABLED_CACHE", {})
+    monkeypatch.setattr(daemon, "_pyramid_router_instance", None)
+    monkeypatch.setattr(daemon, "log", messages.append)
+    exchange = MagicMock()
+
+    assert daemon._pyramid_enabled_15m() is False
+    assert daemon._get_pyramid_router(exchange) is None
+    assert exchange.mock_calls == []
+    assert any("PYRAMID_EXECUTION_DISABLED" in message for message in messages)
 
 
 def test_post_only_fill_is_maker_true():
@@ -572,6 +706,8 @@ def test_post_only_fill_is_maker_true():
         "status": "closed",
         "average": TRIG_LEG2,
         "filled": 0.005,
+        "fill_price_verified": True,
+        "fill_quantity_verified": True,
     }
 
     ex = MagicMock()
@@ -611,6 +747,8 @@ def test_market_fallback_is_maker_false():
         "status": "closed",
         "average": market_fill_px,
         "filled": 0.005,
+        "fill_price_verified": True,
+        "fill_quantity_verified": True,
     }
 
     ex = MagicMock()
@@ -725,11 +863,11 @@ class _ResizeFakeExchange:
         self.old_sl_trigger = old_sl_trigger
         self.calls = []  # (op, payload) sıralı
 
-    def fapiPrivateV2GetPositionRisk(self):
+    def fapiPrivateV2GetPositionRisk(self):  # noqa: N802 - CCXT raw API name
         self.calls.append(("position_risk", None))
         return [{"symbol": "BTCUSDT", "positionAmt": str(self.position_amt)}]
 
-    def fapiPrivateGetOpenAlgoOrders(self):
+    def fapiPrivateGetOpenAlgoOrders(self):  # noqa: N802 - CCXT raw API name
         self.calls.append(("get_algos", None))
         return [{
             "symbol": "BTCUSDT", "algoId": 111, "orderType": "STOP_MARKET",
@@ -746,7 +884,7 @@ class _ResizeFakeExchange:
         self.calls.append(("create_order", kw))
         return {"id": "999", "status": "open"}
 
-    def fapiPrivateDeleteAlgoOrder(self, params):
+    def fapiPrivateDeleteAlgoOrder(self, params):  # noqa: N802 - CCXT raw API name
         self.calls.append(("delete_algo", params))
         return {"code": "200"}
 
@@ -804,9 +942,12 @@ class TestLegFillSLResize:
 
     def test_leg_fill_triggers_resize(self):
         """submit_leg FILLED yolunda resize çağrısı yapılır (entegrasyon)."""
-        src = open(
-            __import__("pathlib").Path(__file__).resolve().parents[2]
-            / "src" / "price_action" / "execution" / "pyramid_router.py",
-            encoding="utf-8",
-        ).read()
+        source_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "price_action"
+            / "execution"
+            / "pyramid_router.py"
+        )
+        src = source_path.read_text(encoding="utf-8")
         assert "_resize_protection_after_leg_fill(position, leg_num)" in src

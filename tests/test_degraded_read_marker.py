@@ -14,6 +14,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import duckdb
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -106,10 +107,10 @@ class _FailingReadsExchange:
     def fetch_positions(self):
         raise RuntimeError("418 rate-limit ban")
 
-    def fapiPrivateGetOpenOrders(self):  # noqa: N802 — ccxt API adı
+    def fapiPrivateGetOpenOrders(self, _params=None):  # noqa: N802 — ccxt API adı
         raise RuntimeError("timeout")
 
-    def fapiPrivateGetOpenAlgoOrders(self):  # noqa: N802 — ccxt API adı
+    def fapiPrivateGetOpenAlgoOrders(self, _params=None):  # noqa: N802 — ccxt API adı
         raise RuntimeError("HTTP 503")
 
 
@@ -126,11 +127,24 @@ class _CleanExchange:
     def fetch_positions(self):
         return []
 
-    def fapiPrivateGetOpenOrders(self):  # noqa: N802 — ccxt API adı
+    def fapiPrivateGetOpenOrders(self, _params=None):  # noqa: N802 — ccxt API adı
         return []
 
-    def fapiPrivateGetOpenAlgoOrders(self):  # noqa: N802 — ccxt API adı
+    def fapiPrivateGetOpenAlgoOrders(self, _params=None):  # noqa: N802 — ccxt API adı
         return []
+
+
+def _create_empty_scope_journal(path: Path) -> Path:
+    con = duckdb.connect(str(path))
+    try:
+        con.execute("CREATE TABLE futures_protection_orders(symbol VARCHAR, status VARCHAR)")
+        con.execute(
+            "CREATE TABLE futures_signals(signal_id VARCHAR, symbol VARCHAR, status VARCHAR)"
+        )
+        con.execute("CREATE TABLE futures_trades_closed(trade_id VARCHAR)")
+    finally:
+        con.close()
+    return path
 
 
 class TestFetchFuturesStateDegradedVisibility:
@@ -151,27 +165,28 @@ class TestFetchFuturesStateDegradedVisibility:
         assert state["algo_orders_ok"] is False
         assert state["wallet_balance"] == 5000.0
 
-        # AMA artık ayırt edilebilir: sayaç 3 kaynak için arttı
-        assert total_degraded_reads() == 3
+        # Pozisyon okuması başarısızsa order kapsamı UNKNOWN'dır; yüksek
+        # maliyetli order endpoint'lerine devam edilmez.
+        assert state["exchange_state_complete"] is False
+        assert state["orders_state"] == "unknown"
+        assert total_degraded_reads() == 1
         snap = degraded_reads_snapshot()
         assert snap["fetch_futures_state.fetch_positions"]["count"] == 1
-        assert snap["fetch_futures_state.open_orders"]["count"] == 1
-        assert snap["fetch_futures_state.open_algo_orders"]["count"] == 1
 
         # ve log işareti üretildi (stderr → launchd log kanalı)
         err = capsys.readouterr().err
         assert "DEGRADED_READ: fetch_futures_state.fetch_positions" in err
-        assert "DEGRADED_READ: fetch_futures_state.open_orders" in err
-        assert "DEGRADED_READ: fetch_futures_state.open_algo_orders" in err
 
-    def test_clean_reads_do_not_count_or_mark(self, capsys):
+    def test_clean_reads_do_not_count_or_mark(self, capsys, tmp_path):
         from scripts.futures_trade_daily import fetch_futures_state
 
-        state = fetch_futures_state(_CleanExchange())
+        journal = _create_empty_scope_journal(tmp_path / "scope.duckdb")
+        state = fetch_futures_state(_CleanExchange(), journal_path=journal)
         assert state["positions"] == []
         assert state["positions_ok"] is True
         assert state["regular_orders_ok"] is True
         assert state["algo_orders_ok"] is True
+        assert state["exchange_state_complete"] is True
         assert total_degraded_reads() == 0
         assert "DEGRADED_READ" not in capsys.readouterr().err
 
@@ -239,7 +254,7 @@ class TestSourcePins:
             "pos_check.position_risk_confirm",
             "prot_check.algo_history",
             "prot_watchdog.fetch_positions_fresh",
-            "entry_submit.fetch_order",
+            "entry_submit.position_reconcile",
         ):
             assert "record_degraded_read(" in src and f'"{source}"' in src, source
         # POS_CHECK özet satırı [DEGRADED:n] ekini taşıyabilmeli
@@ -249,7 +264,8 @@ class TestSourcePins:
 
     def test_futures_trade_15m_site(self):
         src = self._src("scripts/futures_trade_15m.py")
-        assert 'record_degraded_read("scan15m.fresh_fetch_ohlcv"' in src
+        assert 'error("scan15m.data_stale_fail_closed")' in src
+        assert "def _fetch_fresh_bars_ccxt" not in src
 
     def test_risk_integration_sites(self):
         src = self._src("scripts/lib/risk_integration.py")

@@ -12,9 +12,13 @@ Design:
   - Reader: check file mtime every watchdog_interval; if > timeout → flatten
 
 Usage (daemon içinde):
-    dms = DeadMansSwitch(exchange, service_name="futures_daemon")
+    dms = DeadMansSwitch(
+        exchange,
+        service_name="futures_daemon",
+        external_heartbeat=True,
+    )
     dms.start()
-    # ... daemon loop ...
+    # ... her başarılı ana-loop tick'inde dms.ping(...) ...
     dms.stop()
 
 Flatten tetiklenince:
@@ -28,10 +32,12 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import sys
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -94,6 +100,8 @@ class DeadMansSwitch:
         timeout_sec: int | None = None,
         tf: str = "1d",
         heartbeat_file: Path | str | None = None,
+        external_heartbeat: bool = False,
+        retry_not_before_reader: Callable[[], float] | None = None,
     ) -> None:
         # TF-bazli parametreleri hesapla
         tf_params = _dms_params_for_tf(tf)
@@ -107,6 +115,18 @@ class DeadMansSwitch:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self.heartbeat_sec = _heartbeat
         self.timeout_sec = _timeout
+        # ``True`` olduğunda watchdog yalnız ana daemon loop'unun explicit
+        # ``ping`` çağrılarını kabul eder. Böylece yardımcı heartbeat thread'i
+        # ana-loop deadlock'unu taze heartbeat ile maskelemez ve her 20 saniyede
+        # account/positions REST polling yapmaz. Exchange handle yalnız gerçek
+        # stale durumda emergency-flatten için saklanır.
+        self.external_heartbeat = bool(external_heartbeat)
+        # Optional shared-rate-limit deadline (Unix seconds). Emergency
+        # flatten must not spend its finite retry budget on requests that the
+        # local HTTP guard will reject before network I/O.
+        self._retry_not_before_reader = retry_not_before_reader
+        self._last_deferred_deadline = 0.0
+        self._cooldown_reader_error_reported = False
         self._stop = threading.Event()
         self._heartbeat_thread: threading.Thread | None = None
         self._watchdog_thread: threading.Thread | None = None
@@ -145,19 +165,24 @@ class DeadMansSwitch:
 
     def start(self) -> None:
         """Heartbeat ve watchdog thread'lerini başlat."""
-        if self._heartbeat_thread is not None:
+        if self._watchdog_thread is not None:
             return
-        self._heartbeat_thread = threading.Thread(
-            target=self._heartbeat_loop, name=f"dms-hb-{self.service_name}", daemon=True
-        )
+        if not self.external_heartbeat:
+            self._heartbeat_thread = threading.Thread(
+                target=self._heartbeat_loop,
+                name=f"dms-hb-{self.service_name}",
+                daemon=True,
+            )
         self._watchdog_thread = threading.Thread(
             target=self._watchdog_loop, name=f"dms-wd-{self.service_name}", daemon=True
         )
-        self._heartbeat_thread.start()
+        if self._heartbeat_thread is not None:
+            self._heartbeat_thread.start()
         self._watchdog_thread.start()
         self._log(
             f"DEAD_MANS_SWITCH started: service={self.service_name} "
             f"tf={self.tf} heartbeat={self.heartbeat_sec}s "
+            f"source={'external_main_loop' if self.external_heartbeat else 'internal_thread'} "
             f"timeout={self.timeout_sec}s watchdog={self._watchdog_interval}s"
         )
 
@@ -243,12 +268,19 @@ class DeadMansSwitch:
         """
         elapsed = self.seconds_since_heartbeat
         if elapsed > self.timeout_sec and not self._flatten_done:
+            if self._flatten_blocked_by_cooldown():
+                return
             self._log(
                 f"DEAD_MANS_SWITCH TRIGGERED [{self.tf}]: heartbeat {elapsed:.0f}s ago "
                 f"(timeout={self.timeout_sec}s, attempt="
                 f"{self._flatten_attempts + 1}/{FLATTEN_MAX_ATTEMPTS})"
             )
             ok = self._emergency_flatten()
+            # A 418 may have established the shared cooldown during this
+            # attempt. Such an attempt could not complete and must not consume
+            # one of the three finite emergency retries.
+            if not ok and self._flatten_blocked_by_cooldown():
+                return
             self._flatten_attempts += 1
             if ok:
                 self._flatten_done = True
@@ -262,6 +294,53 @@ class DeadMansSwitch:
                     "DEAD_MANS_SWITCH CRIT: flatten "
                     f"{FLATTEN_MAX_ATTEMPTS} denemede DOĞRULANAMADI — manuel kontrol ŞART"
                 )
+
+    def _flatten_blocked_by_cooldown(self) -> bool:
+        """Defer emergency I/O while the shared private-REST gate is closed.
+
+        ``retry_not_before_reader`` returns a Unix epoch deadline. A reader
+        failure or invalid value is itself fail-closed: the HTTP guard cannot
+        be proven open, so no retry is burned and a single critical alarm is
+        emitted for operator repair.
+        """
+        if self._retry_not_before_reader is None:
+            return False
+        try:
+            deadline = float(self._retry_not_before_reader())
+            if not math.isfinite(deadline) or deadline < 0:
+                raise ValueError(f"invalid retry deadline: {deadline!r}")
+        except Exception as exc:
+            if not self._cooldown_reader_error_reported:
+                self._cooldown_reader_error_reported = True
+                self._log(
+                    "FLATTEN_COOLDOWN_STATE_ERROR [CRIT]: private REST gate "
+                    f"okunamadı; retry hakkı korunuyor: {type(exc).__name__}: "
+                    f"{str(exc)[:120]}"
+                )
+                self._send_alarm(
+                    "DEAD_MANS_SWITCH CRIT: private REST cooldown state "
+                    "okunamadı; flatten retry ertelendi — HUMAN REQUIRED"
+                )
+            return True
+
+        self._cooldown_reader_error_reported = False
+        now = time.time()
+        if deadline <= now:
+            self._last_deferred_deadline = 0.0
+            return False
+        if not math.isclose(deadline, self._last_deferred_deadline, abs_tol=0.001):
+            self._last_deferred_deadline = deadline
+            try:
+                retry_at = datetime.fromtimestamp(deadline, UTC).isoformat()
+            except (OverflowError, OSError, ValueError):
+                retry_at = f"unix:{deadline:.3f}"
+            self._log(
+                "FLATTEN_DEFER_COOLDOWN: private REST gate aktif; "
+                f"retry_at={retry_at} "
+                f"remaining={deadline - now:.1f}s; attempts={self._flatten_attempts}/"
+                f"{FLATTEN_MAX_ATTEMPTS} (hak tüketilmedi)"
+            )
+        return True
 
     def _watchdog_loop(self) -> None:
         while not self._stop.is_set():
@@ -335,20 +414,30 @@ class DeadMansSwitch:
 
             # 2) Algo emirleri iptal
             try:
-                algo_orders = self.exchange.fapiPrivateGetOpenAlgoOrders()
-                if isinstance(algo_orders, list):
-                    for o in algo_orders:
-                        try:
-                            sym = o.get("symbol", "")
-                            algo_id = o.get("algoId") or o.get("algo_id")
-                            if sym and algo_id:
-                                self.exchange.fapiPrivateDeleteAlgoOrder(
-                                    {"symbol": sym, "algoId": algo_id}
-                                )
-                                self._log(f"ALGO_CANCEL: {sym} algoId={algo_id}")
-                        except Exception as e:
-                            self._log(f"ALGO_CANCEL_FAIL: {e}")
+                algo_response = self.exchange.fapiPrivateGetOpenAlgoOrders()
+                algo_orders = (
+                    algo_response.get("orders")
+                    if isinstance(algo_response, dict)
+                    else algo_response
+                )
+                if not isinstance(algo_orders, list):
+                    raise TypeError(
+                        "open algo orders response must be a list or {orders: list}"
+                    )
+                for o in algo_orders:
+                    try:
+                        sym = o.get("symbol", "")
+                        algo_id = o.get("algoId") or o.get("algo_id")
+                        if sym and algo_id:
+                            self.exchange.fapiPrivateDeleteAlgoOrder(
+                                {"symbol": sym, "algoId": algo_id}
+                            )
+                            self._log(f"ALGO_CANCEL: {sym} algoId={algo_id}")
+                    except Exception as e:
+                        all_flat = False
+                        self._log(f"ALGO_CANCEL_FAIL: {e}")
             except Exception as e:
+                all_flat = False
                 self._log(f"ALGO_CANCEL_FETCH_ERROR: {e}")
 
             # 3) Borsa doğrulaması: gerçekten flat mıyız? (retry kararının kanıtı)

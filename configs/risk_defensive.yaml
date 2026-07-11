@@ -59,6 +59,7 @@ take_profit:
 # Default kapalı; hazır olunca enable: true ile aç.
 vol_target:
   enabled: true                     # v0.9.3 DEFENSIVE: aktif (DD'yi -%39 -> -%24'e dusurur)
+  input_metric: entry_stop_distance_pct
   target_atr_pct: 0.04              # %4 günlük ATR hedef (BTC normal seviyesi)
   min_factor: 0.20                  # extreme high-vol max %80 size azaltma
   max_factor: 1.50                  # extreme low-vol max %50 size büyütme

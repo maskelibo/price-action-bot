@@ -66,6 +66,7 @@ take_profit:
 vol_target:
   # 1m zorunlu -- spike anlarda pozisyon sifirlanmali
   enabled: true
+  input_metric: entry_stop_distance_pct
   # DIFF vs 5m: %0.5 -> %0.2 (1m bar vol cok kucuk)
   target_atr_pct: 0.002
   min_factor: 0.10

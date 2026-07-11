@@ -1,25 +1,27 @@
-"""V14 FRONTIER Testnet Daemon — 19-sym WIDESTOP + PYRAMID-ON + F2/F4 regime.
+"""Phase-selected 15m paper daemon wrapper with startup parity checks.
 
 PURPOSE
 -------
-v13 wrapper kalıbında ince yürütme sarmalayıcısı. v14 frontier config'i
-(configs/risk_phoenix_scalp_15m_v14_frontier.yaml) EXPLICIT yükler ve startup'ta
-DOĞRULAR (audit BLOCKER-3: v13'ün setdefault tuzağı — yanlış config sessizce
-koşuyordu). Exit yapısı backtest paritesi: engine-native 30/30/40 + %1.5 trail.
+v13 wrapper kalıbında ince yürütme sarmalayıcısı. ``PA_V14_PHASE`` ile seçilen
+config'i EXPLICIT yükler ve startup'ta doğrular (audit BLOCKER-3: v13'ün
+setdefault tuzağı — yanlış config sessizce koşuyordu). TP merdiveni
+engine-native 30/30/40'tır; paper runner halen %1.5 percentage-trail proxy
+kullanır. Bu, ATR-chandelier 1.5x paritesi değildir.
 
 v13'TEN FARKLAR
 ---------------
-1. Config     : v14_frontier (risk 0.62%, d04/w08, PYRAMID ON, 19 sembol)
+1. Config     : faza göre v14 frontier / v14p3 / v15p2 (startup-verified)
 2. HTF filtre : YOK — v14 backtest'i HTF içermiyor (parite). F2/F4 rejim
                 filtreleri RiskOfficer YAML yolundan zaten aktif.
 3. Doğrulama  : startup'ta YAML'dan pyramid_enabled/risk/sl_pct_min/breaker
                 değerleri assert edilir — uyuşmazlıkta ABORT (sessiz parite
                 felaketi yerine gürültülü ölüm).
-4. Breaker    : PA_BOT_NAME=v14 → bot-bazlı temiz state (BLOCKER-2 fix'i).
+4. Breaker    : PA_BOT_NAME=v14 veya v15p2 → bot-bazlı state (BLOCKER-2 fix'i).
 
 DEĞİŞMEYENLER (v13'ten miras)
 -----------------------------
-- BASELINE exit patch: TP1=30%@1R / TP2=30%@1.5R / runner=40%, trail %1.5
+- BASELINE exit patch: TP1=30%@1R / TP2=30%@1.5R / runner=40%
+- E13 kilidi: %1.5 PCT trail canlıda kalır; ATR 1.5x, 40 temiz kapanışa kadar shadow-only
 - Sizing: fixed-fraction (başlangıç-equity, non-compounding)
 - DMS / kill-switch / idempotency / N-tick orphan koruması / watchdog katmanları
 - PA_LIVE_CONFIRM ASLA set edilmez — testnet/paper only
@@ -101,12 +103,22 @@ def _vlog(msg: str) -> None:
     # W1-LOW fix (2026-07-10): '[V14]' literal'i v15p2 koşarken yalan söylüyordu;
     # tüketici envanteri temiz (repo-geniş '\[V14\]' grep: 0 tüketici) → dinamik tag.
     line = f"[{ts}] [{_LOG_TAG.upper()}] {msg}"
-    try:
-        with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
-            f.flush()
-    except Exception:
-        pass
+    # Import-time parity probes and unit tests must not impersonate a daemon
+    # restart in the production log.  The actual launchd entry executes this
+    # file as ``__main__``; module imports retain stderr diagnostics only.
+    file_log_disabled = os.environ.get("PA_DISABLE_FILE_LOG", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if __name__ == "__main__" and not file_log_disabled:
+        try:
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+                f.flush()
+        except Exception:
+            pass
     try:
         sys.stderr.write(line + "\n")
         sys.stderr.flush()
@@ -178,6 +190,11 @@ def _verify_v14_config() -> dict:
             True,
         )
         checks["strategies_enabled (2)"] = (len(cfg.get("strategies_enabled") or []), 2)
+        _vt = cfg.get("vol_target") or {}
+        checks["vol_target.enabled"] = (bool(_vt.get("enabled", False)), True)
+        checks["vol_target.target_atr_pct"] = (float(_vt.get("target_atr_pct", 0)), 0.010)
+        checks["vol_target.min_factor"] = (float(_vt.get("min_factor", 0)), 0.20)
+        checks["vol_target.max_factor"] = (float(_vt.get("max_factor", 0)), 1.50)
     bad = [(k, got, want) for k, (got, want) in checks.items() if got != want]
     if bad:
         for k, got, want in bad:
@@ -186,14 +203,14 @@ def _verify_v14_config() -> dict:
     n_syms = len(cfg.get("strategy_portfolio", {}).get("symbols", []))
     _n_strat = len(cfg.get("strategies_enabled") or []) or 4
     _vlog(
-        f"VERIFY_OK: faz={_PHASE} risk={_EXPECT_RISK*100:.2f}% d04/w08 "
+        f"VERIFY_OK: faz={_PHASE} risk={_EXPECT_RISK * 100:.2f}% d04/w08 "
         f"sl_min=0.025 pyramid={'OFF' if _EXPECT_P3 == 'v15p2' else 'ON'} "
         f"symbols={n_syms} strategies={_n_strat}"
     )
     return cfg
 
 
-_verify_v14_config()
+_VERIFIED_CONFIG = _verify_v14_config()
 
 # ── Daemon import + BASELINE exit patch (v13 ile birebir — backtest paritesi) ─
 try:
@@ -204,12 +221,22 @@ try:
     _BASELINE_TRAIL_PCT = float(os.environ.get("PA_V14_TRAIL_PCT", "0.015"))
     _old_trail = _daemon._TRAIL_PCT
     _daemon._TRAIL_PCT = _BASELINE_TRAIL_PCT
-    _vlog(f"PATCHED _TRAIL_PCT: {_old_trail} → {_daemon._TRAIL_PCT} (BASELINE %1.5)")
+    _vlog(
+        f"PATCHED _TRAIL_PCT: {_old_trail} → {_daemon._TRAIL_PCT} "
+        "(PCT proxy %1.5; ATR 1.5x DEĞİL, E13 shadow-only)"
+    )
 
-    # v13 wrapper import'u kendi patch'ini _ftd'ye zaten uyguladı (30/30/40).
-    if getattr(_ftd.place_protection_orders, "__name__", "") != "_v13_place_protection_orders":
-        raise RuntimeError("place_protection_orders 30/30/40 patch'i uygulanmadı")
-    _vlog("PATCH OK: place_protection_orders 30/30/40 (v13 BASELINE, yeniden kullanıldı)")
+    # v13 import'u legacy protection wrapper'ını _ftd üzerinde yan etkiyle
+    # kurar. Canonical fonksiyon artık kendi içinde 30/30/40 + TP1@1R +
+    # deterministic client-id/reconcile güvenliğini taşıyor; eski clone bu
+    # korumaları baypas eder. HTF scan snapshot'larını aldıktan hemen sonra
+    # canonical nesneyi geri yükle ve identity ile doğrula.
+    _ftd.place_protection_orders = _v13mod._original_place_protection_orders
+    if _ftd.place_protection_orders is not _v13mod._original_place_protection_orders:
+        raise RuntimeError("canonical place_protection_orders geri yüklenemedi")
+    if getattr(_ftd.place_protection_orders, "__name__", "") != "place_protection_orders":
+        raise RuntimeError("canonical place_protection_orders identity doğrulanamadı")
+    _vlog("PATCH OK: canonical protection 30/30/40 + TP1@1R + deterministic reconcile")
 
     # PARITE: v13 import'u _scan_signals_15m'e HTF filtresini import-time enjekte
     # ediyor (v13:388). v14 backtest'i HTF İÇERMİYOR → orijinal scan'i geri koy.
@@ -241,17 +268,49 @@ def _write_pid() -> None:
 
 
 def _print_banner() -> None:
+    portfolio = _VERIFIED_CONFIG.get("strategy_portfolio") or {}
+    sizing = _VERIFIED_CONFIG.get("position_sizing") or {}
+    execution = _VERIFIED_CONFIG.get("execution") or {}
+    vol_target = _VERIFIED_CONFIG.get("vol_target") or {}
+    strategies = _VERIFIED_CONFIG.get("strategies_enabled") or []
+    symbols = portfolio.get("symbols") or []
+    pyramid = bool(portfolio.get("pyramid_enabled", False))
+    risk_pct = float(sizing.get("risk_per_trade", 0.0)) * 100.0
+    vol_desc = "OFF"
+    if vol_target.get("enabled") is True:
+        vol_desc = (
+            f"ON metric={vol_target.get('input_metric', 'MISSING')} "
+            f"target={float(vol_target.get('target_atr_pct', 0.0)):.4f} "
+            f"factor=[{float(vol_target.get('min_factor', 0.0)):.2f},"
+            f"{float(vol_target.get('max_factor', 0.0)):.2f}]"
+        )
+
     _vlog("=" * 65)
-    _vlog("V14 FRONTIER TESTNET DAEMON — 19sym WIDESTOP + PYRAMID + F2/F4")
+    _vlog(
+        f"{_LOG_TAG.upper()} PAPER DAEMON — phase={_PHASE} "
+        f"symbols={len(symbols)} strategies={len(strategies) or 4}"
+    )
     _vlog(f"  Config      : {V14_CONFIG} (startup-verified)")
-    _vlog("  Journal     : data/futures_journal_v14.duckdb")
-    _vlog("  Breaker     : logs/risk/futures_breaker_state_15m_v14.json (temiz)")
-    _vlog("  Entry gates : WIDESTOP sl>=0.025 + conf>=0.25 + F2/F4 regime (RO yolu)")
-    _vlog("  Exit        : BASELINE trail=1.5% / TP1=30%@1R / TP2=30%@1.5R / runner=40%")
-    _vlog("  Pyramid     : ON — triggers [1.0,1.5]R, sizes [0.50,0.30], leg-fill SL resize")
-    _vlog("  Sizing      : FIXED-FRACTION 0.62% (non-compounding)")
-    _vlog("  Beklenti    : dürüst bant +%15-18.5/ay, DD bandı -%19..-22 (hardened)")
-    _vlog("  PA_LIVE_CONFIRM: NOT SET — testnet only")
+    _vlog(f"  Journal     : {_daemon.JOURNAL}")
+    _vlog(f"  Breaker     : {_daemon.BREAKER_STATE_15M}")
+    _vlog(
+        f"  Entry gates : sl>={float(execution.get('sl_pct_min', 0.0)):.3f} "
+        f"conf>={float(portfolio.get('signal_confidence_min', 0.0)):.2f}"
+    )
+    _vlog(
+        "  Exit        : PCT trail=1.5% (E13 ATR1.5x shadow-only) / "
+        "TP1=30%@1R / TP2=30%@1.5R / runner=40%"
+    )
+    _vlog(
+        f"  Pyramid     : {'ON' if pyramid else 'OFF'} "
+        f"triggers={portfolio.get('pyramid_triggers') or []} "
+        f"sizes={portfolio.get('pyramid_sizes') or []}"
+    )
+    _vlog(
+        f"  Sizing      : method={sizing.get('method', 'unknown')} "
+        f"base_risk={risk_pct:.2f}% vol_target={vol_desc}"
+    )
+    _vlog("  Run mode    : paper; PA_LIVE_CONFIRM forbidden by wrapper")
     _vlog("=" * 65)
 
 

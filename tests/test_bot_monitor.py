@@ -13,8 +13,7 @@ No live LLM call — `PA_LLM_DRY_RUN=true`.
 from __future__ import annotations
 
 import asyncio
-import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +28,6 @@ from price_action.agents.bot_monitor import (
 )
 from price_action.memory import MemoryStore
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -38,7 +36,7 @@ from price_action.memory import MemoryStore
 def bot_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
     """İzole ROOT_DIR; reports/ memory/ configs/ data/ alt dizinleri kurar.
 
-    Agent rules dir (.claude/agents) tmp_path altında oluşturulur; minimal
+    Canonical agent rules dir (agents/) tmp_path altında oluşturulur; minimal
     bir bot_monitor.md yazılır (system prompt'un load_rules için).
     """
     root = tmp_path
@@ -49,7 +47,7 @@ def bot_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
     (root / "memory" / "protocol").mkdir(parents=True)
     (root / "configs").mkdir(parents=True)
     (root / "data").mkdir(parents=True)
-    rules_dir = root / ".claude" / "agents"
+    rules_dir = root / "agents"
     rules_dir.mkdir(parents=True)
     (rules_dir / "bot_monitor.md").write_text(
         "---\nname: bot_monitor\n---\n# Bot Monitor rules\n", encoding="utf-8"
@@ -87,7 +85,7 @@ defaults:
     from price_action import settings as _settings_mod
     _settings_mod.get_settings.cache_clear()
     monkeypatch.setattr(_settings_mod, "ROOT_DIR", root)
-    # Agent rules path = ROOT/.claude/agents (settings.agents_rules_dir property)
+    # Agent rules path = ROOT/agents (settings.agents_rules_dir property)
     return {"root": root, "rules_dir": rules_dir}
 
 
@@ -95,6 +93,121 @@ defaults:
 def agent(bot_env: dict) -> BotMonitorAgent:
     store = MemoryStore(base_dir=bot_env["root"] / "memory")
     return BotMonitorAgent(memory_store=store)
+
+
+def _seed_equity_snapshot(path: Path, *, ts: datetime, wallet: float, notes: str) -> None:
+    duckdb = pytest.importorskip("duckdb")
+    with duckdb.connect(str(path)) as connection:
+        connection.execute(
+            """CREATE TABLE futures_equity_snapshots (
+                   snapshot_id VARCHAR PRIMARY KEY,
+                   ts TIMESTAMP,
+                   wallet_balance DOUBLE,
+                   notes VARCHAR
+               )"""
+        )
+        connection.execute(
+            "INSERT INTO futures_equity_snapshots VALUES (?, ?, ?, ?)",
+            ["snapshot-1", ts.replace(tzinfo=None), wallet, notes],
+        )
+
+
+def test_live_equity_uses_fresh_snapshot_without_exchange_constructor(
+    agent: BotMonitorAgent,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scripts import futures_trade_daily
+
+    now = datetime(2026, 7, 11, 12, 30, tzinfo=UTC)
+    journal = tmp_path / "journal.duckdb"
+    _seed_equity_snapshot(
+        journal,
+        ts=now - timedelta(minutes=15),
+        wallet=4924.07,
+        notes="manual_exchange_truth",
+    )
+    agent._reset_live_equity_cache()
+    monkeypatch.setenv("BINANCE_FUTURES_TESTNET_API_KEY", "test-key")
+    monkeypatch.setattr(
+        futures_trade_daily,
+        "get_futures_exchange",
+        lambda: (_ for _ in ()).throw(AssertionError("exchange constructor must not run")),
+    )
+
+    result = agent._fetch_live_equity(4963.0, journal_path=journal, now=now)
+
+    assert result == pytest.approx(4924.07)
+
+
+def test_live_equity_ttl_cache_allows_only_one_api_fetch_for_multiple_bots(
+    agent: BotMonitorAgent,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scripts import futures_trade_daily
+
+    calls = {"constructor": 0, "fetch": 0}
+
+    def fake_constructor():
+        calls["constructor"] += 1
+        return object()
+
+    def fake_fetch(_exchange, **_kwargs):
+        calls["fetch"] += 1
+        return {"wallet_balance": 4875.5}
+
+    agent._reset_live_equity_cache()
+    monkeypatch.setenv("BINANCE_FUTURES_TESTNET_API_KEY", "test-key")
+    monkeypatch.setattr(futures_trade_daily, "get_binance_ban_until", lambda: 0.0, raising=False)
+    monkeypatch.setattr(futures_trade_daily, "get_futures_exchange", fake_constructor)
+    monkeypatch.setattr(futures_trade_daily, "fetch_futures_state", fake_fetch)
+    now = datetime(2026, 7, 11, 12, 30, tzinfo=UTC)
+
+    first = agent._fetch_live_equity(
+        4963.0,
+        journal_path=tmp_path / "missing-a.duckdb",
+        now=now,
+    )
+    second = agent._fetch_live_equity(
+        10000.0,
+        journal_path=tmp_path / "missing-b.duckdb",
+        now=now + timedelta(minutes=1),
+    )
+
+    assert first == second == pytest.approx(4875.5)
+    assert calls == {"constructor": 1, "fetch": 1}
+
+
+def test_live_equity_shared_ban_skips_api_when_snapshot_missing(
+    agent: BotMonitorAgent,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scripts import futures_trade_daily
+
+    now = datetime(2026, 7, 11, 12, 30, tzinfo=UTC)
+    agent._reset_live_equity_cache()
+    monkeypatch.setenv("BINANCE_FUTURES_TESTNET_API_KEY", "test-key")
+    monkeypatch.setattr(
+        futures_trade_daily,
+        "get_binance_ban_until",
+        lambda: now.timestamp() + 600,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        futures_trade_daily,
+        "get_futures_exchange",
+        lambda: (_ for _ in ()).throw(AssertionError("API must be skipped during shared ban")),
+    )
+
+    result = agent._fetch_live_equity(
+        4963.0,
+        journal_path=tmp_path / "missing.duckdb",
+        now=now,
+    )
+
+    assert result == 4963.0
 
 
 def _seed_journal(path: Path, trades: list[dict[str, Any]]) -> None:
@@ -165,9 +278,9 @@ def _mk_trade(
 
 def test_journal_read_schema(bot_env: dict, agent: BotMonitorAgent) -> None:
     """DuckDB schema sağlam: tablo create + read trip."""
-    duckdb = pytest.importorskip("duckdb")
+    pytest.importorskip("duckdb")
     journal = bot_env["root"] / "data" / "testbot_a.duckdb"
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     trades = [
         _mk_trade(trade_id="t1", ts_close=now - timedelta(days=1), pnl=10.0),
         _mk_trade(trade_id="t2", ts_close=now, pnl=-5.0),
@@ -218,7 +331,7 @@ def test_kill_criteria_threshold_breach(bot_env: dict, agent: BotMonitorAgent) -
     """Eşik üstü cum_loss → WARN alert doc + state kaydı."""
     pytest.importorskip("duckdb")
     journal = bot_env["root"] / "data" / "testbot_a.duckdb"
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     # 7g cum_loss > %10: baseline=1.0 fallback → mutlak negatif PnL > 0.10
     # Yeterince büyük negatif PnL serisi
     trades = [
@@ -245,7 +358,7 @@ def test_kill_criteria_no_breach(bot_env: dict, agent: BotMonitorAgent) -> None:
     pytest.importorskip("duckdb")
     journal_a = bot_env["root"] / "data" / "testbot_a.duckdb"
     journal_b = bot_env["root"] / "data" / "testbot_b.duckdb"
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     # Küçük pnl serisi — ne loss eşiği aşar ne ardışık 7 loss var
     trades_a = [
         _mk_trade(trade_id=f"a{i}", ts_close=now - timedelta(hours=6 * i), pnl=1.0)
@@ -272,7 +385,7 @@ def test_warn_then_pause_flow(bot_env: dict, agent: BotMonitorAgent) -> None:
     """WARN doc → 24h sonra hala breach → PAUSE öneri doc."""
     pytest.importorskip("duckdb")
     journal = bot_env["root"] / "data" / "testbot_a.duckdb"
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     trades = [
         _mk_trade(trade_id=f"t{i}", ts_close=now - timedelta(hours=12 * i), pnl=-50.0)
         for i in range(1, 8)
@@ -286,7 +399,7 @@ def test_warn_then_pause_flow(bot_env: dict, agent: BotMonitorAgent) -> None:
 
     # State'i 25 saat geriye al — sanki 25h önce WARN yazılmış
     state["testbot_a"]["first_warn_at"] = (
-        datetime.now(timezone.utc) - timedelta(hours=25)
+        datetime.now(UTC) - timedelta(hours=25)
     ).isoformat()
     agent._save_warn_state(state)
 
@@ -304,7 +417,7 @@ def test_warn_then_pause_flow(bot_env: dict, agent: BotMonitorAgent) -> None:
 
 def test_consecutive_losses_counter() -> None:
     """En son trade'den geriye doğru ardışık loss sayısı."""
-    base = datetime.now(timezone.utc).replace(tzinfo=None)
+    base = datetime.now(UTC).replace(tzinfo=None)
     trades = [
         _mk_trade(trade_id="t1", ts_close=base, pnl=5.0),
         _mk_trade(trade_id="t2", ts_close=base + timedelta(minutes=1), pnl=-2.0),
@@ -348,7 +461,7 @@ def test_hourly_snapshot_writes_doc(bot_env: dict, agent: BotMonitorAgent) -> No
     """Snapshot deterministik — LLM çağırmaz, dosya yazar."""
     pytest.importorskip("duckdb")
     journal = bot_env["root"] / "data" / "testbot_a.duckdb"
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     trades = [_mk_trade(trade_id="s1", ts_close=now, pnl=5.0)]
     _seed_journal(journal, trades)
 

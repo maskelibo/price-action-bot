@@ -33,6 +33,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 import scripts.futures_daemon as fd  # noqa: E402
+
 from price_action.execution.dead_mans_switch import DeadMansSwitch  # noqa: E402
 
 _DAEMON_SRC = (ROOT / "scripts" / "futures_daemon.py").read_text(encoding="utf-8")
@@ -237,6 +238,10 @@ class TestHealNTickConfirm:
     def test_daemon_source_has_heal_ntick(self):
         assert "HEAL_CONFIRM_TICKS = 3" in _DAEMON_SRC
         assert "JOURNAL_HEAL_PENDING" in _DAEMON_SRC
+        # Aktif protection terminal eventleri kesin fill kaniti ile replay edilir;
+        # legacy self-heal bu hatti sentetik reconcile_orphan ile preempt edemez.
+        assert "AND NOT EXISTS (" in _DAEMON_SRC
+        assert "AND ap.status = 'placed'" in _DAEMON_SRC
         # eski hard-coded eşik kalmamalı
         assert "if _streak < 2:" not in _DAEMON_SRC
 
@@ -381,8 +386,10 @@ class TestProtectionRowMultiShot:
         assert fd._should_retire_protection(False, 0.0) is False
 
     def test_daemon_source_guards_retirement(self):
-        # def + en az 2 kullanım (retire UPDATE + PROT_CANCEL log dalı)
-        assert _DAEMON_SRC.count("_should_retire_protection(") >= 3
+        # Durable gate: def + production call; evidence/journal helper is wired.
+        assert _DAEMON_SRC.count("_protection_retirement_ready(") >= 2
+        assert _DAEMON_SRC.count("_process_protection_terminal_event(") >= 2
+        assert "PROT_RETIRE_HELD" in _DAEMON_SRC
 
 
 # ═════════════════════════════════════════════════════════════════════════════

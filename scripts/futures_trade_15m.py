@@ -39,7 +39,7 @@ import os
 import sys
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 os.environ["PA_LOG_QUIET"] = "1"
@@ -284,49 +284,8 @@ def _resolve_strategies_15m() -> list[tuple[str, str]]:
 _TOP_4_15M = _resolve_strategies_15m()
 
 
-def _fetch_fresh_bars_ccxt(sym: str, n_bars: int = 50) -> pd.DataFrame | None:
-    """SEC56 FIX: ccxt'ten doğrudan 15m bar çek (ingest bypass).
-
-    DuckDB'deki veri stale olduğunda kullanılır. OHLCVStore'a yazmaz —
-    sadece bu scan turu için kullanılır; kalıcı ingest ingest_15m_live.py'nin görevi.
-
-    Returns: OHLCV DataFrame (ts UTC-aware) veya None (hata durumunda).
-    """
-    try:
-        import ccxt as _ccxt
-
-        ex = _ccxt.binance(
-            {
-                "enableRateLimit": True,
-                "options": {"defaultType": "future"},
-            }
-        )
-        since_ms = int((datetime.now(UTC) - timedelta(minutes=n_bars * 15)).timestamp() * 1000)
-        raw = ex.fetch_ohlcv(sym, timeframe=TF, since=since_ms, limit=n_bars)
-        if not raw:
-            return None
-        df = pd.DataFrame(raw, columns=["ts_ms", "open", "high", "low", "close", "volume"])
-        df["ts"] = pd.to_datetime(df["ts_ms"], unit="ms", utc=True)
-        for col in ("open", "high", "low", "close", "volume"):
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-        df["venue"] = "binance"
-        df["symbol"] = sym
-        df["timeframe"] = TF
-        df = df[["venue", "symbol", "timeframe", "ts", "open", "high", "low", "close", "volume"]]
-        return df.sort_values("ts").reset_index(drop=True)
-    except Exception as exc:
-        # KALAN_ISLER #8 (2026-07-10): sayaç-only (loguru log zaten var) — dönüş aynı (None).
-        try:
-            from scripts.lib.degraded_reads import record_degraded_read
-
-            record_degraded_read("scan15m.fresh_fetch_ohlcv", exc, emit_log=False)
-        except Exception:
-            pass
-        logger.bind(symbol=sym, err=str(exc)).warning("scan15m.fresh_fetch_fail")
-        return None
-
-
-# SEC56: Data freshness threshold — ingest stale'i için otomatik refresh
+# Data freshness threshold.  The scanner never bypasses the canonical ingest
+# process with per-symbol clients: stale market data is a fail-closed scan.
 # 2 bar = 30 dakika. Son barın bu süreden eski olması = ingest kesintisi.
 _DATA_FRESHNESS_MAX_MIN = 30  # dakika
 
@@ -348,10 +307,9 @@ def _scan_symbol(sym: str, target_bar_close: pd.Timestamp) -> list[dict]:
       concurrent open WAL modunda teorik olarak çalışır ama Windows IPC'de unreliable.
       OHLCVStore._conn() → RLock ile serialize → daha güvenli.
 
-    SEC56 FIX: Data freshness guard.
-      Son bar > _DATA_FRESHNESS_MAX_MIN dakika eski ise ingest cron durmuş demektir.
-      ccxt'ten 50 bar fresh fetch yapılır, DuckDB'ye merge edilir.
-      Bu sayede sinyal üretimi ingest kesintisinde de çalışır.
+    Data freshness guard:
+      Son bar > _DATA_FRESHNESS_MAX_MIN dakika eski ise ingest durmuştur.
+      Bu sembol fail-closed atlanır; scanner thread'i yeni CCXT client açmaz.
 
     Returns: bu sembol için emit edilen sinyal dict listesi (boş olabilir).
     """
@@ -398,7 +356,9 @@ def _scan_symbol(sym: str, target_bar_close: pd.Timestamp) -> list[dict]:
     df["timeframe"] = TF
     df["vol_z_pre"] = 0
 
-    # SEC56 FIX: data freshness guard — ingest cron durmuşsa ccxt'ten taze bar çek
+    # Fail closed on stale canonical data.  The old fallback constructed one
+    # CCXT client per symbol inside an 8-thread scan and could create an 18+
+    # client public REST burst during an ingest outage.
     now_utc = datetime.now(UTC)
     last_store_ts = df["ts"].iloc[-1]
     if last_store_ts.tzinfo is None:
@@ -411,30 +371,8 @@ def _scan_symbol(sym: str, target_bar_close: pd.Timestamp) -> list[dict]:
             last_bar=str(last_store_ts),
             age_min=round(data_age_min, 1),
             threshold_min=_DATA_FRESHNESS_MAX_MIN,
-        ).warning("scan15m.data_stale_auto_refresh")
-        fresh_df = _fetch_fresh_bars_ccxt(sym, n_bars=50)
-        if fresh_df is not None and not fresh_df.empty:
-            # SEC56-FIX (2026-05-18 17:00 IST): DB'ye upsert YAPMA.
-            # Sebep: DuckDB Windows aynı DB'ye farklı config ile 2 connection
-            # tutamaz. Scan thread upsert ederken main thread order_submit için
-            # read açınca "Connection Error: Can't open a connection to same DB
-            # file with a different configuration" hatası → 8 sinyal hep fail
-            # (logs/futures_daemon.log 13:52-13:53 UTC). Fix: in-memory only
-            # refresh — DB write işi ingest_15m_live.py cron'una bırakıldı.
-            # Eğer cron çalışmazsa, scan kendi RAM'inde taze veri tutar ama
-            # restart sonrası DB stale kalır → ingest manuel/cron şart kalır.
-            df = pd.concat([df, fresh_df], ignore_index=True)
-            df = df.drop_duplicates(subset=["ts"], keep="last")
-            df = df.sort_values("ts").reset_index(drop=True)
-            logger.bind(symbol=sym, n_bars=len(fresh_df)).info("scan15m.auto_refresh_memory_only")
-            new_last = df["ts"].iloc[-1]
-            logger.bind(
-                symbol=sym,
-                old_last=str(last_store_ts),
-                new_last=str(new_last),
-            ).info("scan15m.data_refreshed")
-        else:
-            logger.bind(symbol=sym).error("scan15m.auto_refresh_fail_no_data")
+        ).error("scan15m.data_stale_fail_closed")
+        return sym_signals
 
     # Causal: sadece target_bar_close'dan ÖNCE AÇILAN barlar.
     # FIX 2026-07-07 (F1 audit): ts = bar AÇILIŞ zamanı; `<=` filtresi
@@ -677,6 +615,7 @@ def run_15m(dry_run: bool = False) -> None:
     import yaml
 
     from scripts.futures_trade_daily import (
+        _futures_state_entry_trusted,
         fetch_futures_state,
         get_futures_exchange,
         place_protection_orders,
@@ -696,7 +635,7 @@ def run_15m(dry_run: bool = False) -> None:
         risk_cfg = yaml.safe_load(f) or {}
 
     exchange = get_futures_exchange()
-    state = fetch_futures_state(exchange)
+    state = fetch_futures_state(exchange, journal_path=JOURNAL)
 
     # SEC-#3A: Konsantrasyon fail-safe — stale pozisyon dedektörü.
     # fetch_positions() bazen boş dönebilir (rate-limit 418, API stale)
@@ -709,11 +648,14 @@ def run_15m(dry_run: bool = False) -> None:
     _pos_ok = state.get("positions_ok", True)
     _init_margin = float(state.get("total_initial_margin", 0))
     _pos_list = state.get("positions", [])
-    _stale_positions = not _pos_ok or (len(_pos_list) == 0 and _init_margin > 0)
+    _exchange_complete = state.get("exchange_state_complete") is True
+    _stale_positions = not _futures_state_entry_trusted(state)
     if _stale_positions:
         print(
-            f"[ENTRY_SKIP_STALE_POS] pozisyon verisi güvenilmez "
-            f"(positions_ok={_pos_ok}, pos_list_len={len(_pos_list)}, "
+            f"[ENTRY_SKIP_STALE_POS] exchange state güvenilmez "
+            f"(complete={_exchange_complete}, positions_ok={_pos_ok}, "
+            f"order_scope_ok={state.get('order_scope_ok')}, "
+            f"pos_list_len={len(_pos_list)}, "
             f"initialMargin={_init_margin:.2f}) — bu çalışmadaki tüm "
             f"girişler atlandı"
         )
@@ -794,7 +736,7 @@ def run_15m(dry_run: bool = False) -> None:
             risked = decision
             qty = float(risked.quantity)
             notional = float(risked.notional_usdt)
-            leverage_used = max(1, min(5, int(round(risked.leverage)))) or 1
+            leverage_used = max(1, min(5, round(risked.leverage))) or 1
             margin = notional / leverage_used if leverage_used > 0 else notional
 
             if margin > state["available_balance"] * 0.9:
@@ -875,6 +817,9 @@ def run_15m(dry_run: bool = False) -> None:
                 float(s["tp_price"]),
                 float(s["sl_price"]),
                 entry_price=avg_px,
+                # Aynı submit'in protection retry'ları uzlaşsın; ilerideki
+                # aynı symbol/qty/levels trade'i eski conditional leg'i almasın.
+                protection_key=f"{sym}:{order.get('id', '')}",
             )
             if prot["status"] == "placed":
                 mode = prot.get("mode", "single_target")

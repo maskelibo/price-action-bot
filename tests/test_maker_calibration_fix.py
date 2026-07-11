@@ -12,10 +12,9 @@ target_price'da kalır (self-bypass yok).
 
 from __future__ import annotations
 
-import pytest
+import re
 
 from price_action.execution.post_only_router import (
-    SlippageExceededError,
     _maker_limit_price,
     place_post_only_with_fallback,
 )
@@ -96,7 +95,7 @@ def test_maker_price_zero_falls_back():
 def test_post_only_places_at_maker_price():
     """Post-only emri target değil best_bid'e konur (buy)."""
     ex = FakeEx(create_status="closed")
-    order, method = place_post_only_with_fallback(
+    _order, method = place_post_only_with_fallback(
         ex,
         "BTC/USDT",
         "buy",
@@ -127,7 +126,7 @@ def test_missing_book_places_at_target_backward_compat():
 def test_taker_fallback_still_fires_on_timeout():
     """REGRESYON KALKANI: post-only dolmazsa market fallback yine çalışır (drop yok)."""
     ex = FakeEx(create_status="open", market_avg=100.0)
-    order, method = place_post_only_with_fallback(
+    _order, method = place_post_only_with_fallback(
         ex,
         "BTC/USDT",
         "buy",
@@ -144,7 +143,7 @@ def test_taker_fallback_still_fires_on_timeout():
 def test_taker_fallback_fires_on_postonly_reject():
     """Post-only create_order RAISE (cross reject) → market fallback yine çalışır."""
     ex = FakeEx(create_raises=True, market_avg=100.0)
-    order, method = place_post_only_with_fallback(
+    _order, method = place_post_only_with_fallback(
         ex,
         "BTC/USDT",
         "sell",
@@ -160,20 +159,23 @@ def test_taker_fallback_fires_on_postonly_reject():
 
 def test_slippage_baseline_stays_target_not_maker_price():
     """Slippage 25bps kapısı baseline target_price'da; maker fiyatına repoint edilmez.
-    Market fallback avg=100.30 vs target=100.0 = 30bps > 25 → SlippageExceededError."""
+    High-slippage owned fill ters market emriyle unwind edilmez; korumaya devredilir."""
     ex = FakeEx(create_status="open", market_avg=100.30)
-    with pytest.raises(SlippageExceededError):
-        place_post_only_with_fallback(
-            ex,
-            "BTC/USDT",
-            "buy",
-            1.0,
-            target_price=100.0,
-            best_bid=99.98,
-            best_ask=100.02,
-            fallback_after_sec=0,
-            slippage_limit_bps=25.0,
-        )
+    order, method = place_post_only_with_fallback(
+        ex,
+        "BTC/USDT",
+        "buy",
+        1.0,
+        target_price=100.0,
+        best_bid=99.98,
+        best_ask=100.02,
+        fallback_after_sec=0,
+        slippage_limit_bps=25.0,
+    )
+
+    assert method == "market_fallback_slippage_breach_protect"
+    assert order["slippage_breach"]["owned_average"] == 100.30
+    assert round(order["slippage_breach"]["slippage_bps"], 8) == 30.0
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +195,9 @@ def test_source_pins_maker_wiring():
     ).read_text(encoding="utf-8")
     assert "_maker_limit_price(" in router
     assert "price=_maker_px," in router
-    assert "price=target_price," not in router  # eski cross-eden yerleşim gitti
+    # Sadece create_order'ın `price=` kwarg'ını yasakla; helper'ların
+    # `arrival_px=target_price` gibi güvenli baseline aktarımı false-positive olmasın.
+    assert re.search(r"(?<![A-Za-z_])price\s*=\s*target_price\s*,", router) is None
     daemon = (Path(__file__).resolve().parents[1] / "scripts" / "futures_daemon.py").read_text(
         encoding="utf-8"
     )

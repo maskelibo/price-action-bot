@@ -42,6 +42,7 @@ from price_action.risk.regime_filter import (
     RegimeCacheStatus,
     RegimeFilter,
 )
+from price_action.risk.vol_target import VolTargetConfig, from_live_risk_yaml, vol_target_factor
 
 # =====================================================================
 # Sizing primitives
@@ -140,6 +141,7 @@ _KNOWN_EXTRA_KEYS = frozenset(
     {
         "alt_data",
         "defaults",
+        "exit_evidence",
         "exit_engine",
         "live_capital_cap",
         "regime_filter",
@@ -203,6 +205,15 @@ class RiskOfficer:
         self._alt_data_long_skip: dict = {}
         self._alt_data_short_skip: dict = {}
         cfg_dict = self.config.model_dump() if hasattr(self.config, "model_dump") else {}
+        self._live_vol_target_error: str | None = None
+        try:
+            self._live_vol_target: VolTargetConfig = from_live_risk_yaml(cfg_dict)
+        except ValueError as exc:
+            # Invalid enabled config rejects every *new* entry at evaluate-time;
+            # construction stays available so open-position management can run.
+            self._live_vol_target = VolTargetConfig(enabled=False)
+            self._live_vol_target_error = str(exc)
+            self._log.bind(err=str(exc)).error("risk.vol_target.invalid_config")
         alt_cfg = cfg_dict.get("alt_data", {}) or {}
         any_filter_on = alt_cfg.get("funding_filter_enabled", False) or alt_cfg.get(
             "fng_short_skip_enabled", False
@@ -728,12 +739,42 @@ class RiskOfficer:
         sl_dist_dollar = abs(price - signal.sl_price)
         if sl_dist_dollar <= 0:
             return Reject(signal=signal, rejected_by="risk", reason="invalid_sl_distance")
+        sl_pct = sl_dist_dollar / price if price > 0 else 0.0
+
+        # Legacy ``vol_target`` parity: both backtest and live use
+        # target_atr_pct / entry-stop-distance%.  This is stop-distance
+        # normalization, not an independent ATR/realized-volatility estimate.
+        # Disabled is a strict no-op.  Invalid enabled config fails closed for
+        # new entries without touching open positions.  Apply before every
+        # notional/concentration/leverage cap so caps retain final authority.
+        if self._live_vol_target_error is not None:
+            return Reject(
+                signal=signal,
+                rejected_by="risk",
+                reason="invalid_vol_target_config",
+                detail={"error": self._live_vol_target_error},
+            )
+        if self._live_vol_target.enabled:
+            if sl_pct <= 0:
+                return Reject(
+                    signal=signal,
+                    rejected_by="risk",
+                    reason="invalid_vol_target_input",
+                    detail={"sl_pct": sl_pct},
+                )
+            _vol_factor = vol_target_factor(sl_pct, self._live_vol_target)
+            risk_pct *= _vol_factor
+            self._log.bind(
+                symbol=signal.symbol,
+                sl_pct=round(sl_pct, 8),
+                target_atr_pct=self._live_vol_target.target_atr_pct,
+                factor=round(_vol_factor, 6),
+            ).debug("risk.vol_target.applied")
 
         if method == "atr_normalized" and atr is not None:
             atr_mult = float(cfg.stop_loss.get("atr_multiplier", 2.0))
             quantity = atr_normalized_size(atr, account_state.equity_usdt, risk_pct, atr_mult)
         else:
-            sl_pct = sl_dist_dollar / price
             notional_at_risk = fixed_fractional(account_state.equity_usdt, risk_pct, sl_pct)
             quantity = notional_at_risk / price if price > 0 else 0.0
 
