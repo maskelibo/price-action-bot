@@ -47,6 +47,12 @@ ham residual toplamının yüksek-volatilite coinleri otomatik kayırmaması iç
 trend skoru `residual toplam / (residual std × sqrt(pencere))` olarak
 boyutsuzlaştırıldı. Hücre, eşik ve kabul kapısı sayıları değişmedi.
 
+İlk sonuçtan önce yapılan son sözleşme sertleştirmesi de ölçümün yorumunu
+sabitledi: dönemler `[başlangıç, bitiş)` biçiminde yarı açıktır; altı fold ayrı
+backtest değil tek kesintisiz replay'in dilimleridir; DD ay sonundan değil her
+15m MTM NAV'dan ve pozitif yüzde olarak ölçülür. Gap `>30m` ise çapraz-gap getiri
+`NaN` olur ve tam rolling pencereler yeniden dolmadan özellik üretilemez.
+
 ## Ekonomik dayanak ve karşı kanıt
 
 - Kriptoda güçlü momentum kanıtı esasen haftalık horizonlardadır; bu nedenle
@@ -87,6 +93,12 @@ boyutsuzlaştırıldı. Hücre, eşik ve kabul kapısı sayıları değişmedi.
   ancak BTC residual hesabının sabit referansı olduğundan işlem göremez. Sonuç
   çalıştırılmadan yapılan bu görünür amendment ile aynı katmanın sıradaki hash'i
   XRP seçildi; BTC yalnız piyasa referansı olarak kalır.
+- Holdout, **trade-return holdout**'udur: sıralama anında dört sembolün geçmiş
+  fiyat özellikleri tam evrende bulunur, fakat onların gerçekleşen trade
+  getirileri seçim portföyüne girmez. Aynı tam-evren rank intentleri sonuçtan
+  sonra primary ve dört holdout sembolüne filtrelenip ayrı C2 portföylerinde
+  replay edilir. Retention, aynı 36 ayda holdout C2 trimli ortalamasının primary
+  C2 trimli ortalamasına oranıdır; primary payda pozitif değilse kapı kapanır.
 - Gerçek prospective pencere bu ön kaydın `2026-07-11T03:35:09Z` cutoff'undan
   sonra başlar.
 
@@ -106,6 +118,14 @@ Ana `H` kapısı 36 pseudo-OOS ayda `%10` trimli ortalama, `%8` medyan, en fazla
 trimli ortalama `%8`, medyan `%6`; MTM DD temel senaryoda `%15`, stres/haircut'ta
 `%20` tavanındadır. En iyi ay/trade/sembol katkısı, iki yön, leave-one-symbol-out,
 holdout, block bootstrap, Holm, DSR ve PBO kapıları da birlikte geçmelidir.
+
+Bu sayılar elle hazırlanmış bir metrics sözlüğünden kabul edilmez. Gerçek
+`PortfolioResult` tuple'ları testli adaptörle yüzde-puan aylıklara çevrilir;
+`B/C2/H` senaryoları ayrı ve path-dependent replay edilir. Konsantrasyon `H`,
+yön ve holdout `C2` ledger'ından gelir. LOSO, sembol PnL'sini toplamdan çıkarmak
+değil, her primary sembol çıkarılarak sinyal+portföyün yeniden oynatılmasıdır.
+Holm p-değerleri üç aylık block sign-flip ile 20.000 iterasyonda, DSR altı hücrenin
+Sharpe dağılımıyla, PBO ise eksiksiz `36×6` H getiri matrisiyle hesaplanır.
 
 Hard gate geçmezse eşik düşürülmez; sonuç **RED** yazılır. Gate geçse bile bu
 yalnız tarihsel fizibilitedir. Canlı kanıt, cutoff sonrasındaki matched signal ve

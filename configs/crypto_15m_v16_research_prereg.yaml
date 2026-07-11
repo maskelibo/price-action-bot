@@ -17,6 +17,14 @@ pre_result_amendments:
       rolling residual sum divided by trailing residual standard deviation
       times sqrt(formation_bars). This prevents raw volatility from deciding
       the cross-sectional rank. No threshold or candidate count changed.
+  - at_utc: "2026-07-11T04:05:00Z"
+    subject: evidence_and_interval_bindings
+    change: >-
+      Before any candidate result, half-open period semantics, tuple-to-percent
+      adapters, intramonth MTM drawdown, full six-cell multiple-testing inputs,
+      trade-return holdout handling, and exact metric scenario bindings were
+      made explicit. Cross-gap returns are invalidated before rolling features.
+      No candidate, threshold, or acceptance gate changed.
 
 objective:
   timeframe: 15m
@@ -97,6 +105,9 @@ time_protocol:
   genuine_prospective_cutoff_utc: "2026-07-11T03:35:09Z"
   purge_open_positions_across_fold: false
   carry_positions_and_state_across_fold: true
+  interval_semantics: half_open_start_inclusive_end_exclusive
+  replay_count_per_cell: one_continuous_replay_per_cost_scenario
+  folds_are_metric_slices_not_restarts: true
   gap_policy:
     max_contiguous_gap_minutes: 30
     warmup_bars_after_gap: 500
@@ -125,10 +136,73 @@ execution_contract:
     impact: 4.5
   base_round_trip_cost_bps: 57.0
   funding: observed_event_cashflow
+  funding_information_time: >-
+    A funding event stamped at 00:00, 08:00, or 16:00 UTC is observable by the
+    close of the 15-minute bar carrying that bar-open label. A decision may use
+    it at that close and may enter only at the next contiguous bar open.
   cost_scenarios:
     B: {cost_multiplier: 1.0, funding_multiplier: 1.0, positive_pnl_multiplier: 1.0, negative_pnl_multiplier: 1.0}
     C2: {cost_multiplier: 2.0, funding_multiplier: 2.0, positive_pnl_multiplier: 1.0, negative_pnl_multiplier: 1.0}
     H: {cost_multiplier: 1.0, funding_multiplier: 1.0, positive_pnl_multiplier: 0.50, negative_pnl_multiplier: 1.25}
+
+evidence_binding:
+  result_contract:
+    equity_source: PortfolioResult.equity_curve
+    equity_timestamp_semantics: post_close_nav_with_source_bar_open_label
+    monthly_return_unit: percentage_points
+    monthly_baseline: last_nav_strictly_before_window_start
+    mtm_drawdown_unit_and_sign: positive_percentage_points
+    mtm_drawdown_frequency: every_available_15m_equity_observation
+    drawdown_peak_at_window_start: highest_continuous_nav_seen_before_window_start
+    period_end_is_exclusive: true
+  gap_state:
+    feature_gap_break: timestamp_delta_gt_30_minutes
+    cross_gap_return: nan
+    rolling_min_periods_are_exact: true
+    engine_entry_warmup_requires_exact_15m_contiguity: true
+  primary_and_holdout:
+    ranking_universe: all_non_BTC_symbols_including_trade_holdouts
+    holdout_kind: trade_return_holdout_not_feature_holdout
+    primary_intents: filter_ranked_intents_to_non_holdout_symbols
+    holdout_intents: filter_same_ranked_intents_to_four_holdout_symbols
+    portfolios_are_replayed_separately: true
+    retention_metric: >-
+      holdout C2 trimmed mean monthly return divided by primary C2 trimmed mean
+      monthly return over the same 36 pseudo-OOS months; nonpositive primary
+      denominator fails closed.
+    positive_holdout_symbol: additive_C2_net_pnl_strictly_above_zero
+  metric_scenarios:
+    sample_counts: H_closed_trade_ledger_with_exit_in_pseudo_OOS
+    H_return_and_stability: H_pseudo_OOS_monthly_returns
+    C2_return: C2_pseudo_OOS_monthly_returns
+    drawdown_B: B_pseudo_OOS_15m_MTM
+    drawdown_C2_H: worse_of_C2_and_H_pseudo_OOS_15m_MTM
+    recovery: H_pseudo_OOS_monthly_returns
+    fold_returns: H_single_replay_monthly_returns_sliced_into_six_folds
+    is_oos_ratio: H_OOS_36m_over_H_development_24m
+    month_and_trade_concentration: H
+    direction: C2
+    holdout: C2
+    symbol_LOSO: >-
+      H portfolio is fully regenerated and replayed once per removed primary
+      symbol; additive subtraction is not accepted as LOSO evidence.
+  multiple_testing:
+    cells_required: 6
+    month_matrix: 36_by_6_H_percentage_point_returns_with_no_missing_values
+    holm_raw_p: >-
+      one-sided zero-alpha test using seeded sign flips of consecutive
+      three-month blocks, 20000 iterations per cell
+    holm_scope: all_six_cells
+    deflated_sharpe_trial_distribution: all_six_H_monthly_sharpes
+    pbo: CSCV_on_the_exact_36_by_6_H_matrix_with_6_slices
+  provenance_required:
+    - git_commit
+    - prereg_schema_version
+    - market_snapshot_sha256_and_bytes
+    - funding_snapshot_sha256_and_bytes
+    - candidate_id
+    - scenario
+    - half_open_period
 
 candidate_cells:
   - id: T1_RESIDUAL_TREND_1W
