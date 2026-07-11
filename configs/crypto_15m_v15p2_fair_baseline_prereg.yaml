@@ -1,0 +1,454 @@
+schema_version: crypto-15m-v15p2-fair-baseline-prereg-v1
+status: PREREGISTERED_NO_RESULTS_SEEN
+created_at_utc: "2026-07-11T08:13:25Z"
+parent_git_commit: b7e719e86ee9571f3d9982372dc7ca840f1693bc
+live_deployment_authorized: false
+promotion_eligible: false
+snapshot_replay_performed_by_this_change: false
+
+purpose:
+  strategy_classification: FAIR_LIVE_POLICY_PROXY
+  execution_classification: NEXT_OPEN_BAR_EXECUTION_PROXY
+  exact_live_replay_claim_allowed: false
+  description: >-
+    Rebuild the deployed v15p2 signal, risk, portfolio, and exit policy on the
+    same frozen primary data used by the v16/v17 program. This is the only
+    admissible baseline for a future "better than v15p2" claim.
+  one_fixed_control_only: true
+  alpha_trial_count: 0
+  parameter_selection_from_replay_forbidden: true
+
+invalidated_legacy_headline:
+  label: v15p2_old_pool_replay_21_36pct_per_month
+  value_pct_per_month: 21.36
+  valid_fair_baseline: false
+  valid_live_expectation: false
+  may_be_used_in_better_than_v15p2_claim: false
+  reasons:
+    - legacy_trade_pools_instead_of_frozen_bar_event_replay
+    - month_start_capital_resets_instead_of_one_continuous_current_wallet_curve
+    - future_trade_outcome_attributed_to_entry_month
+    - legacy_exit_path_not_the_current_wrapper_exit
+    - execution_cost_components_and_double_subtraction_not_auditable
+    - no_observed_funding_cashflows
+    - different_survivor_universe
+    - no_complete_15m_MTM_equity_curve
+
+snapshots:
+  market:
+    path: data/backups/20260711/market.duckdb
+    sha256: 071768300daea9170d29bd5e35cc94795b8a500614d6e5ac4b127e459416652d
+    bytes: 1636839424
+    table: ohlcv
+    venue: binance
+    timeframe: 15m
+  funding:
+    path: data/backups/20260711/funding.duckdb
+    sha256: 35be9ebae8f9468a6bae819054008cb4c2338ae0eb923910584dea1adc0c6b96
+    bytes: 17575936
+    table: funding_rates
+  mutable_live_databases_forbidden: true
+  verify_size_and_sha256_before_any_database_open: true
+  verify_size_and_sha256_again_after_replay: true
+
+universe:
+  tradable_partition: primary13_only
+  primary_symbols:
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - ADA/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - DOT/USDT
+    - DOGE/USDT
+    - ZEC/USDT
+    - NEAR/USDT
+    - FIL/USDT
+    - ATOM/USDT
+    - ALGO/USDT
+  non_traded_reference_symbol: BTC/USDT
+  holdout_symbols_forbidden: [XLM/USDT, AAVE/USDT, TRX/USDT, XRP/USDT]
+  excluded_static_symbol: UNI/USDT
+  holdout_feature_or_trade_access_forbidden: true
+  point_in_time_membership_available: false
+  survivorship_warning: >-
+    The primary universe is static and not delisting-inclusive. The replay is a
+    fair historical control for this research program, not prospective proof.
+
+time_protocol:
+  complete_months_utc: ["2021-06-01T00:00:00Z", "2026-06-01T00:00:00Z"]
+  development: ["2021-06-01T00:00:00Z", "2023-06-01T00:00:00Z"]
+  pseudo_oos: ["2023-06-01T00:00:00Z", "2026-06-01T00:00:00Z"]
+  expanding_walk_forward:
+    - ["2023-06-01T00:00:00Z", "2023-12-01T00:00:00Z"]
+    - ["2023-12-01T00:00:00Z", "2024-06-01T00:00:00Z"]
+    - ["2024-06-01T00:00:00Z", "2024-12-01T00:00:00Z"]
+    - ["2024-12-01T00:00:00Z", "2025-06-01T00:00:00Z"]
+    - ["2025-06-01T00:00:00Z", "2025-12-01T00:00:00Z"]
+    - ["2025-12-01T00:00:00Z", "2026-06-01T00:00:00Z"]
+  development_months: 24
+  pseudo_oos_months: 36
+  folds: 6
+  fold_months: 6
+  interval_semantics: half_open_start_inclusive_end_exclusive
+  one_continuous_replay_per_cost_scenario: true
+  state_or_capital_reset_at_month_or_fold_boundary: false
+  folds_are_metric_slices_not_restarts: true
+  historical_oos_is_not_independent: true
+
+audited_live_reference:
+  config:
+    path: configs/risk_phoenix_scalp_15m_v15p2.yaml
+    sha256_at_prereg: 78025a394aecb807c32aeba737823bd565f0f19e72ec133352d63f697036ea82
+  wrapper:
+    path: scripts/futures_daemon_v14.py
+    sha256_at_prereg: 3ceae474207e4bcc52643b1d3fc90b9bb14fc429a6519e349e7c7983b23b190b
+  wrapper_patch_source:
+    path: scripts/futures_daemon_v13.py
+    sha256_at_prereg: 2bec4f8d7d380610283551d846ad2bb5c930f35f0c04c5921d8ec85ddcc55ef1
+  daemon:
+    path: scripts/futures_daemon.py
+    sha256_at_prereg: dc9e7f2741bd200ce904089b28024365cc942820acfeaec61149820ae3f58114
+  scanner:
+    path: scripts/futures_trade_15m.py
+    sha256_at_prereg: f0e1e9e29a65b7caef52b81775f938589da2fb8323fa78a36ec30975d8035a96
+  canonical_protection_orders:
+    path: scripts/futures_trade_daily.py
+    sha256_at_prereg: b0fa562fc01ca54117f6ab6a3b7010bad958fbaee4c1e93eff47850200343e53
+  live_account_adapter:
+    path: scripts/lib/risk_integration.py
+    sha256_at_prereg: 3d20d175df718741ee13039397b4c21662fd93ac9cdcf4bf5041f8a31341028e
+  strategy_base:
+    path: src/price_action/strategies/base.py
+    sha256_at_prereg: 56131288ab54d57b3054b01f4230a86ccf69f4439f78e065fb149fee58a0f1e8
+  strategy_manifest_loader:
+    path: src/price_action/strategies/manifest_loader.py
+    sha256_at_prereg: 9b3fe5459b16f8a1cdfdf70d77999a804bee210c04437883f17bd112a8663ddd
+  vsa_strategy:
+    path: src/price_action/strategies/vsa_climax_test.py
+    sha256_at_prereg: 2de255a5b84ffce6fdaae5ef88bd95fad35c528fb8eed3fe8c90ff5fe71c321b
+  vsa_15m_overlay:
+    path: src/price_action/strategies/manifests/vsa_climax_test_15m.yaml
+    sha256_at_prereg: b403803d39b75a201f11ceda93045a8f90ac741b7912414e4ed9644c061407ac
+  grimes_strategy:
+    path: src/price_action/strategies/grimes_abc_pullback.py
+    sha256_at_prereg: b46a7c86aee2df9c4b243132cc78e837c8d767c1d6df2bf1485a29157b1bbcd1
+  risk_sizing:
+    path: src/price_action/risk/sizing.py
+    sha256_at_prereg: fbb64132a02a2ff06ab5f9397c1de67d43b6db6e83cac2e569daaac2fb1af438
+  risk_gates:
+    path: src/price_action/risk/gates.py
+    sha256_at_prereg: ba7f1df3d119b10ad6bfc43cc140e0066daf179348eafa96e2f7fb4d394b163d
+  stop_distance_normalizer:
+    path: src/price_action/risk/vol_target.py
+    sha256_at_prereg: 2019b12af282b64a1a32e93a3a32647ad00224deb8a44834e967e4d6e669d763
+  breaker:
+    path: src/price_action/risk/breaker.py
+    sha256_at_prereg: e725f46c35e78edb2633b1d3b064617a3e7c7d5fe201d3794a0c82f5fea09e68
+  realized_breaker_ledger:
+    path: src/price_action/execution/trade_journal.py
+    sha256_at_prereg: a2b3c1139d9c790cfc6d0a3a2f31f1327406c46ab9ae3462ccded12296e4785a
+  source_hashes_are_reference_identity_not_permission_to_import_live_state: true
+
+signal_contract:
+  timeframe: 15m
+  strategy_order:
+    - vsa_climax_test
+    - grimes_abc_pullback
+  strategy_risk_weights:
+    vsa_climax_test: 1.0
+    grimes_abc_pullback: 1.0
+  generator_binding:
+    vsa: default_manifest_plus_vsa_climax_test_15m_overlay
+    grimes: default_manifest_no_timeframe_overlay
+    exact_source_hashes_required_at_replay: true
+  decision: completed_15m_signal_bar_close
+  latest_feature_bar: decision_bar_itself_after_completion
+  forming_bar_forbidden: true
+  earliest_entry: next_exact_contiguous_15m_bar_open
+  confidence_min: 0.25
+  entry_stop_distance_pct_min: 0.025
+  same_symbol_side_cooldown_days: 0.010
+  same_symbol_side_cooldown_semantics: entry_to_next_entry
+  duplicate_symbol_intents: first_accepted_intent_wins
+  deterministic_intent_order:
+    keys: [decision_ts, symbol_lexicographic, strategy_priority, side_lexicographic]
+    strategy_priority: [vsa_climax_test, grimes_abc_pullback]
+  signal_results_must_be_regenerated_from_bars: true
+  legacy_trade_pool_input_forbidden: true
+  regime_and_alt_data_policy:
+    HTF_filter: disabled_by_wrapper
+    BTC_capitulation_halt: disabled
+    funding_as_signal_filter: disabled
+    FNG_short_skip:
+      live_config_enabled: true
+      threshold_below: 20
+      frozen_history_available: false
+      proxy_when_missing: allow
+    F3_vsa_long_deep_bear_skip:
+      conditions: FNG_below_15_and_BTC_30d_return_below_minus_10pct
+      frozen_FNG_history_available: false
+      proxy_when_FNG_missing: allow
+    inactive_strategy_filters: [F2_brooks_fb_bull, F4_engulfing_high_vol]
+
+data_and_gap_contract:
+  required_columns: [ts, open, high, low, close, volume]
+  timestamps: UTC
+  database_connection_timezone: UTC
+  per_symbol_frames: true
+  global_symbol_intersection_forbidden: true
+  price_forward_fill_forbidden: true
+  maximum_contiguous_gap_minutes: 30
+  cross_gap_returns_and_features: invalid_until_the_strategy_warmup_is_rebuilt
+  open_position_at_gap: pessimistic_exit_at_first_tradable_open
+  missing_entry_bar: reject_intent
+  missing_month_return_pct: 0.0
+
+execution_proxy:
+  classification: NEXT_OPEN_BAR_EXECUTION_PROXY
+  initial_wallet_usdt: 10000.0
+  continuous_fractional_quantity: true
+  historical_tick_lot_and_min_notional_rounding: false
+  entry_fill: next_exact_contiguous_bar_open
+  signal_price_as_fill_forbidden: true
+  stop_gap_fill: worse_of_bar_open_or_stop
+  intrabar_collision_order: protective_stop_before_profit_targets
+  target_fill_when_not_preempted: exact_target_level
+  terminal_open_position: accrued_liquidation_at_period_end_mark_with_exit_cost
+  post_only_order_queue_or_30s_fallback_simulated: false
+  live_submission_latency_or_L1_book_simulated: false
+  one_net_position_per_symbol: true
+  pyramid: false
+
+risk_and_portfolio_policy:
+  risk_base: current_pre_entry_wallet_balance_after_realized_cashflows
+  open_unrealized_PnL_is_not_in_live_wallet_sizing_base: true
+  evaluation_NAV_is_separately_marked_to_market_every_15m: true
+  fixed_starting_wallet_sizing_forbidden: true
+  base_risk_per_trade_pct: 1.0
+  current_wallet_recomputed_before_each_sequential_intent: true
+  stop_distance_sizing: risk_budget_divided_by_absolute_entry_minus_initial_stop
+  stop_distance_normalizer:
+    enabled: true
+    input_metric: entry_stop_distance_pct
+    target_pct: 1.0
+    factor_min: 0.20
+    factor_max: 1.50
+    formula: clamp_0p20_1p50_of_0p01_divided_by_stop_distance_pct
+  drawdown_throttle:
+    running_wallet_balance_peak: true
+    threshold_pct: 6.0
+    new_entry_risk_multiplier: 0.50
+  max_notional_per_symbol_pct_current_wallet: 15.0
+  max_open_positions: 16
+  effective_max_open_positions_under_primary13: 13
+  max_same_side_open_positions: 4
+  max_portfolio_notional_x_current_wallet: 3.0
+  leverage_for_margin_proxy: 3.0
+  free_margin_must_remain_nonnegative: true
+  initial_margin_gate:
+    required_initial_margin_formula: accepted_notional_divided_by_leverage_used
+    margin_safety_buffer_ratio: 0.90
+    accept_only_if: required_initial_margin_lte_free_margin_times_0p90
+    wrapper_repeats_same_0p90_gate: true
+  stop_liquidation_margin_safety_gate:
+    margin_safety_ratio: 0.50
+    approximate_liquidation_distance_pct_formula: one_divided_by_leverage_used
+    accept_only_if: stop_distance_pct_lte_one_divided_by_leverage_times_0p50
+  correlation_gate:
+    enabled: true
+    causal_daily_log_return_lookback_days: 90
+    max_pairwise_correlation: 0.70
+    risk_reduction_factor: 0.50
+    hard_block_at: 0.90
+  category_concentration_gate:
+    enabled: false
+    reason: live_category_map_is_not_supplied_and_the_YAML_value_is_inert
+  breakers:
+    daily:
+      loss_pct: 4.0
+      pnl_basis: realized_partial_and_final_exit_net_PnL_excluding_separately_booked_funding
+      anchor: wallet_balance_at_UTC_day_start
+      halt_days: 1
+    weekly:
+      loss_pct: 8.0
+      pnl_basis: current_wallet_balance_minus_Monday_00_00_UTC_anchor
+      halt_days: 2
+    monthly_combined:
+      loss_pct: 99.0
+      pnl_basis: current_wallet_balance_minus_month_start_anchor
+      halt_days: 3
+    monthly_long:
+      loss_pct: 12.0
+      pnl_basis: realized_long_partial_and_final_exit_net_PnL_excluding_separately_booked_funding
+      denominator: month_start_wallet_balance
+      halt_days: 3
+      blocked_side_only: true
+    monthly_short:
+      loss_pct: 4.0
+      pnl_basis: realized_short_partial_and_final_exit_net_PnL_excluding_separately_booked_funding
+      denominator: month_start_wallet_balance
+      halt_days: 3
+      blocked_side_only: true
+    consecutive_losses:
+      count: 5
+      pause_days: 1.0
+      a_trade_is_loss_when_journal_final_episode_net_pnl_is_below_zero: true
+    active_breaker_blocks_new_entries_only: true
+    existing_positions_are_not_force_flattened: true
+    reset_clock: UTC
+
+exit_policy:
+  authority: scripts/futures_daemon_v14.py_wrapper_override
+  initial_stop: signal_generated_stop
+  TP1:
+    trigger_R: 1.0
+    fraction_of_original_quantity: 0.30
+  TP2:
+    trigger_R: 1.5
+    fraction_of_original_quantity: 0.30
+  runner:
+    fraction_of_original_quantity: 0.40
+    break_even_lock_after_TP1: true
+    trail_method: percentage_of_favorable_peak_proxy
+    trail_pct: 0.015
+    trail_activates_after_R: 1.0
+    trail_ratchet_uses_completed_bar_favorable_extreme: true
+    ratchet_becomes_effective_on_next_bar: true
+    time_stop_bars_after_first_TP1_fill: 30
+    time_stop_clock_bar_minutes: 15
+    time_stop_fill_proxy: next_contiguous_bar_open
+  multiple_targets_touched_without_stop:
+    order: [TP1, TP2]
+    both_may_fill_on_the_same_bar: true
+  remaining_quantity_at_final_cutoff: accrued_liquidation_only_not_a_closed_episode
+  explicitly_inert_or_excluded_config:
+    path: configs/risk_phoenix_scalp_15m_v15p2.yaml.exit_engine
+    dead_values: TP1_25pct_TP2_25pct_runner_50pct
+    reason: >-
+      No runtime consumer reads this YAML block. The fair proxy follows the
+      startup-verified wrapper's canonical 30/30/40 protection policy.
+  ATR_chandelier_1p5x_is_not_the_live_exit: true
+
+external_live_gate_proxy_policy:
+  FNG_history_in_frozen_snapshots: false
+  historical_mark_L1_and_queue_state_in_frozen_snapshots: false
+  FNG_dependent_filters_when_value_is_missing: no_rejection_fail_open_proxy
+  post_only_maker_fill_assumption: not_used
+  exchange_state_stale_and_API_rate_limit_rejections: not_simulated
+  historical_exchange_rounding_and_margin_tiers: not_simulated
+  limitation_disclosure_required_in_every_result: true
+  bias_direction_known: false
+  wrapper_header_fixed_starting_equity_comment_is_not_runtime_sizing_authority: true
+
+cost_and_payoff_scenarios:
+  bps_per_actual_fill:
+    fee: 4.0
+    spread_and_slippage: 20.0
+    impact: 4.5
+  base_cost_bps_per_actual_fill: 28.5
+  base_one_entry_plus_full_quantity_exit_round_trip_bps: 57.0
+  partial_exit_cost_rule: >-
+    Charge each TP1, TP2, runner, stop, gap, time-stop, and terminal liquidation
+    fill on its actually filled notional. Entry is charged once on entry notional.
+  funding: observed_event_cashflow_on_remaining_open_notional
+  funding_mark_fallback: event_mark_when_finite_positive_else_latest_causal_close
+  cost_scenarios:
+    B:
+      cost_multiplier: 1.0
+      funding_multiplier: 1.0
+      positive_price_pnl_multiplier: 1.0
+      negative_price_pnl_multiplier: 1.0
+    C2:
+      cost_multiplier: 2.0
+      funding_multiplier: 2.0
+      positive_price_pnl_multiplier: 1.0
+      negative_price_pnl_multiplier: 1.0
+    H:
+      cost_multiplier: 1.0
+      funding_multiplier: 1.0
+      positive_price_pnl_multiplier: 0.50
+      negative_price_pnl_multiplier: 1.25
+  H_payoff_multiplier_granularity: each_realized_partial_or_terminal_price_pnl_slice
+  execution_cost_and_funding_are_not_payoff_haircut_again: true
+  all_three_scenarios_require_independent_path_dependent_replay: true
+
+evidence_contract:
+  curve:
+    required_for_scenarios: [B, C2, H]
+    observation: every_available_15m_bar_after_all_bar_events
+    timestamp_semantics: post_close_NAV_with_source_bar_open_label
+    includes_open_position_MTM: true
+    includes_accrued_exit_cost_for_open_positions: true
+    monthly_baseline: last_NAV_strictly_before_month_start
+    monthly_return_unit: percentage_points
+    month_or_fold_reset_forbidden: true
+  ledgers_required:
+    - every_signal_and_rejection_reason
+    - decision_and_scheduled_entry_timestamps
+    - every_entry_fill
+    - every_partial_and_final_exit_fill
+    - initial_and_ratcheted_stop_state
+    - funding_cashflow_by_event
+    - execution_cost_component_by_fill
+    - breaker_state_transitions
+    - current_wallet_risk_budget_and_cap_binding
+    - terminal_open_position_accrual
+  pseudo_oos_H_months_must_equal: 36
+  fold_months_must_equal: [6, 6, 6, 6, 6, 6]
+  required_metrics:
+    - B_C2_H_monthly_returns_and_PnL
+    - H_10pct_symmetric_trimmed_mean_monthly_return
+    - H_median_mean_negative_month_count_months_below_minus_1_and_worst_month
+    - B_C2_H_full_15m_MTM_max_drawdown_and_recovery
+    - six_nonoverlapping_H_fold_returns
+    - H_development_to_pseudo_OOS_return_and_drawdown_ratios
+    - long_short_strategy_symbol_and_month_concentration
+    - closed_episode_and_partial_fill_counts
+    - filled_gross_turnover_over_arithmetic_mean_15m_NAV
+  strict_JSON_finite_or_null: true
+
+fair_improvement_rules_frozen_from_v16:
+  comparison_scenario: H
+  same_snapshot_universe_period_execution_costs_and_metric_code_required: true
+  absolute_challenger_hard_gates_still_required: true
+  pass_logic: rule_1_or_rule_2_and_stability_noninferiority
+  rule_1:
+    challenger_H_trimmed_mean_monthly_return_pct_min_formula: max_10pct_or_baseline_plus_1p5pp
+    challenger_H_max_MTM_drawdown_may_be_at_most_pp_worse: 1.0
+  rule_2:
+    challenger_H_trimmed_mean_monthly_return_must_be_within_pp_of_baseline: 1.0
+    challenger_H_max_MTM_drawdown_reduction_vs_baseline_min_fraction: 0.25
+  stability_noninferiority:
+    challenger_H_negative_month_count_may_not_be_worse: true
+    challenger_H_worst_month_may_not_be_worse: true
+  exact_legacy_rule_labels:
+    better_rule_1: H_trimmed_return_at_least_max_10pct_or_v15p2_plus_1p5pp_and_DD_no_more_than_1pp_worse
+    better_rule_2: H_return_within_1pp_of_v15p2_and_DD_at_least_25pct_lower
+    negative_months_and_worst_month_may_not_be_worse: true
+  old_21p36_headline_may_not_substitute_for_this_baseline: true
+
+governance:
+  execute_mode_must_use_canonical_repo_prereg_path_and_contents: true
+  canonical_prereg_path: configs/crypto_15m_v15p2_fair_baseline_prereg.yaml
+  source_clean_preflight_before_snapshot_access: true
+  source_commit_and_every_research_file_sha256_required: true
+  prereg_sha256_required: true
+  snapshot_size_and_sha256_preflight_and_postflight_required: true
+  source_commit_and_file_hashes_must_match_preflight_after_replay: true
+  baseline_result_may_not_modify_policy_or_thresholds: true
+  holdout_access_authorized: false
+  holdout_run_forbidden: true
+  deployment_decision_from_this_replay_forbidden: true
+  live_or_paper_daemon_mutation_forbidden: true
+  result_label_if_governance_fails: INELIGIBLE_EVIDENCE
+
+limitations:
+  - static_survivor_primary_universe
+  - no_historical_tick_lot_or_margin_tier_replay
+  - no_historical_order_book_queue_or_submission_latency
+  - no_point_in_time_FNG_snapshot
+  - no_exchange_state_stale_or_rate_limit_path
+  - next_open_is_a_research_execution_proxy_not_a_fill_claim
+  - historical_pseudo_OOS_is_not_genuine_prospective_evidence
