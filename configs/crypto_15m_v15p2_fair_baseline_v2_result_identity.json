@@ -1,0 +1,45 @@
+{
+  "schema_version": "crypto-15m-v15p2-fair-baseline-v2-result-identity-v1",
+  "status": "SEALED_ELIGIBLE_BASELINE_MEASUREMENT_NO_DEPLOYMENT",
+  "live_or_paper_authorized": false,
+  "execution_git_commit": "ace422eb070e25a4bd3f2e11e61cd96090ad0e9f",
+  "raw_artifact": {
+    "path": "reports/research/crypto_15m_v15p2_fair_baseline_v2_raw.json",
+    "schema_version": "crypto-15m-v15p2-fair-baseline-run-v2",
+    "evidence_eligible": true,
+    "bytes": 467627943,
+    "sha256": "710abbdb8f0e8ec407c10918aa66f1325c006a816fc1487e7c3f02a462adae73"
+  },
+  "report_artifact": {
+    "path": "reports/research/crypto_15m_v15p2_fair_baseline_v2_report.json",
+    "schema_version": "crypto-15m-v15p2-fair-baseline-report-v2",
+    "evidence_eligible": true,
+    "bytes": 359603,
+    "sha256": "4aa20832b1c0c07c49c01d7c469512f4092c3742a119e15bf2afcf2c50c25fd5"
+  },
+  "preregistration": {
+    "path": "configs/crypto_15m_v15p2_fair_baseline_v2_prereg.yaml",
+    "bytes": 39694,
+    "sha256": "7a6180312bcbb1b1f9644d26dbce8bd8ac57ea4eb13fc0aa783025f069ddd511"
+  },
+  "program_source": {
+    "path": "src/price_action/lab/crypto_15m_v15p2_program.py",
+    "bytes": 74553,
+    "sha256": "d925ef902d33b01ab7b22487e304ec6a724fb14153a32b73f538c63d79879bcb"
+  },
+  "report_source": {
+    "path": "src/price_action/lab/crypto_15m_v15p2_report.py",
+    "bytes": 135566,
+    "sha256": "0417ea087627251cd056655e83a72d7e8b38624c3158763258c830ca0e599f9f"
+  },
+  "market_snapshot": {
+    "path": "data/backups/20260711_v15p2_v3_usdm/market.duckdb",
+    "bytes": 181415936,
+    "sha256": "50e5b240e6babeb3b7ceadc0ae007ededc0ae589cba931e3603d233cec693eb8"
+  },
+  "funding_snapshot": {
+    "path": "data/backups/20260711/funding.duckdb",
+    "bytes": 17575936,
+    "sha256": "35be9ebae8f9468a6bae819054008cb4c2338ae0eb923910584dea1adc0c6b96"
+  }
+}

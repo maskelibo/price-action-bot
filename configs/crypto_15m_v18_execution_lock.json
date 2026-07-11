@@ -1,0 +1,155 @@
+{
+  "schema_version": "crypto-15m-v18-execution-lock-v1",
+  "status": "LOCKED_FOR_HISTORICAL_REPLAY_NO_RESULTS_SEEN",
+  "performance_result_seen_before_lock": false,
+  "performance_result_scope": "v18_challenger_only_baseline_is_sealed_input",
+  "fair_baseline_result_seen_before_lock": true,
+  "historical_replay_authorized": true,
+  "live_or_paper_authorized": false,
+  "execution_git_commit": "ace422eb070e25a4bd3f2e11e61cd96090ad0e9f",
+  "preregistration": {
+    "path": "configs/crypto_15m_v18_challenger_prereg.yaml",
+    "bytes": 28471,
+    "sha256": "190150932ba519cb85eef231b26cb8887ddbb946e870bf0ecaa1baf3c35889f5"
+  },
+  "source_files": {
+    "configs/crypto_15m_v15p2_fair_baseline_v2_prereg.yaml": {
+      "bytes": 39694,
+      "sha256": "7a6180312bcbb1b1f9644d26dbce8bd8ac57ea4eb13fc0aa783025f069ddd511"
+    },
+    "configs/crypto_15m_v18_challenger_prereg.yaml": {
+      "bytes": 28471,
+      "sha256": "190150932ba519cb85eef231b26cb8887ddbb946e870bf0ecaa1baf3c35889f5"
+    },
+    "configs/risk_phoenix_scalp_15m_v15p2.yaml": {
+      "bytes": 34199,
+      "sha256": "78025a394aecb807c32aeba737823bd565f0f19e72ec133352d63f697036ea82"
+    },
+    "requirements-lock.txt": {
+      "bytes": 3731,
+      "sha256": "30c4321e616138e342d8c67143eff43b490566e594a86d4277c1445c90b261f5"
+    },
+    "src/price_action/__init__.py": {
+      "bytes": 103,
+      "sha256": "1751590a8c4c18e8bda74d8f65ed0ad2750582df9c6264af76b36a4abb8a1dfc"
+    },
+    "src/price_action/contracts.py": {
+      "bytes": 7523,
+      "sha256": "2482bc8bb10872da1117ef03a05aed2f0eeaaca79069bcac4e0a7c25527edd04"
+    },
+    "src/price_action/lab/__init__.py": {
+      "bytes": 700,
+      "sha256": "96adf8f152fde4dec43a858da5c169d8c71f7d1c39de083c2e04a6307d3f8139"
+    },
+    "src/price_action/lab/crypto_15m_pairs_validation.py": {
+      "bytes": 58684,
+      "sha256": "9f0eae0bb08f45ceacdb7a3bb9c48ceb1b2f1b3469d21bd2bf572e11ecf6a95b"
+    },
+    "src/price_action/lab/crypto_15m_snapshot_io.py": {
+      "bytes": 14274,
+      "sha256": "7c9feef9b3243d96865527423113178c555f9caa79e50aa739b9340643886e7b"
+    },
+    "src/price_action/lab/crypto_15m_v15p2_engine.py": {
+      "bytes": 81461,
+      "sha256": "f3be34d0831fba2f9a4122e972121794194e312cef533915d472c3df729c96fd"
+    },
+    "src/price_action/lab/crypto_15m_v15p2_program.py": {
+      "bytes": 74553,
+      "sha256": "d925ef902d33b01ab7b22487e304ec6a724fb14153a32b73f538c63d79879bcb"
+    },
+    "src/price_action/lab/crypto_15m_v15p2_report.py": {
+      "bytes": 135566,
+      "sha256": "0417ea087627251cd056655e83a72d7e8b38624c3158763258c830ca0e599f9f"
+    },
+    "src/price_action/lab/crypto_15m_v15p2_signals.py": {
+      "bytes": 46154,
+      "sha256": "121f5d05c0722250b1f56ccd84ea655be1f9832080051645fb0a19f471883001"
+    },
+    "src/price_action/lab/crypto_15m_v18_program.py": {
+      "bytes": 74444,
+      "sha256": "08709d31be66cd9a86ec8477f75e8083c7be2960c1c32e727dfc4793ff225a0d"
+    },
+    "src/price_action/lab/crypto_15m_v18_report.py": {
+      "bytes": 98266,
+      "sha256": "7767860e188e2faa5a7f5baafead405807a182d79ad29d93ad8aed0b6db8fe8a"
+    },
+    "src/price_action/lab/crypto_15m_v18_signals.py": {
+      "bytes": 20689,
+      "sha256": "ce457a44bde9e8b2e99d429c634734a4e4f5670c5b70c016ff512fbc03c2b2ee"
+    },
+    "src/price_action/lab/crypto_15m_v18_validation.py": {
+      "bytes": 46593,
+      "sha256": "403af243ef7391d98fa5616d6fcb487515dd5346bbfb487df729df7a73576dd1"
+    },
+    "src/price_action/lab/crypto_15m_validation.py": {
+      "bytes": 38943,
+      "sha256": "6227e9f1e4d3f979dbc539ec0ee2b0e7507437a61962194c5d37a52083b6d9e9"
+    },
+    "src/price_action/logging_config.py": {
+      "bytes": 4879,
+      "sha256": "403023e0bb9d736aa43d9d03fc75f72df985bb569a32d8809d80577bcd90f007"
+    },
+    "src/price_action/runtime_paths.py": {
+      "bytes": 1648,
+      "sha256": "c97cbdd32b28c5deb8f89edbda2aaf3cfd0bd0a3d887c5d9d30bc541cba7b078"
+    },
+    "src/price_action/settings.py": {
+      "bytes": 6149,
+      "sha256": "2d2cb583dec1074616712aabe7f59669d537266c7ac38fde67c3cf2759811b33"
+    },
+    "src/price_action/strategies/__init__.py": {
+      "bytes": 335,
+      "sha256": "ed7dbf0ccf54226833c2a2c073590abae60f29f18969f9bac31389433a908bed"
+    },
+    "src/price_action/strategies/base.py": {
+      "bytes": 11179,
+      "sha256": "56131288ab54d57b3054b01f4230a86ccf69f4439f78e065fb149fee58a0f1e8"
+    },
+    "src/price_action/strategies/classic_pa.py": {
+      "bytes": 20542,
+      "sha256": "9c7b93f1aa95a371cdd428c260ffd21dac07fe4fb3767cbe7a1500b8aec71aea"
+    },
+    "src/price_action/strategies/grimes_abc_pullback.py": {
+      "bytes": 18329,
+      "sha256": "b46a7c86aee2df9c4b243132cc78e837c8d767c1d6df2bf1485a29157b1bbcd1"
+    },
+    "src/price_action/strategies/vsa_climax_test.py": {
+      "bytes": 32099,
+      "sha256": "2de255a5b84ffce6fdaae5ef88bd95fad35c528fb8eed3fe8c90ff5fe71c321b"
+    }
+  },
+  "baseline_result_identity_contract": {
+    "canonical_path": "configs/crypto_15m_v15p2_fair_baseline_v2_result_identity.json",
+    "bytes": 1820,
+    "sha256": "59bc99eff824ca1204ca5f0ffdd019340b0a67e936c4e5801926ebd74517132d",
+    "required_before_v18_execute": true,
+    "raw_evidence_eligible": true,
+    "report_evidence_eligible": true
+  },
+  "metric_semantics": {
+    "B_economic_edge": {
+      "denominator": "entry_plus_exit_execution_cost",
+      "numerator": "gross_price_pnl",
+      "sample": "closed_episodes_exit_ts_in_pseudo_oos_terminal_excluded"
+    },
+    "C2_direction": {
+      "sample": "closed_episodes_exit_ts_in_pseudo_oos_terminal_excluded",
+      "split": "long_short_net_pnl"
+    },
+    "H_turnover": {
+      "denominator": "arithmetic_mean_15m_nav",
+      "numerator": "entry_plus_exit_filled_notional",
+      "terminal_accrual_excluded": true,
+      "window": "pseudo_oos"
+    },
+    "best_3_months": {
+      "rank": "H_monthly_return_descending",
+      "statistic": "arithmetic_mean_remaining_33_months"
+    },
+    "loso": {
+      "pnl": "strict_prestart_nav_delta",
+      "terminal_accrual_included": true,
+      "window": "pseudo_oos"
+    }
+  }
+}
