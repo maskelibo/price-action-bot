@@ -58,10 +58,16 @@ universe:
   holdout_selection:
     method: >-
       Development-period median close*volume quartiles; choose the lowest
-      sha256(market_snapshot_sha256 + '|' + symbol) within each quartile.
+      sha256(market_snapshot_sha256 + '|' + symbol) within each quartile. BTC
+      is the fixed residual reference and cannot be a trade holdout; if selected,
+      use the next-lowest hash in its liquidity quartile.
     liquidity_window_utc: ["2023-03-01T00:00:00Z", "2023-06-01T00:00:00Z"]
-    holdout_symbols: [XLM/USDT, AAVE/USDT, TRX/USDT, BTC/USDT]
-    btc_reference_remains_available_when_held_out: true
+    holdout_symbols: [XLM/USDT, AAVE/USDT, TRX/USDT, XRP/USDT]
+    reference_symbol: BTC/USDT
+    reference_symbol_is_never_traded: true
+    amendment_before_results: >-
+      BTC was the raw quartile-3 hash winner. It is reserved as the residual
+      reference, so XRP (the next-lowest quartile-3 hash) is the trade holdout.
 
 time_protocol:
   complete_months_utc: ["2021-06-01T00:00:00Z", "2026-06-01T00:00:00Z"]

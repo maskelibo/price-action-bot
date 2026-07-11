@@ -75,9 +75,11 @@ edilebilir.
 - İlk 24 ay development; sonraki 36 ay altı örtüşmeyen 6 aylık expanding
   pseudo-OOS fold. Bunlar geçmişte görülmüş veri olduğundan bağımsız OOS diye
   sunulmaz.
-- Dört likidite-katmanlı sembol holdout'u sonuçtan bağımsız hash kuralıyla
-  seçildi: `XLM`, `AAVE`, `TRX`, `BTC`. BTC trade holdout olsa da yalnız piyasa
-  referansı olarak kullanılabilir.
+- Dört likidite-katmanlı trade holdout'u sonuçtan bağımsız hash kuralıyla
+  seçildi: `XLM`, `AAVE`, `TRX`, `XRP`. İlk mekanik seçim üst katmanda BTC idi;
+  ancak BTC residual hesabının sabit referansı olduğundan işlem göremez. Sonuç
+  çalıştırılmadan yapılan bu görünür amendment ile aynı katmanın sıradaki hash'i
+  XRP seçildi; BTC yalnız piyasa referansı olarak kalır.
 - Gerçek prospective pencere bu ön kaydın `2026-07-11T03:35:09Z` cutoff'undan
   sonra başlar.
 
