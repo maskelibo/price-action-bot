@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import numpy as np
@@ -220,6 +221,73 @@ def test_deterministic_tie_hash_drives_nonoverlap_selection(
 
     assert first == second
     assert len({symbol for model in first for symbol in (model.y_symbol, model.x_symbol)}) == 6
+
+
+def test_selection_diagnostics_terminate_every_pair_with_specific_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    universe = tuple(f"S{i}/USDT" for i in range(6))
+    selection = pd.Timestamp("2024-01-01T00:00:00Z")
+    cell = _selection_cell()
+
+    def fake_candidate(_frames, first, second, passed_cell, passed_selection, **_kwargs):
+        return _fake_candidate(first, second, passed_cell, passed_selection)
+
+    monkeypatch.setattr(pairs, "_candidate_from_pair", fake_candidate)
+    models, decisions = pairs._select_at_normalized_with_diagnostics(
+        {},
+        universe,
+        cell,
+        selection,
+        snapshot_sha256="f" * 64,
+        btc_symbol="BTC/USDT",
+        minimum_completeness=0.95,
+    )
+
+    assert len(models) == 3
+    assert len(decisions) == 15
+    assert sum(decision.status == "selected" for decision in decisions) == 3
+    assert {decision.reason for decision in decisions} <= {
+        "SELECTED",
+        "SYMBOL_OVERLAP_WITH_HIGHER_RANKED_PAIR",
+        "MAX_SELECTED_PAIRS_REACHED",
+    }
+    assert len({decision.pair_id for decision in decisions}) == 15
+
+
+def test_selection_diagnostics_bind_data_and_statistical_rejection_stages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selection = pd.Timestamp("2024-01-01T00:00:00Z")
+    cell = _selection_cell()
+
+    monkeypatch.setattr(pairs, "_candidate_from_pair", lambda *_args, **_kwargs: None)
+    _models, decisions = pairs._select_at_normalized_with_diagnostics(
+        {},
+        ("A/USDT", "B/USDT"),
+        cell,
+        selection,
+        snapshot_sha256="a" * 64,
+        btc_symbol="BTC/USDT",
+        minimum_completeness=0.95,
+    )
+    assert decisions[0].reason == "DATA_WINDOW_INELIGIBLE"
+
+    def low_correlation(_frames, first, second, passed_cell, passed_selection, **_kwargs):
+        candidate = _fake_candidate(first, second, passed_cell, passed_selection)
+        return replace(candidate, training_correlation=0.50)
+
+    monkeypatch.setattr(pairs, "_candidate_from_pair", low_correlation)
+    _models, decisions = pairs._select_at_normalized_with_diagnostics(
+        {},
+        ("A/USDT", "B/USDT"),
+        cell,
+        selection,
+        snapshot_sha256="a" * 64,
+        btc_symbol="BTC/USDT",
+        minimum_completeness=0.95,
+    )
+    assert decisions[0].reason == "TRAINING_CORRELATION_BELOW_0P75"
 
 
 def test_selection_is_prefix_causal_and_uses_previous_45_bar_only(

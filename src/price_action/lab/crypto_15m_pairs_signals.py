@@ -259,6 +259,24 @@ PREREGISTERED_PAIR_CELLS = (
 
 
 @dataclass(frozen=True, slots=True)
+class PairSelectionDecision:
+    """Auditable terminal decision for one unordered pair at one selection."""
+
+    candidate_id: str
+    pair_id: str
+    selection_ts: datetime
+    status: Literal["selected", "rejected"]
+    reason: str
+
+    def __post_init__(self) -> None:
+        if not self.candidate_id or not self.pair_id or not self.reason:
+            raise ValueError("selection decision identifiers and reason must be non-empty")
+        object.__setattr__(self, "selection_ts", _utc_datetime("selection_ts", self.selection_ts))
+        if self.status not in {"selected", "rejected"}:
+            raise ValueError("selection decision status must be selected or rejected")
+
+
+@dataclass(frozen=True, slots=True)
 class _PairCandidate:
     pair_id: str
     y_symbol: str
@@ -581,7 +599,54 @@ def _is_first_monday_utc(value: pd.Timestamp) -> bool:
     )
 
 
-def _select_at_normalized(
+def _candidate_rejection_reason(
+    candidate: _PairCandidate,
+    *,
+    adjusted_p: float,
+    gatev_top: set[str],
+    cell: PairCell,
+) -> str | None:
+    checks = (
+        (candidate.pair_id not in gatev_top, "NOT_GATEV_TOP20"),
+        (adjusted_p > 0.05, "HOLM_ENGLE_GRANGER_P_ABOVE_0P05"),
+        (
+            not math.isfinite(candidate.training_correlation)
+            or candidate.training_correlation < 0.75,
+            "TRAINING_CORRELATION_BELOW_0P75",
+        ),
+        (not 0.25 <= candidate.beta <= 4.0, "BETA_OUTSIDE_0P25_TO_4"),
+        (
+            not math.isfinite(candidate.half_life_hours)
+            or not cell.half_life_min_hours
+            <= candidate.half_life_hours
+            <= cell.half_life_max_hours,
+            "HALF_LIFE_OUTSIDE_CELL_RANGE",
+        ),
+        (
+            not math.isfinite(candidate.beta_relative_change)
+            or candidate.beta_relative_change > 0.20,
+            "BETA_HALF_STABILITY_ABOVE_0P20",
+        ),
+        (
+            not math.isfinite(candidate.validation_mean_shift)
+            or candidate.validation_mean_shift > 0.50,
+            "VALIDATION_MEAN_SHIFT_ABOVE_0P50",
+        ),
+        (
+            not 0.50 <= candidate.validation_std_ratio <= 1.50,
+            "VALIDATION_STD_RATIO_OUTSIDE_0P50_TO_1P50",
+        ),
+        (candidate.validation_std <= 0.0, "VALIDATION_STD_NONPOSITIVE"),
+        (candidate.validation_crossings < 4, "VALIDATION_CROSSINGS_BELOW_4"),
+        (
+            not math.isfinite(candidate.pair_btc_beta) or candidate.pair_btc_beta > 0.15,
+            "PAIR_BTC_BETA_ABOVE_0P15",
+        ),
+    )
+    return next((reason for failed, reason in checks if failed), None)
+
+
+def _select_at_normalized_with_diagnostics(
     frames: Mapping[str, pd.DataFrame],
     universe: Sequence[str],
     cell: PairCell,
@@ -590,9 +655,12 @@ def _select_at_normalized(
     snapshot_sha256: str,
     btc_symbol: str,
     minimum_completeness: float,
-) -> tuple[PairModel, ...]:
+) -> tuple[tuple[PairModel, ...], tuple[PairSelectionDecision, ...]]:
     data_candidates: list[_PairCandidate] = []
+    decisions: dict[str, PairSelectionDecision] = {}
+    selection_dt = selection_ts.to_pydatetime()
     for first_symbol, second_symbol in combinations(sorted(universe), 2):
+        pair_id = _pair_id(first_symbol, second_symbol)
         candidate = _candidate_from_pair(
             frames,
             first_symbol,
@@ -602,10 +670,18 @@ def _select_at_normalized(
             btc_symbol=btc_symbol,
             minimum_completeness=minimum_completeness,
         )
-        if candidate is not None:
+        if candidate is None:
+            decisions[pair_id] = PairSelectionDecision(
+                cell.candidate_id,
+                pair_id,
+                selection_dt,
+                "rejected",
+                "DATA_WINDOW_INELIGIBLE",
+            )
+        else:
             data_candidates.append(candidate)
     if not data_candidates:
-        return ()
+        return (), tuple(decisions[pair_id] for pair_id in sorted(decisions))
 
     # Audit P0: Holm's family is every unordered data-eligible pair, before SSD filtering.
     adjusted = holm_adjusted_pvalues(
@@ -618,25 +694,24 @@ def _select_at_normalized(
             key=lambda item: (item.normalized_price_ssd, item.pair_id),
         )[:20]
     }
-    eligible = [
-        candidate
-        for candidate in data_candidates
-        if candidate.pair_id in gatev_top
-        and adjusted[candidate.pair_id] <= 0.05
-        and math.isfinite(candidate.training_correlation)
-        and math.isfinite(candidate.half_life_hours)
-        and math.isfinite(candidate.pair_btc_beta)
-        and candidate.validation_std > 0.0
-        and candidate.training_correlation >= 0.75
-        and 0.25 <= candidate.beta <= 4.0
-        and cell.half_life_min_hours <= candidate.half_life_hours <= cell.half_life_max_hours
-        and candidate.beta_relative_change <= 0.20
-        and candidate.validation_mean_shift <= 0.50
-        and 0.50 <= candidate.validation_std_ratio <= 1.50
-        and candidate.validation_crossings >= 4
-        and candidate.pair_btc_beta <= 0.15
-    ]
-    selection_dt = selection_ts.to_pydatetime()
+    eligible: list[_PairCandidate] = []
+    for candidate in data_candidates:
+        reason = _candidate_rejection_reason(
+            candidate,
+            adjusted_p=adjusted[candidate.pair_id],
+            gatev_top=gatev_top,
+            cell=cell,
+        )
+        if reason is None:
+            eligible.append(candidate)
+        else:
+            decisions[candidate.pair_id] = PairSelectionDecision(
+                cell.candidate_id,
+                candidate.pair_id,
+                selection_dt,
+                "rejected",
+                reason,
+            )
     eligible.sort(
         key=lambda item: (
             adjusted[item.pair_id],
@@ -650,12 +725,33 @@ def _select_at_normalized(
     used_symbols: set[str] = set()
     for candidate in eligible:
         if candidate.y_symbol in used_symbols or candidate.x_symbol in used_symbols:
+            decisions[candidate.pair_id] = PairSelectionDecision(
+                cell.candidate_id,
+                candidate.pair_id,
+                selection_dt,
+                "rejected",
+                "SYMBOL_OVERLAP_WITH_HIGHER_RANKED_PAIR",
+            )
+            continue
+        if len(selected) == 3:
+            decisions[candidate.pair_id] = PairSelectionDecision(
+                cell.candidate_id,
+                candidate.pair_id,
+                selection_dt,
+                "rejected",
+                "MAX_SELECTED_PAIRS_REACHED",
+            )
             continue
         selected.append(candidate)
         used_symbols.update((candidate.y_symbol, candidate.x_symbol))
-        if len(selected) == 3:
-            break
-    return tuple(
+        decisions[candidate.pair_id] = PairSelectionDecision(
+            cell.candidate_id,
+            candidate.pair_id,
+            selection_dt,
+            "selected",
+            "SELECTED",
+        )
+    models = tuple(
         PairModel(
             candidate_id=cell.candidate_id,
             pair_id=candidate.pair_id,
@@ -681,6 +777,34 @@ def _select_at_normalized(
         )
         for candidate in selected
     )
+    expected_pair_ids = {
+        _pair_id(first, second) for first, second in combinations(sorted(universe), 2)
+    }
+    if set(decisions) != expected_pair_ids:
+        raise RuntimeError("selection diagnostics did not terminate every unordered pair")
+    return models, tuple(decisions[pair_id] for pair_id in sorted(decisions))
+
+
+def _select_at_normalized(
+    frames: Mapping[str, pd.DataFrame],
+    universe: Sequence[str],
+    cell: PairCell,
+    selection_ts: pd.Timestamp,
+    *,
+    snapshot_sha256: str,
+    btc_symbol: str,
+    minimum_completeness: float,
+) -> tuple[PairModel, ...]:
+    models, _decisions = _select_at_normalized_with_diagnostics(
+        frames,
+        universe,
+        cell,
+        selection_ts,
+        snapshot_sha256=snapshot_sha256,
+        btc_symbol=btc_symbol,
+        minimum_completeness=minimum_completeness,
+    )
+    return models
 
 
 def select_pairs_at_timestamp(
@@ -758,6 +882,35 @@ def select_pairs_monthly(
 ) -> dict[datetime, tuple[PairModel, ...]]:
     """Select each calendar month and preserve explicit empty early months."""
 
+    selections, _diagnostics = select_pairs_monthly_with_diagnostics(
+        frames,
+        universe,
+        cell,
+        start=start,
+        end=end,
+        snapshot_sha256=snapshot_sha256,
+        btc_symbol=btc_symbol,
+        minimum_completeness=minimum_completeness,
+    )
+    return selections
+
+
+def select_pairs_monthly_with_diagnostics(
+    frames: Mapping[str, pd.DataFrame],
+    universe: Sequence[str],
+    cell: PairCell,
+    *,
+    start: datetime | pd.Timestamp,
+    end: datetime | pd.Timestamp,
+    snapshot_sha256: str,
+    btc_symbol: str = "BTC/USDT",
+    minimum_completeness: float = 0.95,
+) -> tuple[
+    dict[datetime, tuple[PairModel, ...]],
+    dict[datetime, tuple[PairSelectionDecision, ...]],
+]:
+    """Select monthly pairs and retain a terminal reason for every pair-month."""
+
     clean = normalize_pair_frames(frames)
     symbols = tuple(sorted(set(universe)))
     if len(symbols) < 2 or btc_symbol in symbols:
@@ -768,8 +921,9 @@ def select_pairs_monthly(
     if not 0.0 < minimum_completeness <= 1.0:
         raise ValueError("minimum_completeness must be in (0, 1]")
     result: dict[datetime, tuple[PairModel, ...]] = {}
+    diagnostics: dict[datetime, tuple[PairSelectionDecision, ...]] = {}
     for selection_dt in first_monday_selections(start, end):
-        result[selection_dt] = _select_at_normalized(
+        models, decisions = _select_at_normalized_with_diagnostics(
             clean,
             symbols,
             cell,
@@ -778,7 +932,9 @@ def select_pairs_monthly(
             btc_symbol=btc_symbol,
             minimum_completeness=minimum_completeness,
         )
-    return result
+        result[selection_dt] = models
+        diagnostics[selection_dt] = decisions
+    return result, diagnostics
 
 
 def _funding_series(value: pd.Series | pd.DataFrame, *, symbol: str) -> pd.Series:
@@ -1078,6 +1234,7 @@ __all__ = [
     "PairCell",
     "PairEntryIntent",
     "PairModel",
+    "PairSelectionDecision",
     "adverse_funding_for_entry",
     "deterministic_pair_tiebreak",
     "economic_entry_requirement",
@@ -1087,4 +1244,5 @@ __all__ = [
     "normalize_pair_frames",
     "select_pairs_at_timestamp",
     "select_pairs_monthly",
+    "select_pairs_monthly_with_diagnostics",
 ]
