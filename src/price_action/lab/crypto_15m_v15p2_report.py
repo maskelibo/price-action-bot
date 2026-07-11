@@ -25,8 +25,8 @@ from typing import Any
 
 import pandas as pd
 
-REPORT_SCHEMA = "crypto-15m-v15p2-fair-baseline-report-v1"
-RAW_SCHEMA = "crypto-15m-v15p2-fair-baseline-run-v1"
+REPORT_SCHEMA = "crypto-15m-v15p2-fair-baseline-report-v2"
+RAW_SCHEMA = "crypto-15m-v15p2-fair-baseline-run-v2"
 FULL_REPLAY_MODE = "FULL_FROZEN_PRIMARY13_REPLAY"
 VERDICT = "BASELINE_MEASURED_NO_DEPLOYMENT"
 SCENARIO_ORDER = ("B", "C2", "H")
@@ -36,21 +36,70 @@ DEVELOPMENT_END = pd.Timestamp("2023-06-01T00:00:00Z")
 EVALUATION_END = pd.Timestamp("2026-06-01T00:00:00Z")
 BAR = pd.Timedelta(minutes=15)
 EXPECTED_CONFIG_SHA256 = "78025a394aecb807c32aeba737823bd565f0f19e72ec133352d63f697036ea82"
-EXPECTED_PREREG_SHA256 = "695fb5b7a07fc0bb54c0a69b10f0893d246926a4339a17b5e8705802800f9c22"
-CANONICAL_PREREG_RELATIVE = "configs/crypto_15m_v15p2_fair_baseline_prereg.yaml"
+EXPECTED_PREREG_SHA256 = "7a6180312bcbb1b1f9644d26dbce8bd8ac57ea4eb13fc0aa783025f069ddd511"
+CANONICAL_PREREG_RELATIVE = "configs/crypto_15m_v15p2_fair_baseline_v2_prereg.yaml"
 EXPECTED_REQUIREMENTS_LOCK_SHA256 = (
     "30c4321e616138e342d8c67143eff43b490566e594a86d4277c1445c90b261f5"
 )
 EXPECTED_SNAPSHOT_IDENTITIES = {
     "market": {
-        "configured_path": "data/backups/20260711/market.duckdb",
-        "bytes": 1_636_839_424,
-        "sha256": "071768300daea9170d29bd5e35cc94795b8a500614d6e5ac4b127e459416652d",
+        "configured_path": "data/backups/20260711_v15p2_v3_usdm/market.duckdb",
+        "bytes": 181_415_936,
+        "sha256": "50e5b240e6babeb3b7ceadc0ae007ededc0ae589cba931e3603d233cec693eb8",
     },
     "funding": {
         "configured_path": "data/backups/20260711/funding.duckdb",
         "bytes": 17_575_936,
         "sha256": "35be9ebae8f9468a6bae819054008cb4c2338ae0eb923910584dea1adc0c6b96",
+    },
+}
+EXPECTED_DATA_LINEAGE_IDENTITIES = {
+    "predecessor_preregistration": {
+        "configured_path": "configs/crypto_15m_v15p2_fair_baseline_prereg.yaml",
+        "bytes": 33_623,
+        "sha256": "695fb5b7a07fc0bb54c0a69b10f0893d246926a4339a17b5e8705802800f9c22",
+    },
+    "predecessor_coverage_failure": {
+        "configured_path": "configs/crypto_15m_v15p2_fair_baseline_v1_coverage_failure.json",
+        "bytes": 3_073,
+        "sha256": "34a844100497bab4ee6edc6cba5efea26bdf6d9ce7278bf384a86fb9d58fab76",
+    },
+    "predecessor_coverage_failure_supplement": {
+        "configured_path": (
+            "configs/crypto_15m_v15p2_fair_baseline_v1_coverage_failure_"
+            "supplemental_attestation.json"
+        ),
+        "bytes": 15_550,
+        "sha256": "1254512f1238f1e4bc3a58d0b2331ffad6d5c3e2f995c42d138aa998562c2e03",
+    },
+    "v2_coverage_diagnosis": {
+        "configured_path": "configs/crypto_15m_v15p2_usdm_snapshot_v2_coverage_diagnosis.json",
+        "bytes": 8_036,
+        "sha256": "b2a50fdb00c055aef8ec09b1c81e662160917878ac797b2dae966e661b745e91",
+    },
+    "v3_protocol": {
+        "configured_path": "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_protocol.json",
+        "bytes": 8_125,
+        "sha256": "e6995f2fa22158d9133b9d3a45caeb0ba3de01ad70e77239d99bb13331bef3c8",
+    },
+    "v3_reservation": {
+        "configured_path": (
+            "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_attempt_001_started.json"
+        ),
+        "bytes": 1_387,
+        "sha256": "5c28272dc96d6e14eb471a37e8b4e7bd97cee3983f22c62e5c6e4cf6241ae404",
+    },
+    "v3_success_identity": {
+        "configured_path": (
+            "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_attempt_001_success_identity.json"
+        ),
+        "bytes": 14_258,
+        "sha256": "8e73f05d87106ea9df635e3ae0d3996ec5679da48f83bff77856b065059972d3",
+    },
+    "v3_build_evidence": {
+        "configured_path": "data/backups/20260711_v15p2_v3_usdm/build_evidence.json",
+        "bytes": 1_095_568,
+        "sha256": "1ac74ceb61c197fad4bc27783eadaed4e88504e3a751257d8c735bc9eece9b34",
     },
 }
 PRIMARY_SYMBOLS = (
@@ -191,7 +240,15 @@ _EXPECTED_REFERENCE_SOURCES = {
 }
 _REQUIRED_RUNNER_SOURCE_FILES = (
     CANONICAL_PREREG_RELATIVE,
+    "configs/crypto_15m_v15p2_fair_baseline_prereg.yaml",
+    "configs/crypto_15m_v15p2_fair_baseline_v1_coverage_failure.json",
+    ("configs/crypto_15m_v15p2_fair_baseline_v1_coverage_failure_supplemental_attestation.json"),
+    "configs/crypto_15m_v15p2_usdm_snapshot_v2_coverage_diagnosis.json",
+    "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_protocol.json",
+    "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_attempt_001_started.json",
+    ("configs/crypto_15m_v15p2_usdm_snapshot_v3_build_attempt_001_success_identity.json"),
     "docs/CRYPTO_15M_V15P2_FAIR_BASELINE_PREREG_2026-07-11.md",
+    "docs/CRYPTO_15M_V15P2_FAIR_BASELINE_V2_PREREG_2026-07-11.md",
     "requirements-lock.txt",
     "src/price_action/__init__.py",
     "src/price_action/lab/__init__.py",
@@ -241,6 +298,7 @@ _EXPECTED_TOP_LEVEL_FIELDS = {
     "source_provenance",
     "universe",
     "time_range_utc",
+    "data_lineage",
     "snapshots",
     "execution_governance",
     "market_loading",
@@ -348,6 +406,8 @@ _EXPECTED_FAIR_IMPROVEMENT_RULES = {
 }
 
 _EXPECTED_RAW_LIMITATIONS = (
+    "funding_snapshot_not_rebuilt_under_v3_vendor_lineage",
+    "four_symbols_retain_two_official_vendor_gap_windows_without_synthetic_rows",
     "static_survivor_primary_universe",
     "no_historical_tick_lot_or_margin_tier_replay",
     "no_historical_order_book_queue_or_submission_latency",
@@ -398,6 +458,20 @@ _RESULT_LISTS = (
 )
 
 _REQUIRED_LIMITATIONS = (
+    {
+        "code": "funding_snapshot_not_rebuilt_under_v3_vendor_lineage",
+        "detail": (
+            "Funding uses the independently frozen v1 snapshot; it was not rebuilt or "
+            "vendor-checksum-audited by the V3 market-data process."
+        ),
+    },
+    {
+        "code": "official_vendor_gaps_preserved",
+        "detail": (
+            "SOL, ZEC, NEAR, and FIL retain two official vendor gap windows; no synthetic, "
+            "interpolated, resampled, or forward-filled bars were added."
+        ),
+    },
     {
         "code": "repaired_scanner_not_running_pid_history",
         "detail": (
@@ -734,6 +808,26 @@ def _canonical_repo_root(prereg_path: str) -> str:
     return os.path.normpath(str(path.parent.parent))
 
 
+def _verify_current_source_identity(source: Mapping[str, Any], prereg_path: str) -> None:
+    """Reject reporting through a source tree that differs from the replay tree."""
+
+    repo_root = Path(_canonical_repo_root(prereg_path))
+    source_hashes = _mapping(source.get("file_sha256"), "source_provenance.file_sha256")
+    for relative, expected_digest in source_hashes.items():
+        candidate = repo_root / relative
+        try:
+            encoded = candidate.read_bytes()
+        except OSError as exc:
+            raise BaselineReportContractError(
+                f"current reporter source is missing or unreadable: {relative}"
+            ) from exc
+        actual_digest = _sha256_bytes(encoded)
+        if actual_digest != expected_digest:
+            raise BaselineReportContractError(
+                f"current reporter source differs from replay provenance: {relative}"
+            )
+
+
 def _validate_snapshot_set(value: Any, prereg_path: str, name: str) -> Mapping[str, Any]:
     snapshots = _mapping(value, name)
     if set(snapshots) != {"market", "funding"}:
@@ -767,6 +861,41 @@ def _validate_snapshot_set(value: Any, prereg_path: str, name: str) -> Mapping[s
         ):
             raise BaselineReportContractError(f"{name}.{snapshot_name} SHA-256 drifted")
     return snapshots
+
+
+def _validate_data_lineage(value: Any, prereg_path: str, name: str) -> Mapping[str, Any]:
+    lineage = _mapping(value, name)
+    if set(lineage) != set(EXPECTED_DATA_LINEAGE_IDENTITIES):
+        raise BaselineReportContractError(f"{name} lineage scope drifted")
+    repo_root = _canonical_repo_root(prereg_path)
+    for artifact_name, expected in EXPECTED_DATA_LINEAGE_IDENTITIES.items():
+        artifact = _mapping(lineage[artifact_name], f"{name}.{artifact_name}")
+        _exact_keys(
+            artifact,
+            {"name", "configured_path", "resolved_path", "bytes", "sha256", "status"},
+            f"{name}.{artifact_name}",
+        )
+        if artifact.get("name") != artifact_name or artifact.get("status") != "VERIFIED":
+            raise BaselineReportContractError(f"{name}.{artifact_name} is not VERIFIED")
+        if artifact.get("configured_path") != expected["configured_path"]:
+            raise BaselineReportContractError(f"{name}.{artifact_name} configured path drifted")
+        expected_resolved = os.path.normpath(
+            os.path.join(repo_root, str(expected["configured_path"]))
+        )
+        resolved = _text(artifact.get("resolved_path"), f"{name}.{artifact_name}.resolved_path")
+        if not os.path.isabs(resolved) or os.path.normpath(resolved) != expected_resolved:
+            raise BaselineReportContractError(f"{name}.{artifact_name} resolved path drifted")
+        if (
+            _integer(artifact.get("bytes"), f"{name}.{artifact_name}.bytes", minimum=1)
+            != (expected["bytes"])
+        ):
+            raise BaselineReportContractError(f"{name}.{artifact_name} byte size drifted")
+        if (
+            _sha256_text(artifact.get("sha256"), f"{name}.{artifact_name}.sha256")
+            != (expected["sha256"])
+        ):
+            raise BaselineReportContractError(f"{name}.{artifact_name} SHA-256 drifted")
+    return lineage
 
 
 def _validate_loaded_inputs(raw: Mapping[str, Any]) -> None:
@@ -945,7 +1074,7 @@ def _validate_top_level(raw: Mapping[str, Any]) -> None:
         {"path", "sha256", "schema_version", "status", "live_deployment_authorized"},
         "preregistration",
     )
-    if preregistration.get("schema_version") != ("crypto-15m-v15p2-fair-baseline-prereg-v1"):
+    if preregistration.get("schema_version") != ("crypto-15m-v15p2-fair-baseline-prereg-v2"):
         raise BaselineReportContractError("preregistration schema identity drifted")
     if preregistration.get("status") != "PREREGISTERED_NO_RESULTS_SEEN":
         raise BaselineReportContractError("preregistration is not frozen pre-result evidence")
@@ -1030,12 +1159,15 @@ def _validate_top_level(raw: Mapping[str, Any]) -> None:
             "exact_reference_source_hashes_preflight",
             "source_unchanged_postflight",
             "runtime_unchanged_postflight",
+            "lineage_reverified_postflight",
+            "lineage_unchanged_postflight",
             "snapshots_reverified_postflight",
             "snapshots_unchanged_postflight",
             "preflight_source",
             "postflight_source",
             "preflight_runtime",
             "postflight_runtime",
+            "postflight_data_lineage",
             "postflight_snapshots",
             "input_mutation_checks",
         },
@@ -1049,6 +1181,8 @@ def _validate_top_level(raw: Mapping[str, Any]) -> None:
         "exact_reference_source_hashes_preflight",
         "source_unchanged_postflight",
         "runtime_unchanged_postflight",
+        "lineage_reverified_postflight",
+        "lineage_unchanged_postflight",
         "snapshots_reverified_postflight",
         "snapshots_unchanged_postflight",
     ):
@@ -1103,7 +1237,9 @@ def _validate_top_level(raw: Mapping[str, Any]) -> None:
         raise BaselineReportContractError("disclosed limitations hash mismatch")
 
     source = _validate_source_provenance(raw.get("source_provenance"), "source_provenance")
+    _verify_current_source_identity(source, prereg_path)
     runtime = _validate_runtime_versions(raw.get("runtime_versions"), "runtime_versions")
+    data_lineage = _validate_data_lineage(raw.get("data_lineage"), prereg_path, "data_lineage")
     snapshots = _validate_snapshot_set(raw.get("snapshots"), prereg_path, "snapshots")
     if (
         _validate_source_provenance(
@@ -1133,6 +1269,15 @@ def _validate_top_level(raw: Mapping[str, Any]) -> None:
         != runtime
     ):
         raise BaselineReportContractError("postflight runtime differs from top-level runtime")
+    if (
+        _validate_data_lineage(
+            governance.get("postflight_data_lineage"),
+            prereg_path,
+            "postflight_data_lineage",
+        )
+        != data_lineage
+    ):
+        raise BaselineReportContractError("postflight data lineage differs from top-level lineage")
     if (
         _validate_snapshot_set(
             governance.get("postflight_snapshots"), prereg_path, "postflight_snapshots"
@@ -2578,6 +2723,7 @@ def build_report(
 
     source_provenance = _mapping(raw.get("source_provenance"), "source_provenance")
     snapshots = _mapping(raw.get("snapshots"), "snapshots")
+    data_lineage = _mapping(raw.get("data_lineage"), "data_lineage")
     raw_limitations = _list(raw.get("limitations"), "limitations")
     report = {
         "schema_version": REPORT_SCHEMA,
@@ -2645,6 +2791,19 @@ def build_report(
                     "sha256": str(_mapping(snapshots[name], f"snapshots.{name}").get("sha256")),
                 }
                 for name in ("market", "funding")
+            },
+            "data_lineage": {
+                name: {
+                    "bytes": _integer(
+                        _mapping(data_lineage.get(name), f"data_lineage.{name}").get("bytes"),
+                        f"data_lineage.{name}.bytes",
+                        minimum=1,
+                    ),
+                    "sha256": str(
+                        _mapping(data_lineage[name], f"data_lineage.{name}").get("sha256")
+                    ),
+                }
+                for name in EXPECTED_DATA_LINEAGE_IDENTITIES
             },
             "raw_complete_result_sha256": {
                 scenario: _mapping(raw["results"][scenario], f"results.{scenario}")[

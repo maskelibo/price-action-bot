@@ -168,6 +168,7 @@ def _install_full_run_mocks(
     *,
     source_mutates: bool = False,
     snapshot_mutates: bool = False,
+    lineage_mutates: bool = False,
 ) -> dict[str, list[Any]]:
     trace: dict[str, list[Any]] = {
         "source": [],
@@ -207,10 +208,16 @@ def _install_full_run_mocks(
     ) -> program.SnapshotVerification:
         del repo_root
         trace["verify"].append((name, len(trace["source"])))
-        postflight = len(trace["verify"]) > 2
+        snapshot_calls = sum(
+            item_name in {"market", "funding"} for item_name, _source_call in trace["verify"]
+        )
+        postflight = snapshot_calls > 2
         digest = str(spec["sha256"])
         if snapshot_mutates and postflight and name == "funding":
             digest = "f" * 64
+        lineage_calls = sum(item_name == name for item_name, _source_call in trace["verify"])
+        if lineage_mutates and name == "v3_build_evidence" and lineage_calls > 1:
+            digest = "e" * 64
         return program.SnapshotVerification(
             name=name,
             configured_path=str(spec["path"]),
@@ -230,7 +237,12 @@ def _install_full_run_mocks(
         end: pd.Timestamp,
     ) -> program.MarketBundle:
         trace["load"].append("market")
-        assert trace["verify"][:2] == [("market", 1), ("funding", 1)]
+        expected_preflight = [
+            *(name for name in program._LINEAGE_FILES_VERIFIED_SEPARATELY),
+            "market",
+            "funding",
+        ]
+        assert [name for name, _source_call in trace["verify"]] == expected_preflight
         assert symbols == (*program.PRIMARY_SYMBOLS, program.REFERENCE_SYMBOL)
         assert start == program.HISTORY_START
         assert end == program.EVALUATION_END
@@ -408,13 +420,110 @@ def test_canonical_prereg_builds_exact_policy_and_scenarios() -> None:
     assert scenarios["C2"].funding_multiplier == 2.0
     assert scenarios["H"].positive_price_pnl_multiplier == 0.5
     assert scenarios["H"].negative_price_pnl_multiplier == 1.25
+    assert (
+        prereg["snapshots"]["market"]["sha256"]
+        == (program._EXPECTED_LINEAGE_IDENTITIES["v3_market_database"]["sha256"])
+    )
+    assert (
+        prereg["funding_source_disclosure"]["covered_by_v3_vendor_lock_or_market_build_evidence"]
+        is False
+    )
+
+
+def test_v2_prereg_preserves_every_v1_policy_section() -> None:
+    predecessor = yaml.safe_load(
+        (ROOT / "configs/crypto_15m_v15p2_fair_baseline_prereg.yaml").read_bytes()
+    )
+    successor = _config()
+    unchanged_sections = (
+        "invalidated_legacy_headline",
+        "universe",
+        "time_protocol",
+        "audited_live_reference",
+        "signal_contract",
+        "execution_proxy",
+        "risk_and_portfolio_policy",
+        "exit_policy",
+        "external_live_gate_proxy_policy",
+        "cost_and_payoff_scenarios",
+        "evidence_contract",
+        "fair_improvement_rules_frozen_from_v16",
+    )
+    for section in unchanged_sections:
+        assert successor[section] == predecessor[section], section
+    assert successor["snapshots"]["funding"] == predecessor["snapshots"]["funding"]
+    for gate in (
+        "mutable_live_databases_forbidden",
+        "verify_size_and_sha256_before_any_database_open",
+        "verify_size_and_sha256_again_after_replay",
+    ):
+        assert successor["snapshots"][gate] == predecessor["snapshots"][gate]
+    assert successor["pre_result_amendments"][2:] == predecessor["pre_result_amendments"]
+    assert successor["limitations"][2:] == predecessor["limitations"]
+
+    successor_purpose = dict(successor["purpose"])
+    successor_purpose.pop("successor_data_identity_only")
+    successor_purpose.pop("strategy_signal_engine_execution_cost_risk_report_policy_changed")
+    assert successor_purpose == predecessor["purpose"]
+
+    successor_gap_contract = dict(successor["data_and_gap_contract"])
+    for key in (
+        "v3_exact_primary_key_rows",
+        "v3_exact_missing_vendor_bars",
+        "v3_exact_missing_vendor_key_sha256",
+        "synthetic_forward_filled_interpolated_or_resampled_rows",
+        "exact_vendor_gap_manifest",
+    ):
+        successor_gap_contract.pop(key)
+    assert successor_gap_contract == predecessor["data_and_gap_contract"]
+
+    successor_governance = dict(successor["governance"])
+    successor_governance["canonical_prereg_path"] = predecessor["governance"][
+        "canonical_prereg_path"
+    ]
+    successor_governance.pop(
+        "predecessor_and_v3_lineage_size_and_sha256_preflight_and_postflight_required"
+    )
+    assert successor_governance == predecessor["governance"]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (
+            lambda value: value["predecessor_and_v3_lineage"]["v3_success_identity"].update(
+                sha256="0" * 64
+            ),
+            "v3_success_identity",
+        ),
+        (
+            lambda value: value["funding_source_disclosure"].update(
+                covered_by_v3_vendor_lock_or_market_build_evidence=True
+            ),
+            "funding disclosure",
+        ),
+        (
+            lambda value: value["funding_source_disclosure"][
+                "pre_prereg_coverage_only_access"
+            ].update(primary13_rows=0),
+            "funding disclosure",
+        ),
+    ],
+)
+def test_successor_lineage_or_funding_disclosure_drift_fails_closed(
+    tmp_path: Path, mutation: Any, message: str
+) -> None:
+    config = _config()
+    mutation(config)
+    with pytest.raises(ValueError, match=message):
+        program.load_preregistration(_write(tmp_path / "prereg.yaml", config))
 
 
 def test_prereg_loader_rejects_duplicate_yaml_keys(tmp_path: Path) -> None:
     path = tmp_path / "duplicate.yaml"
     path.write_text(
         PREREG.read_text(encoding="utf-8")
-        + "\nschema_version: crypto-15m-v15p2-fair-baseline-prereg-v1\n",
+        + "\nschema_version: crypto-15m-v15p2-fair-baseline-prereg-v2\n",
         encoding="utf-8",
     )
 
@@ -572,8 +681,6 @@ def test_dry_plan_never_touches_snapshot_paths(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config = _config()
-    config["snapshots"]["market"]["path"] = "does-not-exist-market.duckdb"
-    config["snapshots"]["funding"]["path"] = "does-not-exist-funding.duckdb"
     path = _write(tmp_path / "prereg.yaml", config)
 
     def forbidden(*_args: Any, **_kwargs: Any) -> Any:
@@ -595,6 +702,7 @@ def test_dry_plan_never_touches_snapshot_paths(
     assert payload["mode"] == "DRY_PLAN_NO_SNAPSHOT_ACCESS"
     assert payload["snapshots"]["market"]["status"] == "NOT_ACCESSED"
     assert payload["snapshots"]["funding"]["status"] == "NOT_ACCESSED"
+    assert all(item["status"] == "NOT_ACCESSED" for item in payload["data_lineage"].values())
     assert payload["policy"]["correlation_min_observations"] == 90
     assert payload["classification"]["result_label"] == "FAIR_LIVE_POLICY_PROXY"
     assert payload["classification"]["exact_live_replay_claim_allowed"] is False
@@ -609,8 +717,6 @@ def test_dry_plan_with_output_also_never_touches_snapshot_paths(
 ) -> None:
     root = tmp_path / "repo"
     config = _config()
-    config["snapshots"]["market"]["path"] = "missing/market.duckdb"
-    config["snapshots"]["funding"]["path"] = "missing/funding.duckdb"
     prereg = _write(root / program.CANONICAL_PREREG_RELATIVE, config)
     lock = root / "requirements-lock.txt"
     lock.parent.mkdir(parents=True, exist_ok=True)
@@ -646,6 +752,7 @@ def test_dry_plan_with_output_also_never_touches_snapshot_paths(
     assert payload["mode"] == "DRY_PLAN_NO_SNAPSHOT_ACCESS"
     assert payload["snapshots"]["market"]["status"] == "NOT_ACCESSED"
     assert payload["snapshots"]["funding"]["status"] == "NOT_ACCESSED"
+    assert all(item["status"] == "NOT_ACCESSED" for item in payload["data_lineage"].values())
 
 
 @pytest.mark.subprocess
@@ -690,7 +797,14 @@ def test_full_program_filters_boundary_and_runs_independent_b_c2_h_once(
 
     assert trace["source"] == [1, 2]
     assert trace["runtime"] == [1, 2]
-    assert [item[0] for item in trace["verify"]] == ["market", "funding", "market", "funding"]
+    assert [item[0] for item in trace["verify"]] == [
+        *program._LINEAGE_FILES_VERIFIED_SEPARATELY,
+        "market",
+        "funding",
+        "market",
+        "funding",
+        *program._LINEAGE_FILES_VERIFIED_SEPARATELY,
+    ]
     assert trace["load"] == ["market", "funding"]
     assert len(trace["signal"]) == 1
     assert [item[0].name for item in trace["engine"]] == ["B", "C2", "H"]
@@ -698,6 +812,9 @@ def test_full_program_filters_boundary_and_runs_independent_b_c2_h_once(
 
     assert payload["mode"] == "FULL_FROZEN_PRIMARY13_REPLAY"
     assert payload["evidence_eligible"] is True
+    assert set(payload["data_lineage"]) == set(program._LINEAGE_FILES_VERIFIED_SEPARATELY)
+    assert all(item["status"] == "VERIFIED" for item in payload["data_lineage"].values())
+    assert payload["execution_governance"]["lineage_unchanged_postflight"] is True
     assert payload["market_loading"]["reference_symbol_traded"] is False
     assert payload["signal_stream"]["generation_call_count"] == 1
     assert payload["signal_stream"]["raw_emission_count"] == 3
@@ -769,10 +886,11 @@ def test_noncanonical_or_dirty_source_fails_before_snapshot_access(
 
 
 @pytest.mark.parametrize(
-    ("source_mutates", "snapshot_mutates", "message"),
+    ("source_mutates", "snapshot_mutates", "lineage_mutates", "message"),
     [
-        (True, False, "source changed"),
-        (False, True, "snapshot changed"),
+        (True, False, False, "source changed"),
+        (False, True, False, "snapshot changed"),
+        (False, False, True, "lineage file changed"),
     ],
 )
 def test_postflight_mutation_is_fatal(
@@ -780,6 +898,7 @@ def test_postflight_mutation_is_fatal(
     tmp_path: Path,
     source_mutates: bool,
     snapshot_mutates: bool,
+    lineage_mutates: bool,
     message: str,
 ) -> None:
     _install_full_run_mocks(
@@ -787,6 +906,7 @@ def test_postflight_mutation_is_fatal(
         tmp_path,
         source_mutates=source_mutates,
         snapshot_mutates=snapshot_mutates,
+        lineage_mutates=lineage_mutates,
     )
     with pytest.raises(RuntimeError, match=message):
         program.run_program(PREREG, repo_root=ROOT)

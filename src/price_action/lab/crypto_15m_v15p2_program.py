@@ -62,11 +62,11 @@ from price_action.lab.crypto_15m_v15p2_signals import (
     generate_v15p2_signal_batch,
 )
 
-PROGRAM_SCHEMA = "crypto-15m-v15p2-fair-baseline-run-v1"
-PREREG_SCHEMA = "crypto-15m-v15p2-fair-baseline-prereg-v1"
+PROGRAM_SCHEMA = "crypto-15m-v15p2-fair-baseline-run-v2"
+PREREG_SCHEMA = "crypto-15m-v15p2-fair-baseline-prereg-v2"
 FROZEN_STATUS = "PREREGISTERED_NO_RESULTS_SEEN"
 SCENARIO_ORDER = ("B", "C2", "H")
-CANONICAL_PREREG_RELATIVE = "configs/crypto_15m_v15p2_fair_baseline_prereg.yaml"
+CANONICAL_PREREG_RELATIVE = "configs/crypto_15m_v15p2_fair_baseline_v2_prereg.yaml"
 CANONICAL_CONFIG_RELATIVE = "configs/risk_phoenix_scalp_15m_v15p2.yaml"
 PRIMARY_SYMBOLS = (
     "ETH/USDT",
@@ -105,6 +105,68 @@ _EXPECTED_FOLDS = tuple(
 )
 _BAR = pd.Timedelta(minutes=15)
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+_EXPECTED_LINEAGE_IDENTITIES = {
+    "predecessor_preregistration": {
+        "path": "configs/crypto_15m_v15p2_fair_baseline_prereg.yaml",
+        "bytes": 33_623,
+        "sha256": "695fb5b7a07fc0bb54c0a69b10f0893d246926a4339a17b5e8705802800f9c22",
+    },
+    "predecessor_coverage_failure": {
+        "path": "configs/crypto_15m_v15p2_fair_baseline_v1_coverage_failure.json",
+        "bytes": 3_073,
+        "sha256": "34a844100497bab4ee6edc6cba5efea26bdf6d9ce7278bf384a86fb9d58fab76",
+    },
+    "predecessor_coverage_failure_supplement": {
+        "path": (
+            "configs/crypto_15m_v15p2_fair_baseline_v1_coverage_failure_"
+            "supplemental_attestation.json"
+        ),
+        "bytes": 15_550,
+        "sha256": "1254512f1238f1e4bc3a58d0b2331ffad6d5c3e2f995c42d138aa998562c2e03",
+    },
+    "v2_coverage_diagnosis": {
+        "path": "configs/crypto_15m_v15p2_usdm_snapshot_v2_coverage_diagnosis.json",
+        "bytes": 8_036,
+        "sha256": "b2a50fdb00c055aef8ec09b1c81e662160917878ac797b2dae966e661b745e91",
+    },
+    "v3_protocol": {
+        "path": "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_protocol.json",
+        "bytes": 8_125,
+        "sha256": "e6995f2fa22158d9133b9d3a45caeb0ba3de01ad70e77239d99bb13331bef3c8",
+    },
+    "v3_reservation": {
+        "path": "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_attempt_001_started.json",
+        "bytes": 1_387,
+        "sha256": "5c28272dc96d6e14eb471a37e8b4e7bd97cee3983f22c62e5c6e4cf6241ae404",
+    },
+    "v3_success_identity": {
+        "path": (
+            "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_attempt_001_success_identity.json"
+        ),
+        "bytes": 14_258,
+        "sha256": "8e73f05d87106ea9df635e3ae0d3996ec5679da48f83bff77856b065059972d3",
+    },
+    "v3_build_evidence": {
+        "path": "data/backups/20260711_v15p2_v3_usdm/build_evidence.json",
+        "bytes": 1_095_568,
+        "sha256": "1ac74ceb61c197fad4bc27783eadaed4e88504e3a751257d8c735bc9eece9b34",
+    },
+    "v3_market_database": {
+        "path": "data/backups/20260711_v15p2_v3_usdm/market.duckdb",
+        "bytes": 181_415_936,
+        "sha256": "50e5b240e6babeb3b7ceadc0ae007ededc0ae589cba931e3603d233cec693eb8",
+    },
+}
+_LINEAGE_FILES_VERIFIED_SEPARATELY = tuple(
+    key for key in _EXPECTED_LINEAGE_IDENTITIES if key != "v3_market_database"
+)
+_EXPECTED_FUNDING_IDENTITY = {
+    "path": "data/backups/20260711/funding.duckdb",
+    "bytes": 17_575_936,
+    "sha256": "35be9ebae8f9468a6bae819054008cb4c2338ae0eb923910584dea1adc0c6b96",
+}
+_FUNDING_LINEAGE_LIMITATION = "funding_snapshot_not_rebuilt_under_v3_vendor_lineage"
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -165,7 +227,15 @@ _REFERENCE_SOURCE_KEYS = (
 )
 _RUNNER_SOURCE_FILES = (
     CANONICAL_PREREG_RELATIVE,
+    "configs/crypto_15m_v15p2_fair_baseline_prereg.yaml",
+    "configs/crypto_15m_v15p2_fair_baseline_v1_coverage_failure.json",
+    ("configs/crypto_15m_v15p2_fair_baseline_v1_coverage_failure_supplemental_attestation.json"),
+    "configs/crypto_15m_v15p2_usdm_snapshot_v2_coverage_diagnosis.json",
+    "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_protocol.json",
+    "configs/crypto_15m_v15p2_usdm_snapshot_v3_build_attempt_001_started.json",
+    ("configs/crypto_15m_v15p2_usdm_snapshot_v3_build_attempt_001_success_identity.json"),
     "docs/CRYPTO_15M_V15P2_FAIR_BASELINE_PREREG_2026-07-11.md",
+    "docs/CRYPTO_15M_V15P2_FAIR_BASELINE_V2_PREREG_2026-07-11.md",
     "requirements-lock.txt",
     "src/price_action/__init__.py",
     "src/price_action/lab/__init__.py",
@@ -361,6 +431,51 @@ def load_preregistration(path: Path) -> dict[str, Any]:
     )
     _expect(purpose.get("one_fixed_control_only"), True, "one_fixed_control_only")
     _expect(purpose.get("alpha_trial_count"), 0, "alpha_trial_count")
+    _expect(purpose.get("successor_data_identity_only"), True, "successor data identity")
+    _expect(
+        purpose.get("strategy_signal_engine_execution_cost_risk_report_policy_changed"),
+        False,
+        "successor policy-change gate",
+    )
+
+    lineage = _mapping(loaded.get("predecessor_and_v3_lineage"), "predecessor_and_v3_lineage")
+    expected_lineage_fields = {
+        *_EXPECTED_LINEAGE_IDENTITIES,
+        "predecessor_files_preserved_unchanged",
+        "predecessor_attempt_produced_performance_result",
+        "predecessor_and_successor_alpha_result_trials",
+        "verify_every_identity_before_any_database_open",
+        "verify_every_identity_again_after_replay",
+    }
+    _expect(set(lineage), expected_lineage_fields, "lineage fields")
+    for name, expected in _EXPECTED_LINEAGE_IDENTITIES.items():
+        spec = _mapping(lineage.get(name), f"predecessor_and_v3_lineage.{name}")
+        _expect(dict(spec), expected, f"predecessor_and_v3_lineage.{name}")
+    _expect(
+        lineage.get("predecessor_files_preserved_unchanged"),
+        True,
+        "predecessor preservation",
+    )
+    _expect(
+        lineage.get("predecessor_attempt_produced_performance_result"),
+        False,
+        "predecessor performance-result disclosure",
+    )
+    _expect(
+        lineage.get("predecessor_and_successor_alpha_result_trials"),
+        0,
+        "successor alpha-result trials",
+    )
+    _expect(
+        lineage.get("verify_every_identity_before_any_database_open"),
+        True,
+        "lineage preflight gate",
+    )
+    _expect(
+        lineage.get("verify_every_identity_again_after_replay"),
+        True,
+        "lineage postflight gate",
+    )
 
     snapshots = _mapping(loaded.get("snapshots"), "snapshots")
     _expect(snapshots.get("mutable_live_databases_forbidden"), True, "mutable DB gate")
@@ -382,6 +497,56 @@ def load_preregistration(path: Path) -> dict[str, Any]:
         size = spec.get("bytes")
         if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
             raise ValueError(f"snapshots.{name}.bytes must be an integer > 0")
+    market_spec = _mapping(snapshots["market"], "snapshots.market")
+    expected_market = _EXPECTED_LINEAGE_IDENTITIES["v3_market_database"]
+    for key in ("path", "bytes", "sha256"):
+        _expect(market_spec.get(key), expected_market[key], f"V3 market snapshot {key}")
+    _expect(market_spec.get("table"), "ohlcv", "V3 market snapshot table")
+    _expect(market_spec.get("venue"), "binance", "V3 market snapshot venue")
+    _expect(market_spec.get("timeframe"), "15m", "V3 market snapshot timeframe")
+    funding_spec = _mapping(snapshots["funding"], "snapshots.funding")
+    for key, expected in _EXPECTED_FUNDING_IDENTITY.items():
+        _expect(funding_spec.get(key), expected, f"funding snapshot {key}")
+    _expect(funding_spec.get("table"), "funding_rates", "funding snapshot table")
+
+    funding_disclosure = _mapping(
+        loaded.get("funding_source_disclosure"), "funding_source_disclosure"
+    )
+    expected_funding_disclosure = {
+        "identity_inherited_unchanged_from_v1": True,
+        "built_or_modified_by_v3_market_snapshot_process": False,
+        "covered_by_v3_vendor_lock_or_market_build_evidence": False,
+        "independent_frozen_file_identity_required_preflight_and_postflight": True,
+        "database_connection_must_be_read_only": True,
+        "source_classification": "LEGACY_FROZEN_OBSERVED_FUNDING_SNAPSHOT",
+        "venue": "binance",
+        "table": "funding_rates",
+        "primary13_rows_are_loaded_only_after_market_coverage_validation": True,
+        "raw_fractional_event_timestamps_are_preserved": True,
+        "historical_source_reconstruction_or_vendor_checksum_lineage_claim_allowed": False,
+        "limitation_required_in_every_result": _FUNDING_LINEAGE_LIMITATION,
+        "pre_prereg_coverage_only_access": {
+            "database_opened": True,
+            "connection_mode": "read_only",
+            "exact_access_timestamp_available": False,
+            "query_scope": "schema_count_min_max_duplicate_and_nonfinite_aggregates_only",
+            "evaluation_window_start_inclusive_utc": "2021-06-01T00:00:00Z",
+            "evaluation_window_end_exclusive_utc": "2026-06-01T00:00:00Z",
+            "primary13_rows": 71_289,
+            "first_event_ts_utc": "2021-06-01T00:00:00.001Z",
+            "last_event_ts_utc": "2026-05-31T16:00:00.004Z",
+            "duplicate_symbol_timestamp_rows": 0,
+            "nonfinite_funding_rate_rows": 0,
+            "mark_price_fallback_needed_rows": 34_486,
+            "individual_funding_rate_or_mark_values_seen": False,
+            "signals_trades_returns_ROI_drawdown_monthly_metrics_or_scenarios_seen": False,
+            "funding_completeness_claimed": False,
+            "values_used_for_strategy_threshold_universe_execution_risk_or_deployment_choice": (
+                False
+            ),
+        },
+    }
+    _expect(dict(funding_disclosure), expected_funding_disclosure, "funding disclosure")
 
     universe = _mapping(loaded.get("universe"), "universe")
     _expect(universe.get("tradable_partition"), "primary13_only", "tradable partition")
@@ -523,6 +688,33 @@ def load_preregistration(path: Path) -> dict[str, Any]:
     )
 
     gaps = _mapping(loaded.get("data_and_gap_contract"), "data_and_gap_contract")
+    _expect(gaps.get("v3_exact_primary_key_rows"), 2_586_624, "V3 primary-key rows")
+    _expect(gaps.get("v3_exact_missing_vendor_bars"), 1_920, "V3 missing vendor bars")
+    _expect(
+        gaps.get("v3_exact_missing_vendor_key_sha256"),
+        "bfd80250c7ae2b5b242f80b2170c47c872b771100f88b7e1ed64d0eaad29287d",
+        "V3 missing-key identity",
+    )
+    _expect(
+        gaps.get("synthetic_forward_filled_interpolated_or_resampled_rows"),
+        0,
+        "V3 synthetic-row count",
+    )
+    expected_gaps = [
+        {
+            "start_inclusive_utc": "2022-02-26T00:00:00Z",
+            "end_exclusive_utc": "2022-03-01T00:00:00Z",
+            "bars_per_affected_symbol": 288,
+            "affected_symbols": ["SOL/USDT", "ZEC/USDT", "NEAR/USDT", "FIL/USDT"],
+        },
+        {
+            "start_inclusive_utc": "2022-04-01T00:00:00Z",
+            "end_exclusive_utc": "2022-04-03T00:00:00Z",
+            "bars_per_affected_symbol": 192,
+            "affected_symbols": ["SOL/USDT", "ZEC/USDT", "NEAR/USDT", "FIL/USDT"],
+        },
+    ]
+    _expect(gaps.get("exact_vendor_gap_manifest"), expected_gaps, "V3 vendor gap manifest")
     history = _mapping(gaps.get("replay_history_load"), "replay_history_load")
     _expect(
         _utc(history.get("load_history_start_utc"), "history start"),
@@ -547,6 +739,7 @@ def load_preregistration(path: Path) -> dict[str, Any]:
         "source_clean_preflight_before_snapshot_access",
         "source_commit_and_every_research_file_sha256_required",
         "prereg_sha256_required",
+        "predecessor_and_v3_lineage_size_and_sha256_preflight_and_postflight_required",
         "snapshot_size_and_sha256_preflight_and_postflight_required",
         "source_commit_and_file_hashes_must_match_preflight_after_replay",
         "holdout_run_forbidden",
@@ -588,6 +781,8 @@ def load_preregistration(path: Path) -> dict[str, Any]:
         or any(not isinstance(item, str) or not item.strip() for item in limitations)
     ):
         raise ValueError("limitations must be a non-empty list of strings")
+    if _FUNDING_LINEAGE_LIMITATION not in limitations:
+        raise ValueError("funding V3-lineage limitation must be disclosed")
     live_proxy = _mapping(
         loaded.get("external_live_gate_proxy_policy"), "external_live_gate_proxy_policy"
     )
@@ -774,6 +969,25 @@ def _canonical_preregistration(
     if prereg != load_preregistration(canonical):
         raise ValueError("execute preregistration differs from the canonical repo contract")
     return canonical
+
+
+def _lineage_specs(prereg: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    lineage = _mapping(prereg.get("predecessor_and_v3_lineage"), "predecessor_and_v3_lineage")
+    return {
+        name: _mapping(lineage[name], f"predecessor_and_v3_lineage.{name}")
+        for name in _LINEAGE_FILES_VERIFIED_SEPARATELY
+    }
+
+
+def _verify_lineage_files(
+    prereg: Mapping[str, Any], repo_root: Path
+) -> dict[str, SnapshotVerification]:
+    """Verify every non-DB predecessor/V3 identity at the snapshot boundary."""
+
+    return {
+        name: verify_frozen_snapshot(name, spec, repo_root=repo_root)
+        for name, spec in _lineage_specs(prereg).items()
+    }
 
 
 def _reference_specs(prereg: Mapping[str, Any]) -> dict[str, dict[str, str]]:
@@ -1005,6 +1219,7 @@ def _base_plan(
     policy = build_policy(prereg)
     scenarios = build_scenarios(prereg)
     snapshots = _mapping(prereg["snapshots"], "snapshots")
+    lineage = _lineage_specs(prereg)
     return {
         "schema_version": PROGRAM_SCHEMA,
         "mode": "DRY_PLAN_NO_SNAPSHOT_ACCESS",
@@ -1063,6 +1278,15 @@ def _base_plan(
             "history_start_inclusive": HISTORY_START.isoformat(),
             "evaluation_start_inclusive": EVALUATION_START.isoformat(),
             "end_exclusive": EVALUATION_END.isoformat(),
+        },
+        "data_lineage": {
+            name: {
+                "configured_path": str(spec["path"]),
+                "expected_bytes": int(spec["bytes"]),
+                "expected_sha256": str(spec["sha256"]),
+                "status": "NOT_ACCESSED",
+            }
+            for name, spec in lineage.items()
         },
         "snapshots": {
             name: {
@@ -1161,6 +1385,7 @@ def run_program(prereg_path: Path, *, repo_root: Path) -> dict[str, Any]:
     if not source_pre["exact_reference_source_hashes_match"]:
         raise RuntimeError("an audited live reference source hash does not match preregistration")
 
+    verified_lineage_pre = _verify_lineage_files(prereg, root)
     verified_pre = {
         name: verify_frozen_snapshot(name, snapshots[name], repo_root=root)
         for name in ("market", "funding")
@@ -1272,6 +1497,7 @@ def run_program(prereg_path: Path, *, repo_root: Path) -> dict[str, Any]:
         name: verify_frozen_snapshot(name, snapshots[name], repo_root=root)
         for name in ("market", "funding")
     }
+    verified_lineage_post = _verify_lineage_files(prereg, root)
     source_post = _source_provenance(prereg, root)
     runtime_post = _critical_runtime_versions(root)
     prereg_hash_post = sha256_file(canonical)
@@ -1284,6 +1510,10 @@ def run_program(prereg_path: Path, *, repo_root: Path) -> dict[str, Any]:
     snapshots_unchanged = all(
         asdict(verified_post[name]) == asdict(verified_pre[name]) for name in ("market", "funding")
     )
+    lineage_unchanged = all(
+        asdict(verified_lineage_post[name]) == asdict(verified_lineage_pre[name])
+        for name in _LINEAGE_FILES_VERIFIED_SEPARATELY
+    )
     if not source_unchanged:
         raise RuntimeError("research/reference source changed during baseline replay")
     if runtime_post != runtime_pre:
@@ -1292,6 +1522,8 @@ def run_program(prereg_path: Path, *, repo_root: Path) -> dict[str, Any]:
         raise RuntimeError("canonical preregistration changed during baseline replay")
     if not snapshots_unchanged:
         raise RuntimeError("a frozen snapshot changed during baseline replay")
+    if not lineage_unchanged:
+        raise RuntimeError("a predecessor/V3 lineage file changed during baseline replay")
 
     payload = _base_plan(
         prereg,
@@ -1306,6 +1538,7 @@ def run_program(prereg_path: Path, *, repo_root: Path) -> dict[str, Any]:
             "mode": "FULL_FROZEN_PRIMARY13_REPLAY",
             "evidence_eligible": True,
             "evidence_ineligible_reasons": [],
+            "data_lineage": {name: asdict(value) for name, value in verified_lineage_pre.items()},
             "snapshots": {name: asdict(value) for name, value in verified_pre.items()},
             "execution_governance": {
                 "canonical_prereg_path": str(canonical),
@@ -1316,6 +1549,8 @@ def run_program(prereg_path: Path, *, repo_root: Path) -> dict[str, Any]:
                 "exact_reference_source_hashes_preflight": True,
                 "source_unchanged_postflight": source_unchanged,
                 "runtime_unchanged_postflight": runtime_post == runtime_pre,
+                "lineage_reverified_postflight": True,
+                "lineage_unchanged_postflight": lineage_unchanged,
                 "snapshots_reverified_postflight": True,
                 "snapshots_unchanged_postflight": snapshots_unchanged,
                 "preflight_source": source_pre,
@@ -1324,6 +1559,9 @@ def run_program(prereg_path: Path, *, repo_root: Path) -> dict[str, Any]:
                 "postflight_runtime": runtime_post,
                 "postflight_snapshots": {
                     name: asdict(value) for name, value in verified_post.items()
+                },
+                "postflight_data_lineage": {
+                    name: asdict(value) for name, value in verified_lineage_post.items()
                 },
                 "input_mutation_checks": {
                     "engine_frames_sha256_by_symbol": frame_hashes_pre,

@@ -1,0 +1,635 @@
+schema_version: crypto-15m-v18-challenger-prereg-v1
+status: PREREGISTERED_DESIGN_ONLY_NO_ENGINE_NO_RESULTS_SEEN
+created_at_utc: "2026-07-11T17:01:08Z"
+parent_git_commit: 2fee09f9d97c11946fe49d343d346df882eb3c5f
+baseline_result_seen_before_candidate_lock: false
+snapshot_performance_opened_by_this_change: false
+performance_execution_authorized_by_this_artifact: false
+live_or_paper_deployment_authorized: false
+promotion_eligible_from_historical_replay: false
+pre_result_amendments:
+  - at_utc: "2026-07-11T17:27:59Z"
+    subject: baseline_legacy_statistics_and_funding_bindings
+    performance_seen_before_amendment: false
+    candidate_cells_or_thresholds_changed: false
+    change: >-
+      Before any v15p2 V2 baseline or V18 performance replay, bind the actual
+      V2 baseline preregistration and program/report sources, the exact nine
+      reconstructible v16/v17 trial artifacts and field paths, and every
+      result-affecting bootstrap, sign-flip, Holm, DSR, and CSCV convention.
+      Also record that the funding aggregate disclosure was learned after the
+      original V18 created_at timestamp but before any baseline or challenger
+      result. Candidate cells and all economic acceptance thresholds are
+      unchanged.
+
+objective:
+  timeframe: 15m
+  market: binance_usdm_research_proxy
+  direction: long_short
+  candidate_batch_size: 4
+  target_is_a_falsification_gate_not_a_forecast: true
+  target_monthly_return_pct: [10.0, 15.0]
+  target_max_drawdown_pct: 15.0
+  result_classification: FEASIBILITY_NOT_PROMOTION
+  description: >-
+    Test four fixed ablations of the frozen v15p2 fair live-policy proxy. No
+    candidate parameter may be selected from the baseline or challenger result.
+
+frozen_lineage:
+  v3_success_identity:
+    path: configs/crypto_15m_v15p2_usdm_snapshot_v3_build_attempt_001_success_identity.json
+    bytes: 14258
+    sha256: 8e73f05d87106ea9df635e3ae0d3996ec5679da48f83bff77856b065059972d3
+    commit: 2fee09f9d97c11946fe49d343d346df882eb3c5f
+    status: V3_SNAPSHOT_BUILD_SUCCESS_IDENTITY_SEALED_NO_STRATEGY_OR_PERFORMANCE_RESULT
+    verified_at_utc: "2026-07-11T16:55:30.034508+00:00"
+  v3_protocol:
+    path: configs/crypto_15m_v15p2_usdm_snapshot_v3_build_protocol.json
+    bytes: 8125
+    sha256: e6995f2fa22158d9133b9d3a45caeb0ba3de01ad70e77239d99bb13331bef3c8
+  v3_build_evidence:
+    path: data/backups/20260711_v15p2_v3_usdm/build_evidence.json
+    bytes: 1095568
+    sha256: 1ac74ceb61c197fad4bc27783eadaed4e88504e3a751257d8c735bc9eece9b34
+    status: SUCCESS
+  fair_baseline_v2_contract:
+    path: configs/crypto_15m_v15p2_fair_baseline_v2_prereg.yaml
+    bytes: 39694
+    sha256: 7a6180312bcbb1b1f9644d26dbce8bd8ac57ea4eb13fc0aa783025f069ddd511
+    schema_version: crypto-15m-v15p2-fair-baseline-prereg-v2
+    alpha_result_trials_before_execution: 0
+  fair_baseline_v2_program_source:
+    path: src/price_action/lab/crypto_15m_v15p2_program.py
+    bytes: 74553
+    sha256: d925ef902d33b01ab7b22487e304ec6a724fb14153a32b73f538c63d79879bcb
+    raw_schema_version: crypto-15m-v15p2-fair-baseline-run-v2
+  fair_baseline_v2_report_source:
+    path: src/price_action/lab/crypto_15m_v15p2_report.py
+    bytes: 135566
+    sha256: 0417ea087627251cd056655e83a72d7e8b38624c3158763258c830ca0e599f9f
+    report_schema_version: crypto-15m-v15p2-fair-baseline-report-v2
+  inherited_fair_policy_contract:
+    path: configs/crypto_15m_v15p2_fair_baseline_prereg.yaml
+    bytes: 33623
+    sha256: 695fb5b7a07fc0bb54c0a69b10f0893d246926a4339a17b5e8705802800f9c22
+    inherited_sections: >-
+      Signal parameters, exact rolling-500 behavior, risk and portfolio policy,
+      next-open execution, breaker state, 30/30/40 exit policy, journal timing,
+      gap handling, and metric semantics are unchanged except for the exhaustive
+      candidate differences and V3 market identity declared in this file.
+    inherited_market_identity_is_not_used: true
+    sole_market_identity_override: snapshots.market
+
+snapshots:
+  market:
+    path: data/backups/20260711_v15p2_v3_usdm/market.duckdb
+    bytes: 181415936
+    sha256: 50e5b240e6babeb3b7ceadc0ae007ededc0ae589cba931e3603d233cec693eb8
+    table: ohlcv
+    venue: binance
+    timeframe: 15m
+    total_rows: 2586624
+    distinct_primary_keys: 2586624
+    ordered_primary_key_sha256: 8fa35b544898ab7f131a0826a2a4bd989aa0d283cc5a2926fb85f962a3e93318
+    frozen_missing_key_count: 1920
+    ordered_missing_key_sha256: bfd80250c7ae2b5b242f80b2170c47c872b771100f88b7e1ed64d0eaad29287d
+    exact_gap_manifest:
+      - start_inclusive_utc: "2022-02-26T00:00:00Z"
+        end_exclusive_utc: "2022-03-01T00:00:00Z"
+        affected_symbols: [SOL/USDT, ZEC/USDT, NEAR/USDT, FIL/USDT]
+        bars_per_symbol: 288
+      - start_inclusive_utc: "2022-04-01T00:00:00Z"
+        end_exclusive_utc: "2022-04-03T00:00:00Z"
+        affected_symbols: [SOL/USDT, ZEC/USDT, NEAR/USDT, FIL/USDT]
+        bars_per_symbol: 192
+  funding:
+    path: data/backups/20260711/funding.duckdb
+    bytes: 17575936
+    sha256: 35be9ebae8f9468a6bae819054008cb4c2338ae0eb923910584dea1adc0c6b96
+    table: funding_rates
+    venue: binance
+  immutable_read_only_access_only: true
+  verify_size_and_sha256_before_first_database_open_and_after_result: true
+
+funding_coverage_disclosure:
+  snapshot_all_symbols: 19
+  snapshot_all_rows: 115006
+  snapshot_first_raw_ts: "2021-01-01T00:00:00.002Z"
+  snapshot_last_raw_ts: "2026-07-10T00:00:00Z"
+  primary13_evaluation_rows: 71289
+  primary13_first_raw_ts: "2021-06-01T00:00:00.001Z"
+  primary13_last_raw_ts: "2026-05-31T16:00:00.004Z"
+  rows_per_primary_symbol_in_evaluation:
+    ADA: 5478
+    ALGO: 5478
+    ATOM: 5478
+    AVAX: 5478
+    BNB: 5478
+    DOGE: 5478
+    DOT: 5478
+    ETH: 5478
+    FIL: 5478
+    LINK: 5478
+    NEAR: 5478
+    SOL: 5553
+    ZEC: 5478
+  nonfinite_funding_rate_rows_in_primary_evaluation: 0
+  duplicate_symbol_raw_timestamp_rows_in_primary_evaluation: 0
+  missing_nonfinite_or_nonpositive_mark_rows_in_primary_evaluation: 34486
+  event_timestamp_semantics: preserve_raw_fractional_UTC_timestamp
+  mark_fallback: event_mark_when_finite_positive_else_latest_causal_symbol_close
+  observed_events_only: true
+  missing_event_interpolation_or_imputation_forbidden: true
+  completeness_claim_allowed: false
+  limitation: >-
+    This funding database spans the full evaluation window for every primary
+    symbol, but it was not rebuilt under the V3 vendor-checksum protocol. Row
+    coverage is not proof that every historically scheduled event is present.
+    Only observed rows may create cashflow; an absent row is never synthesized.
+
+universe:
+  tradable_partition: primary13_only
+  primary_symbols:
+    - ETH/USDT
+    - SOL/USDT
+    - BNB/USDT
+    - ADA/USDT
+    - AVAX/USDT
+    - LINK/USDT
+    - DOT/USDT
+    - DOGE/USDT
+    - ZEC/USDT
+    - NEAR/USDT
+    - FIL/USDT
+    - ATOM/USDT
+    - ALGO/USDT
+  non_traded_reference_symbol: BTC/USDT
+  holdout_symbols_forbidden: [XLM/USDT, AAVE/USDT, TRX/USDT, XRP/USDT]
+  excluded_static_symbol: UNI/USDT
+  global_symbol_timestamp_intersection_forbidden: true
+  price_or_feature_forward_fill_forbidden: true
+  point_in_time_membership_available: false
+
+time_protocol:
+  complete_months_utc: ["2021-06-01T00:00:00Z", "2026-06-01T00:00:00Z"]
+  development: ["2021-06-01T00:00:00Z", "2023-06-01T00:00:00Z"]
+  pseudo_oos: ["2023-06-01T00:00:00Z", "2026-06-01T00:00:00Z"]
+  development_months: 24
+  pseudo_oos_months: 36
+  historical_pseudo_oos_was_seen_by_prior_program_research: true
+  historical_pseudo_oos_is_not_independent: true
+  candidate_parameters_locked_before_baseline_result: true
+  one_continuous_stateful_replay_per_cell_and_scenario: true
+  month_and_fold_restarts_forbidden: true
+  folds_are_metric_slices_only: true
+  folds:
+    - ["2023-06-01T00:00:00Z", "2023-12-01T00:00:00Z"]
+    - ["2023-12-01T00:00:00Z", "2024-06-01T00:00:00Z"]
+    - ["2024-06-01T00:00:00Z", "2024-12-01T00:00:00Z"]
+    - ["2024-12-01T00:00:00Z", "2025-06-01T00:00:00Z"]
+    - ["2025-06-01T00:00:00Z", "2025-12-01T00:00:00Z"]
+    - ["2025-12-01T00:00:00Z", "2026-06-01T00:00:00Z"]
+  interval_semantics: half_open_start_inclusive_end_exclusive
+  missing_month_return_pct: 0.0
+
+candidate_cells:
+  - id: C1_VSA_ONLY
+    enabled_strategies: [vsa_climax_test]
+    disabled_strategies: [grimes_abc_pullback]
+    htf50_gate: false
+  - id: C2_GRIMES_ONLY
+    enabled_strategies: [grimes_abc_pullback]
+    disabled_strategies: [vsa_climax_test]
+    htf50_gate: false
+  - id: C3_DUAL_HTF50
+    enabled_strategies: [vsa_climax_test, grimes_abc_pullback]
+    disabled_strategies: []
+    htf50_gate: true
+  - id: C4_VSA_HTF50
+    enabled_strategies: [vsa_climax_test]
+    disabled_strategies: [grimes_abc_pullback]
+    htf50_gate: true
+candidate_design_constraints:
+  exhaustive_allowed_differences_from_control:
+    - enabled_strategy_subset_exactly_as_declared
+    - causal_completed_daily_SMA50_gate_exactly_as_declared
+  any_other_signal_risk_exit_execution_cost_or_metric_change_forbidden: true
+
+htf50_contract:
+  scope: each_candidate_traded_symbol_independently
+  source_timeframe: completed_15m_bars
+  complete_UTC_day_requires_exactly_96_bars: true
+  exact_bar_grid: "00:00_through_23:45_at_15_minutes"
+  daily_close: close_of_23_45_bar_open_label
+  decision_day: UTC_calendar_date_containing_decision_bar
+  latest_permitted_daily_close_for_decision_on_day_D: D_minus_1
+  lookback_days: 50
+  requires_50_consecutive_complete_UTC_days_ending_D_minus_1: true
+  moving_average: exact_arithmetic_SMA50
+  exponential_or_approximate_average_forbidden: true
+  long_rule: latest_completed_daily_close_strictly_greater_than_SMA50
+  short_rule: latest_completed_daily_close_strictly_less_than_SMA50
+  equality_missing_nonfinite_or_incomplete_history: reject_intent_fail_closed
+  reaching_farther_back_to_replace_missing_day_forbidden: true
+  forming_day_or_any_D_day_close_forbidden: true
+  per_symbol_only_no_global_intersection: true
+  forward_fill_or_imputation_forbidden: true
+  filter_is_evaluated_after_raw_strategy_emission_before_risk_acceptance: true
+  every_rejection_requires_a_reason_ledger_row: true
+
+execution_and_policy_contract:
+  source: frozen_lineage.inherited_fair_policy_contract
+  decision: completed_15m_signal_bar_close
+  earliest_entry: next_exact_contiguous_15m_bar_open
+  intrabar_tie: stop_first
+  gap_stop_fill: worse_of_open_or_stop
+  one_net_position_per_symbol: true
+  partial_exit_weights: [0.30, 0.30, 0.40]
+  pyramid: false
+  strategy_parameters_inherited_without_change: true
+  risk_portfolio_breaker_and_exit_state_inherited_without_change: true
+  B_C2_H_are_independent_path_dependent_replays: true
+
+cost_and_payoff_scenarios:
+  bps_per_actual_fill:
+    fee: 4.0
+    spread_and_slippage: 20.0
+    impact: 4.5
+    total: 28.5
+  funding: observed_event_cashflow_on_remaining_open_notional
+  partial_and_terminal_fills_charged_on_actual_filled_notional: true
+  scenarios:
+    B:
+      execution_cost_multiplier: 1.0
+      funding_multiplier: 1.0
+      positive_price_pnl_multiplier: 1.0
+      negative_price_pnl_multiplier: 1.0
+    C2:
+      execution_cost_multiplier: 2.0
+      funding_multiplier: 2.0
+      positive_price_pnl_multiplier: 1.0
+      negative_price_pnl_multiplier: 1.0
+    H:
+      execution_cost_multiplier: 1.0
+      funding_multiplier: 1.0
+      positive_price_pnl_multiplier: 0.50
+      negative_price_pnl_multiplier: 1.25
+  H_multiplier_granularity: each_realized_or_terminal_price_pnl_slice
+  execution_cost_and_funding_are_never_payoff_haircut_again: true
+
+validation_metrics:
+  equity_observation: every_available_15m_bar_after_all_bar_events
+  equity_includes_open_position_MTM_and_accrued_exit_cost: true
+  monthly_return_unit: percentage_points
+  monthly_baseline: last_NAV_strictly_before_month_start
+  drawdown: full_15m_MTM
+  trimmed_mean:
+    symmetric_fraction_each_tail: 0.10
+    cut_count: floor_n_times_fraction
+  block_bootstrap:
+    method: overlapping_moving_3_month_blocks
+    iterations: 20000
+    seed: 18
+    statistic: symmetric_10pct_trimmed_arithmetic_mean
+    lower_quantile: 0.10
+  active_month: at_least_one_15m_observation_with_nonzero_open_exposure
+  top_5pct_trade_removal:
+    count: ceil_closed_trade_count_times_0_05_minimum_1
+    method: additive_remove_highest_net_trade_PnL_without_rerun
+  best_month_share: best_positive_month_PnL_divided_by_sum_positive_month_PnL
+  best_3_month_share: sum_best_three_positive_month_PnL_divided_by_sum_positive_month_PnL
+  LOSO_marginal: full_H_total_net_PnL_minus_true_H_replay_without_symbol_total_net_PnL
+  effective_symbol_count: one_over_sum_squared_positive_normalized_LOSO_marginal_shares
+  terminal_open_positions_excluded_from_closed_trade_sample_count: true
+  scenario_binding:
+    sample_counts: H_closed_trade_ledger_by_exit_timestamp
+    return_stability_walk_forward_and_month_concentration: H
+    top_5pct_trade_removal: H
+    true_LOSO_and_effective_symbol_count: H
+    direction: C2
+    economic_edge: B
+    drawdown: B_and_worse_of_C2_H
+
+hard_gates:
+  sample:
+    pseudo_oos_months: 36
+    minimum_closed_trades: 360
+    minimum_long_trades: 60
+    minimum_short_trades: 60
+    minimum_active_months: 30
+  H_return:
+    trimmed_mean_monthly_pct_min: 10.0
+    median_monthly_pct_min: 8.0
+    block_bootstrap_90pct_lower_bound_pct_min: 6.0
+  H_stability:
+    negative_months_max: 4
+    months_below_minus_1pct_max: 3
+    worst_month_pct_min: -6.0
+  C2_return:
+    trimmed_mean_monthly_pct_min: 8.0
+    median_monthly_pct_min: 6.0
+  drawdown:
+    B_max_mtm_pct: 15.0
+    worse_of_C2_H_max_mtm_pct: 20.0
+  walk_forward:
+    positive_folds_min: 5
+    total_folds: 6
+    worst_six_month_fold_pct_min: -5.0
+    H_oos_to_development_trimmed_return_ratio_min: 0.50
+    H_oos_to_development_drawdown_ratio_max: 1.50
+    nonpositive_return_or_drawdown_denominator: fail_closed
+  economic_edge:
+    B_pre_cost_price_pnl_over_execution_cost_min: 1.50
+    denominator_execution_cost_must_be_positive: true
+    funding_excluded_from_ratio_and_reported_separately: true
+  direction:
+    long_C2_net_must_be_positive: true
+    short_C2_net_must_be_positive: true
+  concentration:
+    best_month_positive_pnl_share_max: 0.15
+    best_3_month_positive_pnl_share_max: 0.35
+    mean_after_best_3_months_removed_pct_min: 7.0
+    net_after_top_5pct_trades_removed_must_be_positive: true
+    effective_symbol_count_min: 6
+    all_true_leave_one_symbol_out_replays_positive: true
+  multiple_testing:
+    local_holm_fwer_adjusted_p_max: 0.05
+    cumulative_floor_holm_fwer_adjusted_p_max: 0.05
+    cumulative_floor_deflated_sharpe_min: 0.95
+    local_probability_backtest_overfit_max: 0.20
+
+multiple_testing_and_trial_ledger:
+  audit_grade_prior_trials: 9
+  local_v18_trials: 4
+  cumulative_governed_trial_floor: 13
+  prior_composition: v16_six_cells_plus_v17_three_cells
+  larger_legacy_exposure_exists: true
+  larger_legacy_exposure_exact_count_reconstructible: false
+  thirteen_is_a_floor_not_a_claim_of_total_historical_trials: true
+  canonical_candidate_order:
+    - T1_RESIDUAL_TREND_1W
+    - T2_RESIDUAL_TREND_2W
+    - T4_RESIDUAL_TREND_4W
+    - M1_FUNDING_RESIDUAL_REVERSION_4H_Z2
+    - M2_FUNDING_RESIDUAL_REVERSION_8H_Z2
+    - M3_FUNDING_RESIDUAL_REVERSION_4H_Z2P5
+    - DP1_EG_90D_Z2P5
+    - DP2_EG_180D_Z2P5
+    - DP3_EG_180D_Z3_STRICT
+    - C1_VSA_ONLY
+    - C2_GRIMES_ONLY
+    - C3_DUAL_HTF50
+    - C4_VSA_HTF50
+  prior_artifacts:
+    v16_prereg:
+      path: configs/crypto_15m_v16_research_prereg.yaml
+      bytes: 13052
+      sha256: bd41fc39b2e65a77b3aa2b396b676b0d4e2d315b9d3addac0e738e6f8b9e0fa3
+    v17_prereg:
+      path: configs/crypto_15m_v17_pairs_prereg.yaml
+      bytes: 21064
+      sha256: 52d6b0e433e4145e17c588be88d3f82bc7ecb91e281fab12fd5450db12b6cc52
+    v16_raw_gzip:
+      path: reports/research/crypto_15m_v16_primary_raw_2026-07-11.json.gz
+      bytes: 488844
+      sha256: 7e434d50280dadea4a730a1a8dac0f6436f92e36118082eef164f3638256265d
+      decoded_bytes: 1888565
+      decoded_json_sha256: 9ebbe8620a7fb5b46eb958ce593e7e772a50f2380f54fc7b857f9cd488063d8e
+      schema_version: crypto-15m-v16-run-v1
+      evidence_eligible_required: true
+    v17_raw_json:
+      path: reports/research/crypto_15m_v17_pairs_primary_raw_2026-07-11.json
+      bytes: 162198487
+      sha256: 73e92a02131985a8a24c195c54c165b6775decef0ea41e24b6b34991edf4d82a
+      schema_version: crypto-15m-v17-pairs-run-v1
+      evidence_eligible_required: true
+    v17_raw_gzip_crosscheck:
+      path: reports/research/crypto_15m_v17_pairs_primary_raw_2026-07-11.json.gz
+      bytes: 7091723
+      sha256: 6d9ded77ceed025b73259c44b2527caf60a9e0eacc8a21ddeb8c2990563e369d
+      decoded_bytes: 162198487
+      decoded_json_sha256: 73e92a02131985a8a24c195c54c165b6775decef0ea41e24b6b34991edf4d82a
+    v17_report_json:
+      path: reports/research/crypto_15m_v17_pairs_report_2026-07-11.json
+      bytes: 380701
+      sha256: ae234c398ac1390b39ac29210f92698523322687ef332e37c43243d75201a18d
+      schema_version: crypto-15m-v17-pairs-report-v1
+      evidence_eligible_required: true
+  prior_candidate_field_bindings:
+    input_months: exact_2023_06_through_2026_05_inclusive_in_chronological_order
+    monthly_return_unit: percentage_points
+    finite_36_values_required: true
+    v16_monthly_return_pointer_template: /results/{candidate_id}/H/windows/pseudo_oos/monthly_returns_pct
+    v17_monthly_return_pointer_template: /results/{candidate_id}/H/windows/pseudo_oos/monthly_returns_pct
+    prior_raw_pvalue_crosscheck_pointer_template: >-
+      /multiple_testing/program_wide_v16_plus_v17_exact_36x9/candidate_results/{candidate_id}/candidate_sign_flip_pvalue
+    prior_periodic_sharpe_crosscheck_pointer_template: >-
+      /multiple_testing/program_wide_v16_plus_v17_exact_36x9/candidate_results/{candidate_id}/periodic_monthly_sharpe
+    prior_trial_sharpe_map_crosscheck_pointer: >-
+      /multiple_testing/program_wide_v16_plus_v17_exact_36x9/trial_periodic_monthly_sharpes
+    inputs:
+      - {candidate_id: T1_RESIDUAL_TREND_1W, raw_artifact: v16_raw_gzip}
+      - {candidate_id: T2_RESIDUAL_TREND_2W, raw_artifact: v16_raw_gzip}
+      - {candidate_id: T4_RESIDUAL_TREND_4W, raw_artifact: v16_raw_gzip}
+      - {candidate_id: M1_FUNDING_RESIDUAL_REVERSION_4H_Z2, raw_artifact: v16_raw_gzip}
+      - {candidate_id: M2_FUNDING_RESIDUAL_REVERSION_8H_Z2, raw_artifact: v16_raw_gzip}
+      - {candidate_id: M3_FUNDING_RESIDUAL_REVERSION_4H_Z2P5, raw_artifact: v16_raw_gzip}
+      - {candidate_id: DP1_EG_90D_Z2P5, raw_artifact: v17_raw_json}
+      - {candidate_id: DP2_EG_180D_Z2P5, raw_artifact: v17_raw_json}
+      - {candidate_id: DP3_EG_180D_Z3_STRICT, raw_artifact: v17_raw_json}
+    legacy_report_crosscheck_policy: >-
+      Recompute the nine seed-17 sign-flip p-values and periodic monthly
+      Sharpes from the bound raw monthly returns using the bound validation
+      sources, and require exact deterministic equality to the bound V17
+      program-wide report before those inputs may enter V18 cumulative tests.
+      Any missing path, candidate, month, non-finite value, or mismatch is
+      UNVERIFIABLE and fails closed.
+  bound_validation_sources:
+    shared_statistics:
+      path: src/price_action/lab/crypto_15m_validation.py
+      bytes: 38943
+      sha256: 6227e9f1e4d3f979dbc539ec0ee2b0e7507437a61962194c5d37a52083b6d9e9
+      functions:
+        - trimmed_mean_pct
+        - block_bootstrap_lower_bound_pct
+        - holm_adjusted_pvalues
+        - deflated_sharpe_statistics
+        - probability_of_backtest_overfitting
+    prior_program_statistics:
+      path: src/price_action/lab/crypto_15m_pairs_validation.py
+      bytes: 58684
+      sha256: 9f0eae0bb08f45ceacdb7a3bb9c48ceb1b2f1b3469d21bd2bf572e11ecf6a95b
+      functions:
+        - candidate_block_sign_flip_test
+        - program_wide_multiple_testing
+  locked_statistical_algorithms:
+    missing_or_nonfinite_input: fail_closed_UNVERIFIABLE
+    symmetric_trimmed_mean:
+      order: stable_numeric_ascending
+      cut_each_tail: floor_n_times_0_10
+      statistic: arithmetic_mean_of_remaining_values
+    moving_block_bootstrap:
+      blocks: all_34_overlapping_consecutive_3_month_blocks_from_36_months
+      generator: numpy_random_default_rng_PCG64_seed_18
+      draws_per_iteration: 12_block_indices_uniform_with_replacement
+      assembly: concatenate_drawn_blocks_then_take_first_36_values
+      iterations: 20000
+      statistic: symmetric_10pct_trimmed_arithmetic_mean
+      lower_quantile: 0.10
+      quantile_method: numpy_quantile_linear
+    sign_flip:
+      blocks: 12_nonoverlapping_consecutive_3_month_blocks
+      generator: numpy_random_default_rng_PCG64_seed_18
+      sign_draw: integers_0_or_1_mapped_to_minus_1_or_plus_1_independently_per_block
+      iterations: 20000
+      observed_statistic: symmetric_10pct_trimmed_arithmetic_mean_of_36_months
+      null_statistic: same_statistic_after_block_signs
+      exceedance: null_statistic_greater_than_or_equal_to_observed
+      pvalue: one_plus_exceedances_divided_by_20001
+    holm:
+      family_order: canonical_candidate_order_restricted_to_family
+      sort: ascending_raw_p_stable_ties_preserve_family_order
+      adjusted_formula: >-
+        cumulative_max_over_sorted_rank_j_of_family_size_minus_j_times_raw_p,
+        clipped_to_1_and_returned_in_family_order
+    periodic_sharpe:
+      formula: arithmetic_mean_divided_by_sample_standard_deviation_ddof_1
+      annualization_for_display_only: multiply_by_sqrt_12
+      zero_standard_deviation: positive_inf_negative_inf_or_zero_by_mean
+    deflated_sharpe:
+      implementation: bound_shared_statistics.deflated_sharpe_statistics
+      observed_returns: exact_36_H_monthly_percentage_point_returns
+      trial_distribution: exact_13_periodic_monthly_sharpes_in_canonical_candidate_order
+      n_trials: 13
+      periods_per_year: 12
+      skew_and_kurtosis: population_standardized_central_moments
+      sharpe_standard_error_ddof: n_minus_1_denominator_as_bound_source
+      expected_max: euler_mascheroni_normal_order_statistic_as_bound_source
+      output: standard_normal_CDF_of_observed_minus_expected_max_over_standard_error
+      any_nonfinite_trial_sharpe: fail_closed_UNVERIFIABLE
+    cscv_pbo:
+      scope: local_exact_36_by_4_H_matrix_only
+      candidate_column_order: [C1_VSA_ONLY, C2_GRIMES_ONLY, C3_DUAL_HTF50, C4_VSA_HTF50]
+      slices: numpy_array_split_36_chronological_rows_into_6_equal_slices
+      combinations: lexicographic_all_choose_3_of_6
+      score: periodic_sharpe_mean_over_sample_std_ddof_1
+      in_sample_selection: numpy_argmax_first_column_wins_exact_tie
+      out_sample_rank: pandas_average_rank_ascending
+      relative_rank: rank_divided_by_5
+      logit: natural_log_relative_rank_divided_by_one_minus_relative_rank
+      probability: fraction_of_20_logits_less_than_or_equal_to_zero
+  local_H_matrix: exact_finite_36_by_4_percentage_point_monthly_returns
+  local_holm:
+    raw_p_method: locked_statistical_algorithms.sign_flip
+    iterations: 20000
+    seed: 18
+    scope: all_4_v18_cells
+  cumulative_floor_holm:
+    scope: >-
+      recompute all exact reconstructible 9 prior plus 4 V18 raw pvalues under
+      locked_statistical_algorithms.sign_flip and apply one 13-member Holm family
+    adjusted_p_max: 0.05
+    missing_prior_input: fail_closed_UNVERIFIABLE
+  deflated_sharpe:
+    returns: 36_month_H_percentage_point_returns
+    n_trials_floor: 13
+    minimum: 0.95
+    trial_distribution: exact_13_periodic_monthly_sharpes_in_canonical_candidate_order
+    missing_prior_trial_distribution: fail_closed_UNVERIFIABLE
+  probability_backtest_overfit:
+    method: locked_statistical_algorithms.cscv_pbo
+    matrix: exact_finite_36_by_4_H_monthly_return_matrix
+    slices: 6
+    maximum: 0.20
+  limitation: >-
+    Passing the governed floor of thirteen does not erase the larger
+    unreconstructible legacy search. Historical evidence remains feasibility
+    only and cannot authorize promotion without prospective proof.
+
+selection_and_early_stop:
+  thresholds_may_not_be_relaxed_after_results: true
+  no_primary_cell_passes: RED_without_LOSO
+  deterministic_rank_among_absolute_gate_passers:
+    primary: H_trimmed_mean_monthly_return_capped_at_15pct
+    tie_breakers:
+      - lower_H_max_MTM_drawdown
+      - fewer_H_negative_months
+      - better_H_worst_month
+      - lower_H_filled_gross_turnover
+      - lexicographic_candidate_id
+  only_locked_winner_runs_true_LOSO: true
+  runner_up_after_winner_LOSO_failure_forbidden: true
+  ensemble_or_new_threshold_requires_new_preregistration: true
+
+fair_baseline_comparison:
+  canonical_contract: frozen_lineage.fair_baseline_v2_contract
+  canonical_program_source: frozen_lineage.fair_baseline_v2_program_source
+  canonical_report_source: frozen_lineage.fair_baseline_v2_report_source
+  canonical_outputs:
+    raw_json: reports/research/crypto_15m_v15p2_fair_baseline_v2_raw.json
+    report_json: reports/research/crypto_15m_v15p2_fair_baseline_v2_report.json
+    report_markdown: reports/research/CRYPTO_15M_V15P2_FAIR_BASELINE_V2.md
+    post_run_identity: configs/crypto_15m_v15p2_fair_baseline_v2_result_identity.json
+  result_identity_requirements:
+    raw_schema_version: crypto-15m-v15p2-fair-baseline-run-v2
+    report_schema_version: crypto-15m-v15p2-fair-baseline-report-v2
+    prereg_path_bytes_sha_must_match_canonical_contract: true
+    program_and_report_source_bytes_sha_must_match_frozen_lineage: true
+    market_and_funding_bytes_sha_must_match_snapshots: true
+    raw_and_report_artifact_path_bytes_sha_required: true
+    execution_git_commit_required: true
+    clean_source_preflight_and_unchanged_postflight_required: true
+    raw_and_report_evidence_eligible_must_both_be_true: true
+    post_run_identity_must_bind_all_of_the_above_before_comparison: true
+    missing_mismatch_or_duplicate_canonical_output: no_better_than_baseline_claim
+  baseline_must_be_run_on_exact_same_V3_market_and_funding_snapshots: true
+  same_universe_period_execution_costs_policy_and_metric_code_required: true
+  old_21p36_pool_headline_forbidden: true
+  absolute_challenger_hard_gates_still_required: true
+  pass_logic: rule_1_or_rule_2_and_stability_noninferiority
+  rule_1:
+    challenger_H_trimmed_mean_monthly_pct_min_formula: max_10pct_or_baseline_plus_1p5pp
+    challenger_H_max_MTM_drawdown_may_be_at_most_pp_worse: 1.0
+  rule_2:
+    challenger_H_trimmed_mean_monthly_return_must_be_within_pp_of_baseline: 1.0
+    challenger_H_max_MTM_drawdown_reduction_vs_baseline_min_fraction: 0.25
+  stability_noninferiority:
+    H_negative_month_count_may_not_be_worse_than_baseline: true
+    H_worst_month_may_not_be_worse_than_baseline: true
+  missing_or_ineligible_baseline_result: no_better_than_baseline_claim
+
+prospective_evidence_gate:
+  required_after_historical_winner: true
+  starts_only_after_candidate_source_and_policy_are_frozen: true
+  minimum_calendar_days: 90
+  minimum_closed_trades: 100
+  stop_when: both_minimums_satisfied_whichever_occurs_later
+  median_realized_all_in_cost_must_not_exceed_historical_C2_modeled_median: true
+  integrity_failures_allowed: 0
+  net_return_must_be_positive: true
+  max_MTM_drawdown_pct: 10.0
+  matched_signal_intent_fill_and_exit_reconciliation_required: true
+  paper_or_shadow_only_until_gate_passes: true
+  automatic_live_deployment_forbidden: true
+  explicit_human_risk_and_deployment_decision_required_after_pass: true
+
+implementation_and_execution_governance:
+  current_artifact_is_design_only: true
+  engine_program_or_report_implemented_by_this_change: false
+  implementation_must_be_completed_and_tested_before_any_snapshot_performance_open: true
+  implementation_must_reject_any_prereg_drift: true
+  canonical_prereg_path: configs/crypto_15m_v18_challenger_prereg.yaml
+  clean_source_preflight_before_snapshot_access: true
+  prereg_source_runtime_and_snapshot_hashes_required_preflight_and_postflight: true
+  result_must_include_all_cell_month_trade_fill_rejection_and_LOSO_ledgers: true
+  no_account_credentials_exchange_orders_daemon_restart_or_live_state_mutation: true
+  governance_failure_result: INELIGIBLE_EVIDENCE
+
+limitations:
+  - static_survivor_primary13_universe_without_point_in_time_membership
+  - historical_pseudo_OOS_already_exposed_to_the_broader_research_program
+  - larger_legacy_trial_exposure_exists_but_is_not_exactly_reconstructible
+  - funding_snapshot_is_observed_event_coverage_not_vendor_completeness_proof
+  - no_historical_FnG_mark_L1_queue_latency_rounding_margin_tier_or_rate_limit_state
+  - next_open_plus_fixed_cost_execution_is_a_proxy_not_live_fill_proof
+  - historical_result_cannot_authorize_live_or_paper_deployment

@@ -16,6 +16,8 @@ from price_action.lab.crypto_15m_v15p2_signals import (
     V15P2SignalIntent,
 )
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 def _scenario_config(name: str) -> dict[str, Any]:
     return copy.deepcopy(report._EXPECTED_SCENARIOS[name])
@@ -224,7 +226,7 @@ def _source_provenance() -> dict[str, Any]:
     required = set(report._REQUIRED_RUNNER_SOURCE_FILES).union(
         path for path, _digest in report._EXPECTED_REFERENCE_SOURCES.values()
     )
-    hashes = {path: "9" * 64 for path in required}
+    hashes = {path: report._sha256_bytes((ROOT / path).read_bytes()) for path in required}
     hashes[report.CANONICAL_PREREG_RELATIVE] = report.EXPECTED_PREREG_SHA256
     hashes["requirements-lock.txt"] = report.EXPECTED_REQUIREMENTS_LOCK_SHA256
     checks: dict[str, Any] = {}
@@ -253,12 +255,26 @@ def _snapshots() -> dict[str, Any]:
         name: {
             "name": name,
             "configured_path": identity["configured_path"],
-            "resolved_path": f"/repo/{identity['configured_path']}",
+            "resolved_path": str(ROOT / identity["configured_path"]),
             "bytes": identity["bytes"],
             "sha256": identity["sha256"],
             "status": "VERIFIED",
         }
         for name, identity in report.EXPECTED_SNAPSHOT_IDENTITIES.items()
+    }
+
+
+def _data_lineage() -> dict[str, Any]:
+    return {
+        name: {
+            "name": name,
+            "configured_path": identity["configured_path"],
+            "resolved_path": str(ROOT / identity["configured_path"]),
+            "bytes": identity["bytes"],
+            "sha256": identity["sha256"],
+            "status": "VERIFIED",
+        }
+        for name, identity in report.EXPECTED_DATA_LINEAGE_IDENTITIES.items()
     }
 
 
@@ -296,6 +312,7 @@ def _raw(*, terminal_scenario: str | None = None) -> dict[str, Any]:
     source = _source_provenance()
     runtime = copy.deepcopy(report.EXPECTED_RUNTIME_VERSIONS)
     snapshots = _snapshots()
+    data_lineage = _data_lineage()
     frame_hashes = {symbol: "e" * 64 for symbol in report.PRIMARY_SYMBOLS}
     funding_hash = "7" * 64
     returns_hash = "d" * 64
@@ -323,9 +340,9 @@ def _raw(*, terminal_scenario: str | None = None) -> dict[str, Any]:
             "sha256": _hash(list(report._EXPECTED_RAW_LIMITATIONS)),
         },
         "preregistration": {
-            "path": "/repo/configs/crypto_15m_v15p2_fair_baseline_prereg.yaml",
+            "path": str(ROOT / report.CANONICAL_PREREG_RELATIVE),
             "sha256": report.EXPECTED_PREREG_SHA256,
-            "schema_version": "crypto-15m-v15p2-fair-baseline-prereg-v1",
+            "schema_version": "crypto-15m-v15p2-fair-baseline-prereg-v2",
             "status": "PREREGISTERED_NO_RESULTS_SEEN",
             "live_deployment_authorized": False,
         },
@@ -364,9 +381,10 @@ def _raw(*, terminal_scenario: str | None = None) -> dict[str, Any]:
             "fold_months_each": [6, 6, 6, 6, 6, 6],
             "interval_semantics": "half_open_start_inclusive_end_exclusive",
         },
+        "data_lineage": data_lineage,
         "snapshots": snapshots,
         "execution_governance": {
-            "canonical_prereg_path": ("/repo/configs/crypto_15m_v15p2_fair_baseline_prereg.yaml"),
+            "canonical_prereg_path": str(ROOT / report.CANONICAL_PREREG_RELATIVE),
             "canonical_prereg_semantic_match": True,
             "canonical_prereg_preflight_sha256": report.EXPECTED_PREREG_SHA256,
             "canonical_prereg_postflight_sha256": report.EXPECTED_PREREG_SHA256,
@@ -374,12 +392,15 @@ def _raw(*, terminal_scenario: str | None = None) -> dict[str, Any]:
             "exact_reference_source_hashes_preflight": True,
             "source_unchanged_postflight": True,
             "runtime_unchanged_postflight": True,
+            "lineage_reverified_postflight": True,
+            "lineage_unchanged_postflight": True,
             "snapshots_reverified_postflight": True,
             "snapshots_unchanged_postflight": True,
             "preflight_source": copy.deepcopy(source),
             "postflight_source": copy.deepcopy(source),
             "preflight_runtime": copy.deepcopy(runtime),
             "postflight_runtime": copy.deepcopy(runtime),
+            "postflight_data_lineage": copy.deepcopy(data_lineage),
             "postflight_snapshots": copy.deepcopy(snapshots),
             "input_mutation_checks": {
                 "engine_frames_sha256_by_symbol": frame_hashes,
@@ -451,6 +472,23 @@ def test_no_trade_report_has_all_zero_months_and_no_deployment() -> None:
         )
     assert result["scenarios"]["H"]["windows"]["pseudo_oos"]["month_count"] == 36
     assert result["H_summary"]["pseudo_oos_trimmed_10pct_symmetric_mean_monthly_return_pct"] == 0.0
+
+
+def test_reporter_rejects_current_source_drift_from_replay_provenance() -> None:
+    raw = _raw()
+    relative = "src/price_action/lab/crypto_15m_v15p2_report.py"
+    for source in (
+        raw["source_provenance"],
+        raw["execution_governance"]["preflight_source"],
+        raw["execution_governance"]["postflight_source"],
+    ):
+        source["file_sha256"][relative] = "0" * 64
+
+    with pytest.raises(
+        report.BaselineReportContractError,
+        match="current reporter source differs from replay provenance",
+    ):
+        report.build_report(raw)
 
 
 def test_monthly_baseline_is_last_nav_strictly_before_boundary() -> None:
@@ -589,6 +627,10 @@ def test_report_identity_constants_match_canonical_preregistration() -> None:
                 configured_path="data/backups/other/funding.duckdb"
             ),
             "configured path",
+        ),
+        (
+            lambda raw: raw["data_lineage"]["v3_build_evidence"].update(sha256="0" * 64),
+            "v3_build_evidence SHA-256 drifted",
         ),
         (
             lambda raw: raw["market_loading"].update(forward_fill_performed=True),
