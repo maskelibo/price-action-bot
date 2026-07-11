@@ -1,0 +1,84 @@
+{
+  "schema_version": "crypto-15m-v15p2-fair-baseline-failure-v1",
+  "verdict": "INFEASIBLE_DATA_COVERAGE_NO_PERFORMANCE_RESULT",
+  "attempt_label_utc": "2026-07-11T12:45:00Z",
+  "source_commit": "05fc820c0a684954ec035a164b82bda0bf57ab66",
+  "preregistration": {
+    "path": "configs/crypto_15m_v15p2_fair_baseline_prereg.yaml",
+    "sha256": "695fb5b7a07fc0bb54c0a69b10f0893d246926a4339a17b5e8705802800f9c22",
+    "status_at_attempt": "PREREGISTERED_NO_RESULTS_SEEN"
+  },
+  "attempt": {
+    "mode": "FULL_FROZEN_PRIMARY13_REPLAY",
+    "exit_code": 1,
+    "failed_stage": "validate_loaded_market_before_funding_load_or_signal_generation",
+    "exception_type": "ValueError",
+    "exception_message": "ATOM/USDT: missing exact 500-bar warmup at evaluation start",
+    "raw_output_created": false,
+    "market_snapshot_opened_read_only": true,
+    "funding_snapshot_opened": false,
+    "signal_generation_started": false,
+    "daily_return_construction_started": false,
+    "portfolio_engine_started": false,
+    "scenario_results_produced": false,
+    "roi_or_drawdown_metrics_produced": false
+  },
+  "preflight": {
+    "research_source_clean": true,
+    "audited_live_reference_hashes_match": "19/19",
+    "market_snapshot_size_and_sha256_verified": true,
+    "funding_snapshot_size_and_sha256_verified": true,
+    "market_snapshot": {
+      "path": "data/backups/20260711/market.duckdb",
+      "bytes": 1636839424,
+      "sha256": "071768300daea9170d29bd5e35cc94795b8a500614d6e5ac4b127e459416652d"
+    },
+    "funding_snapshot": {
+      "path": "data/backups/20260711/funding.duckdb",
+      "bytes": 17575936,
+      "sha256": "35be9ebae8f9468a6bae819054008cb4c2338ae0eb923910584dea1adc0c6b96"
+    }
+  },
+  "coverage_diagnostic": {
+    "evaluation_start_utc": "2021-06-01T00:00:00Z",
+    "required_signal_warmup_bars": 500,
+    "exact_contiguous_bars_before_start": {
+      "ATOM/USDT": 100,
+      "ALGO/USDT": 100
+    },
+    "complete_daily_closes_before_start": {
+      "ETH/USDT": 16,
+      "SOL/USDT": 16,
+      "BNB/USDT": 16,
+      "ADA/USDT": 16,
+      "AVAX/USDT": 16,
+      "LINK/USDT": 16,
+      "DOT/USDT": 16,
+      "DOGE/USDT": 16,
+      "ZEC/USDT": 91,
+      "NEAR/USDT": 91,
+      "FIL/USDT": 91,
+      "ATOM/USDT": 1,
+      "ALGO/USDT": 1
+    },
+    "diagnostic_access_scope": [
+      "market_timestamp_ranges_and_row_counts",
+      "per_symbol_gap_counts",
+      "complete_daily_close_counts",
+      "first_ten_ATOM_rows_including_open_and_close_values"
+    ],
+    "alternate_symbol_spelling_or_backfill_found": false,
+    "signals_trades_monthly_returns_roi_and_drawdown_inspected": false
+  },
+  "governance": {
+    "original_preregistration_mutated_after_snapshot_access": false,
+    "universe_reduced_after_coverage_failure": false,
+    "history_backfilled_or_forward_filled": false,
+    "threshold_or_strategy_selected_from_results": false,
+    "alpha_result_trials": 0,
+    "successor_requires_new_preregistration_identity": true,
+    "live_daemon_restarted": false,
+    "exchange_or_network_accessed": false,
+    "deployment_authorized": false
+  }
+}
