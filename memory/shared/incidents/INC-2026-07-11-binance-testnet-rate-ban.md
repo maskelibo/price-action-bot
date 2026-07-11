@@ -3,7 +3,7 @@ doc_id: INC-2026-07-11-binance-testnet-rate-ban
 doc_type: incident
 agent_id: ops_engineer
 created_at: '2026-07-10T22:56:28Z'
-updated_at: '2026-07-11T02:53:51Z'
+updated_at: '2026-07-11T03:08:50Z'
 status: ACTIVE_CODE_FIXED_DEPLOY_BLOCKED
 confidence: high
 depends_on: []
@@ -14,14 +14,14 @@ tags: [incident, binance-testnet, rate-limit, v15p2, operations]
 
 ## Etki ve son durum
 
-- `logs/futures_daemon_v15p2.log` içinde 11 Temmuz 02:53 UTC itibarıyla **38**
+- `logs/futures_daemon_v15p2.log` içinde 11 Temmuz 03:08 UTC itibarıyla **38**
   adet 418/`-1003` cevap satırı var. Hatalar `POS_CHECK`, breaker ve orphan/algo
   yollarında private REST görünürlüğünü aralıklı kaybettirdi.
 - Son yeni cevap `2026-07-11T02:30:16Z`; aynı ban cevabındaki deadline
-  `2026-07-11T03:00:58.690Z` (`06:00:58.690 TR`). Buna rağmen 02:45 UTC doğal
-  turu yeniden `2 pos / 6 algo` doğruladı. Testnet deadline davranışı bu nedenle
-  yalnız server cevabı olarak kaydedilir; erken recovery “ban bitti” garantisi
-  değildir.
+  `2026-07-11T03:00:58.690Z` (`06:00:58.690 TR`). Buna rağmen 02:45 ve 03:00
+  UTC doğal turları yeniden `2 pos / 6 algo` doğruladı. Testnet deadline
+  davranışı bu nedenle yalnız server cevabı olarak kaydedilir; erken recovery
+  “ban bitti” garantisi değildir.
 - Çalışan PID `34731` açık NEAR short ve ZEC long nedeniyle restart edilmedi.
   Diskteki düzeltmeler bu process image'ında aktif değildir.
 
@@ -35,6 +35,7 @@ tags: [incident, binance-testnet, rate-limit, v15p2, operations]
 | 11 Tem 02:15:17 | Yeni POS_CHECK banı | deadline `03:00:58.690Z` |
 | 11 Tem 02:30:15–16 | Aynı ban POS_CHECK + breaker'da görüldü | toplam cevap satırı `38` |
 | 11 Tem 02:45:21 | Doğal tur recovery | `2 pos / 6 algo`; yeni 418 yok |
+| 11 Tem 03:00:15–28 | İkinci doğal recovery turu | scan + `2 pos / 6 algo`; yeni 418 yok |
 | 11 Tem | DMS/request-weight/client-fanout denetimi ve disk fixleri | testli, deploy bekliyor |
 
 ## Doğrulanan kök katkılar

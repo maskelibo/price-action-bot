@@ -62,10 +62,10 @@ Kapanış kanıtı:
 
 ## 3. Binance testnet 418 / `-1003` — ACTIVE, CODE FIXED, DEPLOY BLOCKED
 
-- Canlı loglarda 02:53 UTC itibarıyla `38` adet rate-ban cevap satırı doğrulandı.
+- Canlı loglarda 03:08 UTC itibarıyla `38` adet rate-ban cevap satırı doğrulandı.
   Son yeni cevap `02:30:16Z`; cevap deadline'ı `03:00:58.690Z`
-  (`06:00:58.690 TR`). 02:45 doğal turu yeniden `2 pos / 6 algo` gördü; bu
-  geçici recovery deploy veya 48 saat kanıtı sayılmaz.
+  (`06:00:58.690 TR`). 02:45 ve 03:00 doğal turları yeniden `2 pos / 6 algo`
+  gördü; bu recovery deploy veya 48 saat kanıtı sayılmaz.
 - Kök katkılar sayısallaştırıldı: eski DMS yaklaşık `329–348` private HTTP/saat
   ve yerel private request adedinin `%90+` bölümünü üretiyor; symbolsüz
   regular+algo order state de `40+40 weight/bar` tüketiyor.

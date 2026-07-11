@@ -24,15 +24,15 @@ düzeltmeleri bir sonraki doğal ve güvenli restartta etkinleşecektir.
 - Açık koruma emri: `6`
 - Not: `manual_live_evidence_utc`
 
-11 Temmuz 02:45:21 UTC doğal bar turunda PID `34731` yeniden başarıyla taradı.
-Son yerel log kanıtı:
+11 Temmuz 02:45 ve 03:00 UTC doğal bar turlarında PID `34731` yeniden başarıyla
+taradı. Son yerel log kanıtı (`03:00:21Z`):
 
-- NEAR short `394 @ 1.8710`, mark `1.9082`, unrealized `-14.64 USDT`
-- ZEC long `1.534 @ 487.6942177`, mark `504.8400`, unrealized `+26.30 USDT`
+- NEAR short `394 @ 1.8710`, mark `1.9100`, unrealized `-15.37 USDT`
+- ZEC long `1.534 @ 487.6942177`, mark `506.9523`, unrealized `+29.54 USDT`
 - Her iki pozisyon için toplam altı TP/SL algo emri açık.
 
 Bu log kanıtı yeni REST çağrısı yapılmadan okundu. 23:12 snapshot equity'si
-performans hesabının durable referansıdır; 02:45 mark değerleri yeni bir hesap
+performans hesabının durable referansıdır; 03:00 mark değerleri yeni bir hesap
 snapshotı gibi sunulmaz.
 
 ## Performans kanıtı
@@ -146,8 +146,8 @@ ve `git diff --check` temizdir. Repo-geneli Ruff tarihsel araştırma/watch kodu
 
 - Running daemon eski process image'ını kullanıyor; yeni kod güvenli doğal
   restart öncesinde canlı değildir.
-- Binance testnet logunda 02:53 UTC itibarıyla `38` adet 418/`-1003` cevap satırı
-  var; son yeni cevap `02:30:16Z`, son başarılı doğal tur `02:45:21Z`.
+- Binance testnet logunda 03:08 UTC itibarıyla `38` adet 418/`-1003` cevap satırı
+  var; son yeni cevap `02:30:16Z`, son başarılı doğal tur `03:00:21Z`.
 - DMS background private polling'i kaldıran external-main-loop heartbeat, shared
   cooldown, cooldown-aware flatten, symbol-scoped order state, process-long
   client, single-client ingest ve `RATE_BUDGET` telemetrisi testlidir; çalışan
