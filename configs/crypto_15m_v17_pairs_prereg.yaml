@@ -19,6 +19,15 @@ pre_result_amendments:
       H MTM semantics, funding information/mark fallbacks, early-history zero
       months, exact validation metrics, and pair-level holdout gates were made
       explicit. Return, stability and drawdown thresholds did not change.
+  - at_utc: "2026-07-11T05:37:06Z"
+    subject: execution_governance_and_turnover_binding
+    change: >-
+      Before any v17 snapshot result, the H turnover formula and final
+      lexicographic candidate-ID tie-break were fixed. Execute mode was also
+      bound to the canonical preregistration contents, clean-source preflight,
+      and unchanged source/snapshot postflight verification. Candidate cells
+      and every return, stability, drawdown and acceptance threshold remain
+      unchanged.
 
 objective:
   timeframe: 15m
@@ -331,7 +340,20 @@ exit_contract:
 selection_and_early_stop:
   batch_trial_count: 3
   rank_metric: H_trimmed_mean_monthly_return_capped_at_15pct
-  tie_breakers: [lower_H_max_drawdown, fewer_H_negative_months, lower_turnover]
+  tie_breakers:
+    - lower_H_max_drawdown
+    - fewer_H_negative_months
+    - lower_H_pseudo_oos_filled_gross_turnover
+    - lexicographic_candidate_id
+  H_pseudo_oos_filled_gross_turnover:
+    window: ["2023-06-01T00:00:00Z", "2026-06-01T00:00:00Z"]
+    numerator: >-
+      Sum both-leg gross entry fill notional for entries in the half-open
+      window, both-leg gross exit fill notional for closed exits in the window,
+      and accrued both-leg terminal liquidation notional at the final cutoff.
+    denominator: arithmetic_mean_of_every_H_15m_NAV_observation_in_the_window
+    unit: filled_gross_notional_per_average_NAV
+    nonpositive_or_missing_denominator: fail_closed
   thresholds_may_not_be_relaxed_after_results: true
   ensemble_requires_new_preregistration: true
   primary_absolute_gates_before_holdout: true
@@ -474,6 +496,14 @@ provenance_required:
   - rejected_pair_reasons
   - atomic_episode_ledger
   - scenario_and_half_open_period
+  - clean_source_preflight_and_unchanged_postflight
+  - snapshot_size_and_sha256_postflight_match
+
+execution_governance:
+  execute_prereg_must_semantically_equal_canonical_repo_prereg: true
+  source_clean_preflight_before_snapshot_access: true
+  postflight_source_commit_and_file_hashes_must_match_preflight: true
+  postflight_snapshot_size_and_sha256_must_match_preflight: true
 
 research_proxy_limitations:
   instruments_table_rows: 0

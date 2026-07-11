@@ -157,6 +157,9 @@ def test_atomic_entry_rejects_missing_leg_and_disaster_z_without_any_fill() -> N
     assert missing.open_pair_count == 0
     assert missing.total_execution_cost == 0.0
     assert missing.rejections == (("CELL", "PAIR", "atomic_entry_leg_missing"),)
+    assert missing.rejection_details[0].decision_ts == BASE + timedelta(minutes=45)
+    assert missing.rejection_details[0].entry_ts == BASE + timedelta(minutes=60)
+    assert missing.rejection_details[0].reason == "atomic_entry_leg_missing"
 
     valid = _intent()
     payload = {field.name: getattr(valid, field.name) for field in fields(PairEntryIntent)}

@@ -142,6 +142,16 @@ birine bağımsız `±1` işareti verir; p-değeri `(1+null>=observed)/(20000+1)
 v17 içi üç denemeye ek olarak, aynı pseudo-OOS'u görmüş v16 ile toplam dokuz
 hücrenin program-wide Holm/DSR/PBO değerleri de aynı eşikleri geçmek zorundadır.
 
+Candidate rank eşitliğinde H max-DD, negatif ay sayısı ve H pseudo-OOS filled
+gross turnover sırasıyla kullanılır; tam eşitlikte candidate ID lexicographic
+son bağdır. Turnover payı, pencere içindeki iki-leg entry ve closed-exit fill
+notionalları ile cutoff'taki accrued terminal liquidation notionalının toplamıdır;
+payda aynı penceredeki her H 15m NAV gözleminin aritmetik ortalamasıdır.
+
+Execute modu sonuçtan önce canonical repo prereg içeriğiyle semantik eşitlik ve
+temiz research source ister. Replay sonrasında aynı commit/file hashleri ile iki
+snapshot'ın byte+SHA değerleri yeniden doğrulanmadan evidence döndürülemez.
+
 Holdout ayrıca en az 30 kapalı episode ve 18 aktif ay ister. Yalnız primary
 kapıları geçenler arasındaki tek kilitli winner önce gerçek LOSO, sonra bir kez
 holdout görür; holdout başarısızsa runner-up denenmez. `instruments` tablosu boş

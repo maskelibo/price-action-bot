@@ -185,6 +185,16 @@ class PairSelectionEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class PairRejection:
+    candidate_id: str
+    pair_id: str
+    reason: str
+    selection_ts: datetime
+    decision_ts: datetime
+    entry_ts: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class PairEpisodeLedger:
     candidate_id: str
     pair_id: str
@@ -265,6 +275,7 @@ class PairPortfolioResult:
     open_pair_count: int
     open_leg_count: int
     quarantined_pairs: tuple[tuple[str, str], ...]
+    rejection_details: tuple[PairRejection, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -671,24 +682,39 @@ def simulate_pair_portfolio(
     has_selection_contract = bool(schedule)
 
     rejections: list[tuple[str, str, str]] = []
+    rejection_details: list[PairRejection] = []
+
+    def reject(entry: _Entry, reason: str) -> None:
+        rejections.append((entry.candidate_id, entry.pair_id, reason))
+        rejection_details.append(
+            PairRejection(
+                candidate_id=entry.candidate_id,
+                pair_id=entry.pair_id,
+                reason=reason,
+                selection_ts=entry.selection_ts,
+                decision_ts=entry.decision_ts,
+                entry_ts=entry.entry_ts,
+            )
+        )
+
     entries_by_ts: dict[datetime, list[_Entry]] = defaultdict(list)
     for raw in entry_intents:
         entry = _normalize_entry(raw, bar_delta)
         if abs(entry.z_score) >= entry.disaster_abs_z:
-            rejections.append((entry.candidate_id, entry.pair_id, "entry_at_or_beyond_disaster"))
+            reject(entry, "entry_at_or_beyond_disaster")
             continue
         if entry.y_symbol not in bars or entry.x_symbol not in bars:
-            rejections.append((entry.candidate_id, entry.pair_id, "atomic_entry_symbol_missing"))
+            reject(entry, "atomic_entry_symbol_missing")
             continue
         y_decision = bars[entry.y_symbol].get(entry.decision_ts)
         x_decision = bars[entry.x_symbol].get(entry.decision_ts)
         if y_decision is None or x_decision is None:
-            rejections.append((entry.candidate_id, entry.pair_id, "atomic_decision_leg_missing"))
+            reject(entry, "atomic_decision_leg_missing")
             continue
         y_entry = bars[entry.y_symbol].get(entry.entry_ts)
         x_entry = bars[entry.x_symbol].get(entry.entry_ts)
         if y_entry is None or x_entry is None:
-            rejections.append((entry.candidate_id, entry.pair_id, "atomic_entry_leg_missing"))
+            reject(entry, "atomic_entry_leg_missing")
             continue
         for symbol in (entry.y_symbol, entry.x_symbol):
             timestamps = ordered[symbol]
@@ -699,9 +725,7 @@ def simulate_pair_portfolio(
                 or decision_index + 1 >= len(timestamps)
                 or timestamps[decision_index + 1] != entry.entry_ts
             ):
-                rejections.append(
-                    (entry.candidate_id, entry.pair_id, "atomic_entry_not_next_contiguous_open")
-                )
+                reject(entry, "atomic_entry_not_next_contiguous_open")
                 break
         else:
             entries_by_ts[entry.entry_ts].append(entry)
@@ -971,47 +995,43 @@ def simulate_pair_portfolio(
         ):
             key = (entry.candidate_id, entry.pair_id)
             if key in positions:
-                rejections.append((entry.candidate_id, entry.pair_id, "pair_already_open"))
+                reject(entry, "pair_already_open")
                 continue
             if entry.y_symbol in symbol_owner or entry.x_symbol in symbol_owner:
-                rejections.append((entry.candidate_id, entry.pair_id, "symbol_already_open"))
+                reject(entry, "symbol_already_open")
                 continue
             if len(positions) >= policy.max_pairs:
-                rejections.append((entry.candidate_id, entry.pair_id, "max_pairs"))
+                reject(entry, "max_pairs")
                 continue
             if 2 * len(positions) + 2 > policy.max_legs:
-                rejections.append((entry.candidate_id, entry.pair_id, "max_legs"))
+                reject(entry, "max_legs")
                 continue
             if key in quarantined:
-                rejections.append((entry.candidate_id, entry.pair_id, "pair_quarantined"))
+                reject(entry, "pair_quarantined")
                 continue
             if ts < cooldown_until.get(key, datetime.min.replace(tzinfo=UTC)):
-                rejections.append((entry.candidate_id, entry.pair_id, "pair_cooldown"))
+                reject(entry, "pair_cooldown")
                 continue
             if has_selection_contract and entry.pair_id not in active_selection.get(
                 entry.candidate_id, frozenset()
             ):
-                rejections.append((entry.candidate_id, entry.pair_id, "pair_not_selected"))
+                reject(entry, "pair_not_selected")
                 continue
             y_row = current_rows.get(entry.y_symbol)
             x_row = current_rows.get(entry.x_symbol)
             if y_row is None or x_row is None:
                 # This should have been rejected in the static atomic-entry check.
-                rejections.append((entry.candidate_id, entry.pair_id, "atomic_entry_leg_missing"))
+                reject(entry, "atomic_entry_leg_missing")
                 continue
             _, fill_z = _zscore(entry, y_row.open, x_row.open)
             if fill_z * entry.z_score <= 0.0:
-                rejections.append((entry.candidate_id, entry.pair_id, "fill_z_direction_changed"))
+                reject(entry, "fill_z_direction_changed")
                 continue
             if abs(fill_z) + 1e-12 < entry.entry_abs_z:
-                rejections.append(
-                    (entry.candidate_id, entry.pair_id, "fill_z_below_entry_threshold")
-                )
+                reject(entry, "fill_z_below_entry_threshold")
                 continue
             if abs(fill_z) >= entry.disaster_abs_z - 1e-12:
-                rejections.append(
-                    (entry.candidate_id, entry.pair_id, "fill_z_at_or_beyond_disaster")
-                )
+                reject(entry, "fill_z_at_or_beyond_disaster")
                 continue
             fill_expected = (
                 (abs(fill_z) - entry.exit_abs_z) * entry.validation_std / (1.0 + entry.beta)
@@ -1021,11 +1041,11 @@ def simulate_pair_portfolio(
                 2.0 * (entry.base_round_trip_cost_per_gross + entry.adverse_funding),
             )
             if fill_expected < fill_required:
-                rejections.append((entry.candidate_id, entry.pair_id, "fill_economic_gate"))
+                reject(entry, "fill_economic_gate")
                 continue
             current_nav = nav()
             if current_nav <= 0.0:
-                rejections.append((entry.candidate_id, entry.pair_id, "non_positive_equity"))
+                reject(entry, "non_positive_equity")
                 continue
             drawdown = (peak_nav - current_nav) / peak_nav if peak_nav > 0.0 else 0.0
             throttle = (
@@ -1036,7 +1056,7 @@ def simulate_pair_portfolio(
                 (entry.disaster_abs_z - abs(fill_z)) * entry.validation_std / (1.0 + entry.beta)
             )
             if loss_per_gross <= 0.0 or not math.isfinite(loss_per_gross):
-                rejections.append((entry.candidate_id, entry.pair_id, "invalid_risk_distance"))
+                reject(entry, "invalid_risk_distance")
                 continue
             gross_exposure = risk_budget / loss_per_gross
             gross_exposure = min(
@@ -1053,7 +1073,7 @@ def simulate_pair_portfolio(
                 gross_exposure, max(current_nav * policy.leverage - used_notional, 0.0)
             )
             if gross_exposure <= 0.0 or not math.isfinite(gross_exposure):
-                rejections.append((entry.candidate_id, entry.pair_id, "invalid_pair_size"))
+                reject(entry, "invalid_pair_size")
                 continue
             y_notional = gross_exposure * entry.gross_weight_y
             x_notional = gross_exposure * entry.gross_weight_x
@@ -1276,6 +1296,7 @@ def simulate_pair_portfolio(
         open_pair_count=len(positions),
         open_leg_count=2 * len(positions),
         quarantined_pairs=tuple(sorted(quarantined)),
+        rejection_details=tuple(rejection_details),
     )
 
 
@@ -1284,6 +1305,7 @@ __all__ = [
     "PairEpisodeLedger",
     "PairPortfolioPolicy",
     "PairPortfolioResult",
+    "PairRejection",
     "PairSelectionEvent",
     "simulate_pair_portfolio",
 ]

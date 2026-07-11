@@ -120,6 +120,12 @@ class PairModel:
     train_end: datetime
     validation_start: datetime
     validation_end: datetime
+    retained_train_first_hour_label: datetime | None = None
+    retained_train_last_hour_label: datetime | None = None
+    retained_validation_first_hour_label: datetime | None = None
+    retained_validation_last_hour_label: datetime | None = None
+    retained_train_hours: int | None = None
+    retained_validation_hours: int | None = None
 
     def __post_init__(self) -> None:
         if not self.candidate_id or not self.pair_id:
@@ -138,6 +144,43 @@ class PairModel:
             raise ValueError("model windows must be ordered")
         if self.validation_end != self.selection_ts:
             raise ValueError("validation must end at selection_ts")
+        for name in (
+            "retained_train_first_hour_label",
+            "retained_train_last_hour_label",
+            "retained_validation_first_hour_label",
+            "retained_validation_last_hour_label",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _utc_datetime(name, value))
+        for name in ("retained_train_hours", "retained_validation_hours"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _positive_int(name, value))
+        retained_values = (
+            self.retained_train_first_hour_label,
+            self.retained_train_last_hour_label,
+            self.retained_validation_first_hour_label,
+            self.retained_validation_last_hour_label,
+            self.retained_train_hours,
+            self.retained_validation_hours,
+        )
+        if any(value is not None for value in retained_values) and not all(
+            value is not None for value in retained_values
+        ):
+            raise ValueError("retained model provenance must be wholly present or absent")
+        if self.retained_train_first_hour_label is not None:
+            assert self.retained_train_last_hour_label is not None
+            assert self.retained_validation_first_hour_label is not None
+            assert self.retained_validation_last_hour_label is not None
+            if not (
+                self.retained_train_first_hour_label
+                <= self.retained_train_last_hour_label
+                < self.retained_validation_first_hour_label
+                <= self.retained_validation_last_hour_label
+                < self.selection_ts
+            ):
+                raise ValueError("retained model observation labels must be ordered")
         for name in (
             "alpha",
             "beta",
@@ -267,6 +310,20 @@ class PairSelectionDecision:
     selection_ts: datetime
     status: Literal["selected", "rejected"]
     reason: str
+    y_symbol: str | None = None
+    x_symbol: str | None = None
+    engle_granger_p: float | None = None
+    holm_adjusted_p: float | None = None
+    normalized_price_ssd: float | None = None
+    training_correlation: float | None = None
+    beta: float | None = None
+    half_life_hours: float | None = None
+    beta_relative_change: float | None = None
+    validation_mean_shift: float | None = None
+    validation_std_ratio: float | None = None
+    validation_crossings: int | None = None
+    pair_btc_beta: float | None = None
+    validation_std: float | None = None
 
     def __post_init__(self) -> None:
         if not self.candidate_id or not self.pair_id or not self.reason:
@@ -300,6 +357,12 @@ class _PairCandidate:
     train_end: datetime
     validation_start: datetime
     validation_end: datetime
+    retained_train_first_hour_label: datetime | None = None
+    retained_train_last_hour_label: datetime | None = None
+    retained_validation_first_hour_label: datetime | None = None
+    retained_validation_last_hour_label: datetime | None = None
+    retained_train_hours: int | None = None
+    retained_validation_hours: int | None = None
 
 
 def _normalize_frame(frame: pd.DataFrame, *, symbol: str) -> pd.DataFrame:
@@ -584,6 +647,12 @@ def _candidate_from_pair(
         train_end=train_end.to_pydatetime(),
         validation_start=validation_start.to_pydatetime(),
         validation_end=validation_end.to_pydatetime(),
+        retained_train_first_hour_label=train.index[0].to_pydatetime(),
+        retained_train_last_hour_label=train.index[-1].to_pydatetime(),
+        retained_validation_first_hour_label=validation.index[0].to_pydatetime(),
+        retained_validation_last_hour_label=validation.index[-1].to_pydatetime(),
+        retained_train_hours=len(train),
+        retained_validation_hours=len(validation),
     )
 
 
@@ -646,6 +715,43 @@ def _candidate_rejection_reason(
     return next((reason for failed, reason in checks if failed), None)
 
 
+def _audit_finite(value: float) -> float | None:
+    parsed = float(value)
+    return parsed if math.isfinite(parsed) else None
+
+
+def _selection_decision_from_candidate(
+    candidate: _PairCandidate,
+    *,
+    cell: PairCell,
+    selection_ts: datetime,
+    status: Literal["selected", "rejected"],
+    reason: str,
+    holm_adjusted_p: float,
+) -> PairSelectionDecision:
+    return PairSelectionDecision(
+        candidate_id=cell.candidate_id,
+        pair_id=candidate.pair_id,
+        selection_ts=selection_ts,
+        status=status,
+        reason=reason,
+        y_symbol=candidate.y_symbol,
+        x_symbol=candidate.x_symbol,
+        engle_granger_p=_audit_finite(candidate.engle_granger_p),
+        holm_adjusted_p=_audit_finite(holm_adjusted_p),
+        normalized_price_ssd=_audit_finite(candidate.normalized_price_ssd),
+        training_correlation=_audit_finite(candidate.training_correlation),
+        beta=_audit_finite(candidate.beta),
+        half_life_hours=_audit_finite(candidate.half_life_hours),
+        beta_relative_change=_audit_finite(candidate.beta_relative_change),
+        validation_mean_shift=_audit_finite(candidate.validation_mean_shift),
+        validation_std_ratio=_audit_finite(candidate.validation_std_ratio),
+        validation_crossings=int(candidate.validation_crossings),
+        pair_btc_beta=_audit_finite(candidate.pair_btc_beta),
+        validation_std=_audit_finite(candidate.validation_std),
+    )
+
+
 def _select_at_normalized_with_diagnostics(
     frames: Mapping[str, pd.DataFrame],
     universe: Sequence[str],
@@ -705,12 +811,13 @@ def _select_at_normalized_with_diagnostics(
         if reason is None:
             eligible.append(candidate)
         else:
-            decisions[candidate.pair_id] = PairSelectionDecision(
-                cell.candidate_id,
-                candidate.pair_id,
-                selection_dt,
-                "rejected",
-                reason,
+            decisions[candidate.pair_id] = _selection_decision_from_candidate(
+                candidate,
+                cell=cell,
+                selection_ts=selection_dt,
+                status="rejected",
+                reason=reason,
+                holm_adjusted_p=adjusted[candidate.pair_id],
             )
     eligible.sort(
         key=lambda item: (
@@ -725,31 +832,34 @@ def _select_at_normalized_with_diagnostics(
     used_symbols: set[str] = set()
     for candidate in eligible:
         if candidate.y_symbol in used_symbols or candidate.x_symbol in used_symbols:
-            decisions[candidate.pair_id] = PairSelectionDecision(
-                cell.candidate_id,
-                candidate.pair_id,
-                selection_dt,
-                "rejected",
-                "SYMBOL_OVERLAP_WITH_HIGHER_RANKED_PAIR",
+            decisions[candidate.pair_id] = _selection_decision_from_candidate(
+                candidate,
+                cell=cell,
+                selection_ts=selection_dt,
+                status="rejected",
+                reason="SYMBOL_OVERLAP_WITH_HIGHER_RANKED_PAIR",
+                holm_adjusted_p=adjusted[candidate.pair_id],
             )
             continue
         if len(selected) == 3:
-            decisions[candidate.pair_id] = PairSelectionDecision(
-                cell.candidate_id,
-                candidate.pair_id,
-                selection_dt,
-                "rejected",
-                "MAX_SELECTED_PAIRS_REACHED",
+            decisions[candidate.pair_id] = _selection_decision_from_candidate(
+                candidate,
+                cell=cell,
+                selection_ts=selection_dt,
+                status="rejected",
+                reason="MAX_SELECTED_PAIRS_REACHED",
+                holm_adjusted_p=adjusted[candidate.pair_id],
             )
             continue
         selected.append(candidate)
         used_symbols.update((candidate.y_symbol, candidate.x_symbol))
-        decisions[candidate.pair_id] = PairSelectionDecision(
-            cell.candidate_id,
-            candidate.pair_id,
-            selection_dt,
-            "selected",
-            "SELECTED",
+        decisions[candidate.pair_id] = _selection_decision_from_candidate(
+            candidate,
+            cell=cell,
+            selection_ts=selection_dt,
+            status="selected",
+            reason="SELECTED",
+            holm_adjusted_p=adjusted[candidate.pair_id],
         )
     models = tuple(
         PairModel(
@@ -774,6 +884,12 @@ def _select_at_normalized_with_diagnostics(
             train_end=candidate.train_end,
             validation_start=candidate.validation_start,
             validation_end=candidate.validation_end,
+            retained_train_first_hour_label=candidate.retained_train_first_hour_label,
+            retained_train_last_hour_label=candidate.retained_train_last_hour_label,
+            retained_validation_first_hour_label=(candidate.retained_validation_first_hour_label),
+            retained_validation_last_hour_label=(candidate.retained_validation_last_hour_label),
+            retained_train_hours=candidate.retained_train_hours,
+            retained_validation_hours=candidate.retained_validation_hours,
         )
         for candidate in selected
     )

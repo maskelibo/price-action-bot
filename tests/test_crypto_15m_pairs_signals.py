@@ -247,6 +247,10 @@ def test_selection_diagnostics_terminate_every_pair_with_specific_reason(
     assert len(models) == 3
     assert len(decisions) == 15
     assert sum(decision.status == "selected" for decision in decisions) == 3
+    selected_decision = next(decision for decision in decisions if decision.status == "selected")
+    assert selected_decision.holm_adjusted_p == pytest.approx(0.015)
+    assert selected_decision.training_correlation == pytest.approx(0.99)
+    assert selected_decision.half_life_hours == pytest.approx(24.0)
     assert {decision.reason for decision in decisions} <= {
         "SELECTED",
         "SYMBOL_OVERLAP_WITH_HIGHER_RANKED_PAIR",
@@ -272,6 +276,7 @@ def test_selection_diagnostics_bind_data_and_statistical_rejection_stages(
         minimum_completeness=0.95,
     )
     assert decisions[0].reason == "DATA_WINDOW_INELIGIBLE"
+    assert decisions[0].engle_granger_p is None
 
     def low_correlation(_frames, first, second, passed_cell, passed_selection, **_kwargs):
         candidate = _fake_candidate(first, second, passed_cell, passed_selection)
@@ -301,6 +306,9 @@ def test_selection_is_prefix_causal_and_uses_previous_45_bar_only(
         frames, ["A/USDT", "B/USDT"], cell, selection, snapshot_sha256="c" * 64
     )
     assert base
+    assert base[0].retained_train_hours == cell.train_hours
+    assert base[0].retained_validation_hours == cell.validation_hours
+    assert base[0].retained_train_first_hour_label is not None
 
     changed = {symbol: frame.copy() for symbol, frame in frames.items()}
     future = changed["A/USDT"]["ts"] >= pd.Timestamp(selection)
