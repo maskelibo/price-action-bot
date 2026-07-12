@@ -48,6 +48,44 @@ def _healthy_launchctl(project: Path) -> str:
     )
 
 
+def _select_v15p2_pid(process_table: str) -> str:
+    result = subprocess.run(
+        ["awk", "-f", str(ROOT / "ops" / "launchd" / "select_futures_v15p2_pid.awk")],
+        input=process_table,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+def test_v15p2_duplicate_guard_ignores_orchestrator_text_and_selects_real_daemon() -> None:
+    process_table = "\n".join(
+        [
+            "52764 zsh /bin/zsh -c python -m py_compile scripts/futures_daemon_v14.py --timeframe 15m",
+            "52815 bash bash ops/launchd/run_futures_v15p2.sh",
+            "53783 python3.12 .venv/bin/python -u scripts/futures_daemon_v14.py --timeframe 15m",
+            "53784 python3.12 .venv/bin/python -u scripts/futures_daemon_v14.py --timeframe 5m",
+        ]
+    )
+
+    assert _select_v15p2_pid(process_table) == "53783"
+
+
+def test_v15p2_duplicate_guard_returns_empty_without_exact_python_daemon() -> None:
+    process_table = "\n".join(
+        [
+            "52764 zsh /bin/zsh -c inspect scripts/futures_daemon_v14.py --timeframe 15m",
+            "52815 bash bash ops/launchd/run_futures_v15p2.sh",
+            "53784 python3.12 .venv/bin/python -m py_compile scripts/futures_daemon_v14.py",
+            "53785 python3.12 .venv/bin/python -u scripts/futures_daemon_v14.py --timeframe 5m",
+        ]
+    )
+
+    assert _select_v15p2_pid(process_table) == ""
+
+
 def test_healthcheck_ping_delivery_failure_is_visible_in_launchd_exit(
     tmp_path: Path,
 ) -> None:

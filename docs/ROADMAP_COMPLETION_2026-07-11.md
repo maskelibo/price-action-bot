@@ -19,7 +19,7 @@ tam yeşil değildir.
 |---|---|---|
 | Strateji ve yeni bot programı | **KAPANDI — RED** | Adil V2 baseline ile V16, V17 ve dört hücreli V18 programı tamamlandı. Yeni aday hedefi geçmedi. |
 | Canlı kanıt | **V18 İÇİN KAPALI / YETKİSİZ** | Primary kazanan olmadığı için true-LOSO, shadow, paper ve live başlatılmadı. Mevcut v15p2 salt-okunur saha kanıtı güncellendi. |
-| Operasyon ve kararlar | **KOD/KARAR KAPANDI; SAHA KAPILARI AÇIK** | Restart runbook'u, rollback, private-REST sahipliği ve fail-closed kararlar yazılıdır. ZEC flat + güvenli restart + 48 saat gözlem henüz yoktur. |
+| Operasyon ve kararlar | **MITIGASYON DEPLOYED; 48H GÖZLEM AKTİF** | ZEC flat ve güvenli restart geçti; yeni PID ilk barı doğruladı. 48 saat sıfır yeni rate olayı henüz dolmadı. |
 | Git temizliği | **KAPANDI — CLEAN/PUSHED** | Büyük raw/shard kanıtları Git-ignore altında yerelde; manifest, hash, karar, kimlik ve taşınabilir rapor Git kapsamındadır. |
 | Otonomi planı | **KAPANDI — SINIRLI YETKİ** | Faz 3–6 discovery/readiness/eval yolları hazır; promotion kilitleri V18'i doğru biçimde reddetti. Yeni scheduler/credential/order yolu açılmadı. |
 
@@ -43,7 +43,7 @@ Kanonik primary reporter, tanımsız pozitif-PnL konsantrasyon paylarını `+inf
 evidence-eligible, kanonik report evidence'ı ineligible'dır. Gelecek koşular
 için JSON-safe `null` düzeltmesi sonucu değiştirmeden ayrı commit edilmiştir.
 
-## Canlı sistem fotoğrafı
+## Restart öncesi canlı sistem fotoğrafı
 
 11 Temmuz 23:49 TR salt-okunur kontrolü:
 
@@ -57,6 +57,16 @@ için JSON-safe `null` düzeltmesi sonucu değiştirmeden ayrı commit edilmişt
 
 Bu fotoğraf daemon'un çalıştığını gösterir; yeni kodun sahada deploy edildiğini
 veya rate incident'ın kapandığını göstermez.
+
+## Restart sonrası güncelleme — 12 Temmuz 03:00 TR
+
+- ZEC doğal kapandı; journal/log ve borsa-tarafı algo görünümü flat oldu.
+- Eski PID `34731`, yeni PID `53783`; startup `23:59:56Z`.
+- Config `VERIFY_OK`; DMS `external_main_loop`, background REST `OFF`.
+- İlk doğal bar `0 pozisyon / 0 algo`, wallet/equity `$4958.43` ve
+  `RATE_BUDGET used_weight_1m=437` verdi.
+- Rate sayımı `66 → 66`; yeni olay yok.
+- 48 saat kapanış deadline'ı `14 Temmuz 02:59:56 TR`.
 
 ## Git kanıt kapsamı
 
@@ -79,8 +89,8 @@ bağlıdır; yeniden üretim/veri zinciri dokümantedir.
 
 ## Kodla kapatılamayan veya zaman gerektiren saha kapıları
 
-1. ZEC doğal flat olduktan sonra runbook'a göre tek güvenli daemon restartı.
-2. Restarttan sonra 48 saat sıfır yeni 418/`-1003`, tutarlı protection ve
+1. **PASS:** ZEC doğal flat ve runbook'a göre tek güvenli daemon restartı.
+2. **ACTIVE TIME GATE:** Restarttan sonra 48 saat sıfır yeni 418/`-1003`, tutarlı protection ve
    beklenen DMS heartbeat kanıtı.
 3. Gerçek `HEALTHCHECKS_PING_URL` ile dış alarm teslim drill'i.
 4. Credential'lı client-side şifreli off-site backup ve yalnız off-site

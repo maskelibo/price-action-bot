@@ -42,9 +42,23 @@ if (( _fails == 5 )) && [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_CHAT_I
 fi
 # ── DR9 sonu ────────────────────────────────────────────────────────────────
 
-# Çift-daemon koruması: aynı script (v14 veya v15p2) zaten koşuyorsa çık.
-if pgrep -f "futures_daemon_v14.py" >/dev/null; then
-    echo "[run_v15p2] futures_daemon_v14.py zaten çalışıyor (v14 veya v15p2) — çift-daemon engellendi, çıkılıyor"
+# Çift-daemon koruması: yalnız gerçek Python daemon executable+argv kimliğini
+# kabul et. Geniş `pgrep -f` orkestrasyon/diagnostic shell komut satırındaki
+# `futures_daemon_v14.py` metnini de proses sanıyordu ve güvenli kickstart'ı
+# false-positive ile bir KeepAlive gecikmesine sokabiliyordu.
+_process_table="$(ps -axo pid=,ucomm=,args= 2>/dev/null)" || {
+    echo "[run_v15p2] CRIT: process inventory okunamadı — çift-daemon güvenliği fail-closed"
+    exit 1
+}
+_existing_pid="$(
+    printf '%s\n' "${_process_table}" |
+        awk -f "${ROOT}/ops/launchd/select_futures_v15p2_pid.awk"
+)" || {
+    echo "[run_v15p2] CRIT: daemon identity selector çalışmadı — fail-closed"
+    exit 1
+}
+if [[ -n "${_existing_pid}" ]]; then
+    echo "[run_v15p2] futures daemon PID ${_existing_pid} zaten çalışıyor — çift-daemon engellendi, çıkılıyor"
     sleep 30
     exit 1
 fi

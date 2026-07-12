@@ -5,9 +5,9 @@
 | Konu | Karar | Gerekçe / yeniden açılma kapısı |
 |---|---|---|
 | Aktif bot | `v15p2` korunur; yeni bot açılmaz | TF, XS-carry ve V16–V18 adayları RED. Canlı performans da `%10+` kapısını kanıtlamadı. |
-| Trade daemon restartı | Korumalı ZEC pozisyonu varken **yasak** | Diskteki execution/rate düzeltmelerini yüklemek için pozisyon lifecycle'ı kesilmez. |
+| Trade daemon restartı | 12 Temmuz flat bakım restartı **PASS**; gelecekte yine yalnız flat | Execution/rate düzeltmeleri PID `53783` üzerinde aktiftir. |
 | Binance private REST sahibi | Yalnız trade daemon | Dashboard/E13 yerel kanıt kullanır. CEO process kapısı credential/client/network öncesi private erişimi reddeder. |
-| CEO scheduler | Şimdilik unloaded | Eski trade PID'i ortak cooldown'u okumuyor; ikinci private okuyucu eklenmez. Güvenli daemon restartı ve ilk sağlıklı bar sonrası guarded CEO ayrıca doğrulanır. |
+| CEO scheduler | 48 saatlik rate gözlemi boyunca unloaded | Guarded private-access kapısı hazırdır; gözlem penceresine ikinci okuyucu eklenmez. |
 | Pyramid | Hard-disabled | Ayrı pyramid execution yolu crash-complete değil; config değişikliği bu kapıyı açamaz. |
 | Legacy 1d execution | Retired / non-dry yasak | Crash-complete WAL/protection sözleşmesi yok. Yalnız dry-run/scan yüzeyi kalır. |
 | E13 ATR trail | Shadow `HOLD`, auto-promotion yok | Temiz prospective paired kapanış `0/40`; 40 örnek tamamlanmadan karar değişmez. |
@@ -16,6 +16,20 @@
 | TF/feature adayları | Descriptive-only | Preregister edilmiş gelecekteki bağımsız OOS olmadan shadow/deploy yok. |
 | Backup retention | Yerelde newest-3 | 39/39 doğrulanmış yerel backup var; off-site olmadığı için DR yine `DEGRADED`. |
 | VPS / ikinci testnet hesap | Defer | Yeni bot kararı yok; ayrı hesap/process ihtiyacı bugün doğmadı. |
+
+## Güvenli restart sonucu — 12 Temmuz 03:00 TR
+
+- Flat precondition: `0 pozisyon / 0 algo`, journal open signal `0`, nonterminal
+  protection `0`.
+- Eski PID `34731` → yeni PID `53783`; yeni startup `23:59:56Z`.
+- Config paritesi `VERIFY_OK`; DMS `external_main_loop`, background REST `OFF`,
+  process-long ana client, pyramid OFF.
+- İlk bar `00:00:05Z`: scan `0`, `POS_CHECK 0/0`, equity `$4958.43`, rate budget
+  `437`; yeni 418/`-1003` yok (`66 → 66`).
+- 48 saat gözlem deadline'ı `14 Temmuz 02:59:56 TR`.
+- İlk wrapper denemesinde broad `pgrep -f` orchestration shell'ini false-positive
+  eşleştirdi. Sermaye/emir yan etkisi olmadı; selector gerçek Python ucomm+argv
+  kimliğine daraltıldı ve focused ops testi `13 passed`.
 
 ## Güncel operasyon fotoğrafı — 11 Temmuz 23:49 TR
 
@@ -72,7 +86,7 @@ kanıt üretilmez.
 
 ## Kapanış doğrulaması
 
-- Bütün repo: `3059 passed, 136 expected skip`.
+- Son bütün repo koşusu: `3526 passed, 136 expected skip`.
 - Execution/rate/ingest/ops kritik seçki: `783 passed`.
 - Faz 3–6 roadmap seçkisi: `208 passed, 1 optional-dependency skip`.
 - Runtime-safety Ruff, Python compileall, shell syntax, 15 launchd plist,

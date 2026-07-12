@@ -3,8 +3,8 @@ doc_id: INC-2026-07-11-binance-testnet-rate-ban
 doc_type: incident
 agent_id: ops_engineer
 created_at: '2026-07-10T22:56:28Z'
-updated_at: '2026-07-11T03:08:50Z'
-status: ACTIVE_CODE_FIXED_DEPLOY_BLOCKED
+updated_at: '2026-07-12T00:03:55Z'
+status: MITIGATION_DEPLOYED_48H_OBSERVATION_ACTIVE
 confidence: high
 depends_on: []
 tags: [incident, binance-testnet, rate-limit, v15p2, operations]
@@ -14,16 +14,18 @@ tags: [incident, binance-testnet, rate-limit, v15p2, operations]
 
 ## Etki ve son durum
 
-- `logs/futures_daemon_v15p2.log` içinde 11 Temmuz 03:08 UTC itibarıyla **38**
-  adet 418/`-1003` cevap satırı var. Hatalar `POS_CHECK`, breaker ve orphan/algo
-  yollarında private REST görünürlüğünü aralıklı kaybettirdi.
-- Son yeni cevap `2026-07-11T02:30:16Z`; aynı ban cevabındaki deadline
-  `2026-07-11T03:00:58.690Z` (`06:00:58.690 TR`). Buna rağmen 02:45 ve 03:00
-  UTC doğal turları yeniden `2 pos / 6 algo` doğruladı. Testnet deadline
-  davranışı bu nedenle yalnız server cevabı olarak kaydedilir; erken recovery
-  “ban bitti” garantisi değildir.
-- Çalışan PID `34731` açık NEAR short ve ZEC long nedeniyle restart edilmedi.
-  Diskteki düzeltmeler bu process image'ında aktif değildir.
+- Restart öncesi geniş 418/`-1003` sayımı **66** idi; son olay
+  `2026-07-11T19:00:22Z` sırasında ZEC eski stop iptal yolunda görüldü.
+- NEAR ve ZEC doğal olarak kapandı; son orphan algo emri temizlendikten sonra
+  log ve journal `0 pozisyon / 0 algo`, open signal `0`, nonterminal protection
+  `0` doğruladı.
+- Eski PID `34731` `2026-07-11T23:58:26Z` anında graceful SIGTERM aldı. Yeni
+  PID `53783` `23:59:56Z` anında commit `b152f0c` kaynaklarıyla başladı.
+- İlk doğal bar `00:00:05Z`: `0 pozisyon / 0 algo`, DMS
+  `source=external_main_loop`, background REST `OFF`, equity `$4958.43` ve
+  `RATE_BUDGET used_weight_1m=437`. Rate sayımı `66 → 66`; yeni olay yok.
+- Incident artık deploy-blocked değildir; **48 saatlik saha gözlemi aktiftir**.
+  Kapanış deadline'ı `2026-07-13T23:59:56Z` (`14 Temmuz 02:59:56 TR`).
 
 ## Timeline
 
@@ -37,6 +39,10 @@ tags: [incident, binance-testnet, rate-limit, v15p2, operations]
 | 11 Tem 02:45:21 | Doğal tur recovery | `2 pos / 6 algo`; yeni 418 yok |
 | 11 Tem 03:00:15–28 | İkinci doğal recovery turu | scan + `2 pos / 6 algo`; yeni 418 yok |
 | 11 Tem | DMS/request-weight/client-fanout denetimi ve disk fixleri | testli, deploy bekliyor |
+| 11 Tem 22:30–23:30 | ZEC kapandı, orphan temizlendi, flat teyit edildi | `0 pos / 0 algo`; journal kapalı |
+| 11 Tem 23:58:26 | Güvenli restart sınırı | PID `34731` graceful SIGTERM |
+| 11 Tem 23:59:56 | Yeni image başladı | PID `53783`, V15P2 `VERIFY_OK` |
+| 12 Tem 00:00:05–06 | İlk sağlıklı bar | `0/0`, equity `$4958.43`, rate budget `437` |
 
 ## Doğrulanan kök katkılar
 
@@ -84,26 +90,35 @@ tam açıklamıyor; testnet-özel kota veya ortak NAT olasılığı açıktır.
 
 ## Deploy kararı
 
-**Restart yok.** Açık pozisyonların exchange korumalarıyla doğal kapanışı
-beklenir. Bu sırada CEO, `_pnl_status_now.py`, reconcile/order-check ve diğer
-manuel private sorgular çalıştırılmaz. Dashboard, ingest, E13 ve Bybit
-liquidation collector çalışabilir.
+**Mitigasyon deploy edildi.** Flat bakım kapısından sonra tek güvenli restart
+tamamlandı. Guarded CEO bu kanıt anında unloaded kalır; manuel private
+reconcile/order-check ile 48 saatlik pencere kirletilmez. Dashboard, ingest, E13
+ve Bybit liquidation collector yerel/public sınırlarında çalışabilir.
+
+İlk wrapper denemesinde geniş `pgrep -f` orkestrasyon shell'indeki daemon dosya
+adını yanlış eşleştirdi ve exit `1` verdi. İkinci Python daemon veya emir yan
+etkisi oluşmadı; KeepAlive sonraki denemede doğru PID'i başlattı. Wrapper gerçek
+Python ucomm + exact argv selectorüyle sertleştirildi ve `13` focused test geçti.
 
 ## Kapanış kriterleri
 
-1. Pozisyonlar flat olduğunda yerel journal/log kanıtı alınır ve v15p2 tek güvenli
-   bakım restartıyla commit edilmiş kodu yükler.
-2. Startup logunda DMS `source=external_main_loop`, background REST `OFF`, config
-   paritesi ve protection rebuild görünür.
-3. Heartbeat hacmi yaklaşık `178/saat`ten `4/saat`e iner.
-4. Her bar `RATE_BUDGET`, `POS_CHECK`, breaker/equity ve protection sayıları
-   tutarlı kalır.
-5. Restart sınırından sonra **48 saat** yeni 418/`-1003` yoktur. Shared ban
-   oluşursa deadline boyunca factory HTTP çıkışı sıfır olduğu kanıtlanır.
-6. Bu kapılar geçince guarded CEO ayrıca açılır; private işler fail-closed kalır.
+1. **PASS:** Flat journal/log ve tek güvenli restart.
+2. **PASS:** DMS `source=external_main_loop`, background REST `OFF`, config
+   paritesi, flat protection rebuild.
+3. **OBSERVING:** Heartbeat hacmi yaklaşık `178/saat → 4/saat`; tam saat örneği
+   henüz oluşmadı.
+4. **FIRST BAR PASS / OBSERVING:** `RATE_BUDGET`, `POS_CHECK`, breaker/equity ve
+   protection tutarlı.
+5. **PENDING TIME GATE:** Başarılı startup sınırından **48 saat** yeni
+   418/`-1003` yok. Deadline `2026-07-13T23:59:56Z`.
+6. **DEFERRED:** Bu kapılar geçince guarded CEO ayrıca değerlendirilir; private
+   işler fail-closed kalır.
 
 ## Tekrar etme riski
 
-**Yüksek — deploy bekliyor.** Kod ve `3059 passed` tam regresyon hazırdır; canlı
-PID hâlâ eski DMS/order/client davranışını taşır. 48 saatlik saha penceresi güvenli
-restarttan önce başlatılmaz.
+**Orta — mitigasyon canlı, gözlem tamamlanmadı.** Yeni PID doğru
+DMS/order/client davranışını taşır ve ilk bar temizdir. Tekrar riski ancak 48 saat
+sıfır yeni rate olayı ve beklenen heartbeat hacmi görüldüğünde düşürülecektir.
+
+Makine-okunur restart kimliği:
+`configs/v15p2_safe_restart_evidence_20260712.json`.

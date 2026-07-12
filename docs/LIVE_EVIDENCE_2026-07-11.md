@@ -7,11 +7,26 @@ ingest→consumer snapshotı ve rate-limit azaltımları diskte hazırdır; anca
 performans kapısı **RED**, rate-limit deploy kapısı **PENDING** durumundadır.
 Mevcut veri `%10+` getiri kanıtlamaz ve yeni strateji/bot terfisine izin vermez.
 
-Çalışan v15p2 daemon korumalı ZEC pozisyonu nedeniyle yeniden başlatılmadı. Kod
-düzeltmeleri ancak doğal flat durumundan sonraki güvenli bakım penceresinde
-etkinleşecektir.
+ZEC doğal olarak kapandı ve son orphan algo temizlendi. Flat kapısı geçildikten
+sonra v15p2 güvenli bakım restartı tamamlandı; execution/rate düzeltmeleri yeni
+PID'de aktiftir. Incident 48 saatlik saha gözlemi bitene kadar kapanmış sayılmaz.
 
-## Güncel salt-okunur durum — 11 Temmuz 23:49 TR
+## Restart sonrası saha kanıtı — 12 Temmuz 03:00 TR
+
+- Restart sınırı `2026-07-11T23:58:26Z`; eski PID `34731` graceful SIGTERM aldı.
+- Yeni PID `53783`, startup `2026-07-11T23:59:56Z`.
+- V15P2 `VERIFY_OK`; config SHA kısası `78025a394aecb807`, risk `%1`, SL min
+  `%2.5`, pyramid OFF, 18 sembol ve 2 strateji.
+- DMS `source=external_main_loop`, background REST `OFF`; process-long ana
+  exchange client hazır.
+- Startup protection rebuild borsada açık pozisyon bulmadı.
+- İlk doğal bar `00:00:05Z`: scan `0`, `POS_CHECK 0 pozisyon / 0 algo`, breaker
+  başarılı, equity snapshot `v15p2_15m_20260712T0000Z`.
+- Wallet/equity `$4958.42500698`, unrealized `0`; rate budget `437 weight/1m`.
+- Geniş 418/`-1003` sayımı restart öncesi/sonrası `66 → 66`.
+- 48 saat deadline `2026-07-13T23:59:56Z / 14 Temmuz 02:59:56 TR`.
+
+## Restart öncesi salt-okunur durum — 11 Temmuz 23:49 TR
 
 - PID `34731`, uptime `1 gün 05:52:56`, `STAT=SN`; proses aktiftir.
 - Son tarama `20:45:15Z / 23:45:15 TR`; log mtime `23:45:29 TR`.
@@ -165,17 +180,15 @@ ve `git diff --check` temizdir. Repo-geneli Ruff tarihsel araştırma/watch kodu
 
 ## Açık saha koşulları
 
-- Running daemon eski process image'ını kullanıyor; yeni kod güvenli doğal
-  restart öncesinde canlı değildir.
-- Binance testnet logunda 23:49 TR sayımında geniş 418/`-1003` eşleşmesi `66`
-  satırdır. Son olay `19:00:22Z / 22:00:22 TR` sırasında ZEC eski stop iptalinde
-  görülmüş, sonraki `20:45Z` doğal tur başarıyla tamamlanmıştır. Olay hâlâ
-  kapanmış veya 48 saat temiz diye sınıflandırılmaz.
+- Running daemon yeni process image'ını kullanıyor; startup ve ilk bar kapıları
+  geçti.
+- Geniş 418/`-1003` eşleşmesi `66` satırdır. Restart sonrası yeni olay yoktur;
+  fakat 48 saat dolmadığı için incident hâlâ gözlem durumundadır.
 - DMS background private polling'i kaldıran external-main-loop heartbeat, shared
   cooldown, cooldown-aware flatten, symbol-scoped order state, process-long
-  client, single-client ingest ve `RATE_BUDGET` telemetrisi testlidir; çalışan
-  PID eski image olduğu için henüz saha-doğrulanmış değildir.
-- Korumalı ZEC pozisyonu nedeniyle restart yapılmadı; 48 saatlik gözlem güvenli restart
-  sınırından sonra başlar. CEO bu sırada unloaded ve private erişim kapılıdır.
+  client, single-client ingest ve `RATE_BUDGET` telemetrisi yeni PID'in ilk
+  barında temel saha kanıtını verdi; süre kapısı devam eder.
+- 48 saatlik gözlem `2026-07-11T23:59:56Z` sınırında başladı. CEO bu sırada
+  unloaded ve private erişim kapılıdır.
 - Performans RED olduğu için yeni bot başlatılmadı ve hiçbir strateji otomatik
   terfi ettirilmedi.

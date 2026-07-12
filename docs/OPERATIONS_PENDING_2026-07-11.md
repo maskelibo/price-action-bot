@@ -60,7 +60,7 @@ Kapanış kanıtı:
   dashboard'u yeşile çevirmez; gerçek dış alarm drill timestamp'i de gerekir.
 - CI Bandit scanner hatası/boş taraması false-green olamaz.
 
-## 3. Binance testnet 418 / `-1003` — ACTIVE, CODE FIXED, DEPLOY BLOCKED
+## 3. Binance testnet 418 / `-1003` — DEPLOYED, 48H OBSERVATION ACTIVE
 
 - 23:49 TR yerel log sayımında geniş 418/`-1003` eşleşmesi `66` satırdır.
   Son olay `19:00:22Z / 22:00:22 TR` sırasında ZEC eski stop iptalinde
@@ -75,15 +75,23 @@ Kapanış kanıtı:
   `RATE_BUDGET` header telemetrisi.
 - CEO wrapper/plist'i `PA_DISABLE_PRIVATE_EXCHANGE_API=1`; guard credential,
   client ve network öncesi çalışır. CEO olay boyunca unloaded kalır.
-- Çalışan daemon korumalı ZEC pozisyonu nedeniyle restart edilmedi; dolayısıyla bu
-  mitigasyon henüz saha-doğrulanmış değildir.
+- NEAR ve ZEC doğal kapandı; journal/log `0 pozisyon / 0 algo`, open signal `0`
+  ve nonterminal protection `0` doğruladı.
+- Tek güvenli restart `2026-07-11T23:58:26Z` sınırında yapıldı. Eski PID
+  `34731`, yeni PID `53783`; yeni image `23:59:56Z` anında başladı.
+- Startup `VERIFY_OK`, DMS `external_main_loop`, background REST `OFF`,
+  process-long ana client ve flat protection rebuild kapılarını geçti.
+- İlk doğal bar `00:00:05Z`: `0 pozisyon / 0 algo`, wallet/equity `$4958.43`,
+  `RATE_BUDGET used_weight_1m=437`. Rate olay sayısı `66 → 66`.
+- 48 saatlik kapanış penceresi `2026-07-13T23:59:56Z`
+  (`14 Temmuz 02:59:56 TR`) anında dolar; o zamana kadar incident açık kalır.
 - Incident kaydı:
   `memory/shared/incidents/INC-2026-07-11-binance-testnet-rate-ban.md`.
 
-Kapanış: flat bakım penceresinde güvenli restart; DMS heartbeat yaklaşık
-`178/saat → 4/saat`; her bar `RATE_BUDGET` + protection tutarlılığı; restart
-sonrası 48 saat sıfır yeni 418 ve cooldown boyunca factory HTTP çıkışı sıfır.
-Ban penceresinde doğrulama amacıyla yeni REST çağrısı yapılmaz.
+Kalan kapanış: DMS heartbeat yaklaşık `178/saat → 4/saat`; her bar
+`RATE_BUDGET` + protection tutarlılığı; başarılı startup sonrası 48 saat sıfır
+yeni 418 ve cooldown boyunca factory HTTP çıkışı sıfır. Doğrulama amacıyla ek
+manuel REST çağrısı yapılmaz.
 
 ## 4. CEO scheduler — INTENTIONALLY UNLOADED
 

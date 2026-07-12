@@ -1,0 +1,83 @@
+{
+  "schema_version": "v15p2-safe-restart-evidence-v1",
+  "status": "DEPLOYED_48H_OBSERVATION_ACTIVE",
+  "recorded_at_utc": "2026-07-12T00:03:55Z",
+  "runtime_source_commit": "b152f0caf508ddcafa8e26908f7ad8164cd23df5",
+  "launchd_label": "com.priceaction.futures_v15p2",
+  "flat_precondition": {
+    "log_consecutive_zero_position_zero_algo_ticks": 2,
+    "latest_pre_restart_tick_utc": "2026-07-11T23:45:21Z",
+    "journal_open_signals": 0,
+    "journal_nonterminal_protection_rows": 0,
+    "journal_closed_trades": 16,
+    "journal_realized_pnl_usdt": -4.808821099999989
+  },
+  "restart": {
+    "requested_at_utc": "2026-07-11T23:58:26Z",
+    "old_pid": 34731,
+    "successful_start_at_utc": "2026-07-11T23:59:56Z",
+    "new_pid": 53783,
+    "launchd_runs_after": 16,
+    "graceful_sigterm_logged": true,
+    "duplicate_python_daemon_observed": false
+  },
+  "startup_contract": {
+    "v15p2_verify_ok": true,
+    "config_path": "configs/risk_phoenix_scalp_15m_v15p2.yaml",
+    "config_sha256": "78025a394aecb807c32aeba737823bd565f0f19e72ec133352d63f697036ea82",
+    "risk_per_trade": 0.01,
+    "sl_pct_min": 0.025,
+    "pyramid_enabled": false,
+    "dms_heartbeat_source": "external_main_loop",
+    "dms_background_rest_poll": false,
+    "process_long_main_exchange_client": true,
+    "startup_exchange_positions": 0
+  },
+  "first_closed_bar": {
+    "bar_close_utc": "2026-07-12T00:00:05Z",
+    "scan_signals": 0,
+    "position_count": 0,
+    "algo_order_count": 0,
+    "breaker": {
+      "daily": false,
+      "weekly": false,
+      "monthly": false,
+      "consecutive": true
+    },
+    "equity_snapshot_id": "v15p2_15m_20260712T0000Z",
+    "wallet_balance_usdt": 4958.42500698,
+    "unrealized_pnl_usdt": 0.0,
+    "rate_budget_used_weight_1m": 437
+  },
+  "rate_observation": {
+    "rate_event_count_before_restart": 66,
+    "rate_event_count_at_recording": 66,
+    "new_rate_events": 0,
+    "observation_start_utc": "2026-07-11T23:59:56Z",
+    "observation_deadline_utc": "2026-07-13T23:59:56Z",
+    "observation_deadline_tr": "2026-07-14T02:59:56+03:00",
+    "closure_authorized": false
+  },
+  "transient_wrapper_false_start": {
+    "observed": true,
+    "pid": 52815,
+    "exit_code": 1,
+    "cause": "broad_pgrep_f_matched_orchestration_shell_command_text",
+    "capital_or_order_side_effect": false,
+    "remediation": "exact_python_ucomm_and_daemon_argv_selector",
+    "focused_wrapper_tests_passed": 13,
+    "broader_dms_rate_ops_tests_passed": 106
+  },
+  "wrapper_hardening": {
+    "wrapper_path": "ops/launchd/run_futures_v15p2.sh",
+    "wrapper_sha256": "7fe4201a21d6dcdd53c6b2226aad43098e5aa91978f418d8521164bd1c02e052",
+    "selector_path": "ops/launchd/select_futures_v15p2_pid.awk",
+    "selector_sha256": "81b46dfed9f1889105aeee97f5d9834ea84a7248e5d8252f704ccc0e70da3146",
+    "applies_on_next_wrapper_launch": true
+  },
+  "warnings": [
+    "old_process_shutdown_logged_resource_tracker_warning_for_8_semaphores",
+    "guarded_ceo_remains_unloaded",
+    "48h_zero_418_window_not_yet_complete"
+  ]
+}
